@@ -262,7 +262,176 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
     ],
   },
-  vendor: { title: "Your vendor operations portal", summary: "Use this workspace to manage orders, products, promotions, invoices, payments, integrations, and account plan features.", start: "Begin with Orders for fulfillment activity and Products to keep your catalog current.", sections: [{ name: "Orders & products", detail: "Track orders and maintain your product catalog.", status: "Commerce operations" }, { name: "Promotions & performance", detail: "Manage promotion activity and review performance.", status: "Growth tools" }, { name: "Invoices, payments & plans", detail: "See financial activity and your plan features in one place.", status: "Account billing" }, { name: "API settings & messages", detail: "Manage approved integrations and communicate with the Black Phoenix team.", status: "Connected operations" }] },
+  vendor: {
+    title: "Your vendor operations portal",
+    summary:
+      "Your catalogue, the purchase orders Black Phoenix raises against it, the invoices you bill us for, and what you get paid. Everything else here supports those four.",
+    start:
+      "Products first — nothing can be ordered from you until your catalogue is in. Then Orders, which is where the work arrives.",
+    sections: [
+      {
+        name: "Dashboard",
+        purpose: "The summary view: revenue and order volume, recent purchase orders, your live deals and reels.",
+        steps: [
+          "Revenue Trends charts monthly revenue against order volume; Export takes the figures out.",
+          "Recent Orders lists the latest purchase orders with their items, total, order date and delivery; View All opens the Orders tab.",
+          "Active Deals shows what you currently have running, with its promo code; Manage opens Promotions.",
+          "Video Reels shows your approved reels. Empty here means none yet — they are added from Promotions.",
+        ],
+        note:
+          "If this page says your account is not linked to a vendor record, stop and read the Orders note below — it explains why every tab will look empty and what fixes it. Also: the small “Change (Demo)” link beside Current Plan cycles the tier shown on this screen only. It changes nothing about what you are subscribed to or billed for, however confidently the message that follows it reads.",
+      },
+      {
+        name: "Orders",
+        purpose: "The purchase orders Black Phoenix has raised against you. This is how work reaches you.",
+        steps: [
+          "Each order shows when it was ordered, when it is needed by, how many lines it has, the total and its status.",
+          "Open one to see the lines it is asking you to supply.",
+          "Fulfil it your normal way, then bill it from the Invoices tab — invoices are raised from purchase orders, so an order has to exist first.",
+        ],
+        note:
+          "These are orders from Black Phoenix to you, not sales to the public. If the list is empty and the page says your login is not attached to your vendor record, that is the whole problem: until the link exists, the portal cannot tell which vendor you are, so every tab is correctly empty. Ask Black Phoenix to attach your login — there is nothing you can do from this side to fix it.",
+      },
+      {
+        name: "Products",
+        purpose: "Your catalogue — what Black Phoenix can order from you, and what customers see when they choose materials.",
+        steps: [
+          "Add a line by hand with its name, your SKU, category, unit and price, then save it.",
+          "Or use Import a price list to bring in a spreadsheet: download the template if you want the exact shape, say whether your file has column headings and which row they are on, pick the sheet, then match your columns to ours — name, price, SKU, category, unit, availability and lead time.",
+          "Edit changes a published line; Remove takes it out of the catalogue.",
+          "Images and presentation is where you decide where your photographs may appear: in the design centre while a customer is choosing materials, on quotes and proposals beside the line they price, and on the public storefront. Each is asked separately.",
+          "The same panel sets what happens to your pictures when your catalogue re-syncs: only when the image address changes, every sync, or never.",
+        ],
+        note:
+          "The price you publish is the price a customer sees. Nothing is displayed from your images until you turn that surface on — the default is off everywhere. A line with no price cannot sync, and a line nobody ever orders shows up under Performance as catalogue coverage, which is usually a sign it is priced wrong, described wrong, or is something we do not use.",
+      },
+      {
+        name: "Promotions",
+        purpose: "Deals and video reels shown to Black Phoenix customers.",
+        steps: [
+          "Create Deal opens the form: title, description, discount type — including buy one get one and free service — value, an optional original price, an optional promo code, an expiry date and an optional image.",
+          "Post Deal publishes it; your live deals are listed with their status and when they were posted.",
+          "Your published deals appear on customers' Deals & Reels tab.",
+        ],
+        note:
+          "Deals need an active plan. Without one the tab says so and offers View Plans instead of publishing — the deal is not quietly saved and forgotten, it simply does not go live.",
+      },
+      {
+        name: "Invoices",
+        purpose: "What you have billed Black Phoenix for. You raise them here; we approve and pay them.",
+        steps: [
+          "Raise an invoice opens the form.",
+          "Give it your invoice number, issue date and terms.",
+          "Tick the purchase orders you are billing for — an invoice is built from orders, which is what keeps both sides agreeing on the amount.",
+          "Add notes if anything needs explaining, then raise it.",
+          "The table lists every invoice with when it was issued, when it is due, how many orders it covers, the amount, what is still outstanding and its status.",
+        ],
+        note:
+          "“Nothing left to invoice” means every purchase order raised against you is already on an invoice, still in draft on our side, or cancelled — so it is a statement about our end, not an error at yours. Approving, disputing and recording payment are ours to do; you will see the status change rather than the buttons.",
+      },
+      {
+        name: "Payments",
+        purpose: "What has actually been paid to you.",
+        steps: [
+          "Each payment shows the date paid, the reference, the method, which invoices it settled and the amount.",
+        ],
+        note:
+          "This is the record to check before chasing an invoice — an invoice can read as settled here before the money has cleared your own bank.",
+      },
+      {
+        name: "Plan Tracker",
+        purpose: "Your subscription and any service hours that come with it.",
+        steps: [
+          "The top panel shows your plan, the monthly fee, hours used this period, hours remaining and the overage rate.",
+          "Every logged item is listed beneath with its date, description, hours and cost.",
+          "Invoices & Payments covers bills raised against the plan itself, separately from what you bill us.",
+        ],
+        note: "Hours here are logged by Black Phoenix as work is done; you are reading the record, not writing it.",
+      },
+      {
+        name: "Plans & Add-ons",
+        purpose: "Change what you subscribe to, or add extras.",
+        steps: [
+          "Your Active Plans shows what you are on now.",
+          "Start with a set plan to take one of the standard tiers, or Build Your Own Plan with AI to describe what you need in plain words.",
+          "Add to plan and Remove from plan assemble the package; the estimated total updates as you go.",
+        ],
+        note: "This is the tab that actually changes your subscription. The Current Plan line on the Dashboard does not.",
+      },
+      {
+        name: "Performance",
+        purpose: "How you are doing as a supplier, counted from real orders rather than a rating somebody typed in.",
+        steps: [
+          "Order value, average order and largest order, across the orders actually raised against you.",
+          "Invoiced shows what you have billed and how much of it is settled.",
+          "On-time delivery is the share of measured deliveries that arrived by their needed-by date.",
+          "Where orders stand breaks the orders down by status; Catalogue coverage shows which published lines have ever actually been ordered.",
+          "Submit a Reel to the Landing Page sits at the top of this tab: give it a title, an optional link to your site, a description, a video URL (YouTube, Vimeo or a direct .mp4) and a thumbnail image URL.",
+        ],
+        note:
+          "On-time delivery only counts orders carrying a delivery date. Nothing was timestamped before this existed, so older orders are excluded rather than assumed on time — if it reads “measured from the next delivery on”, that is why, and it is not a mark against you. Reels go to Black Phoenix for approval before they appear anywhere.",
+      },
+      {
+        name: "Investments",
+        purpose: "Investment opportunities offered through Black Phoenix.",
+        steps: [
+          "All Opportunities lists what is available; search by name, location or category.",
+          "Each card shows projected ROI, the minimum and the term.",
+          "Invest Now opens the interest form; My Investments and Recent Distributions track anything you hold.",
+        ],
+        note: "Submitting interest registers it with us and moves no money. Cards marked “SAMPLE” are format illustrations.",
+      },
+      {
+        name: "Referral Rewards",
+        purpose: "Your referral link and what it has earned.",
+        steps: [
+          "Copy Link, or share by email, SMS or WhatsApp.",
+          "Each referral is listed with its date, whether the project completed and whether payment was received.",
+          "Rewards are 5% of project value, shown as Potential until the referred project is paid, then Earned.",
+        ],
+      },
+      {
+        name: "API Settings",
+        purpose: "Connect your own system so your catalogue and our purchase orders move without anybody retyping them.",
+        steps: [
+          "Give us your catalogue endpoint — the address we read your products from.",
+          "Give us your purchase order endpoint if you want orders delivered into your system automatically.",
+          "Say how your key should be sent: an Authorization: Bearer header, a custom header, or a query parameter.",
+          "Match your fields to ours. Name and price are required before any sync can run.",
+          "Save the mapping. Last sync tells you when we last read from you.",
+        ],
+        note:
+          "There is deliberately no test button on the purchase order endpoint. Testing it would mean POSTing an order into your live system and possibly creating a real one. The first purchase order we send reports exactly what happened instead. Orders we send carry an Idempotency-Key, so a retry on our side cannot duplicate an order on yours.",
+      },
+      {
+        name: "Messages",
+        purpose: "Your thread with the Black Phoenix team.",
+        steps: [
+          "Read the conversation, reply in the box, send.",
+          "The tab shows unread replies; opening it clears the count.",
+        ],
+        note: "Keep order and pricing decisions here, where they stay attached to the account rather than in somebody's inbox.",
+      },
+      {
+        name: "Documents",
+        purpose: "Your document vault — certificates of insurance, W-9s, price lists, terms.",
+        steps: [
+          "Upload a file and give it a Category.",
+          "Set “Related to” if it belongs to a particular order or reference.",
+          "Search by name, project or reference.",
+        ],
+        note: "25MB per file. Visible to you and to Black Phoenix, nobody else.",
+      },
+      {
+        name: "Portal Guide",
+        purpose: "This page.",
+        steps: [
+          "Each card above is one tab of your portal, in the order they run across the top.",
+          "If something here stops matching the screen, tell us in Messages — the guide is written from the portal and is meant to stay that way.",
+        ],
+      },
+    ],
+  },
   subcontractor: { title: "Your subcontractor work hub", summary: "Review jobs, submit secure bids with files, track payment records, plan benefits, performance, and messages.", start: "Open Dashboard to find available bid opportunities, then use My Bids to follow each submission.", sections: [{ name: "Job opportunities", detail: "Review work scope, timing, budget ranges, and requirements.", status: "Work pipeline" }, { name: "Secure bids", detail: "Submit pricing, notes, duration, and private image/video attachments.", status: "Bid workflow" }, { name: "Payments & performance", detail: "Monitor payment records, work performance, and plan activity.", status: "Business health" }, { name: "Messages", detail: "Keep project communication in the portal.", status: "Collaboration" }] },
   employee: { title: "Your employee workspace", summary: "Access schedules, assigned tasks, time records, documents, performance, plan information, and support messages.", start: "Check Schedule first, then use Tasks and Timesheet throughout the workday.", sections: [{ name: "Schedule & tasks", detail: "See upcoming work and assigned responsibilities.", status: "Daily operations" }, { name: "Timesheet", detail: "Review and submit tracked work hours.", status: "Work hours" }, { name: "Documents & messages", detail: "Find shared documents and communicate with support.", status: "Team resources" }, { name: "Plans, performance & referrals", detail: "Review eligible account benefits and performance tools.", status: "Benefits" }] },
   advertiser: { title: "Your advertiser command space", summary: "Manage campaigns, placements, media, previews, billing, analytics, plan benefits, and communications.", start: "Use Campaigns for active promotion work and Analytics to measure results.", sections: [{ name: "Campaigns & placements", detail: "Manage live advertising activity and available placements.", status: "Campaign delivery" }, { name: "Media & live previews", detail: "Review creative assets and how ads are presented.", status: "Creative control" }, { name: "Analytics & billing", detail: "Monitor results and account financial activity.", status: "Performance reporting" }, { name: "Plans, referrals & messages", detail: "Understand included features and stay connected with the team.", status: "Account growth" }] },
