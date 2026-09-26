@@ -926,7 +926,15 @@ const APPROVED_PORTAL_ROUTES = new Set([
  * the user-facing gate before portal components load their data. */
 function PortalAccessGuard({ page, children }: { page: string; children: React.ReactNode }) {
   const { session, isAdmin, isOwner, loading } = useAuth();
-  const [state, setState] = useState<"checking" | "allowed" | "blocked">("checking");
+  const [state, setState] = useState<"checking" | "allowed" | "blocked" | "held">("checking");
+  /**
+   * Why the portal is held, when it is.
+   *
+   * "held" covers both a payment freeze and an account somebody switched off
+   * by hand. They are different things — one lifts by paying and the other
+   * does not — so the screen reads the state rather than assuming.
+   */
+  const [standing, setStanding] = useState<any>(null);
   const needsGate = APPROVED_PORTAL_ROUTES.has(page);
   // RoleSwitcher is restricted to the platform owner. Its preview flag lives
   // only in this browser tab and bypasses *only* this visual onboarding gate;
@@ -940,7 +948,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     // already on screen) throws "A component suspended while responding to
     // synchronous input". Marking these state flips as transitions lets React
     // keep the current UI and stream in the lazy chunk instead of erroring.
-    const setStateSafe = (next: "checking" | "allowed" | "blocked") =>
+    const setStateSafe = (next: "checking" | "allowed" | "blocked" | "held") =>
       startTransition(() => setState(next));
     if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setStateSafe("allowed"); return; }
     if (!session?.access_token) { setStateSafe("blocked"); return; }
@@ -948,13 +956,50 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     }).then(async response => ({ response, data: await response.json() }))
-      .then(({ data }) => { if (active) setStateSafe(data?.success && (data?.canEnterPortal || data?.access?.active) ? "allowed" : "blocked"); })
+      .then(({ data }) => {
+        if (!active) return;
+        setStanding(data?.standing || null);
+        const mayEnter = data?.success && (data?.canEnterPortal || data?.access?.active);
+        if (!mayEnter) { setStateSafe("blocked"); return; }
+        // Owed money, or switched off. Either way the portal does not open.
+        setStateSafe(data?.standing?.blocked ? "held" : "allowed");
+      })
       .catch(() => { if (active) setStateSafe("blocked"); });
     return () => { active = false; };
   }, [needsGate, session?.access_token, isAdmin, isOwner, isOwnerRolePreview, page]);
 
   if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) return <>{children}</>;
   if (loading || state === "checking") return <div className="min-h-[60vh] grid place-items-center text-gray-300">Checking portal access…</div>;
+  if (state === "held") {
+    const deactivated = standing?.state === "deactivated";
+    return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">
+        {deactivated ? "Account deactivated" : "Portal on hold"}
+      </p>
+      <h1 className="mt-3 text-2xl font-semibold">
+        {deactivated ? "This account has been switched off." : "There is a payment outstanding."}
+      </h1>
+      <p className="mt-3 text-sm leading-6 text-gray-400">{standing?.reason}</p>
+      {!deactivated && standing?.daysPastDue > 0 && (
+        <p className="mt-2 text-xs text-gray-500">{standing.daysPastDue} days past due.</p>
+      )}
+      {/*
+        Paying is the way out of a freeze, so the button goes there. A
+        deactivation is somebody’s decision and paying does not lift it, so
+        that case is pointed at a person instead.
+      */}
+      {deactivated ? (
+        <p className="mt-6 text-sm text-gray-400">Contact Black Phoenix to discuss reinstating it.</p>
+      ) : (
+        <button type="button" onClick={() => { window.location.href = "/customer-portal-app?tab=payments"; }} className="mt-6 border border-orange-400 bg-orange-500 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-orange-400">
+          Settle the balance
+        </button>
+      )}
+      <p className="mt-5 text-xs leading-5 text-gray-500">
+        Emergencies are never held. If you have one, call it in as usual.
+      </p>
+    </section>;
+  }
   if (state === "blocked") return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-2xl">
     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">Portal access pending</p>
     <h1 className="mt-3 text-2xl font-semibold">Finish your approved onboarding first.</h1>

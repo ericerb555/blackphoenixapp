@@ -33,6 +33,7 @@ import { entitlementsRouter, recordEntitlementEvent } from "./entitlements.tsx";
 import paymentProcessingRouter from "./payment-processing.tsx";
 import hourTransfersRouter from "./hour-transfers.tsx";
 import timeTrackingRouter from "./time-tracking.tsx";
+import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import quotesRouter from "./quotes.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
@@ -321,6 +322,19 @@ app.use('*', logger(console.log));
 // same time — see the note there; leaving it in would have refused every vendor
 // their own orders the moment this line changed.
 const AUTH_ENFORCE = true;
+
+/**
+ * The portal freeze, with a switch that does not need a deploy.
+ *
+ * This is the one feature on the server that can lock a paying customer out of
+ * everything. If it ever misbehaves — a bad webhook, a stale record, a date
+ * read wrong — the fix has to be faster than a code change. Set the secret
+ * FREEZE_ENFORCE to "false" and every account is let through while still being
+ * logged, which is exactly how AUTH_ENFORCE was rolled out above.
+ *
+ * Default on, because a freeze nobody enforces is not a freeze.
+ */
+const FREEZE_ENFORCE = String(Deno.env.get('FREEZE_ENFORCE') ?? 'true').toLowerCase() !== 'false';
 
 const API_PREFIX = '/make-server-3eae23a6';
 
@@ -642,6 +656,12 @@ app.use('*', async (c, next) => {
   if (tier === 'public') return next();
 
   const user = await intakeActor(c);
+  /**
+   * Carried on the context so nothing downstream resolves it again.
+   * `intakeActor` is a network call, and the freeze check below needs the
+   * same account this gate just looked up.
+   */
+  c.set('actor', user);
   const signedIn = !!user?.email;
   const admin = tier === 'admin' ? await intakeIsAdmin(user) : false;
   const allowed = tier === 'admin' ? (signedIn && admin) : signedIn;
@@ -657,6 +677,70 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+/**
+ * An account that has not paid, or that somebody switched off.
+ *
+ * Runs straight after the auth gate, which has already put the actor on the
+ * context. Everything is refused with 402 except the paths a frozen account
+ * must still reach: paying, seeing what is owed, reading its own records,
+ * messaging us, and calling out an emergency.
+ *
+ * The emergency carve-out is deliberate. This platform carries habitability
+ * work, and refusing a burst pipe at two in the morning over an unpaid
+ * invoice is a liability as well as the one thing a customer never forgets.
+ *
+ * Owners, administrators and employees are never frozen for non-payment —
+ * `accountStanding` decides that, not this middleware. Deactivation reaches
+ * everybody, because an owner may switch off any account.
+ *
+ * COST
+ *
+ * Two KV reads by exact key, and only for requests that are not already
+ * allowed. A request a frozen account may make does not pay for the check.
+ */
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const method = c.req.method;
+
+  if (method === 'OPTIONS') return next();
+  if (authTier(path, method) === 'public') return next();
+
+  const user = c.get('actor');
+  if (!user?.email) return next();          // the auth gate above already had its say
+  if (frozenMayReach(path, method)) return next();
+
+  let standing;
+  try {
+    standing = await standingFor(user);
+  } catch (error) {
+    /**
+     * An unreadable record must not lock anybody out.
+     *
+     * The rule elsewhere in this server is fail closed. It is the wrong rule
+     * here and is deliberately not followed: this decides whether a paying
+     * customer can open their portal, and the expensive failure is refusing
+     * one who has paid. Entitlements are still fail-closed — they are decided
+     * by resolveEntitlement, which grants nothing without proof.
+     */
+    console.log('[standing] could not resolve; allowing', String(error));
+    return next();
+  }
+
+  if (!standing.blocked) return next();
+
+  console.log(`[standing] ${FREEZE_ENFORCE ? 'BLOCK' : 'would-block'} ${method} ${path} ${user.email} state=${standing.state}`);
+  if (!FREEZE_ENFORCE) return next();
+  return c.json({
+    success: false,
+    error: standing.reason,
+    standing: {
+      state: standing.state,
+      reason: standing.reason,
+      pastDueSince: standing.pastDueSince,
+      daysPastDue: standing.daysPastDue,
+    },
+  }, 402);
+});
 /**
  * Count what a model call costs, before it is made.
  *
@@ -788,6 +872,7 @@ app.route("/", entitlementsRouter);
 app.route("/make-server-3eae23a6/payment", paymentProcessingRouter);
 app.route("/make-server-3eae23a6/hour-transfers", hourTransfersRouter);
 app.route("/make-server-3eae23a6/time-tracking", timeTrackingRouter);
+registerAccountAccessRoutes(app, supabase);
 app.route("/", quotesRouter);
 app.route("/", deliverablesRouter);
 // Existing design/vision modules were present but unreachable from the deployed function.
@@ -13585,7 +13670,15 @@ app.get('/make-server-3eae23a6/intake/my-access', async (c) => {
         active: a.status === 'active',
       }))
       .filter((p: any) => p.portalType);
-    return c.json({ success: true, canEnterPortal: access?.status === 'active' || portals.some((p: any) => p.active), access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null, portals });
+    /**
+     * Standing rides along with access.
+     *
+     * The portal guard already makes this one call on every portal page, and
+     * whether the account is frozen is decided by the same trip. A second
+     * request would mean two round trips before anything renders.
+     */
+    const standing = await standingFor(user);
+    return c.json({ success: true, standing, canEnterPortal: access?.status === 'active' || portals.some((p: any) => p.active), access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null, portals });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load portal access.' }, 500); }
 });
 
@@ -15262,6 +15355,17 @@ app.post('/make-server-3eae23a6/maintenance-plans/webhook', async (c) => {
         break;
       }
       case 'invoice.payment_succeeded': {
+        // Paying clears the arrears, and with them the portal freeze.
+        {
+          const paidOwner = String(plan.ownerEmail || plan.owner_email || '').toLowerCase();
+          if (paidOwner) {
+            const grantKey = `feature_grant:${paidOwner}`;
+            const grant = (await kv.get(grantKey)) as any;
+            if (grant?.pastDueSince) {
+              await kv.set(grantKey, { ...grant, pastDueSince: undefined, lastSubscriptionStatus: 'active', updatedAt: now });
+            }
+          }
+        }
         plan.billing = {
           ...(plan.billing || {}),
           status: 'active',
@@ -15280,6 +15384,28 @@ app.post('/make-server-3eae23a6/maintenance-plans/webhook', async (c) => {
         // card. Flag it and let a person decide.
         plan.billing = { ...(plan.billing || {}), status: 'past_due', lastFailureAt: now, updatedAt: now };
         await kv.set(`plan:${planId}`, plan);
+
+        /**
+         * Mirror the arrears onto the account grant.
+         *
+         * The portal freeze reads one key by exact name on every request. It
+         * could not afford to scan every plan looking for one belonging to the
+         * caller, so the plan tells the grant instead. Stamped once: if the
+         * account is already known to be behind, the original date stands.
+         */
+        const planOwner = String(plan.ownerEmail || plan.owner_email || '').toLowerCase();
+        if (planOwner) {
+          const grantKey = `feature_grant:${planOwner}`;
+          const grant = (await kv.get(grantKey)) as any;
+          if (grant) {
+            await kv.set(grantKey, {
+              ...grant,
+              lastSubscriptionStatus: 'past_due',
+              pastDueSince: grant.pastDueSince || now,
+              updatedAt: now,
+            });
+          }
+        }
         break;
       }
       case 'customer.subscription.deleted': {

@@ -1,3 +1,146 @@
+# Freeze a portal when the account has not paid
+
+Asked for: *"we must have a portals to froze and only allow payment and
+subscriptions areas to allow new payment when account payments failed or pass
+due."*
+
+## What already exists (more than I expected)
+
+**Stripe already tells us.** `customer.subscription.updated` reaches
+`supabase/functions/stripe-webhooks/index.ts`, and `past_due` deliberately does
+not count as live: the handler drops `tierId` and `addOnIds` from the grant and
+records `lastSubscriptionStatus: 'past_due'`. `invoice.payment_failed` is
+subscribed to as well, and for maintenance plans sets
+`plan.billing.status = 'past_due'`.
+
+**So paid features already stop.** `resolveEntitlement` sees no tier and no
+trial and returns free. What does *not* happen is a freeze: the account simply
+drops to free-tier and carries on using everything free.
+
+**There is exactly one choke point on each side, and both already exist.**
+
+| | where | what it already does |
+|---|---|---|
+| Server | the `app.use('*')` auth gate in `index.tsx` (~line 634) | resolves the actor, refuses by tier, uses prefix allowlists |
+| Client | `PortalAccessGuard` in `App.tsx` (~line 927) | wraps **every** portal page, calls `/intake/my-access`, renders checking / allowed / blocked, bypasses admin and owner |
+
+That means this does **not** need touching twelve portals. It is one server
+middleware, one extra state in one guard component, and one screen.
+
+## The plan
+
+- [ ] 1. **`accountStanding(email)` — one server function, one answer.**
+      Reads `feature_grant:{email}.lastSubscriptionStatus` and the maintenance
+      plan's `billing.status`, and returns
+      `{ frozen, reason, pastDueSince, graceEndsAt }`. Nothing else decides
+      this, so there is one place to read and one place to fix.
+- [ ] 2. **Freeze middleware**, straight after the auth gate. Everything is
+      refused with `402 Payment Required` and a machine-readable body except an
+      allowlist (item 4). Admin, owner and staff are never frozen; nor is any
+      route the freeze screen itself needs.
+- [ ] 3. **`GET /account-standing`** so the client can ask without guessing,
+      returning the same shape — and folded into `/intake/my-access` so
+      `PortalAccessGuard` keeps making one call rather than two.
+- [ ] 4. **The allowlist**, decided deliberately rather than by what happens to
+      break: plans and subscriptions, checkout and payment, invoices (they must
+      be able to see what they owe), `/my-plan`, `/account-standing`, sign-out,
+      and messages.
+- [ ] 5. **`PortalAccessGuard` gains a `frozen` state** — one screen saying what
+      is owed, since when, and a button to the payment tab. No other portal file
+      changes.
+- [ ] 6. **Unfreeze the moment they pay.** The webhook already fires on
+      `invoice.payment_succeeded` and on the subscription returning to active.
+      The payment route also clears the freeze directly rather than waiting for
+      the webhook, copying the "floor" pattern already used when adding an
+      add-on — otherwise the screen says paid and the server still says frozen.
+- [ ] 7. **A test for the state machine.** Pure function, so `accountStanding`
+      is testable without a browser: active, past due inside grace, past due
+      beyond grace, cancelled, never subscribed, staff, owner.
+
+## Decisions taken (2026-09-26)
+
+1. **Grace period: fifteen days past due.** Warning from the first failure.
+2. **Emergencies stay open, always.** On-call and emergency intake are never
+   frozen.
+3. **Never frozen: owners, administrators and employees.**
+4. **Deactivation is separate and manual.** An administrator may deactivate
+   employees; an owner may deactivate anyone but themselves. Paying does not
+   lift a deactivation.
+5. Two defaults I chose and stated: freeze only when positively known past due
+   (an unreadable record never locks anybody out), and a frozen account keeps
+   read access to its own records while losing writes.
+
+## Built
+
+- `accountStanding.ts` — pure decision, 25 tests, no I/O.
+- `accountAccess.tsx` — standing lookup, the allowlist, deactivate/reactivate
+  routes, and the list of deactivated accounts.
+- Freeze middleware in `index.tsx`, straight after the auth gate, refusing with
+  402 and a machine-readable body.
+- `FREEZE_ENFORCE` secret as a kill switch, mirroring `AUTH_ENFORCE`.
+- `pastDueSince` stamped by both webhooks and cleared on payment — without it
+  the clock resets every request and day fifteen never arrives.
+- `standing` folded into `/intake/my-access` so the guard still makes one call.
+- `PortalAccessGuard` gained a `held` state and a screen. No portal file changed.
+
+## Still to verify in a browser
+
+Nobody has watched an account freeze, pay, and come back. The unit tests prove
+the arithmetic; they do not prove the wiring.
+
+---
+
+## Five decisions that are yours, not mine
+
+**1. How long is the grace period?** Stripe retries a failed card for days. The
+existing code says so in a comment: *"Do not cancel on a failed payment —
+Stripe retries, and cutting service off on the first miss loses customers who
+simply need a new card."* Freezing instantly contradicts that and will lock out
+people whose card expired. My recommendation: **7 days past due**, with the
+banner showing from day one so it is never a surprise.
+
+**2. Emergencies.** A condo association is 10 days past due, a pipe bursts at
+2am, and the on-call rota is behind the freeze. Do we refuse?
+
+My recommendation: **no — emergency intake stays open**, and the debt is shown
+loudly instead. Refusing habitability work over an unpaid invoice is a
+liability I would not take on, and it is the one thing a frozen customer will
+remember. This is the decision I would most like you to make consciously.
+
+**3. Who can never be frozen.** Owner and admin obviously. My recommendation:
+**employees too** — they do not pay for anything, and freezing a technician's
+timesheet because the company card failed stops work and payroll for people who
+have done nothing wrong.
+
+**4. Which way it fails when we cannot read the record.** The usual rule here
+is fail closed, and it is the wrong rule for this one thing: an unreadable KV
+record would lock out paying customers. My recommendation: **freeze only when
+we positively know the account is past due**. That is still fail-closed on
+*entitlements* — no paid features without proof — and fail-open only on the
+lockout.
+
+**5. Does a frozen account keep read access to its own records?** Can a frozen
+property manager still *see* their work requests and invoices, or only the
+payment screen? My recommendation: **read-only on their own data, no writes.**
+Seeing what you owe against what you got is how people decide to pay; a blank
+wall is how they decide to leave.
+
+## What I will not do without being asked
+
+Freeze on the first failed charge, freeze employees, or hide what is owed.
+
+## Risk
+
+The middleware adds a KV read to every authenticated request. Mitigation: only
+for `tier === 'user'` requests outside the allowlist, and cache the answer per
+request. Worth measuring before it ships.
+
+The bigger risk is a false freeze — a paying customer locked out by a bad
+webhook or a stale record. Decisions 1 and 4 exist to make that nearly
+impossible, and the freeze screen will say how to reach you regardless.
+
+---
+
 # Wire the admin Dispatch Center to the pipeline
 
 ## What I found

@@ -332,10 +332,23 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
        * moment payment succeeds, which fires this event again.
        */
       const live = object?.status === 'active' || object?.status === 'trialing';
+
+      /**
+       * When the arrears started, stamped once.
+       *
+       * The portal freeze measures its grace period from this date. Restamping
+       * it on every subsequent event would keep pushing the deadline back and
+       * the freeze would never arrive; clearing it the moment the subscription
+       * is live again is what lets the account out.
+       */
+      const owing = ['past_due', 'unpaid', 'incomplete_expired'].includes(String(object?.status || ''));
+      const pastDueSince = live ? undefined : (grant.pastDueSince || (owing ? now : undefined));
+
       await kvSet(key, {
         ...grant,
         email,
         status: 'active',
+        pastDueSince,
         tierId: live ? tierId : undefined,
         // Dropped with the tier, and for the same reason: an extra that
         // outlives the subscription paying for it is access nobody is
