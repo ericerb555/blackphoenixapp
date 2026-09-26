@@ -275,7 +275,7 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
   admin: {
     title: "Your operations portal guide",
     summary:
-      "The portal you run the company from: provisioning everybody else's access, watching what they are paying, publishing job photos, and — once it is wired to real records — dispatching the work.",
+      "The portal you run the company from: provisioning everybody else's access, dispatching the work to your field team, watching what they are paying, and publishing job photos.",
     start:
       "Create Portal is the tab that matters most: it is how every other person on this platform gets in. Sent Invites tells you whether they actually did.",
     sections: [
@@ -286,10 +286,10 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
           "Job photos sits at the top. Add job photos uploads straight from here — the files go to the gallery and stay private until you publish them.",
           "Manage & publish opens the job photos page, where you choose which ones appear on the website.",
           "Critical Alerts, Recent Tickets and Pending Employee Support summarise the three support tabs; View All opens the tab behind each.",
-          "User Management, Revenue Analytics and System Analytics are shortcuts at the bottom.",
+          "Analytics at the bottom opens the Unified Dashboard \u2014 users, revenue and platform performance together.",
         ],
         note:
-          "Those three shortcut cards all open the same place — the Unified Dashboard. They are three doors into one room, not three destinations. The panels above them summarise the sample data described below, so treat the counts as illustrations.",
+          "There used to be three cards here \u2014 User Management, Revenue Analytics and System Analytics \u2014 which all opened the same page. They are now the one card that page deserves. The Critical Alerts panel is live; Recent Tickets and Pending Employee Support still summarise sample data, for the reason given on those two tabs.",
       },
       {
         name: "Create Portal",
@@ -322,19 +322,21 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
       {
         name: "Dispatch Center",
-        purpose: "Intended as the board where incoming work orders are assigned to the field team.",
+        purpose:
+          "The board where real work requests are assigned to the field team. Assigning here is what lets a technician bill time to the job.",
         steps: [
-          "The four counters across the top are Unassigned, Assigned, In Progress and Completed Today; the filter buttons below narrow the list to one of them.",
+          "The four counters across the top are Unassigned, Assigned, In Progress and Completed; the filter buttons below narrow the list to one of them.",
+          "Every work request on the platform appears here \u2014 the same records the pipeline and the customer\u2019s own Projects tab show, not a copy.",
           "Click a work order to expand it and see the address, trade, priority, submitted time and notes.",
-          "Assign to Employee lists the field team with their trade and whether they are available or on-job — anyone marked off is left out of the list.",
-          "Field Team down the side lists everyone with their rating, job count and phone number; clicking the number copies it.",
+          "Dispatch (or Reassign) lists the field team with their trade and whether they are available or on a job right now. Pick one and the job is assigned.",
+          "The status dropdown moves a job between Unassigned, Assigned, In Progress and Completed, and the change is written to the request itself.",
+          "Inside an expanded job: Call dials the customer\u2019s number, Text messages the assigned technician, and Flag Urgent raises the priority for good.",
+          "Field Team down the side lists everyone with their trade, whether they are clocked in, and their phone number; clicking the number copies it.",
         ],
         note:
-          DEMO_TAB +
-          " Assigning somebody, changing a status, and the Call Customer, Message Tech and Flag Urgent buttons all show a confirmation message and change nothing — no call is placed, no technician is messaged, no urgency is recorded. Real work requests live in the pipeline, not here.",
+          "Assigning is the step that matters most, and not only for the schedule: it records the technician\u2019s email and id against the job, and the employee portal uses exactly those to decide which jobs that person may bill hours to. A job nobody is assigned to cannot be billed against. An empty board means no work requests exist yet, not that the board is broken.",
       },
-      {
-        name: "Maintenance Plans",
+      {        name: "Maintenance Plans",
         purpose: "Every maintenance plan on the platform, who holds it, and what it is worth.",
         steps: [
           "The cards across the top are Total Plans, Active, MRR, Gift Cards Issued, and Hours Used against hours included.",
@@ -348,15 +350,15 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
       },
       {
         name: "System Alerts",
-        purpose: "Intended as the feed of platform problems needing attention, filterable by critical, warning and unread.",
+        purpose: "What the platform has raised for your attention.",
         steps: [
           "Filter by All, Critical, Warning or Unread.",
-          "Each alert shows its type, source, message and how long ago it fired.",
+          "Each alert shows its type, where it came from, the message, and when it fired.",
         ],
-        note: DEMO_TAB + " Nothing on this platform currently raises an alert into it.",
+        note:
+          "This reads the same alert store the rest of the platform writes into \u2014 dispatching a work order appends to it, so the two tabs are one system seen from both ends. An empty list means nothing has raised an alert, which on a quiet platform is the correct answer.",
       },
-      {
-        name: "Customer Service",
+      {        name: "Customer Service",
         purpose: "Intended as the customer ticket queue.",
         steps: [
           "The table lists customer, subject, priority, status, who it is assigned to and when it last moved.",
