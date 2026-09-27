@@ -31,6 +31,7 @@ import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
 import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productImages.tsx";
+import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -323,6 +324,101 @@ async function ourImageUrl(email: string, url: string): Promise<string> {
  * bytes, so nothing a caller sends decides where the file lands or what it is
  * served as.
  */
+/**
+ * POST /advertising/images/generate — make the artwork instead of finding it.
+ *
+ * Most advertisers do not have a picture and are not going to commission one
+ * for a strip 72 pixels tall. The content centre already generates images for
+ * the company’s own posts; this is the same capability pointed at an
+ * advertisement, which is what a content-centre subscription is for.
+ *
+ * WHAT COMES BACK IS STORED, NOT RETURNED AS BASE64
+ *
+ * The content studio hands its image back as a `data:` URL, which is why the
+ * app has a whole module for moving base64 out of places it should not be.
+ * This stores the bytes and returns an address, so the advertisement carries
+ * a URL like any other and nothing large travels through the record.
+ *
+ * IT COSTS REAL MONEY, SO IT IS COUNTED
+ *
+ * An image generation is cents, and a loop is not. The same per-account
+ * ceiling the rest of the model work uses applies here, and is refunded when
+ * the generation fails — nobody should pay for an image they did not get.
+ */
+advertisingRouter.post("/advertising/images/generate", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const brief = String(body.prompt || "").trim().slice(0, 400);
+    if (brief.length < 3) {
+      return c.json({ success: false, error: "Describe the picture you want." }, 400);
+    }
+
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) {
+      return c.json({ success: false, error: "Image generation is not configured on this server." }, 503);
+    }
+
+    const token = String(c.req.header("Authorization") || "").replace(/^Bearers+/i, "");
+    const { data: { user } } = await admin.auth.getUser(token);
+    const over = await reserveAiSpend(user, "ai", 1, "images");
+    if (over) return c.json({ success: false, error: over.error, used: over.used, limit: over.limit }, 429);
+
+    /**
+     * No words in the picture. Image models render text badly, and a headline
+     * baked into artwork cannot be corrected without generating it again —
+     * the advertisement already carries its own title and body.
+     */
+    const prompt = `${brief}. Clean commercial photography or flat illustration suitable for a small advertisement tile. No text, words, letters or logos anywhere in the image.`;
+
+    const forced = Deno.env.get("OPENAI_IMAGE_MODEL");
+    const candidates = forced ? [forced] : ["gpt-image-1", "dall-e-3"];
+    const failures: string[] = [];
+    let base64: string | null = null;
+
+    for (const model of candidates) {
+      const res = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt, n: 1, size: "1024x1024" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        base64 = data?.data?.[0]?.b64_json || null;
+        if (base64) break;
+        failures.push(`${model}: returned no image data`);
+        continue;
+      }
+      const detail = await res.text().catch(() => "");
+      let msg = "";
+      try { msg = JSON.parse(detail)?.error?.message || ""; } catch { /* not JSON */ }
+      failures.push(`${model}: ${msg || `HTTP ${res.status}`}`);
+    }
+
+    if (!base64) {
+      // Nothing was produced, so nothing is charged for.
+      await refundAiSpend(user, "ai", 1);
+      return c.json({ success: false, error: `No image could be generated — ${failures.join("; ")}` }, 502);
+    }
+
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    const namespace = who.email.replace(/[^a-z0-9]+/gi, "_").slice(0, 80) || "unknown";
+    const { image, error } = await storeImageBytes(namespace, bytes, AD_IMAGE_BUCKET);
+    if (!image) {
+      await refundAiSpend(user, "ai", 1);
+      return c.json({ success: false, error: error || "The image could not be stored." }, 500);
+    }
+
+    return c.json({ success: true, imageUrl: image.url, bytes: image.bytes, mime: image.mime });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "That image could not be generated." }, 500);
+  }
+});
+
 advertisingRouter.post("/advertising/images/upload", async (c) => {
   const who = await actor(c);
   if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
