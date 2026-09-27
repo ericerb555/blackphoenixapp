@@ -30,6 +30,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
+import { mirrorVendorImage, AD_IMAGE_BUCKET } from "./productImages.tsx";
 
 export const advertisingRouter = new Hono();
 
@@ -63,6 +64,22 @@ const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
+
+/**
+ * Is this already a copy we hold?
+ *
+ * Our own storage addresses start with the project URL, so anything else is
+ * still somebody else’s server and has to be mirrored before it is served.
+ */
+function isOurCopy(url: string): boolean {
+  // Trailing slashes trimmed without a regular expression, deliberately: the
+  // escaping went wrong once already and a broken pattern here would silently
+  // stop recognising our own copies and re-mirror every image on every save.
+  let base = String(Deno.env.get("SUPABASE_URL") || "").trim();
+  while (base.endsWith("/")) base = base.slice(0, -1);
+  if (!base) return false;
+  return url.startsWith(`${base}/storage/v1/object/public/`);
+}
 
 const CAMPAIGN = (id: string) => `ad_campaign:${id}`;
 const CREATIVE = (id: string) => `ad_creative:${id}`;
@@ -190,7 +207,7 @@ advertisingRouter.post("/advertising/creatives", async (c) => {
       // clicked the ad. Restricted to http and https here, on the server, where
       // an advertiser cannot skip it.
       linkUrl: safeUrl(body.linkUrl ?? existing?.linkUrl),
-      imageUrl: safeUrl(body.imageUrl ?? existing?.imageUrl),
+      imageUrl: await ourImageUrl(who.email, safeUrl(body.imageUrl ?? existing?.imageUrl)),
       // Where it is allowed to appear. `marquee` is the strip the platform
       // already renders on nineteen surfaces.
       placement: ["marquee", "banner", "reel"].includes(String(body.placement)) ? body.placement : (existing?.placement || "marquee"),
@@ -249,6 +266,74 @@ advertisingRouter.delete("/advertising/creatives/:id", async (c) => {
  *
  * Administrators only: it is every advertiser’s work, not one account’s.
  */
+/**
+ * POST /advertising/images — take an advertiser’s artwork and keep our own copy.
+ *
+ * WHY WE DO NOT SIMPLY STORE THEIR ADDRESS
+ *
+ * An `<img src>` pointing at a URL an advertiser controls is a request from
+ * every visitor’s browser to a third party, on nineteen surfaces including
+ * signed-out ones. That is a tracking pixel we installed on our own visitors
+ * on somebody else’s behalf. It is also mutable after the fact: the picture
+ * approved during review and the picture shown a week later need not be the
+ * same picture, and nothing on our side would know.
+ *
+ * So the server fetches it once, checks it, stores its own copy, and the
+ * advertisement carries our URL. Same reasoning as vendor product photography,
+ * and the same code — `outboundGuard` for the fetch, the bytes sniffed rather
+ * than the Content-Type believed, and SVG refused because it is a document
+ * that can carry script.
+ *
+ * Its own bucket, because an advertiser is not a vendor and a purge applied to
+ * one must not take the other with it.
+ */
+/**
+ * Whatever address was given, return one we host.
+ *
+ * Without this the upload route is advisory: an advertiser could skip it and
+ * post any address straight into `imageUrl`, and the marquee would put a
+ * request to their server into every visitor’s browser on nineteen surfaces.
+ *
+ * A copy we already hold is returned untouched — re-mirroring on every save
+ * would make a new file each time somebody corrected a typo in the headline.
+ * An address we cannot take becomes no image rather than a stored foreign
+ * URL: an advertisement without a picture is a small loss, and serving one
+ * from an address we never checked is not.
+ */
+async function ourImageUrl(email: string, url: string): Promise<string> {
+  if (!url || isOurCopy(url)) return url;
+  const namespace = String(email || "").replace(/[^a-z0-9]+/gi, "_").slice(0, 80) || "unknown";
+  const { image, error } = await mirrorVendorImage(namespace, url, AD_IMAGE_BUCKET);
+  if (!image) {
+    console.warn(`[Ads] image not mirrored for ${email}: ${error}`);
+    return "";
+  }
+  return image.url;
+}
+
+advertisingRouter.post("/advertising/images", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const sourceUrl = String(body.sourceUrl || "").trim();
+    if (!sourceUrl) return c.json({ success: false, error: "Give the address of the image." }, 400);
+
+    /**
+     * Namespaced by the advertiser, so one account’s upload can never land in
+     * another’s folder. Their email rather than anything they sent us.
+     */
+    const namespace = who.email.replace(/[^a-z0-9]+/gi, "_").slice(0, 80) || "unknown";
+
+    const { image, error } = await mirrorVendorImage(namespace, sourceUrl, AD_IMAGE_BUCKET);
+    if (!image) return c.json({ success: false, error: error || "That image could not be taken." }, 422);
+
+    return c.json({ success: true, imageUrl: image.url, bytes: image.bytes, mime: image.mime });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "That image could not be taken." }, 500);
+  }
+});
+
 advertisingRouter.get("/advertising/review", async (c) => {
   const who = await actor(c);
   if (!who) return c.json({ success: false, error: "Sign in first." }, 401);

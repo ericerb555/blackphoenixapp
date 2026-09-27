@@ -54,15 +54,23 @@ const BUCKET = "vendor-product-images";
 /** Per image. Product photography that will not fit in this is not a photograph. */
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-let bucketReady: Promise<void> | null = null;
+/**
+ * One promise per bucket.
+ *
+ * Advertisement artwork lives apart from vendor product photography for the
+ * same reason product photography lives apart from staff-uploaded brand
+ * assets: they arrive from different people by different routes, and a policy
+ * or a purge applied to one must not surprise the other.
+ */
+const bucketReady = new Map<string, Promise<void>>();
 /** Create the bucket on first use, not at import — cold starts pay for that. */
-function ensureBucket(): Promise<void> {
-  if (!bucketReady) {
-    bucketReady = (async () => {
+function ensureBucket(bucket: string = BUCKET): Promise<void> {
+  if (!bucketReady.has(bucket)) {
+    bucketReady.set(bucket, (async () => {
       try {
         const { data } = await admin.storage.listBuckets();
-        if (data?.some((b) => b.name === BUCKET)) return;
-        const { error } = await admin.storage.createBucket(BUCKET, {
+        if (data?.some((b) => b.name === bucket)) return;
+        const { error } = await admin.storage.createBucket(bucket, {
           public: true,
           fileSizeLimit: MAX_IMAGE_BYTES,
           allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
@@ -70,13 +78,16 @@ function ensureBucket(): Promise<void> {
         // A 409 means somebody else created it first, which is not a failure.
         if (error && !/exist/i.test(error.message)) throw error;
       } catch (err) {
-        bucketReady = null; // let the next attempt retry
+        bucketReady.delete(bucket); // let the next attempt retry
         throw err;
       }
-    })();
+    })());
   }
-  return bucketReady;
+  return bucketReady.get(bucket)!;
 }
+
+/** Where advertisement artwork is kept. */
+export const AD_IMAGE_BUCKET = "ad-images";
 
 export interface MirroredImage {
   /** The public URL of our copy — this is what gets stored and displayed. */
@@ -100,6 +111,11 @@ export interface MirroredImage {
 export async function mirrorVendorImage(
   vendorId: string,
   sourceUrl: string,
+  /**
+   * Which bucket to keep it in. Defaults to vendor product photography, so
+   * every existing caller is unchanged; advertisement artwork passes its own.
+   */
+  bucket: string = BUCKET,
 ): Promise<{ image?: MirroredImage; error?: string }> {
   const url = String(sourceUrl || "").trim();
   if (!url) return { error: "No image address." };
@@ -121,18 +137,18 @@ export async function mirrorVendorImage(
     };
   }
 
-  await ensureBucket();
+  await ensureBucket(bucket);
 
   // Namespaced by vendor so one vendor's import can never overwrite another's
   // file, and a random name so a guessable path cannot be used to replace one.
   const path = `${vendorId}/${crypto.randomUUID()}.${kind.ext}`;
-  const { error } = await admin.storage.from(BUCKET).upload(path, res.bytes, {
+  const { error } = await admin.storage.from(bucket).upload(path, res.bytes, {
     contentType: kind.mime,
     upsert: false,
   });
   if (error) return { error: error.message || "Could not store that image." };
 
-  const { data } = admin.storage.from(BUCKET).getPublicUrl(path);
+  const { data } = admin.storage.from(bucket).getPublicUrl(path);
   return {
     image: {
       url: data.publicUrl,
