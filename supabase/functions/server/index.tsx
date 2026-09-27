@@ -10510,6 +10510,49 @@ app.post('/make-server-3eae23a6/social/approve-reel/:id', async (c) => {
   }
 });
 
+/**
+ * POST /social/reject-reel/:id — refuse a submission.
+ *
+ * There was only an approve route, so anything not wanted stayed in the queue
+ * for good: the only ways out were to publish it or to leave it sitting there
+ * among the things still waiting. A queue that can only be emptied by saying
+ * yes stops being a queue.
+ *
+ * The refusal is kept rather than the row simply deleted, so the submitter can
+ * be told why and does not resubmit the same thing.
+ */
+app.post('/make-server-3eae23a6/social/reject-reel/:id', async (c) => {
+  try {
+    const token = c.req.header('Authorization')?.replace('Bearer ', '') || '';
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!await intakeIsAdmin(user)) return c.json({ error: 'Administrator access is required.' }, 403);
+
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    const pending = (await kv.get('pending_reels') as any[]) || [];
+    const item = pending.find((p: any) => p.id === id);
+    if (!item) return c.json({ error: 'Submission not found' }, 404);
+
+    const now = new Date().toISOString();
+    const rejected = (await kv.get('rejected_reels') as any[]) || [];
+    rejected.unshift({
+      ...item,
+      status: 'rejected',
+      approvalNote: String(body.note || '').slice(0, 400),
+      decidedBy: user.email,
+      decidedAt: now,
+    });
+    await kv.set('rejected_reels', rejected.slice(0, 100));
+    await kv.set('pending_reels', pending.filter((p: any) => p.id !== id));
+
+    console.log(`[Reject Reel] "${item.title}" from ${item.submitterName} by ${user.email}`);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ── AI FLOOR PLAN & LAYOUT GENERATION ────────────────────────────────────────
 // Called automatically when a work request enters the pipeline for the first time.
 // Generates floor plan / layout from:

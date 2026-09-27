@@ -1,4 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
+import ReviewQueuePanel from '../owner/ReviewQueuePanel';
 import InvestmentTab from './InvestmentTab';
 /**
  * Admin Portal - Platform Owner Dashboard
@@ -63,7 +64,7 @@ interface AdminPortalViewProps {
 
 export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
   const { session } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'sent-invites' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'documents' | 'guide'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create-portal' | 'sent-invites' | 'dispatch' | 'plans' | 'alerts' | 'customer-service' | 'employee-support' | 'investments' | 'documents' | 'guide' | 'review-queue'>('overview');
 
   /**
    * ── Dispatch Center ──────────────────────────────────────────────────────
@@ -475,6 +476,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               { id: 'dispatch', label: 'Dispatch Center', icon: ClipboardList, badge: workOrders.filter(w => w.status === 'unassigned').length },
               { id: 'plans', label: 'Maintenance Plans', icon: Wrench },
               { id: 'alerts', label: 'System Alerts', icon: Bell },
+              { id: 'review-queue', label: 'Waiting for Approval', icon: CheckCircle },
               { id: 'customer-service', label: 'Customer Service', icon: MessageSquare },
               { id: 'employee-support', label: 'Employee Support', icon: HeadphonesIcon },
               { id: 'investments', label: 'Investments', icon: DollarSign },
@@ -513,6 +515,8 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'plans' && <PlansRecordsPanel />}
 
         {/* Overview Tab */}
+        {/* Tenant submissions, invisible to everybody until accepted here. */}
+        {activeTab === 'review-queue' && <ReviewQueuePanel />}
         {activeTab === 'guide' && <PortalFeatureGuide portal="admin" />}
 
         {activeTab === 'investments' && <InvestmentTab portalType="admin" />}

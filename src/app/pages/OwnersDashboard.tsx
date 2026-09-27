@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import RoleManagementSystem from '../components/RoleManagementSystem';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
+import ReviewQueuePanel from '../components/owner/ReviewQueuePanel';
 import SimpleCompanyManager from '../components/SimpleCompanyManager';
 import GiftHoursModal from '../components/GiftHoursModal';
 import OwnerGiftManagement from '../components/OwnerGiftManagement';
@@ -70,7 +71,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -426,6 +427,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'companies' as MainTab, label: 'Companies', icon: Building2, badge: companies.length },
     { id: 'roles' as MainTab, label: 'Roles & Permissions', icon: Key },
     { id: 'alerts' as MainTab, label: 'Admin Alerts', icon: Bell, badge: '3' },
+    { id: 'review-queue' as MainTab, label: 'Waiting for Approval', icon: CheckCircle },
     { id: 'notifications' as MainTab, label: 'Notification Recipients', icon: Mail },
     { id: 'transfers' as MainTab, label: 'Transfer Approvals', icon: RefreshCw },
     { id: 'users' as MainTab, label: 'User Management', icon: Users },
@@ -710,6 +712,16 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             together and answering one without the others is misleading. */}
         {activeTab === 'plans' && <PlanTierAdmin />}
         {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
+
+        {/*
+          Reels, advertisements and offers submitted by tenants. None of them
+          is visible to anybody until it is accepted here.
+        */}
+        {activeTab === 'review-queue' && (
+          <div className="space-y-5">
+            <ReviewQueuePanel />
+          </div>
+        )}
 
         {activeTab === 'alerts' && (
           <div className="space-y-6">
