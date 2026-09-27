@@ -14,6 +14,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 
 export const contentStudioRouter = new Hono();
 
@@ -211,6 +212,42 @@ function brandContext(b: any): string {
 // ---------------------------------------------------------------------------
 // Brand Kit
 // ---------------------------------------------------------------------------
+/**
+ * Count what a request is about to spend, and say no when it is too much.
+ *
+ * WHY THIS WAS MISSING AND WHY IT MATTERS
+ *
+ * Nothing in this module identified the caller. Every route here calls a
+ * model — several call an image model, which is cents a time rather than
+ * fractions of one — and none of them was counted against anything. A loop in
+ * a client, or one enthusiastic subscriber, was an invoice nobody saw coming.
+ *
+ * `aiSpend` already existed with a per-account ceiling and a per-account
+ * override, so this is wiring rather than invention.
+ *
+ * Staff are exempt inside `reserve`, so the company’s own use of its own
+ * content centre is not rationed.
+ */
+async function meterAi(c: any, n = 1, noun = "generations"): Promise<{
+  user: any;
+  refuse: { error: string; used: number; limit: number } | null;
+}> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearers+/i, "");
+  let user: any = null;
+  try {
+    const { data } = await reelServiceClient().auth.getUser(token);
+    user = data?.user || null;
+  } catch {
+    /* an unreadable token resolves to nobody, which `reserve` refuses */
+  }
+  return { user, refuse: await reserveAiSpend(user, "ai", n, noun) };
+}
+
+/** Give back what was reserved when the work did not happen. */
+async function unmeterAi(user: any, n = 1): Promise<void> {
+  try { await refundAiSpend(user, "ai", n); } catch { /* never fail a response over this */ }
+}
+
 contentStudioRouter.get("/content-studio/brand-kit", async (c) => {
   try {
     const brand = await loadBrand();
@@ -248,6 +285,9 @@ const CHANNEL_SPEC: Record<string, string> = {
 };
 
 contentStudioRouter.post("/content-studio/repurpose", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 1, "rewrites");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const source = String(body.source || "").trim();
@@ -278,6 +318,8 @@ contentStudioRouter.post("/content-studio/repurpose", async (c) => {
     await kv.set(`${PACK_PREFIX}${pack.id}`, pack);
     return c.json({ success: true, pack });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 1);
     console.log(`[Content Studio] repurpose error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
@@ -309,6 +351,9 @@ contentStudioRouter.delete("/content-studio/packs/:pid", async (c) => {
 // Body: { goal, days?, channels? }
 // ---------------------------------------------------------------------------
 contentStudioRouter.post("/content-studio/plan", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 1, "plans");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const goal = String(body.goal || "").trim();
@@ -345,6 +390,8 @@ contentStudioRouter.post("/content-studio/plan", async (c) => {
     await kv.set(PLAN_KEY, JSON.stringify(plan));
     return c.json({ success: true, plan });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 1);
     console.log(`[Content Studio] plan error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
@@ -390,6 +437,9 @@ const PLATFORM_SPEC: Record<string, string> = {
 };
 
 contentStudioRouter.post("/content-studio/compose", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 1, "drafts");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const topic = String(body.topic || body.brief || "").trim();
@@ -443,6 +493,8 @@ contentStudioRouter.post("/content-studio/compose", async (c) => {
       usedBrandKit: Boolean(brandVoice),
     });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 1);
     console.log("[Content Studio] compose error:", error);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
@@ -456,6 +508,9 @@ contentStudioRouter.post("/content-studio/compose", async (c) => {
 //         platform, brief?, reference? }
 // ---------------------------------------------------------------------------
 contentStudioRouter.post("/content-studio/recreate-script", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 1, "scripts");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const productName = String(body.productName || "").trim();
@@ -518,6 +573,8 @@ contentStudioRouter.post("/content-studio/recreate-script", async (c) => {
       usedBrandKit: Boolean(brandVoice),
     });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 1);
     console.log("[Content Studio] recreate-script error:", error);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
@@ -551,6 +608,9 @@ contentStudioRouter.post("/content-studio/recreate-script", async (c) => {
 const PACKAGE_MAX_VARIANTS = 5;
 
 contentStudioRouter.post("/content-studio/package", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 2, "packages");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const topic = String(body.topic || body.brief || "").trim();
@@ -750,6 +810,22 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
       }
     }
 
+    /**
+     * Keep the bytes and hand back an address.
+     *
+     * A failure to store is reported as an image error rather than losing the
+     * whole package: the copy is the expensive part and it is already written.
+     */
+    let imageUrl: string | null = null;
+    if (imageBase64) {
+      imageUrl = await putReelAsset(
+        Uint8Array.from(atob(imageBase64), (ch) => ch.charCodeAt(0)),
+        "png",
+        "image/png",
+      );
+      if (!imageUrl) imageError = imageError || "The image was generated but could not be stored.";
+    }
+
     return c.json({
       success: true,
       topic,
@@ -764,10 +840,25 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
         keywords: Array.isArray(seo.keywords) ? seo.keywords.map((k: any) => String(k)) : [],
       },
       imagePrompt,
-      image: imageBase64 ? `data:image/png;base64,${imageBase64}` : null,
+      /**
+       * An address, not the picture itself.
+       *
+       * This returned `data:image/png;base64,...` — roughly two megabytes of
+       * text in a JSON response, which the caller then had to put somewhere.
+       * Anywhere it landed was wrong: a data URL in the key-value store bloats
+       * every read of that record, and in browser storage it walks the whole
+       * account toward the five-megabyte ceiling. `imageStorage.ts` exists
+       * entirely to undo this after the fact.
+       *
+       * Stored server-side now, the same way the reel beats already were, so
+       * what travels is a URL.
+       */
+      image: imageUrl,
       imageError,
     });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 2);
     console.log(`[Content Studio] package error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
@@ -936,6 +1027,9 @@ async function drawBeat(prompt: string): Promise<string | null> {
  * decisions to make.
  */
 contentStudioRouter.post("/content-studio/reel/storyboard", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 4, "storyboards");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({} as any));
     const beats = Array.isArray(body?.beats) ? body.beats : [];
@@ -1016,11 +1110,16 @@ contentStudioRouter.post("/content-studio/reel/storyboard", async (c) => {
         : null,
     });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 4);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
 });
 
 contentStudioRouter.post("/content-studio/reel", async (c) => {
+  // Counted before the model is called, refunded below if it produces nothing.
+  const { user: aiUser, refuse } = await meterAi(c, 4, "reels");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
   try {
     const body = await c.req.json().catch(() => ({}));
     const subject = String(body.subject || body.productName || body.topic || "").trim();
@@ -1165,6 +1264,8 @@ contentStudioRouter.post("/content-studio/reel", async (c) => {
         : [],
     });
   } catch (error) {
+    // Nothing was produced, so nothing is charged for.
+    await unmeterAi(aiUser, 4);
     console.log(`[Content Studio] reel error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
