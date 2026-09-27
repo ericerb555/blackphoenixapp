@@ -286,6 +286,9 @@ export default function UnifiedProjectPipeline() {
   const [loadProblem, setLoadProblem] = useState<null | { kind: 'no-access' | 'signed-out' | 'failed'; detail: string }>(null);
   const [viewerEmail, setViewerEmail] = useState<string>('');
 
+  /** How the job list is ordered. Age first, because age is what goes wrong. */
+  const [sortBy, setSortBy] = useState<'age' | 'value' | 'customer'>('age');
+
   /** Which attention flag the board is filtered to, if any. */
   const [filterFlag, setFilterFlag] = useState<string | null>(null);
 
@@ -1611,408 +1614,216 @@ export default function UnifiedProjectPipeline() {
           </div>
         </div>
       ) : (
-        <div className="bp-grid flex gap-4 overflow-x-auto rounded-2xl border border-white/5 p-4 pb-5 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
-          {/*
-            Focused on one stage, that column is the board and takes the width.
-            Otherwise all of them, side by side, as before.
-          */}
-          {pipelineStages.filter((col) => filterStage === 'all' || col.stage === filterStage)
-            .map(({ stage, label, color, icon: Icon }) => {
-            const stageItems = getItemsForStage(stage);
-            const totalValue = getTotalValue(stageItems);
-            const look = lookFor(stage);
+        <div className="bp-grid grid grid-cols-1 gap-4 rounded-2xl border border-white/5 p-4 lg:grid-cols-[190px_minmax(0,1fr)_320px]">
 
-            return (
-              <div
-                key={stage}
-                className={filterStage === stage ? 'relative z-10 w-full' : 'relative z-10 flex-shrink-0 w-[340px]'}
+          {/* ── stages ─────────────────────────────────────────────── */}
+          <aside className="relative z-10 rounded-xl border border-white/10 bg-white/[0.03] p-2 backdrop-blur-md">
+            <p className="px-2 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Stages</p>
+            {pipelineStages.map(({ stage, label, icon: Icon }) => {
+              const count = items.filter((i) => i.stage === stage).length;
+              const look = lookFor(stage);
+              const on = filterStage === stage;
+              return (
+                <button
+                  key={stage}
+                  type="button"
+                  onClick={() => setFilterStage(on ? 'all' : stage)}
+                  className={`mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
+                    on ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5'
+                  }`}
+                >
+                  <span className={`h-6 w-0.5 rounded-full ${count ? look.spine : 'bg-white/10'}`} />
+                  <Icon className={`h-4 w-4 ${count ? look.text : 'text-gray-600'}`} />
+                  <span className="flex-1 truncate text-xs font-semibold uppercase tracking-wider">{label}</span>
+                  <span className={`tabular-nums text-xs font-bold ${count ? look.text : 'text-gray-600'}`}>{count}</span>
+                </button>
+              );
+            })}
+            {filterStage !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setFilterStage('all')}
+                className="mt-2 w-full rounded-lg border border-white/10 px-2.5 py-2 text-xs font-semibold text-gray-300 hover:bg-white/5"
               >
-              {/* Column header — a HUD panel with the stage colour on its edge. */}
-              <div className="relative mb-3 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-md">
-                <div className={`absolute inset-x-0 top-0 h-px ${look.spine}`} />
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-black/40 ${look.text}`}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-white">{label}</h3>
-                      <p className="text-[11px] tabular-nums text-gray-500">
-                        {stageItems.length} project{stageItems.length !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`rounded-md border px-2 py-0.5 text-xs font-bold tabular-nums ${look.chip}`}>
-                    {stageItems.length}
-                  </span>
-                </div>
-                <div className="mt-3 flex items-baseline justify-between border-t border-white/5 pt-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500">Value</span>
-                  <span className={`text-base font-bold tabular-nums ${look.text}`}>
-                    ${totalValue.toLocaleString()}
-                  </span>
-                </div>
-              </div>
+                All stages
+              </button>
+            )}
+          </aside>
 
-              {/* Cards Container */}
-              <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-2">
-                {stageItems.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.015] py-12 text-center backdrop-blur-sm">
-                    <Icon className="mx-auto mb-3 h-10 w-10 text-gray-700" />
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-600">Empty</p>
-                  </div>
-                ) : (
-                  stageItems.map((item) => {
-                    return (
-                      <div
-                        key={item.id}
-                        className={`bp-card relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.035] backdrop-blur-md hover:border-white/25 ${look.glow}`}
-                      >
-                        <div className={`absolute inset-y-0 left-0 w-0.5 ${look.spine}`} />
-                        {/*
-                          Why this card is flagged, in words somebody can act on.
-                          Worst first — `attentionFor` sorts them.
-                        */}
-                        {(attentionByItem.get(item.id) || []).slice(0, 2).map((flag) => (
-                          <div
-                            key={flag.id}
-                            className={`flex items-start gap-1.5 px-3 py-1.5 text-[11px] font-medium ${
-                              flag.severity === 'urgent'
-                                ? 'bg-red-500/15 text-red-300'
-                                : 'bg-amber-500/10 text-amber-200'
-                            }`}
-                          >
-                            <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                            <span>{flag.reason}</span>
-                          </div>
-                        ))}
-
-                        {/* Card Header */}
-                        <div className="p-3">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs font-mono text-[#ea580c]">{item.itemNumber}</span>
-                                {(item as any).source && (
-                                  <span
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border"
-                                    style={
-                                      (item as any).source === 'camera'
-                                        ? { background: 'rgba(234,88,12,0.15)', borderColor: 'rgba(234,88,12,0.4)', color: '#fb923c' }
-                                        : (item as any).source === 'design-studio'
-                                        ? { background: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.4)', color: '#60a5fa' }
-                                        : { background: 'rgba(148,163,184,0.15)', borderColor: 'rgba(148,163,184,0.4)', color: '#94a3b8' }
-                                    }
-                                    title={`Source: ${(item as any).source}`}
-                                  >
-                                    {(item as any).source === 'camera' ? (
-                                      <><Camera className="w-2.5 h-2.5" /> Camera</>
-                                    ) : (item as any).source === 'design-studio' ? (
-                                      <><PenTool className="w-2.5 h-2.5" /> Design Studio</>
-                                    ) : (
-                                      (item as any).source
-                                    )}
-                                  </span>
-                                )}
-                              </div>
-                              <h4 className="font-bold text-white text-sm mb-1 leading-tight">{item.title}</h4>
-                              <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">{item.description}</p>
-                            </div>
-                            <span className={`ml-2 flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold border ${getPriorityColor(item.priority)}`}>
-                              {item.priority.toUpperCase()}
-                            </span>
-                          </div>
-
-                          {/* Customer & Service Info */}
-                          <div className="space-y-1.5 mb-3 pb-3 border-b border-gray-800">
-                            <div className="flex items-center gap-2 text-sm">
-                              <User className="w-4 h-4 text-gray-500" />
-                              <span className="text-white font-medium">{item.customerName}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <Wrench className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-400">{item.serviceType}</span>
-                            </div>
-                            {item.location && (
-                              <div className="flex items-center gap-2 text-sm">
-                                <MapPin className="w-4 h-4 text-gray-500" />
-                                <span className="text-gray-400 truncate">{item.location}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Value */}
-                          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-2 mb-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-green-400 font-semibold uppercase">Value</span>
-                              <span className="text-lg font-bold text-green-400">
-                                ${(quoteTotal(item.quote) ?? item.estimatedValue).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Quote Info */}
-                          {item.quote && (
-                            <div className="flex items-center gap-2 mb-3 text-xs">
-                              <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400">
-                                <Package className="w-3 h-3" />
-                                {item.quote.materials?.length || 0} Materials
-                              </div>
-                              <div className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 border border-purple-500/30 rounded text-purple-400">
-                                <Wrench className="w-3 h-3" />
-                                {item.quote.labor?.length || 0} Labor Items
-                              </div>
-                              {/*
-                                The design has moved on since this quote was
-                                priced. Surfaced here as well as in the design
-                                centre, because this is the board somebody scans
-                                before ringing a customer — and the figure they
-                                would quote from is the one that is behind.
-                              */}
-                              {item.quote.designStale && (
-                                <div className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-amber-400">
-                                  <AlertCircle className="w-3 h-3" />
-                                  Design changed since quoting
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Media Indicators */}
-                          {item.submission && (item.submission.photos.length > 0 || item.submission.videos.length > 0 || item.submission.plans.length > 0) && (
-                            <div className="flex items-center gap-3 mb-4 text-xs">
-                              {item.submission.photos.length > 0 && (
-                                <span className="flex items-center gap-1 text-gray-500">
-                                  <Image className="w-3 h-3" />
-                                  {item.submission.photos.length} photos
-                                </span>
-                              )}
-                              {item.submission.videos.length > 0 && (
-                                <span className="flex items-center gap-1 text-gray-500">
-                                  <Video className="w-3 h-3" />
-                                  {item.submission.videos.length} videos
-                                </span>
-                              )}
-                              {item.submission.plans.length > 0 && (
-                                <span className="flex items-center gap-1 text-gray-500">
-                                  <FileCheck className="w-3 h-3" />
-                                  {item.submission.plans.length} plans
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Primary Action - ONE main action per stage */}
-                          <div className="space-y-2">
-
-                          {/* ── ALWAYS VISIBLE: Open split-screen quote + work request view ── */}
-                          <button
-                            onClick={() => handleEditQuote(item)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-orange-500 hover:to-orange-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-orange-500/20"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            📋 Build Quote + View Request
-                          </button>
-
-                          {/* Quote Draft Stage */}
-                          {stage === 'quote-draft' && (
-                            <>
-                              <button
-                                onClick={() => handleEditQuote(item)}
-                                className="hidden"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                                Edit Quote
-                              </button>
-                              <button
-                                onClick={() => handleSendQuote(item)}
-                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-black border border-gray-700 hover:border-purple-500 text-gray-300 hover:text-white rounded-lg text-xs font-semibold transition-all"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                Send to Customer
-                              </button>
-                            </>
-                          )}
-
-                          {/* Quote Sent Stage */}
-                          {stage === 'quote-sent' && (
-                            <>
-                              <div className="w-full px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg text-center">
-                                <div className="flex items-center justify-center gap-2 text-xs text-purple-400 font-semibold">
-                                  <Clock className="w-3.5 h-3.5" />
-                                  Waiting for Customer
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => handleSimulateQuoteApproval(item)}
-                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-emerald-600 hover:to-green-600 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                Simulate Approval
-                              </button>
-                            </>
-                          )}
-
-                          {/* Quote Approved Stage */}
-                          {stage === 'quote-approved' && (
-                            <button
-                              onClick={() => handleConvertToContract(item)}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-[#ea580c] to-orange-600 hover:from-orange-600 hover:to-[#ea580c] text-white rounded-lg text-xs font-bold transition-all shadow-lg"
-                            >
-                              <FileSignature className="w-3.5 h-3.5" />
-                              Create Contract
-                            </button>
-                          )}
-
-                          {/* Contract Stage */}
-                          {stage === 'contract' && (
-                            <button
-                              onClick={() => {
-                                  /**
-                                 * The QUOTE goes to the invoice, not the budget.
-                                 *
-                                 * This sent `estimatedValue`, the customer’s stated
-                                 * budget rather than a price — the same confusion the
-                                 * note at the top of this file describes, where a job
-                                 * quoted at $49,674.82 against a budget of $500,000
-                                 * read as $500,000. There it mis-reported a pipeline
-                                 * total. Here it would have invoiced it.
-                                 *
-                                 * Built by `quoteToInvoice` rather than inline, because
-                                 * what it decides — which lines carry sales tax, and what
-                                 * figure a customer is billed — could otherwise only be
-                                 * checked by clicking through the app signed in.
-                                 */
-                                const quoteLines = invoiceLinesFromQuote(item.quote as any);
-                                const projectData = {
-                                  id: item.id,
-                                  customerName: item.customerName,
-                                  customerEmail: item.customerEmail,
-                                  customerPhone: item.customerPhone,
-                                  location: item.location,
-                                  title: item.title,
-                                  description: item.description,
-                                  // The quoted price, falling back to the budget
-                                  // only when nothing has been quoted at all.
-                                  amount: invoiceAmountFromQuote(item.quote as any, item.estimatedValue),
-                                  quotedAmount: quoteTotal(item.quote),
-                                  taxRate: (item.quote as any)?.taxRate,
-                                  lineItems: quoteLines,
-                                  itemNumber: item.itemNumber
-                                };
-                                sessionStorage.setItem('pendingInvoiceData', JSON.stringify(projectData));
-                                sessionStorage.setItem('invoiceReturnTo', 'pipeline');
-                                navigate('/invoices?createNew=true');
-                                toast.success('Opening invoice creator...');
-                              }}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-blue-600 hover:to-cyan-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
-                            >
-                              <DollarSign className="w-3.5 h-3.5" />
-                              Create Invoice
-                            </button>
-                          )}
-
-                          {/* Contract Stage — also allow creating a standalone quote */}
-                          {stage === 'contract' && (
-                            <button
-                              onClick={() => handleEditQuote(item)}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-fuchsia-600 hover:from-fuchsia-600 hover:to-purple-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              Create Quote
-                            </button>
-                          )}
-
-                          {/* Invoice Stage */}
-                          {stage === 'invoice' && (
-                            <div className="w-full px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-center">
-                              <div className="flex items-center justify-center gap-2 text-xs text-green-400 font-semibold">
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                Awaiting Payment
-                              </div>
-                            </div>
-                          )}
-
-                          {/* 💬 Message Customer — right on the card */}
-                          <button
-                            onClick={async () => {
-                              setSelectedItem(item);
-                              setShowMessagePanel(true);
-                              // Notify customer their request was viewed
-                              if (item.customerEmail) {
-                                const { data: { session } } = await supabase.auth.getSession();
-                                const token = session?.access_token || publicAnonKey;
-                                fetch(
-                                  `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${item.id}/viewed`,
-                                  { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ adminName: 'Black Phoenix Team', customerEmail: item.customerEmail, customerName: item.customerName }) }
-                                ).catch(() => {});
-                              }
-                            }}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-500/20"
-                          >
-                            💬 Message Customer
-                          </button>
-
-                          {/* View Full Work Request — photos, videos, all form data */}
-                          {item.workRequest && (
-                            <button
-                              onClick={() => { setSelectedItem(item); setShowFullWorkRequest(true); }}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-orange-600/20 to-red-600/20 hover:from-orange-600/30 hover:to-red-600/30 border border-orange-500/40 text-orange-300 rounded-lg text-xs font-bold transition-all"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              View Full Request + Media
-                            </button>
-                          )}
-                          {/*
-                            Design this job.
-
-                            The other direction into the design centre. It used
-                            to open standalone and be attached to a customer
-                            afterwards, which meant retyping an address that was
-                            already on the work request — and it could not be
-                            attached to a job at all, because the route that
-                            listed a customer's jobs was reading a key nothing
-                            is stored under.
-
-                            Only ids travel in the link. The design centre fills
-                            in the job's wording and address from the customer's
-                            records, so there is one place that knows what a job
-                            is called.
-                          */}
-                          <button
-                            onClick={() => navigate(
-                              // The email rather than a customer id, because a
-                              // pipeline item carries the address it can reply
-                              // to and not the CRM's id for the person. The
-                              // design centre resolves one to the other against
-                              // the customer list it already loads.
-                              `/deck-designer?email=${encodeURIComponent(item.customerEmail || '')}&wr=${encodeURIComponent(item.id || '')}`,
-                            )}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-[#ea580c]/20 to-orange-600/20 hover:from-[#ea580c]/30 hover:to-orange-600/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg text-xs font-semibold transition"
-                          >
-                            <Hammer className="w-3.5 h-3.5" />
-                            Design this job
-                          </button>
-
-                          {/* Secondary Action - View Details */}
-                          <button
-                            onClick={() => handleViewProjectDetails(item)}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-black border border-gray-700 hover:border-gray-500 text-gray-400 hover:text-white rounded-lg text-xs font-medium transition-all"
-                          >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            View Details
-                          </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+          {/* ── the jobs ───────────────────────────────────────────── */}
+          <section className="relative z-10 min-w-0 rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-md">
+            <div className="flex flex-wrap items-center gap-3 border-b border-white/5 px-4 py-3">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-gray-300">
+                {filteredItems.length} job{filteredItems.length === 1 ? '' : 's'}
+              </span>
+              <span className="text-xs tabular-nums text-gray-500">
+                ${getTotalValue(filteredItems).toLocaleString()}
+              </span>
+              <div className="ml-auto flex items-center gap-1">
+                <span className="mr-1 text-[10px] uppercase tracking-wider text-gray-600">Sort</span>
+                {(['age', 'value', 'customer'] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSortBy(key)}
+                    className={`rounded-md px-2 py-1 text-[11px] font-semibold capitalize transition ${
+                      sortBy === key ? 'bg-white/15 text-white' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {key}
+                  </button>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
+
+            {/* Column headings, so a row is readable without guessing. */}
+            <div className="hidden grid-cols-[92px_minmax(0,1fr)_96px_64px] gap-3 border-b border-white/5 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-600 sm:grid">
+              <span>Ref</span><span>Customer / job</span><span className="text-right">Value</span><span className="text-right">Age</span>
+            </div>
+
+            <div className="max-h-[calc(100vh-330px)] overflow-y-auto">
+              {filteredItems.length === 0 ? (
+                <p className="px-4 py-14 text-center text-sm text-gray-500">Nothing matches that filter.</p>
+              ) : (
+                [...filteredItems]
+                  .sort((a, b) => {
+                    if (sortBy === 'value') return (quoteTotal(b.quote) ?? b.estimatedValue ?? 0) - (quoteTotal(a.quote) ?? a.estimatedValue ?? 0);
+                    if (sortBy === 'customer') return String(a.customerName || '').localeCompare(String(b.customerName || ''));
+                    // Oldest first: the point of this screen is what has been waiting.
+                    return new Date(a.createdDate || 0).getTime() - new Date(b.createdDate || 0).getTime();
+                  })
+                  .map((item) => {
+                    const look = lookFor(item.stage);
+                    const flags = attentionByItem.get(item.id) || [];
+                    const worst = flags[0];
+                    const days = Math.max(0, Math.floor((Date.now() - new Date(item.createdDate || Date.now()).getTime()) / 86400000));
+                    const chosen = selectedItem?.id === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedItem(item)}
+                        className={`grid w-full grid-cols-[92px_minmax(0,1fr)_96px_64px] items-center gap-3 border-b border-white/5 px-4 py-2.5 text-left transition hover:bg-white/5 ${
+                          chosen ? 'bg-white/10' : ''
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <span className={`h-5 w-0.5 shrink-0 rounded-full ${look.spine}`} />
+                          <span className="truncate font-mono text-[11px] text-gray-400">{item.itemNumber}</span>
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">{item.customerName}</span>
+                          <span className="flex items-center gap-2 truncate text-[11px] text-gray-500">
+                            {item.title}
+                            {worst && (
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${worst.severity === 'urgent' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                                {worst.label}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        <span className={`text-right text-sm font-bold tabular-nums ${look.text}`}>
+                          {quoteTotal(item.quote) != null ? `$${(quoteTotal(item.quote) as number).toLocaleString()}` : '—'}
+                        </span>
+                        <span className={`text-right text-xs tabular-nums ${days > 30 ? 'text-red-400' : 'text-gray-500'}`}>{days}d</span>
+                      </button>
+                    );
+                  })
+              )}
+            </div>
+          </section>
+
+          {/* ── the selected job ───────────────────────────────────── */}
+          <aside className="relative z-10 rounded-xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-md">
+            {!selectedItem ? (
+              <p className="py-16 text-center text-xs uppercase tracking-[0.16em] text-gray-600">Select a job</p>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <p className="font-mono text-[11px] text-gray-500">{selectedItem.itemNumber}</p>
+                  <h3 className="mt-1 text-lg font-bold leading-tight text-white">{selectedItem.customerName}</h3>
+                  <p className="text-sm text-gray-400">{selectedItem.title}</p>
+                </div>
+
+                <div className={`rounded-lg border px-3 py-2 ${lookFor(selectedItem.stage).chip}`}>
+                  <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">Stage</p>
+                  <p className="text-sm font-bold">{pipelineStages.find((c) => c.stage === selectedItem.stage)?.label || selectedItem.stage}</p>
+                </div>
+
+                <dl className="space-y-1.5 text-sm">
+                  <div className="flex justify-between"><dt className="text-gray-500">Quoted</dt>
+                    <dd className="font-bold tabular-nums text-white">{quoteTotal(selectedItem.quote) != null ? `$${(quoteTotal(selectedItem.quote) as number).toLocaleString()}` : 'Not quoted'}</dd></div>
+                  <div className="flex justify-between"><dt className="text-gray-500">Their budget</dt>
+                    <dd className="tabular-nums text-gray-300">{selectedItem.estimatedValue ? `$${Number(selectedItem.estimatedValue).toLocaleString()}` : '—'}</dd></div>
+                  <div className="flex justify-between"><dt className="text-gray-500">Owner</dt>
+                    <dd className={selectedItem.assignedTo ? 'text-gray-300' : 'text-amber-400'}>{selectedItem.assignedTo || 'Nobody'}</dd></div>
+                  <div className="flex justify-between"><dt className="text-gray-500">Raised</dt>
+                    <dd className="text-gray-300">{selectedItem.createdDate ? new Date(selectedItem.createdDate).toLocaleDateString() : '—'}</dd></div>
+                </dl>
+
+                {(attentionByItem.get(selectedItem.id) || []).map((flag) => (
+                  <p key={flag.id} className={`rounded-lg px-3 py-2 text-xs leading-5 ${flag.severity === 'urgent' ? 'bg-red-500/10 text-red-300' : 'bg-amber-500/10 text-amber-200'}`}>
+                    {flag.reason}
+                  </p>
+                ))}
+
+                {/* The same actions the cards carried, against the same handlers. */}
+                <div className="space-y-2 border-t border-white/5 pt-3">
+                  <button type="button" onClick={() => handleEditQuote(selectedItem)}
+                    className="w-full rounded-lg bg-[#ea580c] px-3 py-2 text-sm font-bold text-white transition hover:bg-orange-600">
+                    {selectedItem.quote ? 'Open quote' : 'Build quote'}
+                  </button>
+                  {selectedItem.stage === 'quote-approved' && selectedItem.quote && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = selectedItem;
+                        /**
+                         * The QUOTE goes to the invoice, not the budget.
+                         *
+                         * `estimatedValue` is what the customer said they could
+                         * spend. Invoicing it would bill a number nobody agreed
+                         * to — a job quoted at $4,632 against a budget of half a
+                         * million would go out as half a million.
+                         */
+                        const quoteLines = invoiceLinesFromQuote(item.quote as any);
+                        const projectData = {
+                          id: item.id,
+                          customerName: item.customerName,
+                          customerEmail: item.customerEmail,
+                          customerPhone: item.customerPhone,
+                          location: item.location,
+                          title: item.title,
+                          description: item.description,
+                          amount: invoiceAmountFromQuote(item.quote as any, item.estimatedValue),
+                          quotedAmount: quoteTotal(item.quote),
+                          taxRate: (item.quote as any)?.taxRate,
+                          lineItems: quoteLines,
+                          itemNumber: item.itemNumber,
+                        };
+                        sessionStorage.setItem('pendingInvoiceData', JSON.stringify(projectData));
+                        sessionStorage.setItem('invoiceReturnTo', 'pipeline');
+                        navigate('/invoices?createNew=true');
+                        toast.success('Opening invoice creator...');
+                      }}
+                      className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-3 py-2 text-sm font-bold text-white transition hover:from-blue-600 hover:to-cyan-500"
+                    >
+                      Create invoice
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setSelectedItem(selectedItem); setShowProjectDetails(true); }}
+                    className="w-full rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-gray-200 transition hover:bg-white/5">
+                    Full details
+                  </button>
+                  <button type="button" onClick={() => { setSelectedItem(selectedItem); setShowMessagePanel(true); }}
+                    className="w-full rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-gray-200 transition hover:bg-white/5">
+                    Messages
+                  </button>
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
     )}
 
       {/* Quote Editor Modal */}
