@@ -12312,12 +12312,20 @@ app.get('/make-server-3eae23a6/gift-cards/:code', async (c) => {
  * this is the manual path — somebody at the desk applying a card to an invoice.
  *
  * It was open to any signed-in account holding a code, and it moves money: it
- * decrements a balance and writes a redemption. It also reads the balance and
- * then writes it back, which is not atomic (see the note in the todo file), so
- * two simultaneous calls with different redemption ids can both pass the check
- * and spend the same balance twice. Restricting it to staff does not fix that
- * arithmetic — it removes customers from the set of people who can trigger it,
- * which is the part that mattered while the route sat unused and open.
+ * decrements a balance and writes a redemption.
+ *
+ * THE RACE THIS USED TO DESCRIBE IS CLOSED
+ *
+ * This note used to say the route read the balance and wrote it back, so two
+ * simultaneous calls could spend the same money twice. That was true when it
+ * was written and is no longer: the debit goes through `debitGiftCard`, which
+ * calls the `gift_card_debit` Postgres function, so the decrement happens
+ * inside the database and exactly one caller can win. A debit that cannot be
+ * proved returns null and is refused rather than reported as a success.
+ *
+ * The comment is corrected rather than deleted because it cost real time: it
+ * was read as a live hole and a lock was most of the way built to fix
+ * something already fixed. A stale comment about money is worse than none.
  */
 app.post('/make-server-3eae23a6/gift-cards/:code/redeem', async (c) => {
   try {
