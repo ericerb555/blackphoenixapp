@@ -1,3 +1,49 @@
+# Rates that correct themselves from finished jobs (27 Sep)
+
+Eric: *"yes make it auto adjust the rates i havent set."*
+
+**What was already there.** `jobOutcome.ts` measures every paid job — labour from
+timesheet allocations times each employee's own pay rate, materials from
+purchase orders on the job (whose total is what we pay the vendor, confirmed) —
+and groups variance by trade. It carried a comment saying it was tested. It was
+not. 26 tests added; the rule they guard hardest is that unknown is not zero.
+
+**What is new.** `rateLearning.ts` (22 tests) turns that variance into corrected
+production rates:
+
+- A rate marked `yours` is never moved. Those are offered with their evidence.
+- A book figure nobody chose is corrected without being asked.
+- The same evidence never corrects twice. 18% applied repeatedly compounds, and
+  a few passes of that prices the company out of its own market, so each
+  correction records what it came from and is skipped while that has not moved.
+- Every correction records the previous figure and can be put back.
+
+Three stores, deliberately not one: `labor_tasks:catalogue` (book figures, only
+an administrator publishes), `labor_tasks:global` (his edits, written by the
+editor), `labor_tasks:measured` (written only by the loop). The editor saves
+only the tasks marked `yours`, so a measured rate living in that store would be
+dropped by the next save.
+
+Routes, all administrator-only, reading the catalogue from the server and never
+from the request — a browser that could post its own catalogue could have a
+correction computed from a number it invented, or mark a rate as somebody's own
+to stop it ever being corrected.
+
+New screen at `/quoting-accuracy`, which is the first thing ever to consume this
+data — `/work-orders/quoting-accuracy` had zero callers.
+
+## The gap, named rather than left to be found
+
+**Nothing quotes from `laborTasks` yet.** The catalogue feeds its own editor and
+nothing else. `quote-from-blueprint.tsx` says so in its own header and prices
+from hand-typed multipliers. So corrected rates are correct and currently change
+no quote. Wiring quoting to read `/labor-tasks/resolved` is the next task and
+the one that makes all of this pay.
+
+Typecheck 317 app / 84 server (both baseline), 576 tests pass.
+
+---
+
 # Search and attach — done (27 Sep)
 
 Two panels, one endpoint.

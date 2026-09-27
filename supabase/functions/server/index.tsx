@@ -35,6 +35,7 @@ import hourTransfersRouter from "./hour-transfers.tsx";
 import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
+import rateLearningRouter from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
@@ -904,6 +905,7 @@ app.use('/make-server-3eae23a6/invoice-attachables', async (c, next) => {
   await next();
 });
 app.route("/", invoiceAttachablesRouter);
+app.route("/", rateLearningRouter);
 app.route("/", quotesRouter);
 app.route("/", deliverablesRouter);
 // Existing design/vision modules were present but unreachable from the deployed function.

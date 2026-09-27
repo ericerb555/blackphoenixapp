@@ -183,6 +183,7 @@ const InvestmentCalculator = lazy(() => import("./pages/InvestmentCalculator"));
 const AdminPortalView = lazy(() => import("./components/portals/AdminPortalView"));
 const TerritoryPortalView = lazy(() => import("./components/portals/TerritoryPortalView"));
 const WorkOrderCompletionReports = lazy(() => import("./pages/WorkOrderCompletionReports"));
+const QuotingAccuracy = lazy(() => import("./pages/QuotingAccuracy"));
 const Messaging = lazy(() => import("./pages/Messaging"));
 const LiveChatManager = lazy(() => import("./pages/LiveChatManager"));
 const PhotoImporter = lazy(() => import("./pages/PhotoImporter"));
@@ -498,6 +499,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "job-financial-tracker":      JobFinancialTracker,
   "work-order-completion-reports": WorkOrderCompletionReports,
   "completion-reports":         WorkOrderCompletionReports,
+  "quoting-accuracy":           QuotingAccuracy,
+  "rate-learning":              QuotingAccuracy,
   "customer-docs":              CustomerDocs,
   "customer-documents":         CustomerDocs,
   "reports":                    EnterpriseReporting,

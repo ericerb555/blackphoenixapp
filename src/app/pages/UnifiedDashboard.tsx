@@ -501,6 +501,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Referrals', path: '/revenue-monetization-hub', tab: 'referrals', icon: Award, color: 'yellow', description: 'Referral program' },
         { label: 'Financial Recon', path: '/financial-reconciliation', icon: DollarSign, color: 'teal', description: 'Financial reconciliation' },
         { label: 'Completion Reports', path: '/completion-reports', icon: FileText, color: 'emerald', description: 'Final work order breakdowns', badge: 'NEW' },
+        { label: 'Quoting Accuracy', path: '/quoting-accuracy', icon: TrendingUp, color: 'emerald', description: 'What finished jobs say about our hours', badge: 'NEW' },
         { label: 'Invoices', path: '/invoices-new', icon: Receipt, color: 'green', description: 'Invoice management' },
         { label: 'Quotes & Estimates', path: '/estimates', icon: FileText, color: 'purple', description: 'Create quotes (no customer needed) & assign later', badge: 'NEW' },
         { label: 'Public Store', path: '/public-store', icon: Store, color: 'cyan', description: 'Online storefront' },

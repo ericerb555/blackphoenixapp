@@ -55,6 +55,28 @@ export default function LaborTasksConfig() {
         setTasks(mergeTasks(taskRes.value.tasks));
         setLastSaved(taskRes.value.lastSaved || null);
       }
+
+      /**
+       * Give the server the book figures.
+       *
+       * The rate-learning pass corrects tasks nobody has edited, so it has to
+       * know what the untouched catalogue says — and it deliberately will not
+       * read that from a request, because a browser that could post its own
+       * catalogue could have a correction computed from a number it invented.
+       * Publishing it from here, where the route is already administrator-only,
+       * keeps the figures the server reasons about ones it holds itself.
+       *
+       * Only the seed goes up. Which tasks are somebody’s own is decided by the
+       * server from the editor’s own store, never claimed here.
+       */
+      void fetch(`${SERVER}/labor-tasks/catalogue`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          tasks: SEED_TASKS.map(t => ({
+            id: t.id, tradeId: t.tradeId, name: t.name, unit: t.unit, hoursPerUnit: t.hoursPerUnit,
+          })),
+        }),
+      }).catch(() => { /* the editor still works without the learning loop */ });
       if (rateRes.status === 'fulfilled' && rateRes.value?.success) {
         const map: Record<string, number> = {};
         (rateRes.value.laborRates || []).forEach((r: any) => { map[r.id] = Number(r.hourlyRate) || 0; });
