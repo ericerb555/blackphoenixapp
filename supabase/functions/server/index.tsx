@@ -34,6 +34,7 @@ import paymentProcessingRouter from "./payment-processing.tsx";
 import hourTransfersRouter from "./hour-transfers.tsx";
 import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
+import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import quotesRouter from "./quotes.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
@@ -884,6 +885,25 @@ app.route("/make-server-3eae23a6/payment", paymentProcessingRouter);
 app.route("/make-server-3eae23a6/hour-transfers", hourTransfersRouter);
 app.route("/make-server-3eae23a6/time-tracking", timeTrackingRouter);
 registerAccountAccessRoutes(app, supabase);
+
+/**
+ * What can be applied to an invoice.
+ *
+ * Its own gate because the route needs to know whether the caller is staff,
+ * and the global gate only resolves that for admin-tier paths — this one is
+ * open to customers, who are the whole point of it. Resolving it here means
+ * the route never has to guess, and a customer asking about somebody else is
+ * narrowed to themselves rather than refused, because asking about your own
+ * invoice is the ordinary case.
+ */
+app.use('/make-server-3eae23a6/invoice-attachables', async (c, next) => {
+  const user = await intakeActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  c.set('actor', user);
+  c.set('admin', await intakeIsAdmin(user));
+  await next();
+});
+app.route("/", invoiceAttachablesRouter);
 app.route("/", quotesRouter);
 app.route("/", deliverablesRouter);
 // Existing design/vision modules were present but unreachable from the deployed function.
