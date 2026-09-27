@@ -1,3 +1,100 @@
+# Hours and gift cards: one ledger, and two guards
+
+Asked for: *"when the hours are used from a subscription they are removed and
+reflected in the correct portals… double safety guard to insure we dont loose
+time or money"* and *"that should also co exsist with our gift card system."*
+
+## The good news: the ledger already exists
+
+`entitlements.tsx` holds a proper one.
+
+    entitlement_ledger:{planId}:{id}     every event, never overwritten
+    entitlement_balance:{planId}         the running balance
+    entitlement_source:{type}:{id}       the idempotency key
+
+`recordEntitlementEvent` refuses to apply the same source twice and returns
+`duplicate: true` instead. It already tracks hours granted, used, remaining and
+overage — **and credits granted, redeemed and remaining**, which is the gift
+card half, already modelled and not yet connected.
+
+So this is not a build from nothing. It is making one existing ledger the truth.
+
+## What is actually wrong
+
+**1. The same hour is recorded in three places.**
+
+| where | written by |
+|---|---|
+| `entitlement_balance:{planId}` | the ledger, idempotently |
+| `plan.hours.used` | `/maintenance-plans/:id/log-hours`, incremented directly |
+| `subscription.hoursUsed` | `/subscriptions/:id/log-hours`, incremented directly |
+
+The maintenance route writes the ledger *and* bumps `plan.hours.used` beside it.
+The subscription route does not touch the ledger at all. Three numbers for one
+fact, and nothing reconciles them — so which portal you look at decides what you
+are told, and a hour logged through one route is invisible to the other.
+
+**2. Gift card redemption is not atomic, and the code says so.**
+
+The comment above `/gift-cards/:code/redeem` is explicit: it reads the balance
+and writes it back, *"so two simultaneous calls with different redemption ids
+can both pass the check and spend the same balance twice."* Staff-only access
+reduced who could trigger it; it did not fix the arithmetic.
+
+**3. Gift cards do not go through the ledger** even though it has credit fields
+waiting for them.
+
+## The plan
+
+- [ ] 1. **The ledger is the only truth.** `plan.hours.used` and
+      `subscription.hoursUsed` stop being written and become derived reads from
+      `entitlement_balance`. One number, one writer.
+- [ ] 2. **Every consumption path writes through `recordEntitlementEvent`**,
+      with a source id that is the thing that happened — the usage entry id, the
+      timesheet allocation id, the redemption id. That is **guard one**:
+      replaying an event, a double-click or a retried request cannot deduct
+      twice, because the source key already exists.
+- [ ] 3. **Guard two: reconciliation.** A route that recomputes the balance from
+      the ledger entries and compares it to the stored balance, reporting any
+      drift rather than silently correcting it. Silent correction hides the bug
+      that caused the drift; a report is how you find out a route is writing
+      around the ledger.
+- [ ] 4. **Gift cards redeem through the ledger** as `creditDelta`, so a card
+      and a plan's hours are two columns of the same account.
+- [ ] 5. **Make the redemption atomic.** The read-then-write must become a
+      single conditional write, so two simultaneous redemptions cannot both
+      pass. This is the one item that needs a storage decision (below).
+- [ ] 6. **Portals read the balance, not their own copy** — so the customer,
+      the landlord and the office see the same remaining hours, because there is
+      only one number to see.
+- [ ] 7. **Tests on the arithmetic**: hours to zero then into overage, a
+      duplicate source, a partial gift card redemption, a card that cannot cover
+      the balance, and reconciliation detecting an injected drift.
+
+## The one decision I need from you
+
+**How atomic do you want item 5 to be?**
+
+The KV store is read-then-write, so true atomicity needs either a Postgres
+`update … where balance >= amount` against a real column, or a short-lived lock
+record. My recommendation: **do the ledger work first (items 1-4, 6, 7), which
+removes the drift you are actually worried about, and treat item 5 as its own
+change** — it is a storage change rather than an accounting one, and it deserves
+testing against a branch rather than being bundled in.
+
+The race needs two people redeeming the same card in the same second. The drift
+between three stores happens on its own, quietly, every time anybody logs an
+hour.
+
+## What I will not do without asking
+
+Change what a customer's remaining hours currently say. If the three stores
+disagree today, the reconciliation report tells us by how much before anything
+is rewritten — a silent correction on somebody's paid balance is exactly the
+kind of thing that must be seen first.
+
+---
+
 # Redesign the pipeline so it says what needs attention
 
 Asked for: *"the pipeline area needs to be way more organized and redesigned and
