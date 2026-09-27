@@ -246,18 +246,6 @@ export default function CreateInvoiceModal({
     setShowCustomerSearch(false);
   };
 
-  /**
-   * How much of this discount is new.
-   *
-   * Everything already resolved — the plan and existing grants — is subtracted,
-   * because recording it again would count it twice on the next invoice.
-   */
-  const appliedPercent = (() => {
-    const subtotal = calculateSubtotal();
-    if (subtotal <= 0) return 0;
-    return Math.round((formData.discount_amount / subtotal) * 10000) / 100;
-  })();
-  const excessPercent = Math.round((appliedPercent - (available?.percent || 0)) * 100) / 100;
 
   /** Write the extra down, so next time it is part of what they are owed. */
   const recordGrant = async () => {
@@ -351,6 +339,19 @@ export default function CreateInvoiceModal({
   const calculateTotal = () => {
     return calculateSubtotal() + calculateTax() - formData.discount_amount;
   };
+
+  /**
+   * How much of this discount is new.
+   *
+   * Everything already resolved — the plan and existing grants — is subtracted,
+   * because recording it again would count it twice on the next invoice.
+   */
+  const appliedPercent = (() => {
+    const subtotal = calculateSubtotal();
+    if (subtotal <= 0) return 0;
+    return Math.round((formData.discount_amount / subtotal) * 10000) / 100;
+  })();
+  const excessPercent = Math.round((appliedPercent - (available?.percent || 0)) * 100) / 100;
 
   // Split a "First Last" string into first/last name parts.
   const splitName = (full: string): { first: string; last: string } => {
