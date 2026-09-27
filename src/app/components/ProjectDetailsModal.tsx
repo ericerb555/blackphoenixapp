@@ -91,7 +91,7 @@ export function ProjectDetailsModal({ item, onClose, onUpdate, onStageChange, on
               {item.quote && (
                 <span className="flex items-center gap-1 text-green-400 font-semibold">
                   <DollarSign className="w-4 h-4" />
-                  ${item.quote.totalCost.toLocaleString()}
+                  ${Number(item.quote.totalCost ?? item.quote.total ?? 0).toLocaleString()}
                 </span>
               )}
             </div>
@@ -289,7 +289,7 @@ function OverviewTab({ item, editMode, setEditedItem }: any) {
                 item.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
                 'bg-green-500/20 text-green-400'
               }`}>
-                {item.priority.toUpperCase()}
+                {String(item.priority || 'normal').toUpperCase()}
               </span>
             </div>
             <div>
@@ -515,7 +515,7 @@ function CustomerSubmissionTab({ item, onMediaSelect }: any) {
               <div className="bg-black/40 rounded-lg p-3 text-center">
                 <p className="text-xs text-gray-500 mb-1">Est. Size</p>
                 <p className="text-sm font-bold text-white">
-                  {item.floorPlan.estimatedDimensions.length}′ × {item.floorPlan.estimatedDimensions.width}′
+                  {item.floorPlan?.estimatedDimensions?.length ?? '—'}′ × {item.floorPlan?.estimatedDimensions?.width ?? '—'}′
                 </p>
               </div>
             )}
@@ -798,7 +798,7 @@ function ContractTab({ item }: any) {
               </div>
               <div className="flex items-center gap-3">
                 <div className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusColor(item.contract.status)}`}>
-                  {item.contract.status.toUpperCase().replace('-', ' ')}
+                  {String(item.contract?.status || 'draft').toUpperCase().replace('-', ' ')}
                 </div>
                 {/* Create Invoice Button */}
                 {item.contract.status === 'signed' || item.contract.status === 'active' ? (
@@ -822,7 +822,7 @@ function ContractTab({ item }: any) {
                 {item.contract.contractType === 'soroban-smart-contract' ? '⚡ Smart Contract (Soroban)' : '📄 Standard Contract'}
               </p>
               {item.contract.contractType === 'soroban-smart-contract' && item.contract.sorobanContractId && (
-                <p className="text-xs text-gray-500 mt-1 font-mono">{item.contract.sorobanContractId.slice(0, 20)}...</p>
+                <p className="text-xs text-gray-500 mt-1 font-mono">{String(item.contract?.sorobanContractId || '').slice(0, 20)}...</p>
               )}
             </div>
             
@@ -868,7 +868,7 @@ function ContractTab({ item }: any) {
             <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
               <h4 className="text-lg font-bold text-white mb-4">Payment Schedule</h4>
               <div className="space-y-3">
-                {item.contract.paymentSchedule.map((payment: any, idx: number) => (
+                {(item.contract?.paymentSchedule || []).map((payment: any, idx: number) => (
                   <div key={idx} className="p-4 bg-black/60 border border-gray-700 rounded-lg">
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
