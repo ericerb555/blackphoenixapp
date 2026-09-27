@@ -137,13 +137,52 @@ export function materialsOnJob(workRequestId: string, orders: any[]): { cost: nu
   return { cost: round2(cost), orders: count };
 }
 
+/**
+ * Hours a quote allowed for, added up from its labour lines.
+ *
+ * WHY THIS IS NOT JUST A FIELD READ
+ *
+ * Almost no real quote in this system carries a top-level hours figure. Both
+ * shapes that actually get written — the estimator’s `labor[]` and the
+ * builder’s `laborItems[]` — put the hours on each line, because that is where
+ * a person edits them.
+ *
+ * Reading only the top-level field meant `quoted.hours` was null on every
+ * genuine quote, so `enoughToLearn` was false on every finished job, so the
+ * learning loop had nothing to learn from no matter how many jobs completed.
+ * Found by pushing one real job through rather than by reading the code.
+ */
+export function quotedHoursFrom(quote: any): number | null {
+  const direct = num(quote?.labourHours ?? quote?.laborHours ?? quote?.totalHours);
+  if (direct !== null && direct > 0) return direct;
+
+  const lines = [
+    ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    ...(Array.isArray(quote?.laborItems) ? quote.laborItems : []),
+    ...(Array.isArray(quote?.labourItems) ? quote.labourItems : []),
+  ];
+  if (lines.length === 0) return null;
+
+  let sum = 0;
+  let found = false;
+  for (const line of lines) {
+    const h = num(line?.hours);
+    if (h === null || h <= 0) continue;
+    sum += h;
+    found = true;
+  }
+  // Lines with no hours on any of them is not zero hours quoted — it is a
+  // quote that never said, and saying zero would read as a perfect overrun.
+  return found ? round2(sum) : null;
+}
+
 /** What the quote said, from whichever of the several shapes carries it. */
 export function quotedFrom(request: any): QuotedSide {
   const quote = request?.quote || request?.estimate || {};
   const total = num(quote.totalCost ?? quote.total ?? request?.estimatedValue ?? request?.quotedAmount);
-  const hours = num(quote.labourHours ?? quote.laborHours ?? quote.totalHours);
-  const labourCost = num(quote.labourCost ?? quote.laborCost);
-  const materialCost = num(quote.materialCost ?? quote.materialsCost);
+  const hours = quotedHoursFrom(quote);
+  const labourCost = num(quote.labourCost ?? quote.laborCost ?? quote.labourSubtotal ?? quote.laborSubtotal);
+  const materialCost = num(quote.materialCost ?? quote.materialsCost ?? quote.materialsSubtotal);
 
   return {
     hours,

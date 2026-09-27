@@ -24,7 +24,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  labourOnJob, materialsOnJob, quotedFrom, jobOutcome,
+  labourOnJob, materialsOnJob, quotedFrom, quotedHoursFrom, jobOutcome,
   varianceByTask, proposeRate, MIN_JOBS_TO_LEARN, MIN_VARIANCE_TO_PROPOSE,
   type JobOutcome,
 } from '../supabase/functions/server/jobOutcome.ts';
@@ -128,6 +128,32 @@ test('a job nobody quoted reports no quoted figure rather than zero', () => {
   assert.equal(q.known, 'unknown');
 });
 
+/**
+ * The shape every real quote in this system actually has.
+ *
+ * These were added after pushing one genuine job through end to end: the
+ * seeded flooring quote carried its 16 hours inside `labor[]` and nothing
+ * else, so the loop read null hours and declined to learn from it. Every
+ * finished job would have done the same.
+ */
+test('hours on the labour lines are what a real quote carries', () => {
+  assert.equal(quotedHoursFrom({ labor: [{ role: "Fitter", hours: 16, hourlyRate: 85 }] }), 16);
+  assert.equal(quotedHoursFrom({ labor: [{ hours: 16 }, { hours: 8 }] }), 24, "every line counts");
+  assert.equal(quotedHoursFrom({ laborItems: [{ hours: 12 }] }), 12, "the builder’s shape too");
+});
+
+test('a top-level figure wins over the lines when a quote carries one', () => {
+  assert.equal(quotedHoursFrom({ labourHours: 40, labor: [{ hours: 16 }] }), 40);
+});
+
+test('labour lines with no hours on them is not zero hours quoted', () => {
+  assert.equal(quotedHoursFrom({ labor: [{ role: "Fitter", hourlyRate: 85 }] }), null,
+    'zero would read as a total overrun on a quote that simply never said');
+  assert.equal(quotedHoursFrom({}), null);
+  assert.equal(quotedHoursFrom({ labor: [] }), null);
+});
+
+
 test('quoted hours are read under either spelling', () => {
   assert.equal(quotedFrom({ quote: { totalCost: 100, labourHours: 12 } }).hours, 12);
   assert.equal(quotedFrom({ quote: { totalCost: 100, laborHours: 12 } }).hours, 12);
@@ -143,6 +169,16 @@ const fullInputs = {
   payRateByEmployee: rates,
   purchaseOrders: [{ id: 'PO-1', jobId: 'JOB-1', total: 1200, status: 'sent' }],
 };
+
+test('a job quoted only through its labour lines can still be learned from', () => {
+  const o = jobOutcome({
+    ...fullInputs,
+    request: { id: "JOB-1", title: "Flooring", quote: { totalCost: 4632.4, labor: [{ hours: 16 }] } },
+  });
+  assert.equal(o.quoted.hours, 16);
+  assert.equal(o.enoughToLearn, true,
+    'this is the case that made every finished job unusable');
+});
 
 test('a job with both halves measured reports a real margin', () => {
   const o = jobOutcome(fullInputs);

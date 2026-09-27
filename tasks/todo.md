@@ -1,3 +1,64 @@
+# One job pushed through to paid, and what it found (27 Sep)
+
+Pushed `wr_test_quote_to_invoice` all the way: paid invoice, time booked, a
+purchase order against the job. Doing it found a bug that would have made the
+whole learning loop inert.
+
+## The bug
+
+`quotedFrom()` read quoted hours from `quote.labourHours` / `laborHours` /
+`totalHours` — a top-level field that **almost no real quote in this system
+carries**. Both shapes that actually get written, the estimator's `labor[]` and
+the builder's `laborItems[]`, put the hours on each line, because that is where
+a person edits them.
+
+So `quoted.hours` was null on every genuine quote, `enoughToLearn` was false on
+every finished job, and the loop would have learned nothing no matter how many
+jobs completed. Found by pushing one job through, not by reading the code.
+
+`quotedHoursFrom()` now sums the labour lines, prefers a top-level figure where
+one exists, and returns null — never zero — when the lines carry no hours,
+because zero would read as a total overrun on a quote that simply never said.
+
+## What the job now reports, from the real records
+
+    quoted        $4,632.40, 16 hours
+    billed        $4,632.40
+    labour        $900    measured   (20 h at $45)
+    materials     $512    measured   (one purchase order)
+    cost          $1,412
+    margin        $3,220.40 = 69.52%  measured, no gaps
+    variance      +25% — 20 h taken against 16 h quoted
+
+Not confident yet: one job is not five, so no rate moves and the next flooring
+quote still says 16 hours. That is the floor working, not a failure.
+
+## What this does and does not prove
+
+It proves the measurement chain end to end on production data: work request →
+quote → paid invoice → time → purchase order → outcome → variance → factor.
+
+It does **not** prove the invoice-creation route works, because the invoice was
+seeded rather than raised through the pipeline. That click-through is still
+unverified, and it is the path that has failed before.
+
+## Test records, all removable in one statement
+
+    time_employee:EMP-TEST-FITTER
+    time_entry_history:EMP-TEST-FITTER:2026-09-25:ENTRY-TEST-FLOORING-1
+    purchase_order:PO-TEST-FLOORING-1
+    invoice:INV-TEST-FLOORING-1
+    payment:PMT-TEST-FLOORING-1
+
+Also corrected: the legacy work-request array held the first version of this
+quote (total 2094.40, a 2400 credit) while the pipeline held the revision
+(4632.40, a 50 credit), so a report would have read "quoted 2094, billed 4632"
+for one job. Synced to the pipeline copy.
+
+Typecheck 317 app / 84 server (both baseline), 598 tests pass, smoke 0 threw.
+
+---
+
 # The loop closes: quotes now price from measured hours (27 Sep)
 
 Eric: *"wire the estimator to read the resolved rates."*
