@@ -14437,6 +14437,206 @@ export function settleInvoicePayment(total: number, alreadyPaid: number, amount:
   };
 }
 
+/**
+ * POST /invoices/:id/apply — a customer settles part of a bill with what they
+ * already hold.
+ *
+ * WHY THIS IS NOT `record-payment`
+ *
+ * That route is staff-only and rightly so: it records that money arrived,
+ * which only somebody who saw it arrive can say. This one is different. A gift
+ * card and banked hours are things the customer already paid for, and the
+ * server can verify both without anybody vouching for them — the card balance
+ * and the hours ledger are its own records.
+ *
+ * WHAT IT DOES NOT DO
+ *
+ * Change the total. A card and an hour reduce the BALANCE; the invoice keeps
+ * saying what it said when it was sent. A discount changes a price and is the
+ * company’s decision, which is why it is not on this route at all.
+ *
+ * HOW MUCH IS DECIDED HERE, NOT ASKED FOR
+ *
+ * The caller names WHAT to apply, never HOW MUCH. The amount is the lesser of
+ * what they hold and what is owed, worked out from records the server owns. A
+ * posted amount would be the browser deciding how much of its own credit to
+ * spend, which is the shape of every money bug found on this project today.
+ */
+app.post('/make-server-3eae23a6/invoices/:id/apply', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to apply this.' }, 401);
+
+    const invoiceId = String(c.req.param('id'));
+    const invoice = await kv.get(`invoice:${invoiceId}`) as any;
+    if (!invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404);
+    if (!admin && !ownsFinancialRecord(invoice, user.email)) {
+      return c.json({ success: false, error: 'You may only apply credit to your own invoice.' }, 403);
+    }
+    if (invoice.is_draft || invoice.status === 'draft') {
+      return c.json({ success: false, error: 'This invoice has not been issued yet.' }, 409);
+    }
+
+    const total = money(invoice.total_amount ?? invoice.total ?? 0);
+    const alreadyPaid = money(invoice.paid_amount ?? 0);
+    const outstanding = money(total - alreadyPaid);
+    if (outstanding <= 0) return c.json({ success: false, error: 'This invoice is already settled.' }, 409);
+
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+
+    /* ── a gift card ─────────────────────────────────────────────────── */
+    const code = String(body.giftCardCode || '').trim();
+    if (code) {
+      const normalised = normalizeGiftCardCode(code);
+      const card = await kv.get(`${GIFT_CARD_PREFIX}${normalised}`) as any;
+      /**
+       * The same refusal whether the card does not exist or is not active.
+       * Telling somebody which would let them discover valid codes by trying,
+       * and a code IS the money.
+       */
+      if (!card || card.status !== 'active') {
+        return c.json({ success: false, error: 'That gift card cannot be used.' }, 404);
+      }
+
+      const available = await availableGiftCardBalance(normalised, card);
+      if (available <= 0) return c.json({ success: false, error: 'That gift card has no balance left.' }, 409);
+
+      // The lesser of what the card holds and what the invoice needs.
+      const amount = money(Math.min(available, outstanding));
+
+      /**
+       * One redemption per card per invoice.
+       *
+       * Derived rather than taken from the caller, so pressing the button twice
+       * applies the card once. `debitGiftCard` refuses a repeat of the same
+       * redemption id, and the invoice write below is guarded by the same
+       * reasoning.
+       */
+      const redemptionId = `invoice:${invoiceId}:${normalised}`;
+      const priorKey = `${GIFT_REDEMPTION_PREFIX}${normalised}:${redemptionId}`;
+      const prior = await kv.get(priorKey) as any;
+      if (prior) {
+        return c.json({ success: true, duplicate: true, applied: money(prior.amount), invoice });
+      }
+
+      const redemption = { id: redemptionId, amount, orderReference: `invoice:${invoiceId}`, redeemedAt: now };
+      const debited = await debitGiftCard(normalised, amount, redemption);
+      /**
+       * A debit that cannot be proved is not a payment. `debitGiftCard` returns
+       * null when the database refused it, and nothing is written here in that
+       * case — an invoice marked paid against money that never moved is worse
+       * than an error message.
+       */
+      if (!debited) {
+        return c.json({ success: false, error: 'That gift card could not be applied. Its balance may have changed.' }, 409);
+      }
+      await kv.set(priorKey, redemption);
+
+      const payment = {
+        id: `PMT-${crypto.randomUUID()}`,
+        method: 'gift_card',
+        amount,
+        reference: normalised,
+        receivedAt: now,
+        recordedBy: user.email,
+        note: `Gift card ${normalised}`,
+      };
+      const { paidAmount, balanceDue, status } = settleInvoicePayment(total, alreadyPaid, amount);
+      const updated = {
+        ...invoice,
+        payments: Array.isArray(invoice.payments) ? [...invoice.payments, payment] : [payment],
+        paid_amount: paidAmount,
+        balance_due: balanceDue,
+        status,
+        paidAt: status === 'paid' ? (invoice.paidAt || now) : (invoice.paidAt || null),
+        updatedAt: now,
+      };
+      await kv.set(`invoice:${invoiceId}`, updated);
+      return c.json({ success: true, applied: amount, remainingOnCard: money(debited.balance), invoice: updated });
+    }
+
+    /* ── banked plan hours ───────────────────────────────────────────── */
+    const planId = String(body.planId || '').trim();
+    if (planId) {
+      const plan = await kv.get(`plan:${planId}`) as any;
+      if (!plan) return c.json({ success: false, error: 'Plan not found.' }, 404);
+      if (!admin && String(plan.ownerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) {
+        return c.json({ success: false, error: 'You may only use hours from your own plan.' }, 403);
+      }
+
+      const balance = await kv.get(`entitlement_balance:${planId}`) as any;
+      const remaining = balance
+        ? money(balance.hoursRemaining)
+        : Math.max(0, money(plan?.hours?.included) - money(plan?.hours?.used));
+      if (remaining <= 0) return c.json({ success: false, error: 'There are no hours left on that plan.' }, 409);
+
+      const rate = money(
+        plan?.hours?.hourlyRate ?? plan?.maintenance?.hourlyRate
+        ?? plan?.hours?.overageRate ?? plan?.maintenance?.overageRate ?? 0,
+      );
+      /**
+       * An hour with no rate is worth nothing here, and saying so is better
+       * than guessing a number: crediting a bill at an invented rate spends a
+       * customer’s hours for less, or more, than they are worth.
+       */
+      if (rate <= 0) {
+        return c.json({ success: false, error: 'That plan has no hourly rate set, so hours cannot be valued against this invoice.' }, 409);
+      }
+
+      // Only the hours the bill actually needs.
+      const amount = money(Math.min(money(remaining * rate), outstanding));
+      const hoursUsed = money(amount / rate);
+
+      const sourceId = `invoice:${invoiceId}`;
+      const ledger = await recordEntitlementEvent({
+        planId,
+        sourceType: 'invoice',
+        sourceId,
+        hoursDelta: -hoursUsed,
+        invoiceId,
+      });
+      /**
+       * Already applied. The ledger is the authority on that, so its answer is
+       * taken rather than a second check being invented here.
+       */
+      if (ledger.duplicate) {
+        return c.json({ success: true, duplicate: true, applied: 0, invoice });
+      }
+
+      const payment = {
+        id: `PMT-${crypto.randomUUID()}`,
+        method: 'plan_hours',
+        amount,
+        reference: planId,
+        receivedAt: now,
+        recordedBy: user.email,
+        note: `${hoursUsed} hour(s) from ${plan.planName || plan.name || planId} at ${rate.toFixed(2)}`,
+      };
+      const { paidAmount, balanceDue, status } = settleInvoicePayment(total, alreadyPaid, amount);
+      const updated = {
+        ...invoice,
+        payments: Array.isArray(invoice.payments) ? [...invoice.payments, payment] : [payment],
+        paid_amount: paidAmount,
+        balance_due: balanceDue,
+        status,
+        paidAt: status === 'paid' ? (invoice.paidAt || now) : (invoice.paidAt || null),
+        updatedAt: now,
+      };
+      await kv.set(`invoice:${invoiceId}`, updated);
+      return c.json({
+        success: true, applied: amount, hoursUsed,
+        hoursRemaining: money(ledger.balance?.hoursRemaining ?? 0),
+        invoice: updated,
+      });
+    }
+
+    return c.json({ success: false, error: 'Say what to apply: a gift card code or a plan.' }, 400);
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not apply that.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/invoices/:id/record-payment', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
