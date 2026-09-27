@@ -61,6 +61,12 @@ export default function CreateInvoiceModal({
     internal_notes: '',
   });
 
+  /** What this customer is owed, as resolved by the server. */
+  const [available, setAvailable] = useState<null | {
+    percent: number; capped: boolean; requestedPercent: number;
+    components: Array<{ source: string; percent: number; why: string }>;
+  }>(null);
+
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([
     { line_number: 1, description: '', quantity: 1, unit_price: 0, is_taxable: true },
   ]);
@@ -105,6 +111,41 @@ export default function CreateInvoiceModal({
     }
   }, [isOpen]);
 
+  /**
+   * Resolve the discount for whoever this invoice is addressed to.
+   *
+   * Re-asked when the customer or the job changes, because both decide the
+   * answer: grants can be scoped to a customer, to a job, or to one quote.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const email = String(formData.customer_email || '').trim().toLowerCase();
+    if (!isOpen || !email) { setAvailable(null); return; }
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const url = new URL(`${SERVER}/my-discount`);
+        url.searchParams.set('email', email);
+        url.searchParams.set('context', 'quote');
+        if (formData.project_id) url.searchParams.set('jobId', String(formData.project_id));
+        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${session.access_token}` } });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled && body?.success) {
+          setAvailable({
+            percent: Number(body.percent) || 0,
+            capped: Boolean(body.capped),
+            requestedPercent: Number(body.requestedPercent) || 0,
+            components: Array.isArray(body.components) ? body.components : [],
+          });
+        }
+      } catch {
+        /* An invoice can still be written without knowing the discount. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, formData.customer_email, formData.project_id]);
   useEffect(() => {
     if (customerId && isOpen) {
       loadCustomerData(customerId);
@@ -809,6 +850,46 @@ export default function CreateInvoiceModal({
                 />
                 <span className="ml-auto text-white font-semibold">-${formData.discount_amount.toFixed(2)}</span>
               </div>
+              {/*
+                What this customer is actually owed, and one press to apply it.
+
+                The figure is the server’s: the plan they pay for plus every
+                grant an administrator has made, added up and capped. Typing it
+                from memory is how a customer ends up with a different discount
+                from the one they were promised.
+              */}
+              {available && available.percent > 0 && (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-emerald-300">
+                      {available.percent}% available
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        discount_amount: Math.round(calculateSubtotal() * (available.percent / 100) * 100) / 100,
+                      })}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-500"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <ul className="mt-2 space-y-0.5">
+                    {available.components.map((c, i) => (
+                      <li key={i} className="text-[11px] text-gray-400">
+                        {c.percent}% — {c.why}{c.source === 'grant' ? ' (granted)' : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  {available.capped && (
+                    <p className="mt-2 text-[11px] leading-4 text-amber-300">
+                      These add up to {available.requestedPercent}%, which is over the cap. {available.percent}% is the most that can be applied.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="pt-3 border-t border-[#2A2A2A] flex items-center justify-between">
                 <span className="text-lg font-semibold text-white">Total</span>
                 <span className="text-2xl font-bold text-orange-400">${calculateTotal().toFixed(2)}</span>
