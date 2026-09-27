@@ -40,6 +40,45 @@ const AUDIENCES = [
   'content', 'property_manager', 'landlord', 'condo_association',
 ];
 
+/**
+ * The limit keys the software actually reads, and what each one does.
+ *
+ * WHY THIS LIST HAS TO EXIST
+ *
+ * The key box is free text, and it has to stay free text — tiers in production
+ * already carry keys nothing enforces (`deals`, `seats`, `bidQuotesPerMonth`)
+ * and a fixed dropdown would drop them on the next save. But free text means
+ * `aiCallsPerMonth` works and `aicallspermonth` saves perfectly and does
+ * nothing at all, for ever, silently. Nothing would ever say so: the tier
+ * would show the number, the plan would promise the allowance, and the
+ * customer would quietly get the free backstop instead.
+ *
+ * So the keys are offered rather than imposed, and a near miss is called out.
+ */
+const ENFORCED_LIMITS: { key: string; what: string }[] = [
+  { key: 'products', what: 'catalogue products a vendor may list' },
+  { key: 'aiCallsPerMonth', what: 'model calls a month — copy, photo analysis, drafting' },
+  { key: 'rendersPerMonth', what: 'images a month, at roughly 20¢ each' },
+  { key: 'blueprintsPerMonth', what: 'blueprint SHEETS a month — a drawing set is about four' },
+];
+
+/** Case and punctuation removed, so `AI_calls per month` meets `aiCallsPerMonth`. */
+const foldKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * The enforced key this one was probably meant to be, or null.
+ *
+ * Only fires on a key that is NOT itself enforced and folds onto one that is,
+ * which is exactly the typo case. A deliberate `deals` folds onto nothing and
+ * is left alone.
+ */
+function nearMissFor(typed: string): string | null {
+  const raw = typed.trim();
+  if (!raw || ENFORCED_LIMITS.some(l => l.key === raw)) return null;
+  const folded = foldKey(raw);
+  return ENFORCED_LIMITS.find(l => foldKey(l.key) === folded)?.key || null;
+}
+
 interface Tier {
   id: string;
   name: string;
@@ -298,12 +337,22 @@ function TierEditor({
 
       <div className="mt-3">
         <span className={label}>Limits</span>
-        {draft.limits.map((row, i) => (
-          <div key={i} className="mb-1.5 flex gap-2">
+        {/* Offered, not imposed — see ENFORCED_LIMITS. One list for every row. */}
+        <datalist id="tier-limit-keys">
+          {ENFORCED_LIMITS.map(l => <option key={l.key} value={l.key}>{l.what}</option>)}
+        </datalist>
+        {draft.limits.map((row, i) => {
+          const meant = nearMissFor(row.key);
+          const enforced = ENFORCED_LIMITS.find(l => l.key === row.key.trim());
+          return (
+          <div key={i} className="mb-1.5">
+            <div className="flex gap-2">
             <input
               className={`${field} flex-1`}
               value={row.key}
+              list="tier-limit-keys"
               placeholder="products"
+              title={enforced ? `Enforced: ${enforced.what}` : undefined}
               onChange={e => {
                 const next = [...draft.limits];
                 next[i] = { ...row, key: e.target.value };
@@ -328,22 +377,48 @@ function TierEditor({
             >
               <X className="h-3.5 w-3.5" />
             </button>
+            </div>
+            {/* The whole point of the list. A key that folds onto an enforced
+                one is almost certainly meant to be it, and left alone it would
+                save cleanly and do nothing for ever. One press fixes it. */}
+            {meant && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-300">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                <span>
+                  Nothing reads <code>{row.key.trim()}</code>. Did you mean{' '}
+                  <button
+                    onClick={() => {
+                      const next = [...draft.limits];
+                      next[i] = { ...row, key: meant };
+                      setDraft({ ...draft, limits: next });
+                    }}
+                    className="font-semibold underline underline-offset-2 hover:text-amber-200"
+                  >
+                    {meant}
+                  </button>?
+                </span>
+              </p>
+            )}
           </div>
-        ))}
+          );
+        })}
         <button
           onClick={() => setDraft({ ...draft, limits: [...draft.limits, { key: '', value: '' }] })}
           className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-400 transition hover:text-white"
         >
           <Plus className="h-3 w-3" /> Add a limit
         </button>
-        {/* Said plainly rather than implied. Publishing a number that nothing
-            reads, while the form presents it as a ceiling, would be the kind of
-            quiet untruth that only surfaces when a vendor exceeds it and
-            nothing happens. */}
+        {/* Said plainly rather than implied, and kept true as keys become
+            enforced. Presenting a number as a ceiling when nothing reads it is
+            the kind of quiet untruth that only surfaces when a vendor exceeds
+            it and nothing happens — and the reverse, not saying which keys DO
+            bite, is how somebody sets a real ceiling by accident. */}
         <p className="mt-1.5 text-[11px] text-gray-600">
-          0 means unlimited. These are recorded and shown, but nothing in the app
-          enforces them yet — treat them as what the plan promises, not as a
-          ceiling the software applies.
+          0 means unlimited. Four keys are applied by the software —{' '}
+          {ENFORCED_LIMITS.map(l => l.key).join(', ')} — and the spelling has to
+          match exactly; start typing to pick one. Any other key is recorded and
+          shown but enforced nowhere, so treat it as what the plan promises
+          rather than a ceiling the software applies.
         </p>
       </div>
 

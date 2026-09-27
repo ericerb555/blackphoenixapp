@@ -1,3 +1,40 @@
+# The tier editor now names the keys that bite (27 Sep)
+
+Eric: *"yes add the three keys to the tier editor."*
+
+The limits box takes a free-typed key, which is why `aiCallsPerMonth` works and
+`aicallspermonth` saves perfectly and does nothing at all, for ever, in silence.
+The tier would show the number, the plan would promise the allowance, and the
+subscriber would quietly get the free backstop.
+
+## What changed, in one file
+
+`ENFORCED_LIMITS` names the four keys the software actually reads — `products`
+(vendor catalogue), plus the three spend buckets — with what each one does.
+They are offered through a `datalist` on the existing key box, not imposed by a
+dropdown: tiers in production already carry keys nothing enforces (`deals`,
+`seats`, `bidQuotesPerMonth`) and a fixed list would drop them on the next save.
+
+`nearMissFor` catches the actual trap. A key that folds onto an enforced one —
+case and punctuation removed — is almost certainly meant to be it, so the row
+says "nothing reads this, did you mean `aiCallsPerMonth`?" and one press fixes
+it. A deliberate `deals` folds onto nothing and is left alone.
+
+## A sentence that my own last change made false
+
+The helper text said "nothing in the app enforces them yet". That stopped being
+true when `products` began being enforced, and stopped being true again this
+morning. It now says which four keys bite, that the spelling has to match, and
+that everything else is a promise rather than a ceiling.
+
+## Verified how far
+
+Typecheck 317 app (baseline, none in this file), 666 tests pass, smoke 10
+rendered / 0 threw — so the screen renders. The typo warning and the datalist
+have NOT been clicked through in the running app; that needs an admin session.
+
+---
+
 # The tier decides how much model work an account gets (27 Sep)
 
 Until now every signed-in account — free or paying — got the same three
