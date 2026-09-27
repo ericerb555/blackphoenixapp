@@ -1101,7 +1101,25 @@ export default function UnifiedProjectPipeline() {
   const handleSaveQuote = async (updatedItem: any) => {
     const current = items.find(i => i.id === updatedItem.id);
     if (!current) return;
-    const next = { ...current, stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage, quote: updatedItem.quote, estimatedValue: quoteTotal(updatedItem.quote) ?? current.estimatedValue, lastModified: new Date().toISOString() };
+    /**
+     * `estimatedValue` is the CUSTOMER’S BUDGET and is left alone.
+     *
+     * Saving used to replace it with the quote total, which destroyed the
+     * figure permanently: once overwritten there was no way to see what the
+     * customer had said they could spend, and no way to tell a job quoted
+     * under budget from one quoted at it. I watched a $500,000 budget vanish
+     * this way while testing, and had to put it back by hand.
+     *
+     * Nothing needed it. Every reader of value in this file already asks
+     * `quoteTotal(item.quote) ?? item.estimatedValue`, so the quote wins
+     * wherever a price is wanted and the budget survives underneath it.
+     */
+    const next = {
+      ...current,
+      stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage,
+      quote: updatedItem.quote,
+      lastModified: new Date().toISOString(),
+    };
     try {
       const saved = await saveItemToBackend(next);
       setItems(items.map(i => i.id === saved.id ? saved : i)); setSelectedItem(saved); setShowQuoteEditor(false); toast.success('Quote saved to the project record.');
@@ -1165,6 +1183,15 @@ export default function UnifiedProjectPipeline() {
     { stage: 'quote-approved', label: 'Approved', color: 'green', icon: CheckCircle },
     { stage: 'contract', label: 'Contracts', color: 'orange', icon: FileSignature },
     { stage: 'invoice', label: 'Invoices', color: 'cyan', icon: DollarSign },
+    /**
+     * Payment had no column.
+     *
+     * It is a valid `PipelineStage` with a label and a colour of its own, and
+     * nothing rendered it — so a job that reached it left the board entirely.
+     * Paid work is the end of the process and the part an owner most wants to
+     * see, and it was the one stage you could not look at.
+     */
+    { stage: 'payment', label: 'Paid', color: 'emerald', icon: CheckCircle },
   ];
 
   const getItemsForStage = (stage: PipelineStage) => {
