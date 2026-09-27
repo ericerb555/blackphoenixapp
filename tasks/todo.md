@@ -1,3 +1,42 @@
+# The catalogue is the real vendor ladder (27 Sep)
+
+Eric: *"the catalogue ladder is the real one."*
+
+So `plan_tier:` is the vendor product, and the Basic/Professional/Premium/Elite
+ladder in `PortalUpgradeModal` is not, however live it looks. That ladder sells
+through `/subscriptions/checkout` in Stripe `mode: 'payment'` — one charge, a
+`subscription:` record, no `feature_grant` — so nothing renews it and nothing
+that resolves an entitlement can see it. Its buyers are indistinguishable from
+people who never paid.
+
+## What changed
+
+`plan_tier:vendor:preferred` ($199, active, real Stripe price) gained
+`aiCallsPerMonth: 1500` and `rendersPerMonth: 150` — the Studio allowance, so
+content-centre access means something for vendors on a plan that actually
+resolves. Its other limits, its price and its Stripe linkage were left exactly
+as they were.
+
+Nobody is cut off by this. The backstop is 300 calls and 10 renders, so both
+figures are strictly more generous than what a Preferred subscriber had
+yesterday. No account is on Preferred today in any case — the one paying vendor
+is on Stocked.
+
+## What was deliberately NOT changed
+
+The modal, on Eric's instruction. Taking the phantom vendor rungs out of it is
+right eventually and wrong today: `PortalUpgradeModal` also serves customer,
+subcontractor, advertiser and investor, and none of those audiences has a
+sellable catalogue tier yet. Cutting the hard-coded array now would leave those
+portals with no upgrade path at all.
+
+The order that avoids that: give an audience's catalogue tiers their Stripe
+prices, prove a purchase end to end, then remove that audience's legacy rungs.
+`/me/upgrade-options` already prefers the catalogue and falls back per-audience,
+so the machinery for doing it one portal at a time is in place.
+
+---
+
 # The content centre gets published plans (27 Sep)
 
 Eric asked for `aiCallsPerMonth` on the content-centre tiers. There were none —
