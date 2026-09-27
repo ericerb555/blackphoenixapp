@@ -14587,7 +14587,32 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
     const invoice = body.invoiceId ? await kv.get(`invoice:${String(body.invoiceId)}`) as any : null;
     if (body.invoiceId && !invoice) return c.json({ success: false, error: 'Invoice not found.' }, 404);
     if (invoice && !admin && !ownsFinancialRecord(invoice, user.email)) return c.json({ success: false, error: 'You may only pay your own invoice.' }, 403);
-    const amount = money(body.amount ?? invoice?.balance_due ?? invoice?.balanceDue ?? invoice?.amountDue ?? invoice?.total_amount ?? invoice?.total ?? invoice?.amount);
+    /**
+     * What to charge comes from the INVOICE, not from the request.
+     *
+     * This read `body.amount` first and fell back to the invoice, so the browser
+     * decided what to charge for a record the server already holds. Underpaying
+     * was merely recorded as a partial payment, which is why it survived — but
+     * the moment anything reduces a balance behind the scenes, a credit can be
+     * taken twice: once by applying it, and once by posting the lower figure it
+     * produced.
+     *
+     * A posted amount is still honoured where there is no invoice to read, which
+     * is how a deposit or an ad-hoc payment is taken. It is also honoured when it
+     * is SMALLER than the balance, because a part payment is a real thing a
+     * customer may choose. What it can no longer do is exceed what is owed.
+     */
+    const owed = money(
+      invoice?.balance_due ?? invoice?.balanceDue ?? invoice?.amountDue
+      ?? invoice?.total_amount ?? invoice?.total ?? invoice?.amount ?? 0,
+    );
+    const asked = money(body.amount ?? 0);
+    const amount = invoice
+      ? (asked > 0 ? Math.min(asked, owed) : owed)
+      : asked;
+    if (invoice && asked > owed) {
+      console.log(`[payments] asked ${asked} against a balance of ${owed} on invoice ${invoice.id}; charging the balance`);
+    }
     if (amount <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
     const paymentId = crypto.randomUUID();
     const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
