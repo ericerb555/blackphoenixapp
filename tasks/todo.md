@@ -1,3 +1,85 @@
+# Attach anything the portals offer to an invoice, and draw hours down
+
+Asked for: *"any and all options to attach discounts or hours, gift cards —
+anything the portals may offer. I should be able to add multiple if they
+apply."* And for hours: **draw down the plan**.
+
+## What exists to attach, and where it lives
+
+| Thing | Where | What it does to an invoice |
+|---|---|---|
+| Discount grants | `discount_grants`, resolved by `/my-discount` | a percentage |
+| Gift cards | `giftcard:{code}`, carry a balance | money off, and the card draws down |
+| Plan add-ons | `plan_addon:` (6 in production) | a line, or a discount it carries |
+| Promotions | on the plan record, with codes | a percentage or an amount |
+| Plan hours | `entitlement_balance:{planId}` | hours billed draw the balance down |
+
+Five sources, four of which the invoice has never heard of. Nothing today can
+list them together, which is why there is nothing to search.
+
+## The shape
+
+**One endpoint answers "what can be attached to this invoice".**
+`GET /invoice-attachables?email=&jobId=` returns every applicable item from all
+five sources, each with what it is worth and why it applies. The invoice
+searches that one list rather than five.
+
+It must be the server that decides. A browser knows neither what somebody pays
+for nor what an administrator granted, and a gift card balance is money.
+
+**Several can be applied at once**, as asked. Applying is then a list of
+attachments on the invoice rather than a single `discount_amount`:
+
+    attachments: [
+      { kind: 'grant',    id, percent, reason },
+      { kind: 'giftcard', code, amount },
+      { kind: 'promo',    code, percent },
+      { kind: 'hours',    hours, planId, rate }
+    ]
+
+`discount_amount` stays as the total they come to, so everything that already
+reads it keeps working.
+
+**Order matters and has to be decided once.** Percentages apply to the subtotal,
+then gift cards come off what is left — a card is money, not a discount, and
+applying it first would discount the customer's own money. The cap applies to
+the percentage half only, for the same reason.
+
+## Hours, drawn down
+
+An hours line on an invoice posts against the plan's ledger with the invoice as
+its source id, so the same line cannot deduct twice. Hours beyond the balance
+bill as overage at the plan's rate rather than being refused — the work was
+done.
+
+The panel shows remaining hours as you type, and what the line will cost once
+it crosses into overage.
+
+## The order I would build it
+
+- [ ] 1. `GET /invoice-attachables` — the one list, server-resolved. Nothing
+      else is possible without it.
+- [ ] 2. A tested module for what a set of attachments comes to, with the
+      ordering rule above. Money arithmetic, so it is proven with numbers.
+- [ ] 3. The search-and-attach panel on the invoice, multiple selection.
+- [ ] 4. Gift card redemption through the ledger as a credit, so a card applied
+      to an invoice actually draws down.
+- [ ] 5. Hours draw-down, with the invoice as the idempotency source.
+
+## What I need to know
+
+**Item 4 moves real money and the redemption is not atomic** — the code says so
+itself. If two invoices apply the same card in the same second, both can
+succeed. I would rather apply the card and record the redemption as a single
+conditional write before this is used in anger, which is the storage change
+already sitting in the earlier plan.
+
+Until that is done I can make the invoice refuse to apply a card whose balance
+has moved since it was listed — narrower than atomic, but it closes the case
+that actually happens: two people, one card, minutes apart.
+
+---
+
 # Hours and gift cards: one ledger, and two guards
 
 Asked for: *"when the hours are used from a subscription they are removed and
