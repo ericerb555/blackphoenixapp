@@ -61,6 +61,10 @@ export default function CreateInvoiceModal({
     internal_notes: '',
   });
 
+  const [grantReason, setGrantReason] = useState('');
+  const [grantSaving, setGrantSaving] = useState(false);
+  const [grantRecorded, setGrantRecorded] = useState(false);
+
   /** What this customer is owed, as resolved by the server. */
   const [available, setAvailable] = useState<null | {
     percent: number; capped: boolean; requestedPercent: number;
@@ -240,6 +244,52 @@ export default function CreateInvoiceModal({
       customer_email: customer.email,
     });
     setShowCustomerSearch(false);
+  };
+
+  /**
+   * How much of this discount is new.
+   *
+   * Everything already resolved — the plan and existing grants — is subtracted,
+   * because recording it again would count it twice on the next invoice.
+   */
+  const appliedPercent = (() => {
+    const subtotal = calculateSubtotal();
+    if (subtotal <= 0) return 0;
+    return Math.round((formData.discount_amount / subtotal) * 10000) / 100;
+  })();
+  const excessPercent = Math.round((appliedPercent - (available?.percent || 0)) * 100) / 100;
+
+  /** Write the extra down, so next time it is part of what they are owed. */
+  const recordGrant = async () => {
+    if (excessPercent <= 0 || !grantReason.trim()) return;
+    setGrantSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in again to record this.');
+      /**
+       * Scoped to the job where there is one.
+       *
+       * A discount given on one job is about that job. Scoping it to the
+       * customer would quietly apply it to everything they ever buy, which is
+       * a much larger decision than the one being made at this moment.
+       */
+      const res = await fetch(`${SERVER}/discount-grants`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: formData.project_id ? 'job' : 'customer',
+          scopeId: formData.project_id || String(formData.customer_email || '').trim().toLowerCase(),
+          percent: excessPercent,
+          reason: grantReason.trim(),
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || body?.success === false) throw new Error(body?.error || 'Could not record the discount.');
+      setGrantRecorded(true);
+      toast.success(`${excessPercent}% recorded against this ${formData.project_id ? 'job' : 'customer'}`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not record the discount.');
+    } finally { setGrantSaving(false); }
   };
 
   const addLineItem = () => {
@@ -888,6 +938,43 @@ export default function CreateInvoiceModal({
                     </p>
                   )}
                 </div>
+              )}
+
+              {/*
+                A discount bigger than what was owed is a decision somebody made.
+                Offering to write it down is how it survives this invoice — and
+                only the excess is offered, because the rest is already recorded.
+              */}
+              {excessPercent > 0 && !grantRecorded && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                  <p className="text-sm font-semibold text-amber-200">
+                    {excessPercent}% more than this customer was owed
+                  </p>
+                  <p className="mt-1 text-[11px] leading-4 text-gray-400">
+                    Record it so it counts next time. Scoped to {formData.project_id ? 'this job' : 'this customer'}.
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      value={grantReason}
+                      onChange={(e) => setGrantReason(e.target.value)}
+                      placeholder="Why is this being given?"
+                      className="min-w-0 flex-1 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={recordGrant}
+                      disabled={grantSaving || !grantReason.trim()}
+                      className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-amber-500 disabled:opacity-40"
+                    >
+                      {grantSaving ? 'Recording…' : 'Record discount'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {grantRecorded && (
+                <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
+                  Recorded. It will be part of what this customer is owed from now on.
+                </p>
               )}
 
               <div className="pt-3 border-t border-[#2A2A2A] flex items-center justify-between">
