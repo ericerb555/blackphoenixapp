@@ -1,3 +1,50 @@
+# The content centre gets published plans (27 Sep)
+
+Eric asked for `aiCallsPerMonth` on the content-centre tiers. There were none —
+three `plan_tier` rows existed in production and all three were vendor. The
+content centre has been sold since before this, with no plan record behind it.
+
+## Published, both inactive
+
+    plan_tier:content:studio   Studio   $199/mo   aiCallsPerMonth 1500, rendersPerMonth 150, seats 3, reelsPerMonth 20
+    plan_tier:content:agency   Agency   $499/mo   aiCallsPerMonth 5000, rendersPerMonth 600, seats 15
+
+`active: false` and no Stripe price, which is the same state the six on-call
+add-ons sit in. A tier with no Stripe price cannot be bought whatever it looks
+like, so publishing it inactive is the honest order: the record exists, nothing
+is offered, and the price is created from the button on the tier admin.
+
+The ladder is the one proposed earlier in this file; the ceilings are new.
+Worst case they cost about $60 against $199 and $220 against $499, images at
+roughly 20c dominating both.
+
+**Agency sells unlimited reels and does NOT publish a zero ceiling.** Zero means
+unlimited, and an unlimited model ceiling on a $499 plan is the uncapped bill
+this week's work exists to prevent. The generous number is finite on purpose.
+
+## What could not be done, and why
+
+Eric also asked that the vendor Premium $399 plan — which advertises "Content
+Center access" — get the Studio allowance. There is nowhere to put it.
+
+That plan is not a catalogue tier. It lives in `PORTAL_UPGRADE_PRICES` and
+sells through `/subscriptions/checkout`, which runs Stripe in `mode: 'payment'`
+— a ONE-OFF charge that writes a `subscription:` record and never a
+`feature_grant`. `ceilingFor` resolves an allowance by reading the grant's
+`tierId` and looking up `plan_tier:<portal>:<tierId>`, so a legacy buyer has no
+tier to find and lands on the backstop no matter what is published.
+
+The catalogue's real vendor ladder is Listed $49 / Stocked $79 / Preferred $199.
+There is no Premium in it, and the two ladders disagree about the whole vendor
+product, not just this bullet.
+
+So a $399 bullet promising content centre access currently delivers a free
+account's allowance, and will keep doing so until Eric says which vendor ladder
+is the real one. Named here rather than papered over by inventing a fourth
+vendor tier to hang a number on.
+
+---
+
 # The tier editor now names the keys that bite (27 Sep)
 
 Eric: *"yes add the three keys to the tier editor."*
