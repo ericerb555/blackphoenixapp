@@ -7,8 +7,29 @@
  * in their place.
  */
 import { projectId, publicAnonKey } from './supabase/info';
+import { supabase } from '../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/**
+ * The signed-in person’s token, falling back to the anonymous key.
+ *
+ * These helpers sent the anonymous key and nothing else, so every upload came
+ * back "Sign in required." — the routes are staff-only and the anonymous key
+ * resolves to nobody. Uploading a logo could not have worked for anybody.
+ *
+ * The fallback is kept so a caller with no session still gets the server’s own
+ * refusal rather than a thrown error here.
+ */
+async function authHeader(): Promise<string> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) return `Bearer ${session.access_token}`;
+  } catch {
+    /* fall through to the anonymous key */
+  }
+  return `Bearer ${publicAnonKey}`;
+}
 
 export function isDataUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('data:image');
@@ -22,7 +43,7 @@ export async function uploadImageDataUrl(dataUrl: string, folder = 'misc'): Prom
   if (/^https?:\/\//.test(dataUrl)) return dataUrl;
   const res = await fetch(`${SERVER}/images/upload`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': await authHeader() },
     body: JSON.stringify({ dataUrl, folder }),
   });
   const data = await res.json().catch(() => ({}));
@@ -41,7 +62,7 @@ export async function uploadImageFile(file: File, folder = 'misc'): Promise<stri
   form.append('folder', folder);
   const res = await fetch(`${SERVER}/images/upload-file`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+    headers: { 'Authorization': await authHeader() },
     body: form,
   });
   const data = await res.json().catch(() => ({}));

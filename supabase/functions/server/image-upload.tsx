@@ -14,6 +14,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireStaffOn } from "./requireStaff.ts";
+import { sniffImage } from "./imageSniff.ts";
 
 const imageUploadRouter = new Hono();
 
@@ -122,13 +123,60 @@ function parseDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } | nu
   return { mime, bytes };
 }
 
+/**
+ * What this file actually is, rather than what it was labelled.
+ *
+ * `uploadBytes` took the caller’s `mime` and wrote it onto the stored object
+ * as its Content-Type, falling back to a `.png` extension for anything it did
+ * not recognise. Since this bucket is PUBLIC, a file labelled `text/html` was
+ * stored and then served as HTML from our own origin — stored cross-site
+ * scripting, reachable by anybody the link was given to.
+ *
+ * Staff-only is a real mitigation and it is not the same as a check. A member
+ * of staff uploading a file a customer sent them is the ordinary case.
+ *
+ * SVG stays allowed here, deliberately and unlike the vendor path: these are
+ * brand assets a member of staff chose, and a logo is very often an SVG. It
+ * has to genuinely look like one, so a script cannot arrive wearing the label.
+ */
+function resolveType(bytes: Uint8Array, claimed: string): { mime: string; ext: string } | null {
+  const sniffed = sniffImage(bytes);
+  if (sniffed) return sniffed;
+
+  // GIF, BMP and TIFF are in the extension table but not in the sniffer.
+  // Checked by their own signatures rather than waved through.
+  const b = bytes;
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) {
+    return { mime: "image/gif", ext: "gif" };
+  }
+  if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4d) {
+    return { mime: "image/bmp", ext: "bmp" };
+  }
+  if (b.length >= 4 && ((b[0] === 0x49 && b[1] === 0x49) || (b[0] === 0x4d && b[1] === 0x4d))) {
+    return { mime: "image/tiff", ext: "tiff" };
+  }
+
+  if (String(claimed) === "image/svg+xml") {
+    // Text, so there is no signature — it has to read as SVG within its first
+    // kilobyte, which a script with an SVG label will not.
+    const head = new TextDecoder().decode(b.slice(0, 1024)).toLowerCase();
+    if (head.includes("<svg")) return { mime: "image/svg+xml", ext: "svg" };
+  }
+
+  return null;
+}
+
 async function uploadBytes(bytes: Uint8Array, mime: string, folder: string): Promise<string> {
+  const kind = resolveType(bytes, mime);
+  if (!kind) {
+    throw new Error("That file is not an image this server will store.");
+  }
   await ensureBucket();
-  const ext = EXT_BY_MIME[mime] || "png";
-  const path = storagePath(folder, ext);
+  const path = storagePath(folder, kind.ext);
   const { error } = await supabase.storage
     .from(BUCKET_NAME)
-    .upload(path, bytes, { contentType: mime, upsert: false });
+    // The type the BYTES say, never the one the caller sent.
+    .upload(path, bytes, { contentType: kind.mime, upsert: false });
   if (error) throw new Error(`Storage upload failed: ${error.message}`);
   const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path);
   return data.publicUrl;
