@@ -68,10 +68,10 @@ Change any number, or tell me the ones that do not matter to you.
       tested module (23 tests) rather than inline arithmetic.
 - [x] 4. **Cards carry the reason** they are flagged, worst first.
 - [x] 6. **The board distinguishes** no access, a failed load, and no work.
-- [ ] 2. One source of truth for stage.
-- [ ] 5. Add the Payment column, or remove the stage.
-- [ ] 7. Stop the silent overwrite of the customer budget.
-- [ ] 8. Stop writing the `pipeline:` key shape.
+- [x] 2. **One source of truth for stage** — the stored pipeline item owns it; a work request status only seeds it. The old merge replaced records wholesale, which also lost the customer’s files.
+- [x] 5. Payment column added.
+- [x] 7. The customer’s budget is no longer overwritten on save.
+- [x] 8. Nothing writes the `pipeline:` shape — verified; the only remaining uses are comments explaining why it is dead.
 
 ## Proposed shape
 

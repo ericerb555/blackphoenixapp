@@ -41,6 +41,7 @@ import { ProjectDetailsModal } from '../components/ProjectDetailsModal';
 import WorkRequestFullView from '../components/WorkRequestFullView';
 import PipelineMessagePanel from '../components/PipelineMessagePanel';
 import { attentionFor, attentionCounts, type AttentionFlag } from '../lib/pipelineAttention';
+import { mergePipeline } from '../lib/pipelineMerge';
 import AutoJobScheduleGenerator from '../components/AutoJobScheduleGenerator';
 import { FinancialDataSheet } from '../components/FinancialDataSheet';
 import { EmployeeNotes } from '../components/EmployeeNotes';
@@ -572,13 +573,22 @@ export default function UnifiedProjectPipeline() {
         }
       } catch (error) { console.warn('[Pipeline] Could not load saved pipeline records:', error); }
 
-      // Merge: KV pipeline items (with quotes) take priority over plain work requests
-      // Deduplicate by ID — prefer the one with a quote
-      const allById = new Map<string, PipelineItem>();
-      serverItems.forEach(i => allById.set(i.id, i));
-      kvItems.forEach(i => allById.set(i.id, i)); // KV wins (has quote)
-
-      const merged = Array.from(allById.values());
+      /**
+       * Work requests seed; stored pipeline items decide.
+       *
+       * This used to be two Map.set loops, so the stored record REPLACED the
+       * work-request record whole. It got the stage right by accident and lost
+       * everything the stored copy happened not to carry — the customer’s
+       * photographs, videos and blueprints among them, since `submission` is
+       * built from the work request and a thin stored record simply has no
+       * such field. Opening a saved job could show fewer of the customer’s own
+       * files than opening an unsaved one, and nothing said why.
+       *
+       * `mergePipeline` merges field by field with one explicit exception: the
+       * stage belongs to the stored item, because that is a decision somebody
+       * made rather than a guess derived from a work request’s status.
+       */
+      const merged = mergePipeline(serverItems, kvItems);
       console.log('[Pipeline] Final items:', merged.length);
       setItems(merged);
       setIsLoading(false);
