@@ -828,36 +828,72 @@ export function QuoteToContractEditor({
 
     setLoading(true);
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${editedQuote.id}`,
-        {
-          method: 'PUT',
-          headers: await quoteAuthHeaders(true),
+      const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes`;
+      const headers = await quoteAuthHeaders(true);
+      const figures = {
+        materials: editedQuote.materials,
+        labor: editedQuote.labor,
+        processSteps: editedQuote.processSteps,
+        credits: editedQuote.credits || [],
+        creditsSubtotal: editedQuote.creditsSubtotal || 0,
+        materialsSubtotal: editedQuote.materialsSubtotal,
+        laborSubtotal: editedQuote.laborSubtotal,
+        taxRate: editedQuote.taxRate,
+        taxAmount: editedQuote.taxAmount,
+        totalCost: editedQuote.totalCost,
+      };
+
+      let response = await fetch(`${base}/${encodeURIComponent(editedQuote.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(figures),
+      });
+
+      /**
+       * A 404 here means the quote has no record of its own yet.
+       *
+       * The editor invents an id (`qt-{workRequestId}`) for a quote that was
+       * drafted onto the work request, so the first save of such a quote is a
+       * create rather than an update. Without this it PUT to an id the server
+       * had never seen and failed, which is what happened to every job quoted
+       * before quotes were stored separately.
+       *
+       * POST is create-or-update and stamps the job from the work request, so
+       * the whole quote is sent rather than just the figures.
+       */
+      if (response.status === 404) {
+        response = await fetch(base, {
+          method: 'POST',
+          headers,
           body: JSON.stringify({
-            materials: editedQuote.materials,
-            labor: editedQuote.labor,
-            processSteps: editedQuote.processSteps,
-            credits: editedQuote.credits || [],
-            creditsSubtotal: editedQuote.creditsSubtotal || 0,
-            materialsSubtotal: editedQuote.materialsSubtotal,
-            laborSubtotal: editedQuote.laborSubtotal,
-            taxRate: editedQuote.taxRate,
-            taxAmount: editedQuote.taxAmount,
-            totalCost: editedQuote.totalCost,
+            ...editedQuote,
+            ...figures,
+            id: editedQuote.id,
+            workRequestId: workRequest.id,
+            customerName: (workRequest as any).client_name || (workRequest as any).customerName,
+            customerEmail: (workRequest as any).client_email || (workRequest as any).customerEmail,
           }),
-        }
-      );
+        });
+      }
 
       if (response.ok) {
         toast.success('Quote updated successfully');
         onSave({ ...workRequest, quote: editedQuote });
         setEditMode(false);
       } else {
-        throw new Error('Failed to update quote');
+        /**
+         * Carry the server's own reason.
+         *
+         * This threw a fixed string, so a refusal, a missing record and a
+         * server fault all read as "Failed to save quote" — which is how a
+         * plain 404 took three attempts and the request log to identify.
+         */
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Could not save the quote (${response.status}).`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving quote:', error);
-      toast.error('Failed to save quote');
+      toast.error(error?.message || 'Failed to save quote');
     } finally {
       setLoading(false);
     }
