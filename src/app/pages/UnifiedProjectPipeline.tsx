@@ -1821,6 +1821,19 @@ export default function UnifiedProjectPipeline() {
                       Create invoice
                     </button>
                   )}
+                  {/*
+                    Open the invoices raised against this job.
+                    Creating one already stamps the job onto the invoice, so this
+                    is only asking the invoices page for what it already knows.
+                  */}
+                  <button type="button"
+                    onClick={() => {
+                      sessionStorage.setItem('invoiceReturnTo', 'pipeline');
+                      navigate(`/invoices?project=${encodeURIComponent(selectedItem.id)}`);
+                    }}
+                    className="w-full rounded-lg border border-cyan-400/30 px-3 py-2 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-400/10">
+                    View invoices for this job
+                  </button>
                   <button type="button" onClick={() => { setSelectedItem(selectedItem); setShowProjectDetails(true); }}
                     className="w-full rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-gray-200 transition hover:bg-white/5">
                     Full details

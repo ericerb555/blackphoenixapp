@@ -43,6 +43,19 @@ export default function InvoicesNew() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  /**
+   * One job’s invoices, when the pipeline sent us here to look at them.
+   *
+   * An invoice already stores the `project_id` it was raised from — the
+   * hand-off writes it — so the link existed in the data and nothing surfaced
+   * it. Without this, coming from a job meant landing on every invoice ever
+   * raised and hunting for the right one by customer name.
+   */
+  const [projectFilter, setProjectFilter] = useState<string>('');
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('project');
+    if (fromUrl) setProjectFilter(fromUrl);
+  }, []);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -338,6 +351,8 @@ export default function InvoicesNew() {
   };
 
   const filteredInvoices = invoices.filter((invoice) => {
+    // Asked for one job, show that job. Nothing else is what was meant.
+    if (projectFilter && String((invoice as any).project_id || '') !== projectFilter) return false;
     const matchesSearch =
       searchQuery === '' ||
       invoice.invoice_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
