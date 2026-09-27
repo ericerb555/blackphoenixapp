@@ -1854,7 +1854,22 @@ export default function UnifiedProjectPipeline() {
                     className="w-full rounded-lg bg-[#ea580c] px-3 py-2 text-sm font-bold text-white transition hover:bg-orange-600">
                     {selectedItem.quote ? 'Open quote' : 'Build quote'}
                   </button>
-                  {selectedItem.stage === 'quote-approved' && selectedItem.quote && (
+                  {(() => {
+                    const raised = invoicesByJobId.get(selectedItem.id) || [];
+                    if (raised.length === 0) return null;
+                    return (
+                      <button type="button"
+                        onClick={() => {
+                          sessionStorage.setItem('invoiceReturnTo', 'pipeline');
+                          navigate(`/invoices?project=${encodeURIComponent(selectedItem.id)}`);
+                        }}
+                        className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-3 py-2 text-sm font-bold text-white transition hover:from-blue-600 hover:to-cyan-500">
+                        {raised.length === 1 ? 'Open the invoice' : `Open ${raised.length} invoices`}
+                      </button>
+                    );
+                  })()}
+
+                  {(invoicesByJobId.get(selectedItem.id) || []).length === 0 && selectedItem.stage === 'quote-approved' && selectedItem.quote && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1893,10 +1908,11 @@ export default function UnifiedProjectPipeline() {
                     </button>
                   )}
                   {/*
-                    Open the invoices raised against this job.
-                    Creating one already stamps the job onto the invoice, so this
-                    is only asking the invoices page for what it already knows.
+                    The invoices page, for a job that has none yet — so somebody
+                    can check rather than assume. Where one exists, the button
+                    above is already the way to it.
                   */}
+                  {(invoicesByJobId.get(selectedItem.id) || []).length === 0 && (
                   <button type="button"
                     onClick={() => {
                       sessionStorage.setItem('invoiceReturnTo', 'pipeline');
@@ -1905,6 +1921,7 @@ export default function UnifiedProjectPipeline() {
                     className="w-full rounded-lg border border-cyan-400/30 px-3 py-2 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-400/10">
                     View invoices for this job
                   </button>
+                  )}
                   <button type="button" onClick={() => { setSelectedItem(selectedItem); setShowProjectDetails(true); }}
                     className="w-full rounded-lg border border-white/15 px-3 py-2 text-sm font-semibold text-gray-200 transition hover:bg-white/5">
                     Full details
