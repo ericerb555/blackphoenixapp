@@ -29,6 +29,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
+import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -194,6 +195,17 @@ advertisingRouter.post("/advertising/creatives", async (c) => {
       // already renders on nineteen surfaces.
       placement: ["marquee", "banner", "reel"].includes(String(body.placement)) ? body.placement : (existing?.placement || "marquee"),
       isActive: body.isActive === undefined ? (existing?.isActive ?? true) : Boolean(body.isActive),
+      /**
+       * Whether anybody but its author may see it yet.
+       *
+       * An advertisement used to go live the moment it was written — the
+       * campaign default on create was "active" and nothing reviewed the
+       * creative at all, while a thirty-second video needed an
+       * administrator. This queues instead, and rewriting an approved ad
+       * sends it back: otherwise somebody submits something inoffensive,
+       * waits for the tick, and then changes the headline and the link.
+       */
+      approval: approvalAfterSave(existing, body, who.isAdmin),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
@@ -232,6 +244,62 @@ advertisingRouter.delete("/advertising/creatives/:id", async (c) => {
  * Only fields needed to render and to attribute are returned; an advertiser's
  * email, budget and campaign settings are not public.
  */
+/**
+ * GET /advertising/review — what is waiting on a decision.
+ *
+ * Administrators only: it is every advertiser’s work, not one account’s.
+ */
+advertisingRouter.get("/advertising/review", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  if (!who.isAdmin) return c.json({ success: false, error: "Administrator access is required." }, 403);
+  try {
+    const creatives = ((await kv.getByPrefix("ad_creative:")) as any[] || []).filter(Boolean);
+    const waiting = creatives
+      .filter((cr: any) => String(cr?.approval || "") === "pending")
+      .sort((x: any, y: any) => String(y?.createdAt || "").localeCompare(String(x?.createdAt || "")));
+    return c.json({ success: true, pending: waiting });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not load the review queue.", pending: [] }, 500);
+  }
+});
+
+/**
+ * POST /advertising/creatives/:id/decision — accept or refuse one advertisement.
+ *
+ * The decision is recorded with who made it and when, because "why is this
+ * not running" is the first thing an advertiser asks, and an unexplained
+ * refusal is worse than a slow one.
+ */
+advertisingRouter.post("/advertising/creatives/:id/decision", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  if (!who.isAdmin) return c.json({ success: false, error: "Administrator access is required." }, 403);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const verdict = decide(body.action);
+    if (!verdict) return c.json({ success: false, error: "Say approve or reject." }, 400);
+
+    const id = c.req.param("id");
+    const creative = (await kv.get(CREATIVE(id))) as any;
+    if (!creative) return c.json({ success: false, error: "Advertisement not found." }, 404);
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...creative,
+      approval: verdict,
+      approvalNote: String(body.note || "").slice(0, 400),
+      decidedBy: who.email,
+      decidedAt: now,
+      updatedAt: now,
+    };
+    await kv.set(CREATIVE(id), updated);
+    return c.json({ success: true, creative: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not record that decision." }, 500);
+  }
+});
+
 advertisingRouter.get("/advertising/serve", async (c) => {
   try {
     const placement = String(c.req.query("placement") || "marquee");
@@ -243,6 +311,10 @@ advertisingRouter.get("/advertising/serve", async (c) => {
     const byCampaign = new Map(campaigns.map((x: any) => [String(x.id), x]));
 
     const live = creatives.filter((cr: any) => {
+      // Approved by an administrator AND switched on by its author. Approval
+      // is not a promise to keep showing something, and being switched on is
+      // not permission to show it in the first place.
+      if (!isPublishable(cr)) return false;
       if (!cr?.isActive) return false;
       if (String(cr.placement || "marquee") !== placement) return false;
       if (!cr.campaignId) return true; // a standalone ad runs until switched off

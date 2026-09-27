@@ -36,6 +36,7 @@ import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
+import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
 import deliverablesRouter from "./deliverables.tsx";
@@ -6532,7 +6533,8 @@ app.get('/make-server-3eae23a6/portal-deals', async (c) => {
   try {
     const portal = (c.req.query('portal') || '').trim();
     const now = Date.now();
-    const deals = (await loadPortalDeals()).filter((d: any) => {
+    // Approved by an administrator AND switched on by whoever published it.
+    const deals = (await loadPortalDeals()).filter(dealIsPublishable).filter((d: any) => {
       if (d?.active === false) return false;
       if (d?.expiresAt && Date.parse(d.expiresAt) < now) return false;
       if (!portal) return true;
@@ -6562,6 +6564,62 @@ app.get('/make-server-3eae23a6/portal-deals', async (c) => {
  * The scoping is done here now. An administrator still sees everything,
  * because moderating what is published is their job.
  */
+/**
+ * GET /portal-deals/review — offers waiting on a decision.
+ *
+ * Administrators only: it is every tenant’s work, not one account’s.
+ */
+app.get('/make-server-3eae23a6/portal-deals/review', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) {
+      return c.json({ success: false, error: 'Administrator access is required.', pending: [] }, 403);
+    }
+    const waiting = (await loadPortalDeals())
+      .filter((d: any) => String(d?.approval || '') === 'pending')
+      .sort((x: any, y: any) => String(y?.createdAt || '').localeCompare(String(x?.createdAt || '')));
+    return c.json({ success: true, pending: waiting });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not load the review queue.', pending: [] }, 500);
+  }
+});
+
+/**
+ * POST /portal-deals/:id/decision — accept or refuse one offer.
+ *
+ * Recorded with who decided and when, because an unexplained refusal is
+ * worse than a slow one.
+ */
+app.post('/make-server-3eae23a6/portal-deals/:id/decision', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email || !admin) {
+      return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const verdict = dealDecide(body.action);
+    if (!verdict) return c.json({ success: false, error: 'Say approve or reject.' }, 400);
+
+    const id = c.req.param('id');
+    const deal = await kv.get(portalDealKey(id)) as any;
+    if (!deal) return c.json({ success: false, error: 'Deal not found.' }, 404);
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...deal,
+      approval: verdict,
+      approvalNote: String(body.note || '').slice(0, 400),
+      decidedBy: user.email,
+      decidedAt: now,
+      updatedAt: now,
+    };
+    await kv.set(portalDealKey(id), updated);
+    return c.json({ success: true, deal: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not record that decision.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/portal-deals/all', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
@@ -6617,11 +6675,65 @@ app.post('/make-server-3eae23a6/portal-deals', async (c) => {
       id,
       targetPortals: Array.isArray(deal.targetPortals) && deal.targetPortals.length ? deal.targetPortals : ['all'],
       active: deal.active !== false,
+      /**
+       * Waiting on a decision unless staff wrote it.
+       *
+       * An offer carries a price and a promo code and is pushed into other
+       * people’s portals, and until now nothing reviewed it. Rewriting an
+       * approved offer sends it back, because the thing that was reviewed and
+       * the thing being shown have to be the same thing.
+       */
+      approval: dealApprovalAfterSave(existing, deal, isAdmin),
       createdBy: existing?.createdBy || user.email || 'Black Phoenix',
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     await kv.set(portalDealKey(id), record);
+
+    /**
+     * Tell somebody it is waiting.
+     *
+     * A queue nobody is told about is the same as no queue — which is what
+     * applications were until a vendor applied and nothing appeared anywhere.
+     * Only a submission that actually needs a decision alerts: an
+     * administrator publishing, or an author switching their own approved
+     * offer off and on, must not put anything in front of anybody.
+     */
+    if (record.approval === 'pending' && existing?.approval !== 'pending') {
+      try {
+        const alerts = (await kv.get('admin_alerts') as any[]) || [];
+        alerts.unshift({
+          id: `deal_alert_${record.id}`,
+          type: 'deal',
+          priority: 'normal',
+          title: 'Offer waiting for approval',
+          message: `${record.createdBy} submitted "${record.title}".`,
+          dealId: record.id,
+          actionRoute: 'deal-publisher',
+          timestamp: record.updatedAt,
+          status: 'unread',
+        });
+        await kv.set('admin_alerts', alerts.slice(0, 200));
+      } catch (alertError: any) {
+        console.error('[Deals] saved but could not raise an alert:', alertError?.message || alertError);
+      }
+
+      notifyStaffInBackground('application', {
+        subject: `Offer waiting for approval — ${record.title}`,
+        heading: 'An offer is waiting for approval',
+        rows: [
+          ['Offer', record.title],
+          ['Published by', record.createdBy],
+          ['Code', String(record.promoCode || '—')],
+          ['Shown in', Array.isArray(record.targetPortals) ? record.targetPortals.join(', ') : 'all portals'],
+        ],
+        ctaLabel: 'Review it',
+        ctaPath: '/deal-publisher',
+        note: 'It is not visible to anybody until it is approved.',
+        dedupeKey: `deal:${record.id}:${record.updatedAt}`,
+      });
+    }
+
     return c.json({ success: true, deal: record });
   } catch (error: any) {
     console.log(`Portal deal save error: ${error?.message || error}`);
