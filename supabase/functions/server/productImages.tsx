@@ -108,6 +108,51 @@ export interface MirroredImage {
  * line imported without a picture, never a failed import. A price list of 1,800
  * items should not be refused because one photograph 404s.
  */
+/**
+ * Store bytes somebody uploaded from their own machine.
+ *
+ * The same checks as a mirrored image, minus the fetch — there is no outbound
+ * request to guard because the bytes arrived with the request. What does NOT
+ * change is that the type is decided by sniffing the bytes rather than by
+ * believing what the browser labelled the file: a `Content-Type` on an upload
+ * is chosen by the sender, and an SVG renamed to .png would otherwise be
+ * served from a public bucket as a document that can carry script.
+ */
+export async function storeImageBytes(
+  namespace: string,
+  bytes: Uint8Array,
+  bucket: string = BUCKET,
+): Promise<{ image?: MirroredImage; error?: string }> {
+  if (!bytes?.byteLength) return { error: "That file was empty." };
+  if (bytes.byteLength > MAX_IMAGE_BYTES) {
+    return { error: `That image is larger than ${MAX_IMAGE_BYTES / 1024 / 1024}MB.` };
+  }
+
+  const kind = sniffImage(bytes);
+  if (!kind) return { error: "That file is not a JPEG, PNG or WebP." };
+
+  await ensureBucket(bucket);
+
+  const path = `${namespace}/${crypto.randomUUID()}.${kind.ext}`;
+  const { error } = await admin.storage.from(bucket).upload(path, bytes, {
+    contentType: kind.mime,
+    upsert: false,
+  });
+  if (error) return { error: error.message || "Could not store that image." };
+
+  const { data } = admin.storage.from(bucket).getPublicUrl(path);
+  return {
+    image: {
+      url: data.publicUrl,
+      sourceUrl: "",
+      vendorId: namespace,
+      mime: kind.mime,
+      bytes: bytes.byteLength,
+      addedAt: new Date().toISOString(),
+    },
+  };
+}
+
 export async function mirrorVendorImage(
   vendorId: string,
   sourceUrl: string,

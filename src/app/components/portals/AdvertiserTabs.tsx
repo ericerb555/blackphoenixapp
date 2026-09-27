@@ -22,10 +22,10 @@
  * its place and which one should be killed. Splitting them that way is the only
  * reason two tabs are worth having.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Megaphone, Plus, X, Loader2, Trash2, Play, Pause, BarChart3, MousePointerClick,
-  Eye, Image as ImageIcon, TrendingUp, TrendingDown, CreditCard, Check, AlertCircle,
+  Eye, Image as ImageIcon, TrendingUp, TrendingDown, CreditCard, Check, AlertCircle, Upload,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId } from '../../utils/supabase/info';
@@ -257,6 +257,39 @@ export function AdvertiserMediaTab({ session, creatives, campaigns, adByCreative
   const [busy, setBusy] = useState(false);
   const empty = { title: '', content: '', linkUrl: '', imageUrl: '', campaignId: '', placement: 'marquee' };
   const [form, setForm] = useState<any>(empty);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  /**
+   * Send the picture to the server, which keeps its own copy.
+   *
+   * What comes back is OUR address, not theirs. An advertisement pointing at
+   * the advertiser’s own server would put a request to a third party into
+   * every visitor’s browser, and would let the picture change after it had
+   * been approved.
+   */
+  const uploadImage = async (file: File) => {
+    setUploading(true);
+    try {
+      const data = new FormData();
+      data.append('file', file);
+      const res = await fetch(`${API}/advertising/images/upload`, {
+        method: 'POST',
+        // No Content-Type: the browser sets the multipart boundary itself.
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        body: data,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) throw new Error(body?.error || `HTTP ${res.status}`);
+      setForm((prev: any) => ({ ...prev, imageUrl: body.imageUrl }));
+      toast.success('Image added.');
+    } catch (e: any) {
+      toast.error(e?.message || 'That image could not be uploaded.');
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
 
   const post = async (payload: any, message: string) => {
     setBusy(true);
@@ -349,6 +382,45 @@ export function AdvertiserMediaTab({ session, creatives, campaigns, adByCreative
                 <option value="reel">Reel</option>
               </select>
             </label>
+            <div className="sm:col-span-2">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">Image</span>
+              {form.imageUrl ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+                  <img src={form.imageUrl} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                  <span className="min-w-0 flex-1 text-xs text-gray-500">Stored on our own servers, so it cannot change after it is approved.</span>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, imageUrl: '' })}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:bg-white/5"
+                  >
+                    <X className="h-3.5 w-3.5" /> Remove
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f); }}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => fileInput.current?.click()}
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#3A3A3A] px-4 py-3 text-sm font-semibold text-gray-300 transition hover:border-orange-500/50 hover:text-white disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {uploading ? 'Uploading…' : 'Upload an image'}
+                  </button>
+                  <p className="mt-1.5 text-[11px] leading-4 text-gray-500">
+                    JPEG, PNG or WebP, up to 5MB. Optional — an ad without one shows its
+                    headline and text.
+                  </p>
+                </>
+              )}
+            </div>
           </div>
           <button
             type="button" disabled={busy || !form.title.trim()}

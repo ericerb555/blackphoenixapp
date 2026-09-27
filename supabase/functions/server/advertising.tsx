@@ -30,7 +30,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
-import { mirrorVendorImage, AD_IMAGE_BUCKET } from "./productImages.tsx";
+import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productImages.tsx";
 
 export const advertisingRouter = new Hono();
 
@@ -310,6 +310,39 @@ async function ourImageUrl(email: string, url: string): Promise<string> {
   }
   return image.url;
 }
+
+/**
+ * POST /advertising/images/upload — artwork from the advertiser’s own machine.
+ *
+ * The common case. Most advertisers have a logo on their computer, not a URL,
+ * and telling them to host it somewhere first is asking them to do our job.
+ *
+ * A dedicated route rather than the shared `/images/upload-file`, which takes
+ * the destination folder from the form and trusts the browser’s file type.
+ * Here the folder is the advertiser’s own address and the type comes from the
+ * bytes, so nothing a caller sends decides where the file lands or what it is
+ * served as.
+ */
+advertisingRouter.post("/advertising/images/upload", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const form = await c.req.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return c.json({ success: false, error: "Choose an image to upload." }, 400);
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const namespace = who.email.replace(/[^a-z0-9]+/gi, "_").slice(0, 80) || "unknown";
+    const { image, error } = await storeImageBytes(namespace, bytes, AD_IMAGE_BUCKET);
+    if (!image) return c.json({ success: false, error: error || "That image could not be stored." }, 422);
+
+    return c.json({ success: true, imageUrl: image.url, bytes: image.bytes, mime: image.mime });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "That image could not be stored." }, 500);
+  }
+});
 
 advertisingRouter.post("/advertising/images", async (c) => {
   const who = await actor(c);
