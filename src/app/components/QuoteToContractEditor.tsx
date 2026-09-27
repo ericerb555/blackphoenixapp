@@ -421,7 +421,7 @@ export function QuoteToContractEditor({
   // Update material
   const updateMaterial = (id: string, field: keyof MaterialItem, value: any) => {
     if (!editedQuote) return;
-    const updated = editedQuote.materials.map((m) => {
+    const updated = (editedQuote.materials || []).map((m) => {
       if (m.id === id) {
         const updatedMaterial = { ...m, [field]: value };
         if (field === 'quantity' || field === 'unitCost') {
@@ -462,7 +462,7 @@ export function QuoteToContractEditor({
   // Update labor
   const updateLabor = (id: string, field: keyof LaborItem, value: any) => {
     if (!editedQuote) return;
-    const updated = editedQuote.labor.map((l) => {
+    const updated = (editedQuote.labor || []).map((l) => {
       if (l.id === id) {
         const updatedLabor = { ...l, [field]: value };
         if (field === 'hours' || field === 'hourlyRate') {
@@ -502,7 +502,7 @@ export function QuoteToContractEditor({
   // Update process step
   const updateProcessStep = (id: string, field: keyof ProcessStep, value: any) => {
     if (!editedQuote) return;
-    const updated = editedQuote.processSteps.map((s) =>
+    const updated = (editedQuote.processSteps || []).map((s) =>
       s.id === id ? { ...s, [field]: value } : s
     );
     setEditedQuote({ ...editedQuote, processSteps: updated });
@@ -620,7 +620,7 @@ export function QuoteToContractEditor({
     const originalMaterial = editedQuote.materials.find(m => m.id === originalMaterialId);
     if (!originalMaterial) return;
 
-    const updated = editedQuote.materials.map((m) => {
+    const updated = (editedQuote.materials || []).map((m) => {
       if (m.id === originalMaterialId) {
         return {
           ...m,
@@ -761,8 +761,24 @@ export function QuoteToContractEditor({
 
   // Recalculate quote totals
   const recalculateTotals = (quote: Quote) => {
-    const materialsSubtotal = quote.materials.reduce((sum, m) => sum + m.totalCost, 0);
-    const laborSubtotal = quote.labor.reduce((sum, l) => sum + l.totalCost, 0);
+    /**
+     * What a line comes to, whichever shape it was written in.
+     *
+     * One generation stores `totalCost`; the other stores `quantity` and a
+     * unit price and expects the product to be worked out. Reading only the
+     * first sums a column of undefined, which is NaN, and NaN spreads through
+     * every figure below it.
+     */
+    const lineTotal = (line: any): number => {
+      const stated = Number(line?.totalCost);
+      if (Number.isFinite(stated)) return stated;
+      const quantity = Number(line?.quantity ?? line?.hours ?? 1) || 0;
+      const rate = Number(line?.unitCost ?? line?.unitPrice ?? line?.hourlyRate ?? 0) || 0;
+      return quantity * rate;
+    };
+
+    const materialsSubtotal = (quote.materials || []).reduce((sum, m) => sum + lineTotal(m), 0);
+    const laborSubtotal = (quote.labor || []).reduce((sum, l) => sum + lineTotal(l), 0);
 
     /**
      * Credits come off the MATERIALS figure, not off the bottom.
