@@ -42,6 +42,7 @@ import WorkRequestFullView from '../components/WorkRequestFullView';
 import PipelineMessagePanel from '../components/PipelineMessagePanel';
 import { attentionFor, attentionCounts, type AttentionFlag } from '../lib/pipelineAttention';
 import { mergePipeline } from '../lib/pipelineMerge';
+import { jobFinancials, invoicesByJob } from '../lib/jobFinancials';
 import AutoJobScheduleGenerator from '../components/AutoJobScheduleGenerator';
 import { FinancialDataSheet } from '../components/FinancialDataSheet';
 import { EmployeeNotes } from '../components/EmployeeNotes';
@@ -288,6 +289,32 @@ export default function UnifiedProjectPipeline() {
   const [viewerEmail, setViewerEmail] = useState<string>('');
 
   /** How the job list is ordered. Age first, because age is what goes wrong. */
+  /**
+   * Invoices, so a job can say how it is doing rather than only what it is
+   * worth. Keyed by the job they were raised against — the hand-off stamps
+   * `project_id` onto every invoice made from a job.
+   */
+  const [invoicesByJobId, setInvoicesByJobId] = useState<Map<string, any[]>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        const rows = Array.isArray(body) ? body : (body?.invoices || body?.data || []);
+        if (!cancelled) setInvoicesByJobId(invoicesByJob(rows));
+      } catch {
+        /* The board is still useful without the money. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const [sortBy, setSortBy] = useState<'age' | 'value' | 'customer'>('age');
 
   /** Which attention flag the board is filtered to, if any. */
@@ -1770,6 +1797,50 @@ export default function UnifiedProjectPipeline() {
                   <div className="flex justify-between"><dt className="text-gray-500">Raised</dt>
                     <dd className="text-gray-300">{selectedItem.createdDate ? new Date(selectedItem.createdDate).toLocaleDateString() : '—'}</dd></div>
                 </dl>
+
+                {/*
+                  How this job is doing.
+
+                  Quoted, billed, received, owed — four sums of records that can
+                  be shown. Deliberately no margin: the quote’s material and
+                  labour lines are what the CUSTOMER IS CHARGED, not what the
+                  work costs, and calling the difference profit would be a
+                  confident number with nothing behind it.
+                */}
+                {(() => {
+                  const money = jobFinancials(quoteTotal(selectedItem.quote), invoicesByJobId.get(selectedItem.id));
+                  if (money.quoted === null && money.invoiceCount === 0) return null;
+                  const fmt = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  return (
+                    <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">How it is doing</p>
+                      <dl className="space-y-1.5 text-sm">
+                        {money.quoted !== null && (
+                          <div className="flex justify-between"><dt className="text-gray-500">Quoted</dt>
+                            <dd className="tabular-nums text-white">{fmt(money.quoted)}</dd></div>
+                        )}
+                        <div className="flex justify-between"><dt className="text-gray-500">Invoiced</dt>
+                          <dd className="tabular-nums text-white">{fmt(money.invoiced)}{money.invoiceCount > 1 ? ` (${money.invoiceCount})` : ''}</dd></div>
+                        <div className="flex justify-between"><dt className="text-gray-500">Paid</dt>
+                          <dd className="tabular-nums text-emerald-300">{fmt(money.paid)}</dd></div>
+                        <div className="flex justify-between"><dt className="text-gray-500">Owed</dt>
+                          <dd className={`tabular-nums ${money.outstanding > 0 ? 'text-amber-300' : 'text-gray-400'}`}>{fmt(money.outstanding)}</dd></div>
+                        {money.toInvoice !== null && money.toInvoice > 0 && (
+                          <div className="flex justify-between border-t border-white/5 pt-1.5"><dt className="text-gray-500">Still to bill</dt>
+                            <dd className="tabular-nums text-cyan-300">{fmt(money.toInvoice)}</dd></div>
+                        )}
+                      </dl>
+                      {money.overInvoiced && (
+                        <p className="mt-2 rounded bg-amber-500/10 px-2 py-1.5 text-[11px] leading-4 text-amber-200">
+                          Billed more than was quoted. Expected after a change order — worth a look if there has not been one.
+                        </p>
+                      )}
+                      {money.invoiceCount === 0 && (
+                        <p className="mt-2 text-[11px] leading-4 text-gray-500">Nothing invoiced against this job yet.</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {(attentionByItem.get(selectedItem.id) || []).map((flag) => (
                   <p key={flag.id} className={`rounded-lg px-3 py-2 text-xs leading-5 ${flag.severity === 'urgent' ? 'bg-red-500/10 text-red-300' : 'bg-amber-500/10 text-amber-200'}`}>
