@@ -1123,6 +1123,20 @@ app.get("/make-server-3eae23a6/health", (c) => {
       companyNameRaw: Deno.env.get('COMPANY_NAME') || '(unset)',
       companyNameResolved: resolveCompanyName(),
     },
+    /**
+     * Whether the model features are configured, on the same terms as the
+     * email block above: booleans for keys, never the keys themselves.
+     *
+     * Presence is not validity — a key that has been revoked or has run out of
+     * credit is still present — but "is the secret on this deploy at all" is
+     * the question that was being answered by reading through function logs,
+     * and it should not need a signed-in session to ask.
+     */
+    aiConfig: {
+      openAiKeyPresent: Boolean(Deno.env.get('OPENAI_API_KEY')),
+      anthropicKeyPresent: Boolean(Deno.env.get('ANTHROPIC_API_KEY')),
+      imageModel: Deno.env.get('OPENAI_IMAGE_MODEL') || '(unset → gpt-image-1, then dall-e-3)',
+    },
   });
 });
 
