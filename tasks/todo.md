@@ -1,3 +1,44 @@
+# The loop closes: quotes now price from measured hours (27 Sep)
+
+Eric: *"wire the estimator to read the resolved rates."*
+
+Until now the hours on a quote came from a language model reasoning about crew
+size and productivity — labelled `hoursSource: 'estimated'` precisely because
+nobody had measured them. Jobs finished, hours were booked, variance was
+computed, and the next quote asked the model to guess again from nothing.
+
+`measuredHours.ts` (18 tests) closes it. Each labour line's trade is matched
+against what our own finished jobs measured, the hours are scaled by it, and the
+line is relabelled `measured` with the evidence in its note. What the model said
+is kept as `modelHours` so every change is traceable.
+
+**The factor is clamped to 0.6–1.8.** A ratio of two sums over a handful of
+unusual jobs can say a trade takes four times as long as quoted; quoting that
+loses the work outright, and the reverse loses money on all of it. Outside the
+band it clamps to the edge rather than being dropped — the direction is
+right even when the magnitude is not yet trustworthy — and the note says it was
+capped.
+
+**It corrects guesses, never decisions.** Only lines still marked `estimated`
+move, which is the same line the rate-learning loop draws.
+
+**It now runs by itself.** A paid invoice is a finished job, so the pass fires
+from all three settlement paths — card, gift card, banked hours. Never awaited,
+never throwing: settling an invoice must not depend on the rates learning
+anything.
+
+Factors are published to `labor_tasks:trade_factors` by the pass and read from
+there when quoting, so pricing one line never means re-measuring every job the
+company has finished. With none published, a quote is exactly what it always was.
+
+Note: the factors come from the finished jobs, not from the catalogue — so
+quotes get corrected by what the crews achieve even before any labour catalogue
+is published.
+
+Typecheck 317 app / 84 server (both baseline), 594 tests pass, smoke 0 threw.
+
+---
+
 # Rates that correct themselves from finished jobs (27 Sep)
 
 Eric: *"yes make it auto adjust the rates i havent set."*

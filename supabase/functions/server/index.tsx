@@ -36,6 +36,7 @@ import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
+import { learnAfterPayment } from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
@@ -3367,6 +3368,15 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
   const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
   const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw);
 
+  /**
+   * What our own finished jobs say about how long each trade takes.
+   *
+   * Published by the rate-learning pass rather than measured here: pricing one
+   * line must not mean re-measuring every job the company has ever finished.
+   * With none published, the quote is the model’s guess exactly as before.
+   */
+  const measured = (await kv.get('labor_tasks:trade_factors').catch(() => null)) as any;
+
   return await runEstimator({
     title: workRequest?.title,
     serviceType: workRequest?.serviceType,
@@ -3374,7 +3384,9 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
     location: workRequest?.location || workRequest?.address,
     estimatedValue: workRequest?.estimatedValue,
     extra: extraParts.join('\n'),
-  }, (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }));
+  },
+  (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }),
+  measured?.factors || {});
 }
 
 /**
@@ -14555,6 +14567,13 @@ app.post('/make-server-3eae23a6/invoices/:id/apply', async (c) => {
         updatedAt: now,
       };
       await kv.set(`invoice:${invoiceId}`, updated);
+      /**
+       * A paid invoice is a finished job, which is new evidence about how long
+       * that trade really takes. The pass runs here so the rates learn by
+       * themselves rather than waiting for somebody to open a screen. It never
+       * throws and is never awaited: settling the invoice is what matters.
+       */
+      learnAfterPayment(status, user.email);
       return c.json({ success: true, applied: amount, remainingOnCard: money(debited.balance), invoice: updated });
     }
 
@@ -14626,6 +14645,13 @@ app.post('/make-server-3eae23a6/invoices/:id/apply', async (c) => {
         updatedAt: now,
       };
       await kv.set(`invoice:${invoiceId}`, updated);
+      /**
+       * A paid invoice is a finished job, which is new evidence about how long
+       * that trade really takes. The pass runs here so the rates learn by
+       * themselves rather than waiting for somebody to open a screen. It never
+       * throws and is never awaited: settling the invoice is what matters.
+       */
+      learnAfterPayment(status, user.email);
       return c.json({
         success: true, applied: amount, hoursUsed,
         hoursRemaining: money(ledger.balance?.hoursRemaining ?? 0),
@@ -14724,6 +14750,8 @@ app.post('/make-server-3eae23a6/invoices/:id/record-payment', async (c) => {
       updatedBy: user.email,
     };
     await kv.set(`invoice:${invoice.id}`, updated);
+    /** As above: a settled invoice is a job the rates can learn from. */
+    learnAfterPayment(status, user.email);
 
     console.log(`[invoices] ${user.email} recorded ${method} ${amount} against ${invoice.invoice_number || invoice.id} — now ${status}`);
     return c.json({ success: true, invoice: updated, payment }, 201);

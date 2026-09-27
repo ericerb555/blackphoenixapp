@@ -39,6 +39,7 @@ import {
   learnRates, revertMeasured, resolveCatalogue,
   type CatalogueTask, type MeasuredRate,
 } from "./rateLearning.ts";
+import { tradeFactorsFrom } from "./measuredHours.ts";
 
 export const rateLearningRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -46,6 +47,13 @@ const PREFIX = "/make-server-3eae23a6";
 const CATALOGUE_KEY = "labor_tasks:catalogue";
 const EDITED_KEY = "labor_tasks:global";
 const MEASURED_KEY = "labor_tasks:measured";
+/**
+ * What the quoting engine reads.
+ *
+ * Kept as its own record so a quote does not have to measure every finished
+ * job in the company to price one line. The pass writes it; quoting reads it.
+ */
+const FACTORS_KEY = "labor_tasks:trade_factors";
 
 /** Administrator only. These figures decide what customers are charged. */
 function staffOnly(c: any): { email: string } | null {
@@ -256,43 +264,85 @@ rateLearningRouter.get(`${PREFIX}/labor-tasks/learning`, async (c) => {
  * The only route that writes a rate. Returns exactly what moved and what it
  * declined to move, so the change is never silent.
  */
-rateLearningRouter.post(`${PREFIX}/labor-tasks/learn`, async (c) => {
-  const actor = staffOnly(c);
-  if (!actor) return c.json({ success: false, error: "Administrator access is required." }, 403);
-
+/**
+ * One learning pass: measure every finished job, correct what may be
+ * corrected, and publish the factors quoting reads.
+ *
+ * Exported so the pass can also run by itself when a job is paid for, which is
+ * the moment new evidence actually arrives. Returns what happened rather than
+ * throwing, because a caller settling an invoice must not fail because the
+ * learning loop had an off day.
+ */
+export async function runLearningPass(by: string): Promise<{
+  ok: boolean; reason?: string;
+  applied: any[]; heldBack: any[]; unmatchedTrades: any[]; measured: any[];
+}> {
+  const empty = { applied: [], heldBack: [], unmatchedTrades: [], measured: [] };
   try {
     const [{ variance }, tasks, measured] = await Promise.all([
       varianceFromFinishedJobs(), serverCatalogue(), readMeasured(),
     ]);
 
+    const now = new Date().toISOString();
+
+    /**
+     * The factors go out even when there is no catalogue to correct.
+     *
+     * They are what the quoting engine actually reads, and they come from the
+     * finished jobs rather than from the catalogue — so a company that has
+     * never published a labour catalogue still gets its quotes corrected by
+     * what its own crews achieve.
+     */
+    await kv.set(FACTORS_KEY, {
+      factors: tradeFactorsFrom(variance as any), updatedAt: now, updatedBy: by,
+    });
+
     if (tasks.length === 0) {
-      return c.json({
-        success: false,
-        error: "The labour catalogue has not been published to the server yet, so there is nothing to correct.",
-      }, 409);
+      return {
+        ...empty, ok: false,
+        reason: "The labour catalogue has not been published to the server yet, so there are no rates to correct.",
+      };
     }
 
-    const now = new Date().toISOString();
     const result = learnRates({ variance, tasks, measured, now });
 
     if (result.applied.length > 0) {
-      await kv.set(MEASURED_KEY, { rates: result.measured, updatedAt: now, updatedBy: actor.email });
+      await kv.set(MEASURED_KEY, { rates: result.measured, updatedAt: now, updatedBy: by });
       // An automatic change to pricing is worth a record of its own.
-      await kv.set(`labor_tasks:measured_log:${now}`, {
-        at: now, by: actor.email, applied: result.applied,
-      });
+      await kv.set(`labor_tasks:measured_log:${now}`, { at: now, by, applied: result.applied });
     }
 
-    return c.json({
-      success: true,
-      applied: result.applied,
-      heldBack: result.heldBack,
-      unmatchedTrades: result.unmatchedTrades,
-      measured: result.measured,
-    });
+    return { ok: true, ...result };
   } catch (error: any) {
-    return c.json({ success: false, error: error?.message || "Could not run the pass." }, 500);
+    return { ...empty, ok: false, reason: error?.message || "Could not run the pass." };
   }
+}
+
+/**
+ * Run a pass after a job has been paid for, without making the caller wait.
+ *
+ * A payment is the moment a job becomes evidence, so this is where the loop
+ * closes by itself rather than waiting for somebody to open a screen. It never
+ * throws: an invoice must settle whether or not the rates learn anything.
+ */
+export function learnAfterPayment(status: string, by: string): void {
+  if (String(status || "").toLowerCase() !== "paid") return;
+  void runLearningPass(by).catch(() => { /* settling the invoice is what matters */ });
+}
+
+rateLearningRouter.post(`${PREFIX}/labor-tasks/learn`, async (c) => {
+  const actor = staffOnly(c);
+  if (!actor) return c.json({ success: false, error: "Administrator access is required." }, 403);
+
+  const result = await runLearningPass(actor.email);
+  if (!result.ok) return c.json({ success: false, error: result.reason }, 409);
+  return c.json({
+    success: true,
+    applied: result.applied,
+    heldBack: result.heldBack,
+    unmatchedTrades: result.unmatchedTrades,
+    measured: result.measured,
+  });
 });
 
 /** Put one corrected rate back to what it was. */

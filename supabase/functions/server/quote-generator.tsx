@@ -17,6 +17,7 @@
 
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
+import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 
 const quoteRouter = new Hono();
 
@@ -135,7 +136,14 @@ function round2(n: number): number {
 
 // Turn the raw model JSON into the shape the frontend editor expects, with all
 // totals computed server-side (never trust the model's arithmetic).
-function assembleEstimate(raw: any, input: EstimatorInput) {
+//
+// `factors` is what the finished jobs measured, per trade. It is injected for
+// the same reason the repricer is: this module should hold no opinion about
+// where the measurements live, and an estimate must still assemble when there
+// are none.
+function assembleEstimate(
+  raw: any, input: EstimatorInput, factors: Record<string, TradeFactor> = {},
+) {
   const rid = () => crypto.randomUUID();
 
   const materials = (Array.isArray(raw?.materials) ? raw.materials : []).map((m: any) => {
@@ -176,7 +184,7 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
     };
   });
 
-  const labor = (Array.isArray(raw?.labor) ? raw.labor : []).map((l: any) => {
+  const rawLabor = (Array.isArray(raw?.labor) ? raw.labor : []).map((l: any) => {
     const hours = Number(l.hours) || 0;
     const rate = Number(l.hourlyRate ?? l.rate) || 0;
     return {
@@ -198,6 +206,20 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
       visible: true,
     };
   });
+
+  /**
+   * What the crews actually achieve, applied to what the model guessed.
+   *
+   * The model reasons about crew size and productivity and returns a number
+   * nobody measured — which is why every line above is labelled `estimated`.
+   * Where finished jobs say a trade consistently takes longer or less long
+   * than it was quoted at, the hours are scaled by that and relabelled
+   * `measured`, so the quote says which of its figures are real.
+   *
+   * Before this, jobs were measured, the variance was shown on a screen, and
+   * the next quote asked the model to guess again from nothing.
+   */
+  const { lines: labor, adjusted: measuredLines } = applyMeasuredHours(rawLabor, factors);
 
   const processSteps = (Array.isArray(raw?.processSteps) ? raw.processSteps : []).map((s: any, i: number) => ({
     id: rid(),
@@ -298,16 +320,22 @@ function assembleEstimate(raw: any, input: EstimatorInput) {
     regionalNote: raw?.regionalNote || '',
     confidence: raw?.confidence || 'medium',
     assumptions: Array.isArray(raw?.assumptions) ? raw.assumptions : [],
+    // Said out loud so a quote can show how much of it came from measurement.
+    measuredLines,
   };
 }
 
 // Deterministic fallback used only when the model/API is unavailable so the app
 // never hands the user an empty quote.
-function heuristicEstimate(input: EstimatorInput) {
+function heuristicEstimate(input: EstimatorInput, factors: Record<string, TradeFactor> = {}) {
+  return assembleEstimate(heuristicRaw(input), input, factors);
+}
+
+function heuristicRaw(input: EstimatorInput) {
   const value = Number(input.estimatedValue) || 8000;
   const materialsSubtotal = round2(value * 0.45);
   const laborSubtotal = round2(value * 0.35);
-  return assembleEstimate({
+  return ({
     projectSummary: `Preliminary ${input.serviceType || 'construction'} estimate generated offline. Refine line items before sending.`,
     regionalNote: 'Offline estimate — location-based rates not applied.',
     confidence: 'low',
@@ -330,7 +358,7 @@ function heuristicEstimate(input: EstimatorInput) {
     profitPercent: 0.10,
     contingencyPercent: 0.05,
     taxRatePercent: 0.08,
-  }, input);
+  });
 }
 
 /**
@@ -343,10 +371,19 @@ function heuristicEstimate(input: EstimatorInput) {
  */
 export type Repricer = (estimate: any) => { estimate: any; summary?: any };
 
-export async function runEstimator(input: EstimatorInput, reprice?: Repricer) {
+/**
+ * Run one estimate.
+ *
+ * `factors` is what the finished jobs measured, per trade, injected the same
+ * way the repricer is. With none, a quote is exactly what it always was — the
+ * model’s guess, labelled as one.
+ */
+export async function runEstimator(
+  input: EstimatorInput, reprice?: Repricer, factors: Record<string, TradeFactor> = {},
+) {
   if (!Deno.env.get('OPENAI_API_KEY')) {
     console.log('[AI Quote Generator] No OPENAI_API_KEY — using heuristic fallback.');
-    return { estimate: heuristicEstimate(input), usedAI: false };
+    return { estimate: heuristicEstimate(input, factors), usedAI: false };
   }
   try {
     const completion = await (await openai()).chat.completions.create({
@@ -380,15 +417,15 @@ export async function runEstimator(input: EstimatorInput, reprice?: Repricer) {
       }
     }
 
-    const estimate = assembleEstimate(priced, input);
+    const estimate = assembleEstimate(priced, input, factors);
     // If the model returned nothing usable, fall back rather than send an empty quote.
     if (estimate.materials.length === 0 && estimate.labor.length === 0) {
-      return { estimate: heuristicEstimate(input), usedAI: false };
+      return { estimate: heuristicEstimate(input, factors), usedAI: false };
     }
     return { estimate: { ...estimate, priceSummary }, usedAI: true };
   } catch (error: any) {
     console.error('[AI Quote Generator] Estimator error, falling back:', error?.message || error);
-    return { estimate: heuristicEstimate(input), usedAI: false };
+    return { estimate: heuristicEstimate(input, factors), usedAI: false };
   }
 }
 
