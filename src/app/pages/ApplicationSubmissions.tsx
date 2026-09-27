@@ -9,6 +9,10 @@ import { supabase } from '../lib/supabase';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
+import {
+  applicationFields, unlistedKeys, normalizeApplicationStatus,
+} from '../lib/applicationFields';
+
 interface Application {
   id: string;
   personalInfo?: any;
@@ -294,17 +298,23 @@ export default function ApplicationSubmissions() {
       getApplicantName(app).toLowerCase().includes(searchQuery.toLowerCase()) ||
       getApplicantEmail(app).toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+    /**
+     * The server writes `pending`; this page was built around `new`. Comparing
+     * them raw meant a freshly submitted application matched no tab at all and
+     * counted towards nothing, so it looked like it had no status.
+     */
+    const matchesStatus = statusFilter === 'all'
+      || normalizeApplicationStatus(app.status) === normalizeApplicationStatus(statusFilter);
 
     return matchesSearch && matchesStatus;
   });
 
   const statusCounts = {
     all: applications.length,
-    new: applications.filter(a => a.status === 'new').length,
-    reviewed: applications.filter(a => a.status === 'reviewed').length,
-    accepted: applications.filter(a => a.status === 'accepted' || a.status === 'approved').length,
-    rejected: applications.filter(a => a.status === 'rejected').length,
+    new: applications.filter(a => normalizeApplicationStatus(a.status) === 'new').length,
+    reviewed: applications.filter(a => normalizeApplicationStatus(a.status) === 'reviewed').length,
+    accepted: applications.filter(a => normalizeApplicationStatus(a.status) === 'approved').length,
+    rejected: applications.filter(a => normalizeApplicationStatus(a.status) === 'rejected').length,
   };
 
   const getStatusColor = (status: Application['status']) => {
@@ -579,18 +589,51 @@ export default function ApplicationSubmissions() {
                 </div>
               )}
 
-              {/* All Application Data */}
+              {/*
+                What they actually answered.
+
+                This was a `JSON.stringify` of the whole record in a `<pre>`, so
+                whoever decides if a company may be let onto the platform was
+                reading raw JSON to do it. The fields are named and ordered now,
+                and the untouched record stays below for anything not covered.
+              */}
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Application Details</h3>
-                <div className="bg-[#0F0F0F] border border-[#2A2A2A] rounded-lg p-4">
-                  <pre className="text-sm text-gray-300 whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(
-                      selectedApplication.personalInfo || selectedApplication.formData || selectedApplication,
-                      null,
-                      2
-                    )}
-                  </pre>
+                <div className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+                  <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                    {applicationFields(selectedApplication).map(field => (
+                      <div key={field.label} className={field.wide ? 'sm:col-span-2' : undefined}>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">{field.label}</dt>
+                        <dd className="mt-1 break-words text-white">{field.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {applicationFields(selectedApplication).length === 0 && (
+                    <p className="text-sm text-gray-500">This application arrived with no answers on it.</p>
+                  )}
                 </div>
+
+                {/*
+                  Anything the readable view does not account for is named rather
+                  than silently dropped, so a field added to a form tomorrow
+                  cannot disappear from the application without anybody noticing.
+                */}
+                {unlistedKeys(selectedApplication).length > 0 && (
+                  <p className="mt-2 text-xs leading-5 text-amber-300/80">
+                    Also submitted, not shown above: {unlistedKeys(selectedApplication).join(', ')}
+                  </p>
+                )}
+
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-gray-500 hover:text-gray-300">
+                    Raw submission
+                  </summary>
+                  <div className="mt-2 rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+                    <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-400">
+                      {JSON.stringify(selectedApplication, null, 2)}
+                    </pre>
+                  </div>
+                </details>
               </div>
 
               {/* Status Update */}
@@ -602,7 +645,7 @@ export default function ApplicationSubmissions() {
                       key={status}
                       onClick={() => updateStatus(selectedApplication.id, status)}
                       className={`px-4 py-3 rounded-lg border font-medium transition ${
-                        selectedApplication.status === status
+                        normalizeApplicationStatus(selectedApplication.status) === normalizeApplicationStatus(status)
                           ? getStatusColor(status)
                           : 'bg-[#0F0F0F] border-[#2A2A2A] text-gray-400 hover:border-[#ea580c]/50'
                       }`}
