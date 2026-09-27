@@ -6547,9 +6547,33 @@ app.get('/make-server-3eae23a6/portal-deals', async (c) => {
 });
 
 // Admin: every deal, including paused and expired ones.
+/**
+ * The deals this account published.
+ *
+ * WHAT THIS RETURNED BEFORE
+ *
+ * Every deal on the platform, to anybody, with no check of any kind — and the
+ * portal screen then filtered by `createdBy` in the browser. Eleven portals
+ * use that screen, so a vendor, a tenant or a customer asking this question
+ * received every other tenant’s offers, including the paused and expired ones
+ * they had thought better of. The filtering happening after the data arrived
+ * is what made it look correct.
+ *
+ * The scoping is done here now. An administrator still sees everything,
+ * because moderating what is published is their job.
+ */
 app.get('/make-server-3eae23a6/portal-deals/all', async (c) => {
   try {
-    return c.json({ success: true, deals: await loadPortalDeals() });
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) {
+      return c.json({ success: false, error: 'Sign in to see your deals.', deals: [] }, 401);
+    }
+    const all = await loadPortalDeals();
+    const mine = admin
+      ? all
+      : all.filter((d: any) =>
+          String(d?.createdBy || '').toLowerCase() === String(user.email).toLowerCase());
+    return c.json({ success: true, deals: mine });
   } catch (error: any) {
     console.log(`Portal deals admin fetch error: ${error?.message || error}`);
     return c.json({ error: error?.message || 'Could not load deals.', deals: [] }, 500);
@@ -6571,7 +6595,22 @@ app.post('/make-server-3eae23a6/portal-deals', async (c) => {
     if (!String(deal.title || '').trim()) return c.json({ error: 'A deal title is required.' }, 400);
 
     const id = String(deal.id || `deal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
-    const existing = deal.id ? await kv.get(portalDealKey(id)) : null;
+    const existing = deal.id ? await kv.get(portalDealKey(id)) as any : null;
+
+    /**
+     * Editing somebody else’s deal was possible by posting their id.
+     *
+     * The route merges over whatever it finds at that key and writes it back,
+     * and the only check was that the caller was signed in as somebody. Any
+     * account could therefore rewrite any other tenant’s published offer — its
+     * price, its promo code, where it points — and the record would keep the
+     * original author’s name on it.
+     */
+    const isAdmin = await intakeIsAdmin(user);
+    if (existing && !isAdmin
+        && String(existing.createdBy || '').toLowerCase() !== String(user.email || '').toLowerCase()) {
+      return c.json({ error: 'That deal belongs to another account.' }, 403);
+    }
     const record = {
       ...(existing || {}),
       ...deal,
@@ -6597,7 +6636,15 @@ app.delete('/make-server-3eae23a6/portal-deals/:id', async (c) => {
     const { data: { user } } = await supabase.auth.getUser(accessToken);
     if (!user?.id) return c.json({ error: 'You must be signed in to remove deals.' }, 401);
 
-    await kv.del(portalDealKey(c.req.param('id')));
+    // As with editing: anybody signed in could delete anybody’s deal by id.
+    const dealId = c.req.param('id');
+    const target = await kv.get(portalDealKey(dealId)) as any;
+    if (target && !await intakeIsAdmin(user)
+        && String(target.createdBy || '').toLowerCase() !== String(user.email || '').toLowerCase()) {
+      return c.json({ error: 'That deal belongs to another account.' }, 403);
+    }
+
+    await kv.del(portalDealKey(dealId));
     return c.json({ success: true });
   } catch (error: any) {
     console.log(`Portal deal delete error: ${error?.message || error}`);
