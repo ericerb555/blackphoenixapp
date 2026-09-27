@@ -61,8 +61,19 @@ export interface StaffRecipient {
   updatedAt: string;
 }
 
+/**
+ * The company name, trimmed.
+ *
+ * The secret had a leading space, and this read it raw — so every
+ * notification the platform sent went out with "[ Black Phoenix Builds]" in
+ * the subject line. `resolveCompanyName` in index.tsx already trimmed, which
+ * is why the same secret looked correct in one place and wrong in another.
+ *
+ * A blank or whitespace-only value falls back rather than producing an empty
+ * bracket at the front of every subject.
+ */
 function companyName() {
-  return Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
+  return (Deno.env.get('COMPANY_NAME') || '').trim() || 'The Black Phoenix Company';
 }
 
 function fromEmail() {
