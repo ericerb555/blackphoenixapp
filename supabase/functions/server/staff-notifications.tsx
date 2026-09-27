@@ -25,7 +25,7 @@ import * as kv from './kv_store.tsx';
 const RECIPIENTS_KEY = 'staff_notification_recipients';
 const LOG_PREFIX = 'staff_notification_log:';
 
-export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency'] as const;
+export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency', 'application'] as const;
 export type StaffNotificationEvent = typeof STAFF_NOTIFICATION_EVENTS[number];
 
 export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, string> = {
@@ -33,6 +33,7 @@ export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, str
   payment: 'Payments received',
   work_request: 'New work requests',
   emergency: 'Emergency on-call calls',
+  application: 'New portal applications',
 };
 
 export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEvent, string> = {
@@ -40,6 +41,13 @@ export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEven
   payment: 'Emailed whenever a payment is captured, including which Stripe account received it.',
   work_request: 'Emailed whenever a client submits a work or service request.',
   emergency: 'Emailed whenever an urgent request opens an on-call emergency — including when the rota could not be reached.',
+  /**
+   * An application is not a sign-up. Somebody registering an account and a
+   * company asking to be let onto the platform are different events with
+   * different urgency, and folding them together would mean whoever wants one
+   * has to receive the other.
+   */
+  application: 'Emailed whenever anybody applies to any portal — vendor, subcontractor, investor, advertiser, tenant, territory or property manager.',
 };
 
 export interface StaffRecipient {

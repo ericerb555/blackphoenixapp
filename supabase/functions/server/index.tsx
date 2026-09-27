@@ -2065,6 +2065,37 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
         status: 'unread',
       });
       await kv.set('admin_alerts', alerts.slice(0, 200));
+
+      /**
+       * And an email, because nobody watches a dashboard all day.
+       *
+       * An in-app alert is only seen by somebody who happens to open the app.
+       * An application is a person waiting on an answer, so it also goes to
+       * everybody on the notification list plus the owner addresses in
+       * ADMIN_NOTIFICATION_EMAILS, which cannot be switched off from the UI.
+       *
+       * Keyed by application so the same one is never mailed twice, and sent
+       * in the background: an applicant must never be told their application
+       * failed because an email did not go out.
+       */
+      notifyStaffInBackground('application', {
+        // The subject names the company where there is one, because "New vendor
+        // application" three times in an inbox says nothing about which.
+        subject: `${applicant.name} applied — ${applicationType.replace(/[_-]/g, ' ')}`,
+        heading: `New ${applicationType.replace(/[_-]/g, ' ')} application`,
+        rows: [
+          ['Applicant', applicant.name],
+          ['Company', String((data as any).company_name || (data as any).companyName || '')],
+          ['Portal', applicationType.replace(/[_-]/g, ' ')],
+          ['Email', applicant.email],
+          ['Phone', applicant.phone],
+          ['Received', new Date(now).toLocaleString()],
+        ],
+        ctaLabel: 'Review the application',
+        ctaPath: '/application-submissions',
+        note: 'They have been told the team will review it and follow up.',
+        dedupeKey: `application:${id}`,
+      });
     } catch (alertError: any) {
       /**
        * The application is the durable part and is already written. Failing to

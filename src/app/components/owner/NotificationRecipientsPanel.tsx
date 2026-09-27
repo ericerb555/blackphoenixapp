@@ -19,7 +19,16 @@ import { supabase } from '../../lib/supabase';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
-type EventId = 'signup' | 'payment' | 'work_request';
+/**
+ * The events a person can subscribe to.
+ *
+ * The list rendered on screen comes from the server, so this union only has
+ * to stay wide enough not to reject what the server sends. It had fallen two
+ * events behind — `emergency` and `application` were both missing — which is
+ * why it is a string fallback rather than a closed list: a new event added on
+ * the server should appear here without needing a matching deploy.
+ */
+type EventId = 'signup' | 'payment' | 'work_request' | 'emergency' | 'application' | (string & {});
 
 interface EventMeta {
   id: EventId;
