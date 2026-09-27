@@ -1193,9 +1193,19 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
                       <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => {
-                            localStorage.setItem('viewer_open_request', d.workRequestId || alert.id);
-                            if (onNavigate) onNavigate('work-request-viewer');
-                            else window.location.href = '/work-request-viewer';
+                            /**
+                             * Hand the pipeline the item to open.
+                             *
+                             * This wrote `viewer_open_request` and navigated to
+                             * `work-request-viewer` — a key nothing reads and a route
+                             * that is not registered, so the button produced an error
+                             * screen. The pipeline has always watched for
+                             * `pipeline_open_item`, and its own comment says it is for
+                             * arrivals from these alerts.
+                             */
+                            localStorage.setItem('pipeline_open_item', d.workRequestId || alert.id);
+                            if (onNavigate) onNavigate('work-request-hub');
+                            else window.location.href = '/work-request-hub';
                           }}
                           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-xs font-bold rounded-lg transition"
                         >

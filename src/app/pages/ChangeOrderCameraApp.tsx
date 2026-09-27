@@ -782,7 +782,9 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
         toast.success(`Change Order ${result.changeOrder?.coNumber || 'created'} sent for approval!`);
         // In production, send email/SMS to customer
         setTimeout(() => {
-          if (onNavigate) onNavigate('change-orders');
+          // `change-orders` is not a registered route; the page that lists them
+          // for a decision is `change-order-approval`.
+          if (onNavigate) onNavigate('change-order-approval');
           else window.location.href = '/change-orders';
         }, 2000);
       } else {

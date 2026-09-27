@@ -294,7 +294,10 @@ export default function CommandCenterHome({
       tint: 'from-purple-600/15 to-purple-700/10 border-purple-500/30',
       accent: 'text-purple-400',
       cta: 'Open',
-      go: () => onNavigate('/applications'),
+      // `/applications` is not a registered route — pressing this tile took the
+      // whole page down with "something went wrong". The page that actually
+      // lists them is `application-submissions`.
+      go: () => onNavigate('/application-submissions'),
     },
   ].filter(Boolean) as any[];
 

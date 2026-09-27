@@ -2032,6 +2032,49 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
   else applications.unshift(application);
   await kv.set(APPLICATIONS_KEY, applications);
 
+  /**
+   * Tell somebody an application arrived.
+   *
+   * WHAT WAS HERE BEFORE: nothing. An application was written to the store and
+   * a CRM contact was created, and no alert was raised anywhere. Somebody could
+   * apply to be a vendor, a subcontractor, an investor or a tenant, be told
+   * "our team will review it and follow up soon", and no human would ever be
+   * shown that they existed unless a person happened to open the submissions
+   * page and look. Found by applying as a vendor and seeing an empty alerts
+   * panel.
+   *
+   * Only a NEW application alerts. A re-submission updates the record in place
+   * and must not raise a second alert, or a hesitant applicant pressing submit
+   * three times buries everything else in the panel.
+   */
+  if (existingIndex < 0) {
+    try {
+      const alerts = (await kv.get('admin_alerts') as any[]) || [];
+      alerts.unshift({
+        // Keyed by application so a replay cannot duplicate it.
+        id: `application_alert_${id}`,
+        type: 'application',
+        priority: 'high',
+        title: `New ${applicationType.replace(/[_-]/g, ' ')} application`,
+        message: `${applicant.name} applied and is waiting on a decision.`,
+        applicationId: id,
+        applicationType,
+        applicantEmail: applicant.email,
+        actionRoute: 'application-submissions',
+        timestamp: now,
+        status: 'unread',
+      });
+      await kv.set('admin_alerts', alerts.slice(0, 200));
+    } catch (alertError: any) {
+      /**
+       * The application is the durable part and is already written. Failing to
+       * raise the alert must never lose somebody their application — they
+       * would be told it failed and would have no way to know it had not.
+       */
+      console.error('[Applications] saved but could not raise an alert:', alertError?.message || alertError);
+    }
+  }
+
   const contacts: any[] = (await kv.get(CRM_CONTACTS_KEY)) || [];
   const contactIndex = contacts.findIndex((contact: any) => String(contact.email || '').toLowerCase() === applicant.email);
   const contact = {
