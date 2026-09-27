@@ -40,6 +40,7 @@ import { QuoteToContractEditor } from '../components/QuoteToContractEditor';
 import { ProjectDetailsModal } from '../components/ProjectDetailsModal';
 import WorkRequestFullView from '../components/WorkRequestFullView';
 import PipelineMessagePanel from '../components/PipelineMessagePanel';
+import { attentionFor, attentionCounts, type AttentionFlag } from '../lib/pipelineAttention';
 import AutoJobScheduleGenerator from '../components/AutoJobScheduleGenerator';
 import { FinancialDataSheet } from '../components/FinancialDataSheet';
 import { EmployeeNotes } from '../components/EmployeeNotes';
@@ -259,6 +260,18 @@ export default function UnifiedProjectPipeline() {
    * where a thing that destructive belongs.
    */
 
+  /**
+   * Why the board is empty, when it is.
+   *
+   * `null` means it loaded and there is genuinely nothing. Anything else is a
+   * reason the page owes the reader.
+   */
+  const [loadProblem, setLoadProblem] = useState<null | { kind: 'no-access' | 'signed-out' | 'failed'; detail: string }>(null);
+  const [viewerEmail, setViewerEmail] = useState<string>('');
+
+  /** Which attention flag the board is filtered to, if any. */
+  const [filterFlag, setFilterFlag] = useState<string | null>(null);
+
   const [filterStage, setFilterStage] = useState<'all' | PipelineStage>('all');
   const [filterSource, setFilterSource] = useState<'all' | 'camera' | 'design-studio' | 'other'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -459,15 +472,36 @@ export default function UnifiedProjectPipeline() {
         }
       } catch (err) {
         console.warn('[Pipeline] Could not load work requests from server:', err);
+        setLoadProblem({ kind: 'failed', detail: (err as any)?.message || 'The work request list could not be loaded.' });
       }
 
       // Load server-owned pipeline state (quotes, stage transitions, contracts) with the same signed-in session.
       let kvItems: PipelineItem[] = [];
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        setViewerEmail(String(session?.user?.email || ''));
+        if (!session?.access_token) {
+          /**
+           * No session at all. The work request fetch above would have been
+           * refused too, so the board has nothing for an honest reason.
+           */
+          setLoadProblem({ kind: 'signed-out', detail: 'Sign in to see the pipeline.' });
+        }
         if (session?.access_token) {
           const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`, { headers: { Authorization: `Bearer ${session.access_token}` } });
           const data = await response.json();
+          /**
+           * 403 here means the signed-in account is not staff.
+           *
+           * It used to fall through to the empty state, which is the lie this
+           * whole change exists to stop: the work request route answers a
+           * non-admin with their own records only — none, for somebody who has
+           * raised none — so both halves came back empty and the page called it
+           * an empty pipeline.
+           */
+          if (response.status === 403 || response.status === 401) {
+            setLoadProblem({ kind: 'no-access', detail: data?.error || 'This account cannot see the pipeline.' });
+          }
           if (response.ok && data.success && Array.isArray(data.items)) {
             /**
              * Given the fields the type promises, rather than cast and hoped.
@@ -702,7 +736,19 @@ export default function UnifiedProjectPipeline() {
   // }, [items, isLoading, hasTriedAutoGenerate]); // Run when items load
 
   // Filter items
+  /**
+   * Flags per job, computed once per render rather than per card.
+   *
+   * A Map keyed by id, because the rail, the filter and the card all need the
+   * same answer and recomputing it three times would let them disagree.
+   */
+  const attentionByItem = new Map<string, AttentionFlag[]>(
+    items.map((item) => [item.id, attentionFor(item)]),
+  );
+  const attentionRail = attentionCounts(items);
+
   const filteredItems = items.filter(item => {
+    if (filterFlag && !(attentionByItem.get(item.id) || []).some((f) => f.id === filterFlag)) return false;
     if (filterStage !== 'all' && item.stage !== filterStage) return false;
 
     if (filterSource !== 'all') {
@@ -1348,8 +1394,74 @@ export default function UnifiedProjectPipeline() {
         </div>
       </div>
 
+      {/*
+        Needs attention.
+
+        The board shows five columns of equal weight, so a job untouched since
+        June looked exactly like one raised this morning. This is the line that
+        says where to look, and each count filters the board to those jobs.
+      */}
+      {attentionRail.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
+          <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-300">
+            <AlertCircle className="h-4 w-4" /> Needs attention
+          </span>
+          {attentionRail.map((flag) => (
+            <button
+              key={flag.id}
+              type="button"
+              onClick={() => setFilterFlag(filterFlag === flag.id ? null : flag.id)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                filterFlag === flag.id
+                  ? 'border-amber-400 bg-amber-500/20 text-amber-100'
+                  : flag.severity === 'urgent'
+                    ? 'border-red-500/40 text-red-300 hover:bg-red-500/10'
+                    : 'border-amber-500/30 text-amber-200 hover:bg-amber-500/10'
+              }`}
+            >
+              {flag.label}
+              <span className="rounded-full bg-black/30 px-1.5 py-0.5 tabular-nums">{flag.count}</span>
+            </button>
+          ))}
+          {filterFlag && (
+            <button
+              type="button"
+              onClick={() => setFilterFlag(null)}
+              className="ml-auto rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-gray-300 hover:bg-white/5"
+            >
+              Show everything
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Kanban Board */}
-      {items.length === 0 ? (
+      {items.length === 0 && loadProblem ? (
+        /*
+          Three different silences used to render as one cheerful empty state.
+          Whoever is reading this deserves to know which one they are in.
+        */
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="max-w-lg rounded-2xl border border-amber-500/30 bg-amber-500/5 p-8 text-center">
+            <AlertCircle className="mx-auto mb-4 h-10 w-10 text-amber-400" />
+            <h2 className="mb-2 text-2xl font-bold text-white">
+              {loadProblem.kind === 'no-access' ? 'This account cannot see the pipeline'
+                : loadProblem.kind === 'signed-out' ? 'You are not signed in'
+                : 'The pipeline could not be loaded'}
+            </h2>
+            <p className="mb-4 text-sm leading-6 text-gray-300">{loadProblem.detail}</p>
+            {loadProblem.kind === 'no-access' && (
+              <p className="text-sm leading-6 text-gray-400">
+                Signed in as <span className="font-semibold text-white">{viewerEmail || 'an unknown account'}</span>.
+                The pipeline is for owners and administrators. Sign out and back in with your owner account.
+              </p>
+            )}
+            <p className="mt-5 text-xs text-gray-500">
+              This is not the same as having no work. Nothing has been lost.
+            </p>
+          </div>
+        </div>
+      ) : items.length === 0 ? (
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="text-center max-w-lg">
             <div className="w-20 h-20 bg-gradient-to-br from-[#ea580c]/20 to-orange-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -1406,6 +1518,24 @@ export default function UnifiedProjectPipeline() {
                         key={item.id}
                         className="bg-gradient-to-br from-[#1a1a1a] to-[#0f0f0f] border border-gray-700 hover:border-[#ea580c]/50 rounded-lg overflow-hidden transition-all hover:shadow-lg hover:shadow-[#ea580c]/10"
                       >
+                        {/*
+                          Why this card is flagged, in words somebody can act on.
+                          Worst first — `attentionFor` sorts them.
+                        */}
+                        {(attentionByItem.get(item.id) || []).slice(0, 2).map((flag) => (
+                          <div
+                            key={flag.id}
+                            className={`flex items-start gap-1.5 px-3 py-1.5 text-[11px] font-medium ${
+                              flag.severity === 'urgent'
+                                ? 'bg-red-500/15 text-red-300'
+                                : 'bg-amber-500/10 text-amber-200'
+                            }`}
+                          >
+                            <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                            <span>{flag.reason}</span>
+                          </div>
+                        ))}
+
                         {/* Card Header */}
                         <div className="p-3">
                           <div className="flex items-start justify-between mb-3">

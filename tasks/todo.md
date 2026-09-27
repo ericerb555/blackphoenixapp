@@ -1,3 +1,114 @@
+# Redesign the pipeline so it says what needs attention
+
+Asked for: *"the pipeline area needs to be way more organized and redesigned and
+more functionable for owners and admins to know whats going on and what need
+attention."*
+
+## What is actually wrong, from watching it today
+
+Not theory. Every item below was seen in the last hour testing one quote.
+
+**1. Nothing tells you what needs attention.** Five columns of equal weight. A
+job that has sat untouched since June looks exactly like one raised this
+morning. There is no age, no owner, no flag, no "this one is stuck".
+
+**2. The board was empty while three work requests existed.** It read "No
+Projects Yet" with Wanda's June job, a second June job and the test job all
+present in the store. Still unexplained. **This has to be understood before
+anything is redesigned**, or the new board inherits it.
+
+**3. Two sources of truth for what stage a job is at.** On load the stage is
+derived from the work request's status; on save it is written onto the pipeline
+item. They can disagree, and the merge decides silently which wins.
+
+**4. A whole stage has no column.** `payment` is a valid `PipelineStage` with a
+label and a colour, and no column renders it. Anything reaching that stage
+disappears from the board.
+
+**5. Records under two key shapes.** The board reads `pipeline_{id}`. Three
+records exist under `pipeline:{id}` — including both June jobs — which the code
+already documents as a dead end nothing reads.
+
+**6. Saving quietly overwrote the customer's budget.** Saving the quote replaced
+`estimatedValue` with the quote total. I watched it happen and had to put the
+figure back by hand.
+
+**7. The invoice handoff is `sessionStorage` and is deleted on read.** Reload the
+invoice page before saving and the prefill is gone with no trace.
+
+**8. Failures were mute.** Every save error read "Failed to save quote" —
+refusal, missing record and server fault alike. Fixed today, and the same
+pattern is probably elsewhere on this page.
+
+## The question only you can answer
+
+**What counts as needing attention, and after how long?** My proposed defaults,
+each of which is a real query over data we already hold:
+
+| Flag | Default |
+|---|---|
+| Work request not yet quoted | older than **2 days** |
+| Quote drafted, never sent | older than **3 days** |
+| Quote sent, no answer | older than **7 days** |
+| Approved, no contract | older than **3 days** |
+| Contract signed, not invoiced | older than **2 days** |
+| Invoice unpaid | past its due date |
+| Anything with no owner | immediately |
+
+Change any number, or tell me the ones that do not matter to you.
+
+## Progress
+
+- [x] 1. **Why the board was empty** — answered, and it was not a bug. The
+      session was a plain customer account (jbrenes19@gmail.com, no app role),
+      not the owner. `GET /work-requests` answered 200 with that customer's own
+      records — none — and `GET /pipeline/items` answered 403, which a console.warn
+      swallowed. Both silences rendered as the same cheerful empty state.
+- [x] 3. **Needs-attention rail** built, with the agreed thresholds, as a
+      tested module (23 tests) rather than inline arithmetic.
+- [x] 4. **Cards carry the reason** they are flagged, worst first.
+- [x] 6. **The board distinguishes** no access, a failed load, and no work.
+- [ ] 2. One source of truth for stage.
+- [ ] 5. Add the Payment column, or remove the stage.
+- [ ] 7. Stop the silent overwrite of the customer budget.
+- [ ] 8. Stop writing the `pipeline:` key shape.
+
+## Proposed shape
+
+- [ ] 1. **Find out why the board was empty.** No redesign until this is
+      understood.
+- [ ] 2. **One source of truth for stage.** The pipeline item owns it; the work
+      request's status seeds it once. No silent merge.
+- [ ] 3. **A "Needs attention" rail across the top** — each flag a count you can
+      click to filter the board to exactly those jobs. This is the part that
+      answers the actual request.
+- [ ] 4. **Cards carry what a decision needs**: value, days in this stage, who
+      owns it, last activity, and why it is flagged. Today they carry a name and
+      a number.
+- [ ] 5. **Add the Payment column** so nothing can fall off the board, or remove
+      the stage. Not both ways.
+- [ ] 6. **Every failure says what failed**, the way the quote save now does.
+- [ ] 7. **Stop the silent overwrite** of the customer's budget.
+- [ ] 8. **Leave the orphaned `pipeline:` records alone** but stop writing that
+      shape anywhere.
+
+## What I am NOT proposing
+
+Replacing the board with something else. It is the right shape for this work and
+you are used to it. This adds a layer that tells you where to look, and repairs
+what is broken underneath — it does not move your furniture.
+
+Nor am I proposing to touch the portals. This is the internal pipeline only.
+
+## Risk
+
+This file is 1,978 lines and it is the spine of the business — everything that
+produces a number or a document writes into it. The safe order is: understand
+the empty board, fix the data faults, then add the attention rail. Doing the
+visible part first would build on ground I know is uneven.
+
+---
+
 # Freeze a portal when the account has not paid
 
 Asked for: *"we must have a portals to froze and only allow payment and
