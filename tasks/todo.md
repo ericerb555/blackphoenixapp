@@ -1,3 +1,92 @@
+# Where each job made money, and where it lost it
+
+Asked for: a breakdown when an invoice is paid showing what a job cost and
+where money was made or lost; a section for it in the Owners Dashboard; an admin
+chart showing where quoting and job completion need improving; and an AI
+assistant that reads those and suggests things.
+
+## The good news: the cost data exists
+
+I said earlier that real cost was not available. That was wrong, and worth
+correcting before anything is built on it:
+
+| | where | links to a job by |
+|---|---|---|
+| Material cost | `purchase_order:*` | `jobId` |
+| Labour cost | timesheet allocations | `workOrderId`, and the employee's `payRate` |
+| Revenue | `invoice:*` | `project_id` |
+| Hours consumed | `entitlement_ledger:*` | `planId` |
+
+So a genuine profit and loss per job is computable from records that exist. Not
+estimated, not inferred from what the customer was charged.
+
+**The distinction that makes this real:** the quote's material and labour
+subtotals are what the customer was CHARGED. A purchase order and an employee's
+pay rate are what the work COST. The difference between those two is the margin,
+and it is the only honest way to get it.
+
+## What a job's breakdown shows
+
+    Quoted            what they agreed to
+    Invoiced          what was billed
+    Paid              what came in
+    ────────────────
+    Materials cost    from purchase orders raised against the job
+    Labour cost       hours billed to its work orders x each person's pay rate
+    Plan hours used   hours drawn from a subscription, at what they are worth
+    ────────────────
+    Margin            paid minus cost, in money and as a percentage
+    Against quote     what the margin was SUPPOSED to be, and the gap
+
+That last line is the useful one. A job can be profitable and still have been
+quoted badly, and only the comparison shows it.
+
+## Where quoting and completion need improving
+
+One chart, built from the same numbers across all jobs:
+
+- **Quote accuracy** — quoted cost against actual cost, per job. A cluster above
+  the line is systematic under-quoting, which is the expensive kind.
+- **Where it goes wrong** — materials against labour. Consistently over on
+  labour is an hours problem; consistently over on materials is a pricing one.
+- **Time to complete** — raised to invoiced, so a job that earns well but takes
+  three months is visible as what it is.
+- **What never finished** — quoted and never contracted, contracted and never
+  invoiced, with what that was worth.
+
+## The AI half, and what it may not do
+
+An assistant reading those numbers and suggesting things is reasonable, with one
+hard rule: **it may only speak about figures it was given.** It gets the
+computed rows and says what it notices — "labour on kitchens runs 30% over quote
+and on decks it does not" — and it never produces a number of its own.
+
+This project has been bitten repeatedly by confident figures with nothing behind
+them. An assistant is the easiest possible way to generate more of those, so the
+prompt carries the numbers and the answer is checked against them.
+
+There is already AI plumbing with spend metering, so it costs what it costs and
+is counted.
+
+## Order
+
+- [ ] 1. `jobProfit()` — a pure, tested module. Revenue, cost, margin, and the
+      gap against quote, from records passed to it.
+- [ ] 2. `GET /jobs/:id/profit` — gathers the records, calls the module.
+- [ ] 3. The breakdown on the job itself, shown once an invoice is paid.
+- [ ] 4. An Owners Dashboard section listing every job by margin, worst first.
+- [ ] 5. The quoting and completion chart across all jobs.
+- [ ] 6. The assistant, last, once there are real numbers for it to read.
+
+## What I need to confirm before item 1
+
+Whether a purchase order carries a cost total, and whether it is the price we
+pay the vendor or the price we charge the customer. If it is the second, the
+material cost half is not yet available and item 1 covers labour only until it
+is — which I would rather say now than discover halfway through.
+
+---
+
 # Attach anything the portals offer to an invoice, and draw hours down
 
 Asked for: *"any and all options to attach discounts or hours, gift cards —
