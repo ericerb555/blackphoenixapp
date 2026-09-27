@@ -1052,6 +1052,53 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
               </div>
             </div>
 
+            {/* ── WHAT WORK IS PRICED AT ─────────────────────────── */}
+            {/*
+              The three figures that decide a quote and a margin, which lived
+              behind the pipeline toolbar and the HR hub with nothing linking
+              them. They belong together because two of them are what we
+              CHARGE and one is what we PAY, and the gap between those is the
+              margin — so setting one without seeing the others is how a job
+              comes out profitable on paper and not in the bank.
+            */}
+            <div>
+              <h3 className="text-lg font-bold text-white mb-1">What work is priced at</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                The rates behind every quote, and what the finished jobs say about them.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  {
+                    label: 'Labor Rates & Markups', path: 'labor-rates-config',
+                    icon: Percent, color: '#ea580c',
+                    note: 'What we charge an hour, by trade',
+                  },
+                  {
+                    label: 'Labor Hours by Task', path: 'labor-hours-config',
+                    icon: Clock, color: '#3b82f6',
+                    note: 'How long the work takes',
+                  },
+                  {
+                    label: 'Employee Pay Rates', path: 'hr-employee-hub',
+                    icon: Users, color: '#8b5cf6',
+                    note: 'What we pay — no rate, no margin',
+                  },
+                  {
+                    label: 'Quoting Accuracy', path: 'quoting-accuracy',
+                    icon: Target, color: '#10b981',
+                    note: 'What finished jobs say about all three',
+                  },
+                ].map(q => (
+                  <button key={q.label} onClick={() => handleNavigate(q.path)}
+                    className="flex flex-col items-center gap-2 p-4 rounded-2xl border border-[#2A2A2A] hover:border-[#3A3A3A] bg-[#1A1A1A] hover:bg-[#222] transition text-center">
+                    <q.icon className="w-6 h-6" style={{ color: q.color }} />
+                    <span className="text-xs font-bold text-gray-300">{q.label}</span>
+                    <span className="text-[11px] leading-4 text-gray-500">{q.note}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* ── QUICK ACCESS TOOLS ────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
