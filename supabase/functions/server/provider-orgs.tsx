@@ -27,6 +27,8 @@
  * is reported rather than hidden.
  */
 
+import { isDuplicateEmail } from "./orgConflict.ts";
+
 export type ProviderType = 'vendor' | 'subcontractor';
 
 /**
@@ -113,6 +115,7 @@ export function providerEmail(application: Record<string, any>): string {
   return '';
 }
 
+
 export async function ensureProviderOrg(
   deps: ProviderOrgDeps,
   application: Record<string, any>,
@@ -177,6 +180,8 @@ export async function ensureProviderOrg(
       const wanted = slugify(name);
       let inserted: any = null;
       let lastError: any = null;
+      /** Set when the insert was refused because somebody else got there first. */
+      let lostTheRace = false;
 
       for (const candidate of [wanted, `${wanted}-${Math.random().toString(36).slice(2, 6)}`]) {
         const { data, error } = await deps.db
@@ -194,6 +199,37 @@ export async function ensureProviderOrg(
           .limit(1);
         if (!error && data?.[0]) { inserted = data[0]; break; }
         lastError = error;
+
+        /**
+         * Somebody else created this organisation between our read and our
+         * write.
+         *
+         * The check above is a read followed by a write, so two approvals
+         * arriving together both find nothing and both insert. That is not
+         * hypothetical: one vendor approval produced two organisations 160ms
+         * apart, and the retry-with-a-new-slug below — which exists so two
+         * genuinely different firms of the same name can coexist — is what
+         * carried the second one past the slug constraint.
+         *
+         * `organizations_type_email_uniq` now refuses the duplicate outright.
+         * The right answer to that refusal is the organisation that won the
+         * race, not another attempt with a different slug.
+         */
+        if (email && isDuplicateEmail(error)) {
+          const { data: winner } = await deps.db
+            .from('organizations')
+            .select('id, slug')
+            .eq('type', portalType)
+            .ilike('email', email)
+            .limit(1);
+          if (winner?.[0]) {
+            // Fall through the ordinary path so the applicant is still
+            // attached to the organisation that won.
+            inserted = winner[0];
+            lostTheRace = true;
+            break;
+          }
+        }
       }
 
       if (!inserted) {
@@ -201,7 +237,9 @@ export async function ensureProviderOrg(
       }
       orgId = String(inserted.id);
       slug = String(inserted.slug);
-      created = true;
+      // Adopting the winner of a race is a reuse, not a creation, and saying
+      // otherwise would have the caller send a second welcome invitation.
+      created = !lostTheRace;
     }
 
     // ── attach the person ────────────────────────────────────────────────────
