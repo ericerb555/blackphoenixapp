@@ -61,6 +61,7 @@ import CustomerSubscriptionSelectionModal from '../CustomerSubscriptionSelection
 import { useUserProfile } from '../../lib/hooks/useUserProfile';
 import { useUserData } from '../../lib/hooks/useUserData';
 import PortalSettings from './PortalSettings';
+import ApplyCreditPanel from '../invoices/ApplyCreditPanel';
 
 interface Message {
   id: string;
@@ -85,6 +86,14 @@ export default function CustomerPortalView() {
   const [loadingQuotes, setLoadingQuotes] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]); // Real invoices from API
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  /**
+   * Applying a gift card or hours changes the balance on the server, so the
+   * invoices have to be read again afterwards rather than adjusted here. A
+   * browser subtracting its own credit would be showing a figure nothing
+   * backs.
+   */
+  const [invoiceReloadKey, setInvoiceReloadKey] = useState(0);
+  const [applyOpenFor, setApplyOpenFor] = useState<string | null>(null);
   const [contracts, setContracts] = useState<any[]>([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [signingContractId, setSigningContractId] = useState<string | null>(null);
@@ -221,7 +230,7 @@ export default function CustomerPortalView() {
     };
 
     loadInvoices();
-  }, [user?.id]);
+  }, [user?.id, invoiceReloadKey]);
 
   // Contracts belong to the same signed-in customer as invoices.  Keep them
   // in the portal so a newly generated contract can actually be signed.
@@ -1672,29 +1681,57 @@ export default function CustomerPortalView() {
                         {[...outstanding, ...settled].map((invoice: any) => {
                           const overdue = !isSettled(invoice) && isOverdue(invoice);
                           return (
-                            <div key={invoice.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
-                              <div className="min-w-0">
-                                <p className="font-semibold text-white">
-                                  Invoice #{invoice.invoice_number || invoice.id}
-                                </p>
-                                <p className="mt-0.5 text-sm text-gray-500">
-                                  {invoice.due_date || invoice.dueDate ? `Due ${String(invoice.due_date || invoice.dueDate).slice(0, 10)}` : 'No due date'}
-                                  {overdue && <span className="ml-2 font-semibold text-red-400">overdue</span>}
-                                  {isSettled(invoice) && <span className="ml-2 font-semibold text-green-400">paid</span>}
-                                </p>
+                            <div key={invoice.id} className="py-4">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-white">
+                                    Invoice #{invoice.invoice_number || invoice.id}
+                                  </p>
+                                  <p className="mt-0.5 text-sm text-gray-500">
+                                    {invoice.due_date || invoice.dueDate ? `Due ${String(invoice.due_date || invoice.dueDate).slice(0, 10)}` : 'No due date'}
+                                    {overdue && <span className="ml-2 font-semibold text-red-400">overdue</span>}
+                                    {isSettled(invoice) && <span className="ml-2 font-semibold text-green-400">paid</span>}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-bold tabular-nums text-white">{money(balanceOf(invoice))}</span>
+                                  {!isSettled(invoice) && balanceOf(invoice) > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => payInvoice(invoice)}
+                                      className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-green-500"
+                                    >
+                                      <CreditCard className="h-4 w-4" /> Pay now
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className="font-bold tabular-nums text-white">{money(balanceOf(invoice))}</span>
-                                {!isSettled(invoice) && balanceOf(invoice) > 0 && (
+
+                              {/*
+                                A gift card or banked hours settle part of the bill before
+                                the card is charged, so the way in sits beside Pay now
+                                rather than somewhere the customer would have to go looking.
+                              */}
+                              {!isSettled(invoice) && balanceOf(invoice) > 0 && (
+                                <div className="mt-3">
                                   <button
                                     type="button"
-                                    onClick={() => payInvoice(invoice)}
-                                    className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-green-500"
+                                    onClick={() => setApplyOpenFor(applyOpenFor === invoice.id ? null : invoice.id)}
+                                    className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-emerald-400 transition hover:text-emerald-300"
                                   >
-                                    <CreditCard className="h-4 w-4" /> Pay now
+                                    <Gift className="h-3.5 w-3.5" />
+                                    {applyOpenFor === invoice.id ? 'Hide' : 'Apply a gift card or your hours'}
                                   </button>
-                                )}
-                              </div>
+                                  {applyOpenFor === invoice.id && (
+                                    <div className="mt-3">
+                                      <ApplyCreditPanel
+                                        invoiceId={invoice.id}
+                                        onApplied={() => setInvoiceReloadKey((n) => n + 1)}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })}

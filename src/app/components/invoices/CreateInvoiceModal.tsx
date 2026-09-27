@@ -6,6 +6,7 @@ import { companyInfo } from '../../lib/config/companyInfo';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 import CompanyHeader from '../branding/CompanyHeader';
+import AttachablesSearchPanel from './AttachablesSearchPanel';
 import { toast } from 'sonner@2.0.3';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -940,6 +941,28 @@ export default function CreateInvoiceModal({
                   )}
                 </div>
               )}
+
+              {/*
+                Everything this customer holds, searchable, so more than one thing
+                can go on and nobody has to remember what they were promised.
+
+                A percentage lands in the discount figure above. A gift card or
+                banked hours do not: they settle a balance rather than changing the
+                price, so they wait until the invoice is issued and there is
+                something to pay.
+              */}
+              <AttachablesSearchPanel
+                email={formData.customer_email}
+                jobId={formData.project_id}
+                subtotal={calculateSubtotal()}
+                invoiceId={invoice?.id}
+                issued={Boolean(invoice?.id) && !formData.is_draft && formData.status !== 'draft'}
+                onPercentChange={(delta) => setFormData((prev) => {
+                  const worth = Math.round(calculateSubtotal() * (delta / 100) * 100) / 100;
+                  return { ...prev, discount_amount: Math.max(0, Math.round((prev.discount_amount + worth) * 100) / 100) };
+                })}
+                onApplied={onSuccess}
+              />
 
               {/*
                 A discount bigger than what was owed is a decision somebody made.

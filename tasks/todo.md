@@ -1,3 +1,28 @@
+# Search and attach — done (27 Sep)
+
+Two panels, one endpoint.
+
+**The customer's** (`ApplyCreditPanel`, in the Payments tab under each unpaid
+invoice): their own gift cards and spare plan hours listed with balances, plus a
+box for a card code they were given. Applying one drops the balance in front of
+them; Pay now then charges only what is left, because checkout computes the
+amount server-side.
+
+**The staff one** (`AttachablesSearchPanel`, in the invoice builder): a search
+box over everything the customer holds — grants, gift cards, hours — split into
+what comes off the TOTAL and what comes off the BALANCE. Percentages go into the
+discount figure and more than one can be put on. Gift cards and hours are shown
+but not pressable on a draft: they settle a balance, and a draft has nothing to
+pay.
+
+Neither panel sends an amount. They name what to apply and `/invoices/:id/apply`
+works out the lesser of what is held and what is owed, from records the server
+owns.
+
+Typecheck 317 (baseline), tests 528 pass, smoke 34 rendered / 0 threw.
+
+---
+
 # Where each job made money, and where it lost it
 
 Asked for: a breakdown when an invoice is paid showing what a job cost and
