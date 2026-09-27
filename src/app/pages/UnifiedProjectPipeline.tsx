@@ -1423,11 +1423,22 @@ export default function UnifiedProjectPipeline() {
             return (
               <div key={stage} className="flex flex-1 items-start">
                 <div className="flex flex-1 flex-col items-center">
-                  <div
-                    className={`relative grid h-12 w-12 place-items-center rounded-xl border transition-all ${
+                  {/*
+                    Press a station to work only on that stage. Pressing the one
+                    you are already on comes back out, so the control is its own
+                    way back and there is no dead end.
+                  */}
+                  <button
+                    type="button"
+                    onClick={() => setFilterStage(filterStage === stage ? 'all' : stage)}
+                    aria-pressed={filterStage === stage}
+                    title={filterStage === stage ? `Showing ${label} only — press to show every stage` : `Show only ${label}`}
+                    className={`relative grid h-12 w-12 place-items-center rounded-xl border transition-all hover:scale-105 ${
                       isActive
                         ? `border-white/20 bg-gradient-to-br ${look.node} text-black ${look.glow}`
                         : 'border-white/10 bg-white/[0.03] text-gray-600'
+                    } ${filterStage === stage ? 'ring-2 ring-white ring-offset-2 ring-offset-black' : ''} ${
+                      filterStage !== 'all' && filterStage !== stage ? 'opacity-40' : ''
                     }`}
                   >
                     <Icon className="h-5 w-5" />
@@ -1436,8 +1447,10 @@ export default function UnifiedProjectPipeline() {
                         {stageItems.length}
                       </span>
                     )}
-                  </div>
-                  <div className={`mt-2 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${isActive ? look.text : 'text-gray-600'}`}>
+                  </button>
+                  <div className={`mt-2 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${isActive ? look.text : 'text-gray-600'} ${
+                    filterStage !== 'all' && filterStage !== stage ? 'opacity-40' : ''
+                  }`}>
                     {label}
                   </div>
                 </div>
@@ -1539,6 +1552,25 @@ export default function UnifiedProjectPipeline() {
         }
       `}</style>
 
+      {filterStage !== 'all' && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">Focused on</span>
+          <span className={`text-sm font-bold ${lookFor(filterStage).text}`}>
+            {pipelineStages.find((c) => c.stage === filterStage)?.label || filterStage}
+          </span>
+          <span className="text-xs tabular-nums text-gray-500">
+            {getItemsForStage(filterStage as PipelineStage).length} showing
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilterStage('all')}
+            className="ml-auto rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-white/5"
+          >
+            Back to every stage
+          </button>
+        </div>
+      )}
+
       {/* Kanban Board */}
       {items.length === 0 && loadProblem ? (
         /*
@@ -1580,7 +1612,12 @@ export default function UnifiedProjectPipeline() {
         </div>
       ) : (
         <div className="bp-grid flex gap-4 overflow-x-auto rounded-2xl border border-white/5 p-4 pb-5 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
-          {pipelineStages.map(({ stage, label, color, icon: Icon }) => {
+          {/*
+            Focused on one stage, that column is the board and takes the width.
+            Otherwise all of them, side by side, as before.
+          */}
+          {pipelineStages.filter((col) => filterStage === 'all' || col.stage === filterStage)
+            .map(({ stage, label, color, icon: Icon }) => {
             const stageItems = getItemsForStage(stage);
             const totalValue = getTotalValue(stageItems);
             const look = lookFor(stage);
@@ -1588,7 +1625,7 @@ export default function UnifiedProjectPipeline() {
             return (
               <div
                 key={stage}
-                className="relative z-10 flex-shrink-0 w-[340px]"
+                className={filterStage === stage ? 'relative z-10 w-full' : 'relative z-10 flex-shrink-0 w-[340px]'}
               >
               {/* Column header — a HUD panel with the stage colour on its edge. */}
               <div className="relative mb-3 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-md">
