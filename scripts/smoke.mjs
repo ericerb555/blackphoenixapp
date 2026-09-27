@@ -29,8 +29,23 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { changedFiles, affectedRoutes } from './affected.mjs';
+
+/**
+ * The modal targets, read out of the fixtures file rather than listed twice.
+ *
+ * A second copy of this list would go stale the first time somebody added a
+ * modal and did not know there were two places to add it.
+ */
+const MODAL_TARGETS = (() => {
+  try {
+    const src = readFileSync(new URL('./smokeModals.tsx', import.meta.url), 'utf8');
+    return [...src.matchAll(/'(modal:[a-z0-9-]+)':/g)].map((m) => m[1]);
+  } catch {
+    return [];
+  }
+})();
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PORT = 5177;
@@ -178,13 +193,39 @@ if (!wantAll) {
   if (routes === null) {
     console.log('A shared entry point changed - running every page.');
   } else if (routes.length === 0) {
-    console.log('No source changes reach any page. Nothing to smoke.');
-    stop();
-    process.exit(0);
+    /**
+     * No page was affected, but the modals still are.
+     *
+     * A change to a modal, or to this harness, reaches no page by the import
+     * walker’s reckoning — pages import modals, not the other way round. Exiting
+     * here would mean the one kind of target that cannot be reached by the
+     * walker is also the one never checked, which is how the gap this whole
+     * change closes came to exist.
+     */
+    if (MODAL_TARGETS.length > 0) {
+      targets = MODAL_TARGETS;
+      console.log(`No page is affected. Running ${MODAL_TARGETS.length} modals.`);
+      console.log('');
+    } else {
+      console.log('No source changes reach any page. Nothing to smoke.');
+      stop();
+      process.exit(0);
+    }
   } else {
-    targets = routes;
+    /**
+     * The modal targets always run alongside whatever pages were affected.
+     *
+     * The import walker answers "which PAGES could this change have reached",
+     * and a modal is not a page — so a change to one selected its host page and
+     * then never opened the thing that changed. There are only a handful of
+     * them and they mount in milliseconds, so running them every time is
+     * cheaper than teaching the walker a second kind of target and being wrong
+     * about it quietly.
+     */
+    targets = [...routes, ...MODAL_TARGETS];
     console.log(`${changed.length} changed file(s) reach ${routes.length} page(s):`);
     console.log('  ' + routes.join(', '));
+    console.log(`  plus ${MODAL_TARGETS.length} modals, which always run`);
     console.log('');
   }
 }

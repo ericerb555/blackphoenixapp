@@ -35,6 +35,7 @@
 import { Component, Suspense, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { pageMap } from '../src/app/routes';
+import { modalMap } from './smokeModals';
 import { AuthProvider } from '../src/app/contexts/AuthContext';
 import { CompanyContextProvider } from '../src/app/contexts/CompanyContext';
 import { ActiveCompanyProvider } from '../src/app/contexts/ActiveCompanyContext';
@@ -53,7 +54,22 @@ const to = Number(params.get('to') || 20);
 
 // Sorted so a batch means the same thing between runs. An unstable order makes
 // "batch 7 failed" impossible to reproduce.
-const names = Object.keys(pageMap).sort();
+/**
+ * Pages and modals together.
+ *
+ * A modal is not a page — it renders only when somebody presses a button, so
+ * nothing here ever rendered one. That gap let a crash reach production on
+ * 2026-09-27: a discount panel in the invoice modal read a function above the
+ * line declaring it and threw on every render. Typecheck allowed it (temporal
+ * dead zone is a runtime rule) and this harness never opened the modal, so
+ * both checks passed and a person found it.
+ *
+ * They are one list rather than two runs because everything downstream —
+ * batching, the error boundary, the verdict — already works per name and does
+ * not care what kind of thing it mounted.
+ */
+const targets: Record<string, any> = { ...pageMap, ...modalMap };
+const names = Object.keys(targets).sort();
 
 /**
  * Either an explicit list of pages, or a slice of all of them.
@@ -64,7 +80,7 @@ const names = Object.keys(pageMap).sort();
  */
 const only = (params.get('only') || '').split(',').map(s => s.trim()).filter(Boolean);
 const slice = only.length
-  ? only.filter(nm => nm in pageMap)
+  ? only.filter(nm => nm in targets)
   : names.slice(from, to);
 
 const verdicts = new Map<string, Result>();
@@ -164,7 +180,7 @@ function Harness() {
   return (
     <>
       {slice.map((name) => (
-        <Slot key={name} name={name} Cmp={(pageMap as any)[name]} />
+        <Slot key={name} name={name} Cmp={targets[name]} />
       ))}
     </>
   );
