@@ -32,9 +32,18 @@
  */
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
+import { resolveEntitlement, type PlanTier } from "./planTier.ts";
+import { pickCeiling, TIER_LIMIT_KEY, type SpendBucket } from "./aiCeiling.ts";
 
-/** What is being spent. Each bucket has its own counter and its own ceiling. */
-export type SpendBucket = "render" | "blueprint" | "ai";
+/**
+ * What is being spent. Each bucket has its own counter and its own ceiling.
+ *
+ * Declared in `aiCeiling.ts` and re-exported here rather than written out
+ * twice, so the list of buckets and the rule that picks their ceilings cannot
+ * drift apart. Callers already importing from this file are unchanged.
+ */
+export { pickCeiling, TIER_LIMIT_KEY } from "./aiCeiling.ts";
+export type { SpendBucket } from "./aiCeiling.ts";
 
 export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
   /**
@@ -54,6 +63,52 @@ export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
   // thirty drawings costs. Do not "tidy" it to 30 without changing the unit.
   blueprint: 120,
 };
+
+/**
+ * What this account is allowed for a bucket, and where that number came from.
+ *
+ * An override set for this one account, else what their paid tier publishes,
+ * else the built-in backstop. `pickCeiling` holds the precedence and is
+ * covered by hand-written tests; this only fetches what it decides on.
+ *
+ * WHY IT DOES NOT GO THROUGH `checkPlanLimit`
+ *
+ * That gate deliberately ALLOWS anybody it cannot place, because refusing a
+ * vendor with no resolvable plan would shut them out of a catalogue they are
+ * already using. The same default here would be an unplaceable account
+ * spending with no ceiling at all — this is money leaving, not a feature being
+ * withheld. So every unhappy path below lands on the backstop, which is a real
+ * cap, and a read that throws is caught to the same place.
+ */
+export async function ceilingFor(
+  user: any, bucket: SpendBucket,
+): Promise<{ limit: number; source: string }> {
+  const id = String(user?.id || "");
+
+  const override = Number(await kv.get(limitKey(bucket, id))) || 0;
+  const fallback = DEFAULT_LIMITS[bucket];
+  if (override > 0) return pickCeiling({ override, fallback });
+
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (!email) return pickCeiling({ fallback });
+
+  try {
+    const grant = await kv.get(`feature_grant:${email}`) as any;
+    const entitlement = resolveEntitlement(grant);
+    if (entitlement.source !== "subscription" || !grant?.tierId || !grant?.portalType) {
+      return pickCeiling({ fallback });
+    }
+
+    const tier = await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`) as PlanTier | null;
+    return pickCeiling({
+      tierLimit: tier?.limits?.[TIER_LIMIT_KEY[bucket]],
+      tierName: tier?.name || grant.tierId,
+      fallback,
+    });
+  } catch {
+    return pickCeiling({ fallback });
+  }
+}
 
 /**
  * Storage keys.
@@ -131,10 +186,9 @@ export async function reserve(
   const id = String(user?.id || "");
   if (!id) return { error: "Sign in required.", used: 0, limit: 0 };
 
-  // A per-account override, so Eric can lift the ceiling for one customer
-  // without changing it for everybody.
-  const override = Number(await kv.get(limitKey(bucket, id))) || 0;
-  const limit = override > 0 ? override : DEFAULT_LIMITS[bucket];
+  // An override for this one account, else what their tier publishes, else the
+  // built-in backstop. See `ceilingFor`.
+  const { limit } = await ceilingFor(user, bucket);
 
   const used = Number(await kv.get(budgetKey(bucket, id))) || 0;
   const verdict = bucket === "render"

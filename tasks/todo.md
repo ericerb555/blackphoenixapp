@@ -1,3 +1,57 @@
+# The tier decides how much model work an account gets (27 Sep)
+
+Until now every signed-in account — free or paying — got the same three
+ceilings out of `DEFAULT_LIMITS`: 300 model calls, 10 renders, 120 blueprint
+sheets. A subscriber paying for the content centre had exactly the allowance of
+somebody who had signed up that morning and paid nothing.
+
+`ceilingFor` now resolves it in three steps: an override set for that one
+account, else what their paid tier publishes, else the built-in backstop.
+
+## Why the rule is its own file
+
+`aiSpend.ts` imports `kv_store.tsx`, and the test runner strips types from `.ts`
+only, so nothing in that file can be tested by hand. The precedence decides
+what a paying customer may use, so it was pulled out into `aiCeiling.ts` —
+pure, no storage — and `pickCeiling` has 12 tests. `aiSpend` fetches; the
+tested function decides.
+
+## The two readings that would have been wrong
+
+**Zero on a tier means UNLIMITED**, the convention the tier editor, the vendor
+tiers and `withinLimit` already use. Read as "none allowed", it would have
+locked the dearest plan out of the feature it is paying for.
+
+**A tier that says nothing gets the backstop, not unlimited.** No tier publishes
+`aiCallsPerMonth` today, so "silence means no ceiling" would have handed every
+subscriber an uncapped bill on the day this deployed.
+
+## Where it deliberately differs from the rest of the platform
+
+`checkPlanLimit` lets anybody it cannot place through, because refusing a vendor
+with no resolvable plan would shut them out of a catalogue they already use.
+This does the opposite and lands every unhappy path — no email, no grant, a
+tier that has been deleted, a read that throws — on the backstop. Withholding a
+feature is recoverable; a month of uncapped model spend is not.
+
+`withinLimit` reads a negative ceiling as unlimited. Here it falls to the
+backstop: the tier editor already refuses to save a negative, so one can only
+arrive by a write that went round the editor, and a number nobody meant to type
+should not open an account.
+
+## The gap, named rather than left to be found
+
+The tier editor takes free-typed limit keys. So `aiCallsPerMonth` can be set
+today, and `aicallspermonth` can be set today too and will do nothing at all,
+silently. Nothing in the editor suggests the three keys or spots a typo. Worth
+fixing before these are used in anger; not done here because it is a UI change
+nobody asked for.
+
+Typecheck 317 app / 84 server (both baseline, none in the changed files),
+666 tests pass, smoke 6 rendered / 0 threw.
+
+---
+
 # One job pushed through to paid, and what it found (27 Sep)
 
 Pushed `wr_test_quote_to_invoice` all the way: paid invoice, time booked, a
