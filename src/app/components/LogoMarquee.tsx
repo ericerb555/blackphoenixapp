@@ -45,15 +45,19 @@ export default function LogoMarquee({ speed = 40 }: LogoMarqueeProps) {
         const allLogos: Logo[] = JSON.parse(saved);
         setLogos(allLogos);
       } else {
-        // Set default partner logos
-        const defaultLogos: Logo[] = [
-          { id: '1', name: 'DeWalt', imageUrl: 'https://images.unsplash.com/photo-1588783948922-0c6e1c6a7c9c?w=200&h=80&fit=crop' },
-          { id: '2', name: 'Milwaukee', imageUrl: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=200&h=80&fit=crop' },
-          { id: '3', name: 'Makita', imageUrl: 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?w=200&h=80&fit=crop' },
-          { id: '4', name: 'Bosch', imageUrl: 'https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?w=200&h=80&fit=crop' },
-          { id: '5', name: 'Stanley', imageUrl: 'https://images.unsplash.com/photo-1581092921461-eab62e97a780?w=200&h=80&fit=crop' },
-        ];
-        setLogos(defaultLogos);
+        /**
+         * No partners until there are partners.
+         *
+         * This fell back to DeWalt, Milwaukee, Makita, Bosch and Stanley, each
+         * with a stock photograph standing in for a logo — five real companies
+         * shown as partners of this business to anybody whose browser had
+         * nothing stored, which is every new visitor.
+         *
+         * The component already renders nothing when the list is empty, so an
+         * account with no partners now shows no partner strip, which is the
+         * truth.
+         */
+        setLogos([]);
       }
     } catch (error) {
       console.error('Error loading partner logos:', error);

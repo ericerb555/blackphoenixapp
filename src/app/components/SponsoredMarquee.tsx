@@ -22,19 +22,25 @@ interface AdPill {
   title: string;
   content: string;
   linkUrl?: string;
+  /** The advertiser’s own artwork, where they supplied one. */
+  imageUrl?: string;
   emoji?: string;
   /** Present only on a server-served paid ad; house copy has none. */
   creativeId?: string;
 }
 
-const DEFAULT_SPONSORS: Sponsor[] = [
-  { id: 's1', name: 'DeWalt',          imageUrl: 'https://images.unsplash.com/photo-1504148455328-c376907d081c?w=160&h=60&fit=crop', tier: 'gold',   tagline: 'Trusted Tools' },
-  { id: 's2', name: 'Home Depot',      imageUrl: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=160&h=60&fit=crop', tier: 'gold',   tagline: 'Building Materials' },
-  { id: 's3', name: 'Milwaukee Tool',  imageUrl: 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?w=160&h=60&fit=crop', tier: 'silver', tagline: 'Pro Equipment' },
-  { id: 's4', name: 'Sherwin-Williams',imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=160&h=60&fit=crop', tier: 'silver', tagline: 'Premium Paints' },
-  { id: 's5', name: "Lowe's",          imageUrl: 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=160&h=60&fit=crop', tier: 'bronze', tagline: 'Home Improvement' },
-  { id: 's6', name: 'Makita',          imageUrl: 'https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?w=160&h=60&fit=crop', tier: 'bronze', tagline: 'Power Tools' },
-];
+/**
+ * No sponsors until there are sponsors.
+ *
+ * This list held DeWalt, Home Depot, Milwaukee, Sherwin-Williams, Lowe’s and
+ * Makita, each with a stock photograph standing in for a logo. Six real
+ * companies were displayed as sponsors of this platform on every surface the
+ * strip appears on, and none of them had agreed to anything.
+ *
+ * An empty strip is honest. A strip full of borrowed brand names is a claim,
+ * and it is somebody else’s to make.
+ */
+const DEFAULT_SPONSORS: Sponsor[] = [];
 
 const DEFAULT_PILLS: AdPill[] = [
   { id: 'p1', emoji: '🏠', title: 'Free Quote',        content: 'Get a free estimate on any project' },
@@ -75,7 +81,12 @@ export default function SponsoredMarquee({ onNavigate, speed = 40 }: SponsoredMa
       const ads = await fetchAds('marquee', 12);
       if (cancelled || !ads.length) return;
       setPills(ads.map((a) => ({
-        id: a.id, creativeId: a.id, title: a.title, content: a.content, linkUrl: a.linkUrl, emoji: '📢',
+        id: a.id, creativeId: a.id, title: a.title, content: a.content,
+        // The server serves this and sanitises it on the way out; it was
+        // simply never carried through to the pill, so every paid ad rendered
+        // as a megaphone emoji however much artwork the advertiser supplied.
+        linkUrl: a.linkUrl, imageUrl: a.imageUrl,
+        emoji: a.imageUrl ? undefined : '📢',
       })));
       // One impression per creative per page session — see adTracking. A marquee
       // re-renders constantly, and counting renders would over-bill.
@@ -193,7 +204,23 @@ export default function SponsoredMarquee({ onNavigate, speed = 40 }: SponsoredMa
                     isPaid && p.linkUrl ? 'cursor-pointer transition hover:border-orange-500/50' : ''
                   }`}
                 >
-                  {p.emoji && <span className="text-xl flex-shrink-0">{p.emoji}</span>}
+                  {p.imageUrl ? (
+                    <img
+                      src={p.imageUrl}
+                      alt=""
+                      loading="lazy"
+                      /**
+                       * Decorative: the title and body beside it already say
+                       * what the advertisement is, so an alt text would read
+                       * the advertiser’s words twice to somebody using a
+                       * screen reader.
+                       */
+                      className="h-10 w-10 flex-shrink-0 rounded-lg object-cover"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : p.emoji ? (
+                    <span className="text-xl flex-shrink-0">{p.emoji}</span>
+                  ) : null}
                   <div className="min-w-0">
                     <p className="text-white text-xs font-bold leading-tight truncate">{p.title}</p>
                     <p className="text-gray-500 text-[13px] leading-tight line-clamp-2">{p.content}</p>
