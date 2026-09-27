@@ -399,67 +399,20 @@ export default function AdvertisingHub() {
   // VENDOR PACKAGES - Vendor-specific advertising bundles
   // ============================================================================
   
-  const vendorPackages: VendorPackage[] = [
-    {
-      id: 'vendor-homedepot',
-      vendorName: 'Home Depot',
-      packageName: 'Pro Builder Spotlight',
-      category: 'materials',
-      basePrice: 1499,
-      currentPrice: 1499 * activeCohort.priceMultiplier,
-      products: [
-        { name: 'Lumber & Building Materials', quantity: 1, unit: 'category' },
-        { name: 'Tools & Hardware', quantity: 1, unit: 'category' },
-        { name: 'Featured Products', quantity: 5, unit: 'products' }
-      ],
-      adPlacements: ['materials-featured', 'subcontractor-header'],
-      duration: '3 months',
-      icon: Building,
-      color: 'text-orange-400',
-      bgColor: 'bg-orange-500/10',
-      status: 'active',
-      cohortTier: activeCohort.id
-    },
-    {
-      id: 'vendor-dewalt',
-      vendorName: 'DeWalt Tools',
-      packageName: 'Power Tools Premium',
-      category: 'tools',
-      basePrice: 999,
-      currentPrice: 999 * activeCohort.priceMultiplier,
-      products: [
-        { name: 'Power Tool Category', quantity: 1, unit: 'category' },
-        { name: 'Featured Products', quantity: 3, unit: 'products' }
-      ],
-      adPlacements: ['subcontractor-header', 'materials-featured'],
-      duration: '6 months',
-      icon: Zap,
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-500/10',
-      status: 'active',
-      cohortTier: activeCohort.id
-    },
-    {
-      id: 'vendor-johndeere',
-      vendorName: 'John Deere',
-      packageName: 'Equipment Showcase',
-      category: 'equipment',
-      basePrice: 2499,
-      currentPrice: 2499 * activeCohort.priceMultiplier,
-      products: [
-        { name: 'Heavy Equipment', quantity: 1, unit: 'category' },
-        { name: 'Landscaping Equipment', quantity: 1, unit: 'category' },
-        { name: 'Featured Products', quantity: 8, unit: 'products' }
-      ],
-      adPlacements: ['landing-hero', 'subcontractor-header', 'materials-featured'],
-      duration: '12 months',
-      icon: Package,
-      color: 'text-green-400',
-      bgColor: 'bg-green-500/10',
-      status: 'active',
-      cohortTier: activeCohort.id
-    }
-  ];
+  /**
+   * No vendor packages until there are vendor packages.
+   *
+   * This held three: "Home Depot — Pro Builder Spotlight" at $1,499 a month,
+   * "DeWalt Tools — Power Tools Premium" at $999, and one for John Deere.
+   * None of those companies has an arrangement here, and the list is shown to
+   * paying advertisers as packages this business sells — with their prices
+   * counted into the revenue figure on the same screen.
+   *
+   * Invented sponsors on a marquee were a claim about other people. This was
+   * that plus a price list, so it goes the same way. The tab now says there is
+   * nothing rather than showing three things that do not exist.
+   */
+  const vendorPackages: VendorPackage[] = [];
 
   const filteredProducts = adProducts.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -809,7 +762,18 @@ export default function AdvertisingHub() {
         </div>
       )}
 
-      {viewMode === 'vendor-packages' && (
+      {viewMode === 'vendor-packages' && filteredVendorPackages.length === 0 && (
+        <div className="rounded-xl border border-[#2A2A2A] bg-[#111] p-10 text-center">
+          <Building className="mx-auto mb-3 h-8 w-8 text-gray-600" />
+          <p className="font-semibold text-white">No vendor packages yet</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+            Sponsorship packages appear here once they are set up. Nothing is listed
+            because nothing has been agreed yet.
+          </p>
+        </div>
+      )}
+
+      {viewMode === 'vendor-packages' && filteredVendorPackages.length > 0 && (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredVendorPackages.map(vendor => {
             const Icon = vendor.icon;
