@@ -809,8 +809,19 @@ app.use('/make-server-3eae23a6/entitlements/*', async (c, next) => {
   const user = await intakeActor(c); const admin = await intakeIsAdmin(user);
   if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
   const path = new URL(c.req.url).pathname;
-  if (path.endsWith('/events') && !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
-  const planId = path.split('/').filter(Boolean).at(-1) || '';
+  /**
+   * Writing an entitlement event, and reconciling a balance against the ledger,
+   * are both administrator work.
+   *
+   * `/reconcile` is named here rather than left to the plan-id check below.
+   * That check reads the LAST path segment as a plan id, so a reconcile request
+   * would look up a plan called "reconcile", find nothing and refuse — the
+   * right answer reached by accident, which is the kind that stops being right
+   * the moment somebody adds a route.
+   */
+  const adminOnly = path.endsWith('/events') || path.endsWith('/reconcile');
+  if (adminOnly && !admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  const planId = adminOnly ? '' : (path.split('/').filter(Boolean).at(-1) || '');
   if (!admin && planId && planId !== 'events') {
     const plan = await kv.get(`plan:${planId}`) as any;
     if (!plan || String(plan.ownerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) return c.json({ success: false, error: 'Not permitted.' }, 403);
@@ -16360,11 +16371,64 @@ app.post('/make-server-3eae23a6/subscriptions/:id/log-hours', async (c) => {
     const subscription = await kv.get(subscriptionKey(c.req.param('id'))) as any; if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
     if (!['active', 'past_due'].includes(String(subscription.status))) return c.json({ success: false, error: 'Hours can only be posted to an active subscription.' }, 409);
     const body = await c.req.json(); const hours = Number(body.hours || 0); if (!Number.isFinite(hours) || hours <= 0) return c.json({ success: false, error: 'A positive number of hours is required.' }, 400);
-    const sourceId = String(body.sourceId || body.invoiceId || body.workOrderId || ''); const sourceKey = sourceId ? `subscription_hour_source:${subscription.id}:${sourceId}` : '';
-    if (sourceKey) { const previous = await kv.get(sourceKey) as any; if (previous) return c.json({ success: true, duplicate: true, transaction: previous, balance: subscriptionHourBalance(subscription) }); }
+    /**
+     * What caused these hours, and the key that stops them being counted twice.
+     *
+     * Required. It used to be optional, so a caller that sent none got no
+     * protection at all — and a retried request, a double-pressed button and a
+     * replayed webhook are indistinguishable from two real calls. An
+     * idempotency key that is optional is a convention, not a guard.
+     */
+    const sourceId = String(body.sourceId || body.invoiceId || body.workOrderId || body.timeEntryId || '').trim();
+    if (!sourceId) {
+      return c.json({
+        success: false,
+        error: 'A sourceId is required so the same hours cannot be posted twice. Send the work order, invoice or time entry id.',
+      }, 400);
+    }
+    const sourceKey = `subscription_hour_source:${subscription.id}:${sourceId}`;
+    {
+      const previous = await kv.get(sourceKey) as any;
+      // Already counted. Say so plainly rather than deducting again.
+      if (previous) return c.json({ success: true, duplicate: true, transaction: previous, balance: subscriptionHourBalance(subscription) });
+    }
     const now = new Date().toISOString(); const transaction = { id: `HT-${crypto.randomUUID()}`, subscriptionId: subscription.id, customerId: subscription.stakeholderId || subscription.stakeholderEmail || '', customerName: subscription.stakeholderName || subscription.stakeholderEmail || '', type: 'used', hours, reason: String(body.reason || body.description || 'Service work'), performedBy: user.email, date: String(body.date || now), createdAt: now, invoiceId: body.invoiceId || null, workOrderId: body.workOrderId || null, sourceId: sourceId || null };
     const record = { ...subscription, hoursUsed: Number(subscription.hoursUsed || 0) + hours, updatedAt: now, hourUsage: [transaction, ...(subscription.hourUsage || [])] };
-    await kv.set(subscriptionKey(record.id), record); await kv.set(`subscription_hour_transaction:${record.id}:${transaction.id}`, transaction); if (sourceKey) await kv.set(sourceKey, transaction);
+    await kv.set(subscriptionKey(record.id), record);
+    await kv.set(`subscription_hour_transaction:${record.id}:${transaction.id}`, transaction);
+    await kv.set(sourceKey, transaction);
+
+    /**
+     * Tell the entitlement ledger, which is what every other surface reads.
+     *
+     * Hours spent against a subscription used to be invisible to it, so the
+     * same hour could be missing from one portal and present in another
+     * depending on which store that screen happened to read. The subscription
+     * carries the planId it was created from, which is all that was needed to
+     * put both in one account.
+     *
+     * `recordEntitlementEvent` is idempotent on the same source, so this is
+     * safe to call even where something else has already recorded it — which
+     * is the point: two paths recording one event must not deduct two hours.
+     *
+     * A ledger failure must not lose the transaction that has already been
+     * written above, so it is logged rather than thrown. Reconciliation is
+     * what catches a balance that drifted because of it.
+     */
+    if (record.planId) {
+      try {
+        await recordEntitlementEvent({
+          planId: String(record.planId),
+          sourceType: 'work_usage',
+          sourceId: `subscription:${record.id}:${sourceId}`,
+          hoursDelta: -hours,
+          workOrderId: body.workOrderId || undefined,
+          invoiceId: body.invoiceId || undefined,
+        });
+      } catch (ledgerError: any) {
+        console.log(`[hours] ledger write failed for plan ${record.planId}: ${ledgerError?.message || ledgerError}`);
+      }
+    }
     return c.json({ success: true, transaction, subscription: record, balance: subscriptionHourBalance(record) }, 201);
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to post subscription hours.' }, 500); }
 });

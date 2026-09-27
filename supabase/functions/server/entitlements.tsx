@@ -1,5 +1,6 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { recomputeBalance, compareBalances } from "./entitlementBalance.ts";
 
 export const entitlementsRouter = new Hono();
 const ENTRY = (planId: string, id: string) => `entitlement_ledger:${planId}:${id}`;
@@ -52,6 +53,45 @@ entitlementsRouter.get("/make-server-3eae23a6/entitlements/:planId", async c => 
   const planId = c.req.param("planId");
   const [balance, entries] = await Promise.all([kv.get(BALANCE(planId)), kv.getByPrefix(`entitlement_ledger:${planId}:`)]);
   return c.json({ success: true, balance: balance || null, entries: (entries || []).sort((a: any, b: any) => (b.createdAt || "").localeCompare(a.createdAt || "")) });
+});
+
+/**
+ * Does this plan’s balance still agree with its own history?
+ *
+ * The running balance is a cache. It is right for exactly as long as every
+ * change goes through `recordEntitlementEvent` — and anything that writes a
+ * balance around the ledger leaves the cache saying one thing and the events
+ * saying another, with nothing to notice. A customer’s remaining hours then
+ * depend on which number somebody happened to read.
+ *
+ * This replays the entries and reports the difference. It does NOT repair it:
+ * silently rewriting the balance would hide the route that caused the drift,
+ * and would rewrite a figure somebody may already have been invoiced against.
+ * Drift is a thing to show a person.
+ *
+ * Admin-only, via the gate on /entitlements/* in index.tsx.
+ */
+entitlementsRouter.get("/make-server-3eae23a6/entitlements/:planId/reconcile", async c => {
+  try {
+    const planId = c.req.param("planId");
+    const [stored, entries] = await Promise.all([
+      kv.get(BALANCE(planId)),
+      kv.getByPrefix(`entitlement_ledger:${planId}:`),
+    ]);
+    const fromLedger = recomputeBalance((entries || []) as any[]);
+    const drift = compareBalances(stored as any, fromLedger);
+    return c.json({
+      success: true,
+      planId,
+      agrees: drift.length === 0,
+      entryCount: (entries || []).length,
+      stored: stored || null,
+      fromLedger,
+      drift,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || "Could not reconcile this plan." }, 500);
+  }
 });
 
 entitlementsRouter.post("/make-server-3eae23a6/entitlements/events", async c => {
