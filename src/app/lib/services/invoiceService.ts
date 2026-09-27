@@ -128,6 +128,16 @@ export interface InvoiceLineItem {
   amount?: number;
   is_taxable?: boolean;
   tax_rate?: number;
+  /**
+   * A credit is a line the customer is owed rather than charged — material
+   * they bought themselves, most often.
+   *
+   * `unit_price` still carries the real signed number, so everything that
+   * adds a bill up keeps working without knowing this field exists. It is
+   * here so an editor can show the amount as a positive figure and label the
+   * line for what it is, rather than leaving somebody to read a minus sign.
+   */
+  kind?: 'charge' | 'credit';
 }
 
 export interface InvoiceFormData {

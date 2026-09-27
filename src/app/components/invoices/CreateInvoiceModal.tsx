@@ -143,6 +143,9 @@ export default function CreateInvoiceModal({
           quantity: Number(line.quantity) || 1,
           unit_price: Number(line.unit_price) || 0,
           is_taxable: line.is_taxable !== false,
+          // A negative line from the quote IS a credit; say so, so the editor
+          // shows it as one instead of as a charge with a minus sign.
+          kind: Number(line.unit_price) < 0 ? ('credit' as const) : ('charge' as const),
         })));
       } else if (projectData.amount) {
         setLineItems([
@@ -204,6 +207,28 @@ export default function CreateInvoiceModal({
       {
         line_number: lineItems.length + 1,
         description: '',
+        quantity: 1,
+        unit_price: 0,
+        is_taxable: true,
+      },
+    ]);
+  };
+
+  /**
+   * A credit: something the customer paid for themselves, coming off the bill.
+   *
+   * Negative, and taxable. The tax part is not an oversight — a credit against
+   * material is material leaving the bill, so it takes its tax with it. Marking
+   * it non-taxable would drop the charge and keep tax on something no longer
+   * being sold.
+   */
+  const addCredit = () => {
+    setLineItems([
+      ...lineItems,
+      {
+        line_number: lineItems.length + 1,
+        description: 'Credit — customer-supplied material',
+        kind: 'credit' as const,
         quantity: 1,
         unit_price: 0,
         is_taxable: true,
@@ -652,18 +677,39 @@ export default function CreateInvoiceModal({
                 <DollarSign className="w-5 h-5 text-orange-400" />
                 Line Items
               </h3>
-              <button
-                type="button"
-                onClick={addLineItem}
-                className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-semibold transition"
-              >
-                <Plus className="w-4 h-4" />
-                Add Item
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={addLineItem}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-semibold transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Item
+                </button>
+                {/*
+                  Enter the amount as a positive number; it is subtracted on the
+                  bill. Asking somebody to type a minus sign is asking them to
+                  forget it once and overcharge a customer.
+                */}
+                <button
+                  type="button"
+                  onClick={addCredit}
+                  title="Something the customer bought themselves, coming off this bill"
+                  className="flex items-center gap-2 rounded-lg border border-emerald-500/40 px-4 py-2 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/10"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Credit
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3">
               {lineItems.map((item, index) => (
+                /*
+                  A credit is tinted and labelled rather than left to be inferred
+                  from a minus sign, which is the one character on an invoice
+                  nobody notices missing.
+                */
                 <div key={index} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
                   <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-5">
@@ -696,8 +742,16 @@ export default function CreateInvoiceModal({
                         type="number"
                         min="0"
                         step="0.01"
-                        value={item.unit_price}
-                        onChange={(e) => updateLineItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                        value={item.kind === 'credit' ? Math.abs(item.unit_price) : item.unit_price}
+                        onChange={(e) => {
+                          const typed = Math.abs(parseFloat(e.target.value) || 0);
+                          /**
+                           * A credit is stored negative and typed positive.
+                           * Asking somebody to remember a minus sign is asking
+                           * them to forget it once and overcharge a customer.
+                           */
+                          updateLineItem(index, 'unit_price', item.kind === 'credit' ? -typed : typed);
+                        }}
                         className="w-full px-3 py-2 bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
                       />
                     </div>
