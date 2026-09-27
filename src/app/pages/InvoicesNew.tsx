@@ -884,7 +884,7 @@ export default function InvoicesNew() {
             },
           ] as DataTableColumn<Invoice>[]}
           data={filteredInvoices}
-          emptyMessage="No invoices found"
+          emptyMessage={projectFilter ? "No invoice has been raised against this job yet — open the job in the pipeline and press Create Invoice" : "No invoices found"}
           // DataTable has supported this all along and it was never passed, so
           // the list view had the same dead click as the cards.
           onRowClick={(invoice) => openInvoice(invoice)}
