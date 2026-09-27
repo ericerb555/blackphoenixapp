@@ -131,6 +131,23 @@ interface CustomerSubmission {
  * Returns null rather than 0 when there is no quote, so callers can tell "not
  * quoted yet" from "quoted at nothing" and choose their own fallback.
  */
+/**
+ * Stage colours, written out in full.
+ *
+ * Tailwind scans this file as text to decide which CSS to generate, so a
+ * class name assembled from a variable at runtime produces no styles at all.
+ * Every string below is therefore complete and literal.
+ */
+const STAGE_LOOK: Record<string, { spine: string; glow: string; text: string; chip: string; node: string }> = {
+  'quote-draft':    { spine: 'bg-amber-400',   glow: 'shadow-[0_0_24px_-6px_rgba(251,191,36,0.55)]', text: 'text-amber-300',   chip: 'bg-amber-400/10 text-amber-300 border-amber-400/30',   node: 'from-amber-400 to-amber-600' },
+  'quote-sent':     { spine: 'bg-violet-400',  glow: 'shadow-[0_0_24px_-6px_rgba(167,139,250,0.55)]', text: 'text-violet-300',  chip: 'bg-violet-400/10 text-violet-300 border-violet-400/30', node: 'from-violet-400 to-violet-600' },
+  'quote-approved': { spine: 'bg-emerald-400', glow: 'shadow-[0_0_24px_-6px_rgba(52,211,153,0.55)]',  text: 'text-emerald-300', chip: 'bg-emerald-400/10 text-emerald-300 border-emerald-400/30', node: 'from-emerald-400 to-emerald-600' },
+  'contract':       { spine: 'bg-orange-400',  glow: 'shadow-[0_0_24px_-6px_rgba(251,146,60,0.55)]',  text: 'text-orange-300',  chip: 'bg-orange-400/10 text-orange-300 border-orange-400/30',  node: 'from-orange-400 to-orange-600' },
+  'invoice':        { spine: 'bg-cyan-400',    glow: 'shadow-[0_0_24px_-6px_rgba(34,211,238,0.55)]',  text: 'text-cyan-300',    chip: 'bg-cyan-400/10 text-cyan-300 border-cyan-400/30',      node: 'from-cyan-400 to-cyan-600' },
+  'payment':        { spine: 'bg-teal-300',    glow: 'shadow-[0_0_24px_-6px_rgba(45,212,191,0.55)]',  text: 'text-teal-200',    chip: 'bg-teal-300/10 text-teal-200 border-teal-300/30',       node: 'from-teal-300 to-teal-500' },
+};
+const lookFor = (stage: string) => STAGE_LOOK[stage] || STAGE_LOOK['quote-draft'];
+
 function quoteTotal(quote: any): number | null {
   const value = Number(quote?.totalCost ?? quote?.total);
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -1394,26 +1411,44 @@ export default function UnifiedProjectPipeline() {
           {pipelineStages.map(({ stage, label, icon: Icon }, index) => {
             const stageItems = getItemsForStage(stage);
             const isActive = stageItems.length > 0;
+            const look = lookFor(stage);
+            /**
+             * The segment to the NEXT station lights only when work has reached
+             * it, so the lit part of the track is how far the business has got
+             * rather than decoration.
+             */
+            const nextStage = pipelineStages[index + 1];
+            const reachedNext = nextStage ? getItemsForStage(nextStage.stage).length > 0 : false;
 
             return (
-              <div key={stage} className="flex items-center flex-1">
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-all ${
-                    isActive
-                      ? 'bg-gradient-to-br from-[#ea580c] to-orange-600 text-white shadow-lg shadow-[#ea580c]/30'
-                      : 'bg-gray-800 text-gray-600'
-                  }`}>
-                    <Icon className="w-6 h-6" />
+              <div key={stage} className="flex flex-1 items-start">
+                <div className="flex flex-1 flex-col items-center">
+                  <div
+                    className={`relative grid h-12 w-12 place-items-center rounded-xl border transition-all ${
+                      isActive
+                        ? `border-white/20 bg-gradient-to-br ${look.node} text-black ${look.glow}`
+                        : 'border-white/10 bg-white/[0.03] text-gray-600'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {isActive && (
+                      <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border border-white/20 bg-black px-1 text-[10px] font-bold tabular-nums text-white">
+                        {stageItems.length}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-xs font-semibold text-center text-white">{label}</div>
-                  <div className={`text-xs mt-1 px-2 py-0.5 rounded-full ${
-                    isActive ? 'bg-[#ea580c]/20 text-[#ea580c]' : 'bg-gray-800 text-gray-600'
-                  }`}>
-                    {stageItems.length}
+                  <div className={`mt-2 text-center text-[11px] font-semibold uppercase tracking-[0.12em] ${isActive ? look.text : 'text-gray-600'}`}>
+                    {label}
                   </div>
                 </div>
                 {index < pipelineStages.length - 1 && (
-                  <ChevronRight className="w-5 h-5 text-gray-700 mx-2" />
+                  <div className="mt-6 h-px flex-1 overflow-hidden rounded-full bg-white/5">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        reachedNext ? `w-full bg-gradient-to-r ${look.node}` : 'w-0'
+                      }`}
+                    />
+                  </div>
                 )}
               </div>
             );
@@ -1462,6 +1497,48 @@ export default function UnifiedProjectPipeline() {
         </div>
       )}
 
+      {/*
+        The surface the board sits on: a faint grid with a slow sweep across
+        it. Every selector is under .bp-grid so nothing here can reach another
+        screen, and the animation respects a reduced-motion preference.
+      */}
+      <style>{`
+        .bp-grid {
+          position: relative;
+          background-image:
+            linear-gradient(rgba(234,88,12,0.055) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(234,88,12,0.055) 1px, transparent 1px);
+          background-size: 44px 44px;
+        }
+        .bp-grid::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: radial-gradient(120% 60% at 50% -10%, rgba(234,88,12,0.16), transparent 60%);
+        }
+        .bp-grid::after {
+          content: "";
+          position: absolute;
+          left: 0; right: 0; top: 0;
+          height: 140px;
+          pointer-events: none;
+          background: linear-gradient(180deg, rgba(34,211,238,0.07), transparent);
+          animation: bp-sweep 7s ease-in-out infinite;
+        }
+        @keyframes bp-sweep {
+          0%, 100% { transform: translateY(0); opacity: 0.55; }
+          50%      { transform: translateY(240px); opacity: 0; }
+        }
+        .bp-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        .bp-card:hover { transform: translateY(-2px); }
+        @media (prefers-reduced-motion: reduce) {
+          .bp-grid::after { animation: none; }
+          .bp-card { transition: none; }
+          .bp-card:hover { transform: none; }
+        }
+      `}</style>
+
       {/* Kanban Board */}
       {items.length === 0 && loadProblem ? (
         /*
@@ -1502,49 +1579,59 @@ export default function UnifiedProjectPipeline() {
           </div>
         </div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
+        <div className="bp-grid flex gap-4 overflow-x-auto rounded-2xl border border-white/5 p-4 pb-5 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
           {pipelineStages.map(({ stage, label, color, icon: Icon }) => {
             const stageItems = getItemsForStage(stage);
             const totalValue = getTotalValue(stageItems);
+            const look = lookFor(stage);
 
             return (
               <div
                 key={stage}
-                className="flex-shrink-0 w-[340px]"
+                className="relative z-10 flex-shrink-0 w-[340px]"
               >
-              {/* Column Header */}
-              <div className="bg-gradient-to-br from-[#1a1a1a] to-[#0a0a0a] border border-gray-700 rounded-lg p-3 mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-[#ea580c]/20 flex items-center justify-center">
-                      <Icon className="w-4 h-4 text-[#ea580c]" />
+              {/* Column header — a HUD panel with the stage colour on its edge. */}
+              <div className="relative mb-3 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 backdrop-blur-md">
+                <div className={`absolute inset-x-0 top-0 h-px ${look.spine}`} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-black/40 ${look.text}`}>
+                      <Icon className="h-4 w-4" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-white text-sm">{label}</h3>
-                      <p className="text-xs text-gray-500">{stageItems.length} project{stageItems.length !== 1 ? 's' : ''}</p>
+                      <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-white">{label}</h3>
+                      <p className="text-[11px] tabular-nums text-gray-500">
+                        {stageItems.length} project{stageItems.length !== 1 ? 's' : ''}
+                      </p>
                     </div>
                   </div>
+                  <span className={`rounded-md border px-2 py-0.5 text-xs font-bold tabular-nums ${look.chip}`}>
+                    {stageItems.length}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between pt-2 border-t border-gray-800">
-                  <span className="text-xs text-gray-500 uppercase font-semibold">Total</span>
-                  <span className="text-sm font-bold text-green-400">${totalValue.toLocaleString()}</span>
+                <div className="mt-3 flex items-baseline justify-between border-t border-white/5 pt-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500">Value</span>
+                  <span className={`text-base font-bold tabular-nums ${look.text}`}>
+                    ${totalValue.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
               {/* Cards Container */}
               <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-2">
                 {stageItems.length === 0 ? (
-                  <div className="text-center py-12 bg-[#1a1a1a] border-2 border-dashed border-gray-800 rounded-xl">
-                    <Icon className="w-12 h-12 mx-auto mb-3 text-gray-700" />
-                    <p className="text-sm text-gray-500 font-medium">No projects in this stage</p>
+                  <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.015] py-12 text-center backdrop-blur-sm">
+                    <Icon className="mx-auto mb-3 h-10 w-10 text-gray-700" />
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-600">Empty</p>
                   </div>
                 ) : (
                   stageItems.map((item) => {
                     return (
                       <div
                         key={item.id}
-                        className="bg-gradient-to-br from-[#1a1a1a] to-[#0f0f0f] border border-gray-700 hover:border-[#ea580c]/50 rounded-lg overflow-hidden transition-all hover:shadow-lg hover:shadow-[#ea580c]/10"
+                        className={`bp-card relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.035] backdrop-blur-md hover:border-white/25 ${look.glow}`}
                       >
+                        <div className={`absolute inset-y-0 left-0 w-0.5 ${look.spine}`} />
                         {/*
                           Why this card is flagged, in words somebody can act on.
                           Worst first — `attentionFor` sorts them.
