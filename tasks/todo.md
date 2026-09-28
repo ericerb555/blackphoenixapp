@@ -1,3 +1,71 @@
+# The customer portal was not working. It had not been since 6 July (28 Sep)
+
+Eric asked for the customer portal to be proven end to end before he invites
+real customers. It does not work, and it has not for nearly three months.
+
+## One wrong word in a constant
+
+`src/app/lib/apiConfig.ts` read:
+
+    // The Supabase Edge Function is named "server"
+    export const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
+
+The function is not named `server`. That is the DIRECTORY the source lives in;
+the deployed slug is `make-server-3eae23a6`, and `supabase/config.toml` maps one
+to the other precisely because they differ.
+
+Every caller appends the slug itself, so each request resolved to
+`/functions/v1/server/make-server-3eae23a6/...` — a function that does not
+exist. Eighteen call sites across five files:
+
+    work-requests POST (x2)      submitting a work request
+    quotes, invoices             seeing what was quoted and billed
+    contracts, contracts/:id/sign  reading and signing
+    payments/complete            completing a payment
+    subscriptions, .../checkout  the plan, and buying one
+    media/upload                 photographs
+
+That is the whole of what a customer does.
+
+## Why nobody noticed for three months
+
+Every one of those calls is wrapped in a try/catch that logs a warning and
+falls back to an empty list. So the portal renders perfectly and shows zero:
+zero projects, zero quotes, $0 invoiced, zero contracts. A customer with three
+invoices sees none and is told nothing is wrong. There is no error state, no
+spinner stuck, nothing that reads as a fault.
+
+Found by loading the portal and reading the console, not by reading the code.
+Which is the whole argument for Eric's rule that "working" means observed in
+the running app.
+
+## It had been diagnosed before, and patched in one screen
+
+`ProductAdCreator.tsx` carries this comment:
+
+    // The edge function is served at /functions/v1/make-server-3eae23a6 — the old
+    // `/functions/v1/server` base pointed at a function that does not exist, so
+    // every request from this screen 404'd.
+
+Correct diagnosis, and the fix was a local constant for that one screen. The
+shared constant was left wrong, so every other screen reading it stayed broken.
+A root cause found and then worked around locally is worse than one not found
+at all, because the second time it looks like solved ground.
+
+## The fix
+
+One line: the base is the functions root, `/functions/v1`, and the callers
+supply the slug they already supply. Verified no other code still points at
+`/functions/v1/server`.
+
+Typecheck 317 app (baseline), 675 tests pass, smoke 26 rendered / 0 threw.
+
+**Not yet verified in the running app** — it is a frontend change, so it has to
+reach Vercel before the portal can be reloaded and the calls watched. That is
+the next step and it is the one that actually proves this.
+
+---
+
 # A — the content ladder is three rungs (28 Sep)
 
     1  Solo     $79/mo    600 calls    40 renders    1 seat    5 reels
