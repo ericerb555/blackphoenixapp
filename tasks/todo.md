@@ -1,3 +1,38 @@
+# Item 2 — one shell for every document (28 Sep)
+
+`DocumentPreviewModal` now carries the actions — Print, Download PDF, Email,
+Close — and takes the document as `children`. `InvoicePreviewModal` is a thin
+wrapper over it and went from 377 lines to 113.
+
+Still no behaviour change on the staff page: same buttons, same order, same
+colours, same Edit affordance. Typecheck 317 (baseline), 675 tests, smoke 13
+rendered / 0 threw.
+
+## The bug this prevents rather than fixes
+
+**`printElementId` is a prop.** Printing works by hiding every element on the
+page and un-hiding one named element and its descendants. The invoice modal
+hardcoded `#invoice-content`. Reused as-is for a quote, that prints a BLANK
+PAGE — the dialog opens, paper comes out empty, and nothing reports a fault,
+because nothing is wrong as far as the browser is concerned. Naming the element
+per document is what stops that.
+
+The rule stays `visibility: hidden` rather than `display: none`, deliberately:
+visibility preserves layout for the element being shown, so a document nested
+inside a modal still measures correctly. Collapsing ancestors with `display`
+shifts the output.
+
+## Two smaller decisions
+
+**`onDownload` and `onEmail` are optional, and their buttons vanish when not
+supplied.** Contracts have no PDF generator until item 4, and an action that
+appears and does nothing is worse than one that is absent.
+
+**`EmailInvoiceModal` sits OUTSIDE the preview**, as a sibling. Nested inside,
+the second modal renders underneath the first one's backdrop.
+
+---
+
 # Item 1 — the invoice layout becomes a component (28 Sep)
 
 `InvoiceDocument` now holds the laid-out invoice that used to be the body of
@@ -167,23 +202,38 @@ Six steps instead of five. The new middle three are the whole point.
 **Step 1 — Who he is.** Unchanged: name, email, phone, address.
 
 **Step 2 — Trades, rated.** Each of the twelve trades from `laborTasks.ts`, and
-for each one he claims: a **level**, **years in that trade specifically**, and
-whether he can **lead a crew** in it or only work under someone.
+for each one he claims a **level** and the **years in that trade specifically**.
 
-Levels are written as what the job can rely on, not as a word:
+Eric's ruling, in his words: *"lets have three sections Beginner(1-2 years),
+Novice (2-5years), Advanced (5-10 years), probation period to review actual
+skills"*. So three rungs, defined by years served rather than by a description
+of competence — a fact that can be checked, not a self-assessment:
 
-| Level | What it means on a job |
+| Level | Years in that trade |
 |---|---|
-| Helper | Works under direction, no independent decisions |
-| Can do it | Works alone on routine work, asks on anything unusual |
-| Strong | Works alone on anything in the trade, sets out his own work |
-| Leads it | Runs the trade on a job, directs others, answers for the result |
+| Beginner | 1–2 years |
+| Novice | 2–5 years |
+| Advanced | 5+ years |
+
+The fourth "leads a crew" rung from the first draft is dropped.
+
+**Assumption, flagged rather than asked:** the ranges as given stop at ten
+years, which would leave a twenty-year tradesman with nothing to pick, and start
+at one, which would leave a six-month apprentice with nothing to pick. Advanced
+is therefore treated as open-ended at the top and Beginner as open-ended at the
+bottom. Say so if that is wrong.
+
+**Step 2b — Declared, not confirmed.** Because the real rating is settled during
+probation (below), every level the applicant picks is stored as *declared*. The
+record carries a second, separate confirmed rating that only a reviewer can
+write. Nothing downstream — assignment, rates, scheduling — should ever read the
+declared value as though it were established fact.
 
 **Step 3 — Named tasks inside his strongest trades.** For each trade rated
-Strong or Leads it, the actual task list from `SEED_TASKS` for that trade, so he
-ticks *"Hang prehung interior door"*, *"Crown moulding"*, *"Cabinet
-installation"*. This is the difference between "carpentry" and knowing he can be
-sent to hang cabinets on his own.
+Advanced, the actual task list from `SEED_TASKS` for that trade, so he ticks
+*"Hang prehung interior door"*, *"Crown moulding"*, *"Cabinet installation"*.
+This is the difference between "carpentry" and knowing he can be sent to hang
+cabinets on his own.
 
 **Step 4 — Licences, certifications and tickets.** Structured, not a free-text
 box: licence type, number, issuing state, expiry — plus the common ones as
@@ -197,6 +247,31 @@ whether he can haul materials, and whether he is OK with heights, crawl spaces
 and attic work — all things that decide what he can actually be sent to.
 
 **Step 6 — Availability and references.** As today, plus the tax classification
+step the form already appends for technician applications.
+
+## PROBATION IS WHERE THE REAL SKILL IS SETTLED
+
+Asked whether a trade quiz or a working interview should gate approval, Eric's
+answer was neither: *"probation period to review actual skills"*.
+
+That changes what the application **is**. It is a claim, not a finding. The tech
+is brought on, and what he is actually good at is decided by watching him work.
+So the build needs a place for that judgement to land:
+
+- **On approval**, a technician record opens with every declared trade rating
+  copied across as `declared`, and `confirmed` left empty, with a probation
+  start date and a review date.
+- **During probation**, a reviewer can confirm, raise or lower each trade
+  individually — a tech can come out Advanced in carpentry and Beginner in the
+  plumbing he claimed Novice at. Confirming is per trade, not one verdict on the
+  person.
+- **At the end**, probation closes as passed, extended, or not passed, with the
+  confirmed ratings becoming the ones the rest of the platform reads.
+
+This is the same instinct as correcting quoted hours against what crews really
+achieve: measure the work rather than trust the number written in advance. A
+technician's confirmed trade rating and his real hours on jobs are the same
+evidence seen twice, and they should eventually inform each other.
 step the form already appends for technician applications.
 
 ### And make it readable at the other end
@@ -223,12 +298,14 @@ about three seconds without opening the raw JSON.
 
 ### B. Redesign the tech application
 - [ ] B1. New `src/app/lib/technicianSkills.ts`: the trade list derived from
-      `laborTasks.ts` (one source, no second copy), the four levels, and the
-      certification list with expiry.
+      `laborTasks.ts` (one source, no second copy), the three levels
+      (Beginner 1–2, Novice 2–5, Advanced 5+), and the certification list with
+      expiry.
 - [ ] B2. A `trade-rating` field type in `GenericApplicationForm` — trade, level,
-      years, can-lead — replacing the flat tick list for this form only.
+      years in that trade — replacing the flat tick list for this form only.
+      Stored as `declared`, never as settled fact.
 - [ ] B3. A `task-checklist` field that shows the real tasks for the trades he
-      rated Strong or Leads it.
+      rated Advanced.
 - [ ] B4. A `certifications` field: type, number, state, expiry, plus the common
       tickets.
 - [ ] B5. Rewrite the field tech config in `SignUpOptionsModal.tsx` to the six
@@ -238,9 +315,26 @@ about three seconds without opening the raw JSON.
 - [ ] C1. `technicianProfile()` in `applicationFields.ts` — ordered, labelled,
       nothing invented, nothing hidden.
 - [ ] C2. Tech Abilities panel in `ApplicationSubmissions.tsx`, shown only for
-      technician and employee applications.
+      technician and employee applications. Leads with Advanced trades, then
+      Novice, then Beginner, then the named tasks, then live certifications with
+      lapsed ones called out.
 - [ ] C3. Add the new field ids to `HANDLED` so they stop appearing in the
       "also submitted" line.
+
+### E. Probation — where the real skill is settled
+- [ ] E1. On approval of a technician application, open a probation record: every
+      declared trade rating copied in as `declared`, `confirmed` empty, a start
+      date and a review date.
+- [ ] E2. A reviewer can confirm, raise or lower each trade **individually**
+      during probation — a tech can come out Advanced in carpentry and Beginner
+      in the plumbing he claimed Novice at.
+- [ ] E3. Close probation as passed, extended, or not passed. The confirmed
+      ratings become what the rest of the platform reads; the declared ones stay
+      on the record so the two can be compared.
+- [ ] E4. Server side: the confirmed rating and the probation verdict are written
+      only by an administrator, on the server. A technician must never be able to
+      raise his own rating, and no rating may be read from anything the browser
+      controls.
 
 ### D. Prove it
 - [ ] D1. `npm run typecheck` — no new findings over baseline.
@@ -249,18 +343,22 @@ about three seconds without opening the raw JSON.
       submit it, and confirm the record appears in Application Submissions with
       the abilities readable. This is the step that counts.
 
-## OPEN QUESTIONS FOR ERIC
+## SETTLED WITH ERIC
 
-1. **The four levels** — are Helper / Can do it / Strong / Leads it the right
-   ladder, and is "can lead a crew in this trade" the distinction that matters
-   to you when you decide who goes to a job?
-2. **Named tasks (step 3)** — the `laborTasks` list is roughly 60 tasks across
-   twelve trades. Showing them only for trades he rated Strong or Leads it keeps
-   it short. Do you want them for every trade he claims at all?
-3. **Skills test** — do you want the option to require a short trade quiz or a
-   working interview before approval, or is the declared profile plus references
-   enough at application stage?
-4. **The dead links in section 4** — fix them in this pass or leave them?
+1. **The levels** — three, not four: Beginner (1–2 years), Novice (2–5 years),
+   Advanced (5+ years). The "leads a crew" rung is dropped.
+2. **Verification** — no trade quiz and no working interview at application
+   stage. A probation period reviews the actual skills instead. Section E.
+
+## STILL OPEN
+
+3. **Named tasks (step 3)** — the `laborTasks` list is roughly 60 tasks across
+   twelve trades. The plan shows them only for trades rated Advanced, which
+   keeps the form short. Show them for Novice too?
+4. **Probation length** — how long, and who signs it off? Assumed 90 days and an
+   administrator unless told otherwise.
+5. **The dead links in section 4** — `change-orders`, `supplier-connect`, the
+   orphaned `PropertyManagerApplication.tsx`. Fix in this pass or leave them?
 
 ## SCOPE NOTE
 
