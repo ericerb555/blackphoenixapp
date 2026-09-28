@@ -1,3 +1,57 @@
+# PLAN — one employee list, two rates
+
+Eric chose the larger fix and added a requirement: *"it should be able to add
+actual pay and billed out rate for each employee."*
+
+## What is wrong now
+
+Job costing reads `time_employee:<id>.payRate` (index.tsx:14581-14586). The HR
+hub edits `hr_employees` — a different store — and joins the two by FULL NAME
+string match (HREmployeeHub.tsx:140). Its list is seeded with four fictional
+people: Mike Torres, Jake Sullivan, Lisa Park, Tom Walsh.
+
+So no screen sets the rate that costing actually uses, and no billed-out rate
+exists anywhere. The two real records carry rates only because something wrote
+them directly.
+
+## The trap that has to be settled first
+
+The HR hub has `payType: 'hourly' | 'salary'`, and for salaried staff `payRate`
+holds an ANNUAL figure — Lisa Park is 55000, Tom Walsh 72000. `time_employee`
+has one flat `payRate` and `jobOutcome` multiplies it by HOURS.
+
+Merge those two stores naively and a salaried manager's hour costs $72,000. The
+job would show a catastrophic loss, the margin would be nonsense, and the rate
+learning loop would be fed from it.
+
+So `time_employee.payRate` must be, and must stay, an HOURLY COST. A salaried
+person needs either a derived hourly equivalent or to be excluded from job
+costing. That is a decision for Eric, not a default to pick quietly.
+
+## Items
+
+- [ ] 1. Server: `/time-tracking/employees` accepts and stores `billRate`
+      beside `payRate`, admin-gated identically — a field technician can keep
+      their name current and can change neither rate.
+- [ ] 2. Server: the employee listing returns both rates.
+- [ ] 3. HR hub reads its list from `time_employee:` and writes through that
+      same route. The `hr_employees` store and the name-matching join go.
+- [ ] 4. The four seed employees are removed rather than migrated. They are
+      fictional, and carrying them into the real store puts invented people on
+      a payroll screen.
+- [ ] 5. Both rates are editable per employee, with the margin between them
+      shown, since that is the number the pair exists to produce.
+- [ ] 6. Salaried staff handled per Eric's decision above.
+
+## Deliberately not in this pass
+
+Using `billRate` to price labour on a quote. The quote currently prices from
+`measuredHours` and the labour catalogue; wiring the bill rate into it is a
+second change with its own blast radius, and it should follow once the rates
+exist and are trusted.
+
+---
+
 # The work-request store, tidied (28 Sep)
 
 Eric: *"delete the eight."*
@@ -142,6 +196,110 @@ Also removed from the modal: `CompanyHeader`, `companyInfo` and `formatCurrency`
 which became unused once the body moved. `formatDate` stays — it is still used
 to build the PDF payload.
 
+---
+
+# PLAN — every platform we can actually reach, in three tiers
+
+Eric: *"lets add all the social sites we can we need to match in delivery or
+excceed"*.
+
+Researched before planning, because the platforms differ enormously in what
+they will let anybody do, and two of them cost money or need an application
+that Eric alone can file.
+
+## THE THREE TIERS
+
+| Platform | Gate | Cost | Tier |
+| --- | --- | --- | --- |
+| **Bluesky** | none at all | free | 1 |
+| **Mastodon** | none — per-instance app registration | free | 1 |
+| **LinkedIn (personal profile)** | none — `w_member_social` is self-serve | free | 1 |
+| **Threads** | uses the Meta app already registered | free | 1 |
+| **TikTok** | app audit — already built, awaiting Eric's filing | free | built |
+| **Facebook / Instagram** | done | free | built |
+| **LinkedIn (company page)** | Community Management API partner approval + screencast | free | 2 |
+| **Pinterest** | trial → standard needs a recorded OAuth video | free | 2 |
+| **YouTube** | works now, but ~6 uploads/day on default quota | free | 2 |
+| **Google Business Profile** | formal request, verified profile 60+ days, starts at ZERO quota | free | 2 |
+| **X** | no free tier for new developers | **$0.015/post, $0.20 with a link** | 3 |
+
+## WHAT THIS GETS TO
+
+Three platforms today. Tier 1 takes it to **seven** — level with most of the
+field. Tier 2 takes it to **eleven**, which matches Buffer, the broadest of
+them. Tier 3 is a commercial decision rather than a build.
+
+## TIER 1 — build now, nothing to ask anybody for
+
+- [ ] Q1. **Bluesky.** The easiest by a distance: the AT Protocol is an open
+      specification, authentication is an app password rather than OAuth, and
+      there is no review of any kind. `com.atproto.repo.createRecord` posts;
+      images are uploaded as blobs first.
+- [ ] Q2. **Mastodon.** Open, but per-instance: the server is part of the
+      account, so the connection has to capture which instance and register an
+      app against it. `POST /api/v1/statuses`.
+- [ ] Q3. **LinkedIn, personal profile.** `w_member_social` is self-serve with
+      no review. **It posts to the signed-in person's own profile and cannot
+      post to a company page** — that is tier 2 — so the interface has to say
+      which one it is posting as, or it looks broken.
+- [ ] Q4. **Threads.** Goes through the Meta app that Facebook and Instagram
+      already use, so the marginal work is a scope and a publish path rather
+      than a new integration. Two-step like Instagram: create a container,
+      then publish.
+- [ ] Q5. One shape for all of them. Each new platform is currently a branch
+      in `publishForUser` and a branch in the OAuth callback; five more of
+      those makes the file unreadable. A small per-platform record — connect,
+      exchange, publish — keeps each one in one place.
+
+## TIER 2 — real, free, but gated on an application Eric files
+
+- [ ] R1. **LinkedIn company pages** via the Community Management API. Needs
+      the legal entity name, registered address, website and privacy policy,
+      then a screencast to leave the 500-call development tier. For a
+      contractor this matters more than personal posting: commercial work
+      comes from the company page.
+- [ ] R2. **Pinterest.** Genuinely useful for this business — finished
+      kitchens, decks and bathrooms are exactly what Pinterest is for. Trial
+      access is quick; standard needs a recorded video of the OAuth flow, and
+      Pinterest asks for it even when the developer is the only user.
+- [ ] R3. **YouTube.** Works on the default quota immediately, but an upload
+      costs 1,600 units of a 10,000-unit daily allowance — **about six videos
+      a day** — and more needs OAuth verification. Fine for Shorts at a normal
+      cadence; worth knowing before it looks like a bug.
+- [ ] R4. **Google Business Profile.** The strongest local-search signal a
+      contractor has, and the hardest gate: a formal access request, a profile
+      verified and active for sixty days, a business website, and **zero quota
+      until approved** — so it fails silently until the request clears.
+
+## TIER 3 — X, which is now a per-post cost
+
+- [ ] S1. Build it only if Eric wants it. X moved to pay-per-use in February
+      2026 and closed the free tier to new developers. **$0.015 a post, and
+      $0.20 for any post containing a link** — and a store post is a link. At
+      three linked posts a day that is about $18 a month, forever, on the
+      platform with the weakest case for a contractor.
+
+      Not a reason to refuse it; a reason for Eric to choose it rather than
+      find it on a bill.
+
+## PROVE IT
+
+- [ ] T1. Tests for the parts that do not need a live account: the per-platform
+      record, the caption limits, which platforms accept a bare text post and
+      which demand media.
+- [ ] T2. `npm run typecheck`, `typecheck:server`, `npm test`, `npm run smoke`.
+- [ ] T3. One real post on each connected platform. Still blocked on the same
+      thing everything else is: **no account is connected to anything.**
+
+## WHAT THIS DOES NOT DO
+
+Breadth is one of the four gaps. It does not add the scheduler, the unified
+inbox or link-in-bio, and posting to eleven platforms with no inbox means
+eleven places where replies go unread.
+
+Nothing here is deployed.
+
+---
 ---
 
 # PLAN — reels that can actually be posted: the video pipeline, then Meta, then TikTok
