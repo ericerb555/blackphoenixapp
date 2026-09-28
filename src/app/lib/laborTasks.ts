@@ -35,6 +35,29 @@
 
 export type LaborUnit = 'sq ft' | 'lin ft' | 'each' | 'sheet' | 'square' | 'hour' | 'day';
 
+/**
+ * How each trade is written for a person to read.
+ *
+ * This lived as a private const inside `LaborTasksConfig.tsx` while it was the
+ * only screen that needed it. The technician application needs the same twelve
+ * names, and a second copy is a list that drifts — one gains a trade, the other
+ * does not, and the two screens quietly disagree about what the company does.
+ *
+ * It belongs here, beside the tasks whose `tradeId` it labels.
+ */
+export const TRADE_LABELS: Record<string, string> = {
+  carpentry: 'Carpentry', painting: 'Painting', electrical: 'Electrical',
+  plumbing: 'Plumbing', laboring: 'General Labour', sheetrock: 'Drywall & Taping',
+  siding: 'Siding', roofing: 'Roofing', tile: 'Tile', flooring: 'Flooring',
+  masonry: 'Masonry', hvac: 'HVAC',
+};
+
+/** Every trade the estimator prices, in the order the labels above declare them. */
+export const TRADE_IDS: string[] = Object.keys(TRADE_LABELS);
+
+/** The readable name for a trade, falling back to the id rather than to nothing. */
+export const tradeLabel = (tradeId: string): string => TRADE_LABELS[tradeId] || tradeId;
+
 export interface LaborTask {
   id: string;
   /** Matches the id used by the labour-rate list, so the rate is looked up not duplicated. */

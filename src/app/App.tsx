@@ -457,6 +457,25 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'forgot-password',
     'reset-password',
 
+    /**
+     * The other spellings of "sign up", which are real routes and were not public.
+     *
+     * `SignUpOptionsModal` sends Customer, Subcontractor and Advertiser to
+     * `/sign-up`. The page exists — `routes.tsx` maps `sign-up` to `SignUp` —
+     * but only `signup` was listed here, so a signed-out visitor clicking the
+     * main sign-up button was redirected straight to `/login` and asked to
+     * authenticate before they could create an account.
+     *
+     * `join`, `join-us`, `create-account` and `get-started` had the same gap.
+     * All four are in FULL_BLEED_PAGES, which is how we know they were built as
+     * public marketing screens; being absent here contradicted that.
+     */
+    'sign-up',
+    'join',
+    'join-us',
+    'create-account',
+    'get-started',
+
     // Pricing page (so visitors can see plans before signing up)
     'pricing',
     'plans',
@@ -538,6 +557,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'advertiser-application',
     'service-provider-application',
     'territory-application',
+    'property-manager-application',
     'customer-registration',
     'apply',
 
@@ -1368,6 +1388,7 @@ function AppContent() {
         'advertiser-application',
         'service-provider-application',
         'territory-application',
+        'property-manager-application',
       ]);
       if (apply && allowedApplications.has(apply)) {
         navigate(apply);

@@ -783,9 +783,11 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
         // In production, send email/SMS to customer
         setTimeout(() => {
           // `change-orders` is not a registered route; the page that lists them
-          // for a decision is `change-order-approval`.
+          // for a decision is `change-order-approval`. The fallback branch
+          // still pointed at the non-route, so a mount without `onNavigate`
+          // landed on "page not found" after a successful submission.
           if (onNavigate) onNavigate('change-order-approval');
-          else window.location.href = '/change-orders';
+          else window.location.href = '/change-order-approval';
         }, 2000);
       } else {
         toast.error('Failed to submit change order');

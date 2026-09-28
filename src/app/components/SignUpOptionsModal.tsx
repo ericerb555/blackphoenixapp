@@ -45,7 +45,6 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
   const [showAdvertiserSubscription, setShowAdvertiserSubscription] = useState(false);
   const [showEmploymentApplication, setShowEmploymentApplication] = useState(false);
   const [showFieldTechApplication, setShowFieldTechApplication] = useState(false);
-  const [showPropertyManagerApplication, setShowPropertyManagerApplication] = useState(false);
   const [showLandlordApplication, setShowLandlordApplication] = useState(false);
   const [showCondoAssociationApplication, setShowCondoAssociationApplication] = useState(false);
   const [showEmployeeApplication, setShowEmployeeApplication] = useState(false);
@@ -145,7 +144,14 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
       color: 'text-teal-400',
       gradient: 'from-teal-600 to-teal-700',
       shadowColor: 'shadow-teal-500/20',
-      route: '/service-provider-application'
+      /**
+       * The real property-manager form, not the generic service-provider one.
+       *
+       * This pointed at `/service-provider-application` while the modal quietly
+       * rendered a third, inline copy instead — so the route said one thing and
+       * the click did another, and neither reached the purpose-written page.
+       */
+      route: '/property-manager-application'
     },
     {
       id: 'landlord',
@@ -207,11 +213,6 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
       return;
     }
 
-    // Special handling for property manager
-    if (optionId === 'property-manager') {
-      setShowPropertyManagerApplication(true);
-      return;
-    }
 
     // Special handling for landlord
     if (optionId === 'landlord') {
@@ -267,10 +268,27 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
     setSelectedAccountType(option);
   };
 
+  /**
+   * NOT dead code, despite nothing calling it today.
+   *
+   * `UniversalSignupFlow` is a complete 494-line signup that posts to a real,
+   * implemented server route — `/signup/universal`, which saves the
+   * application, writes the CRM contact AND raises the portal access request.
+   * It is unreachable only because `handleUniversalSignupFlowClick` below is
+   * never wired to anything, so `showUniversalSignup` never becomes true.
+   *
+   * It was tempting to delete both handlers as dead weight. That would have
+   * thrown away a working feature. They stay until Eric decides whether the
+   * generic flow should be offered alongside the per-role forms.
+   *
+   * What WAS broken here is the destination: `/universal-signup-flow` is not a
+   * registered route and would have shown the "page not found" screen. The
+   * signup page is where this was always meant to land.
+   */
   const handleUniversalSignupFlowSignup = () => {
     setShowUniversalSignup(false);
     setSelectedAccountType(null);
-    window.location.href = '/universal-signup-flow';
+    window.location.href = '/sign-up';
   };
 
   const handleAdvertiserClick = () => {
@@ -540,6 +558,26 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
               applicationType: "field_technician",
               color: "#16a34a",
               apiEndpoint: "/applications",
+              /**
+               * REDESIGNED so the answer to "what is he good at" is readable.
+               *
+               * What was here: eight tick boxes (HVAC, Plumbing, Electrical,
+               * Carpentry, Appliance Repair, Painting, Flooring, Landscaping),
+               * one overall years number and a free-text certifications box. A
+               * technician who had run commercial HVAC for twenty years and
+               * once helped a friend tile a floor produced an identical record
+               * to one who was the other way round.
+               *
+               * It was also impossible to submit: the skill step was required,
+               * and the required-field check could not read the shape the skill
+               * control stored, so Next reported "Please complete: Technical
+               * Skills" forever. Nobody ever completed this form.
+               *
+               * The trades are no longer a list written here. They come from
+               * `laborTasks.ts` — the twelve trades the estimator actually
+               * prices — so a claimed trade lines up with the work sold, the
+               * labour rate charged, and the hours a job assumed.
+               */
               steps: [
                 {
                   title: "Personal Information",
@@ -556,37 +594,45 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
                   ]
                 },
                 {
-                  title: "Technical Skills",
-                  description: "Select your technical expertise",
+                  title: "Your Trades",
+                  description: "The work you can do, trade by trade — this is the part we read most carefully",
                   icon: Wrench,
                   fields: [
                     {
-                      id: 'technical_skills',
-                      label: 'Technical Skills',
-                      type: 'skill',
+                      id: 'trade_ratings',
+                      label: 'Trades, level and years',
+                      type: 'trade-rating',
                       required: true,
-                      skills: [
-                        { id: 'hvac', label: 'HVAC Systems', description: 'Heating, ventilation, air conditioning' },
-                        { id: 'plumbing', label: 'Plumbing', description: 'Pipes, fixtures, water systems' },
-                        { id: 'electrical', label: 'Electrical', description: 'Wiring, fixtures, circuits' },
-                        { id: 'carpentry', label: 'Carpentry', description: 'Woodwork, framing, repairs' },
-                        { id: 'appliance_repair', label: 'Appliance Repair', description: 'Washers, dryers, refrigerators' },
-                        { id: 'painting', label: 'Painting & Drywall', description: 'Interior/exterior painting' },
-                        { id: 'flooring', label: 'Flooring', description: 'Tile, carpet, hardwood' },
-                        { id: 'landscaping', label: 'Landscaping', description: 'Lawn care, snow removal' },
-                      ]
-                    }
+                    },
                   ]
                 },
                 {
-                  title: "Experience & Certifications",
-                  description: "Your qualifications",
+                  title: "Licences & Certifications",
+                  description: "What you hold, and when it expires",
                   icon: Award,
                   fields: [
-                    { id: 'years_experience', label: 'Years of Experience', type: 'number', required: true, placeholder: '5' },
-                    { id: 'certifications', label: 'Certifications (if any)', type: 'textarea', placeholder: 'EPA 608, OSHA 10, etc.', rows: 3 },
-                    { id: 'tools', label: 'Do you have your own tools?', type: 'select', required: true, options: ['', 'Yes - Full Set', 'Yes - Partial Set', 'No'] },
-                    { id: 'vehicle', label: 'Reliable Transportation', type: 'select', required: true, options: ['', 'Yes - Own Vehicle', 'Yes - Public Transit', 'Need Assistance'] },
+                    { id: 'certifications', label: 'Certifications and licences', type: 'certifications', required: false },
+                    { id: 'certification_notes', label: 'Anything else about your qualifications', type: 'textarea', rows: 3, placeholder: 'Training in progress, apprenticeship hours logged, manufacturer courses…' },
+                  ]
+                },
+                {
+                  title: "Evidence & Equipment",
+                  description: "What you can show us, and what you can turn up with",
+                  icon: Camera,
+                  fields: [
+                    { id: 'portfolio_photos', label: 'Photos of your work', type: 'file', accept: 'image/*', multiple: true, dragDrop: true },
+                    { id: 'best_work', label: 'The job you are proudest of, and why', type: 'textarea', required: true, rows: 4, placeholder: 'What the job was, what made it difficult, what you did about it.' },
+                    { id: 'tools', label: 'Your own tools', type: 'select', required: true, options: ['', 'Full set for every trade I claimed', 'Full set for my main trade only', 'Hand tools only', 'No tools of my own'] },
+                    { id: 'vehicle', label: 'Transportation', type: 'select', required: true, options: ['', 'Own vehicle — can haul materials', 'Own vehicle — no hauling', 'Public transit', 'Need assistance'] },
+                    // Tick boxes only: "how many years of crawl spaces do you
+                    // have" is not a question anybody can answer sensibly.
+                    { id: 'physical_work', label: 'Work you are comfortable with', type: 'skill', required: false, skillDetail: false, skills: [
+                      { id: 'heights', label: 'Roofs and ladders', description: 'Working at height, staging, steep pitches' },
+                      { id: 'crawl_space', label: 'Crawl spaces', description: 'Tight, low, and dirty access' },
+                      { id: 'attic', label: 'Attics', description: 'Heat, insulation, limited footing' },
+                      { id: 'heavy_lifting', label: 'Heavy material handling', description: 'Sheet goods, appliances, stone' },
+                      { id: 'occupied_homes', label: 'Occupied homes', description: 'Working around people, pets and furniture' },
+                    ] },
                   ]
                 },
                 {
@@ -602,15 +648,17 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
                 },
                 {
                   title: "References",
-                  description: "Professional references",
+                  description: "People who have seen you work",
                   icon: Briefcase,
                   fields: [
                     { id: 'reference_1_name', label: 'Reference 1 - Name', type: 'text', required: true },
                     { id: 'reference_1_company', label: 'Reference 1 - Company', type: 'text', required: true },
                     { id: 'reference_1_phone', label: 'Reference 1 - Phone', type: 'tel', required: true },
+                    { id: 'reference_1_trade', label: 'Reference 1 - Which trade did they see you do?', type: 'text', required: true, placeholder: 'Carpentry' },
                     { id: 'reference_2_name', label: 'Reference 2 - Name', type: 'text', required: false },
                     { id: 'reference_2_company', label: 'Reference 2 - Company', type: 'text', required: false },
                     { id: 'reference_2_phone', label: 'Reference 2 - Phone', type: 'tel', required: false },
+                    { id: 'reference_2_trade', label: 'Reference 2 - Which trade did they see you do?', type: 'text', required: false },
                     { id: 'why_join', label: 'Why do you want to join our team?', type: 'textarea', required: true, rows: 5 },
                   ]
                 }
@@ -631,89 +679,6 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
         </div>
       )}
 
-      {/* Property Manager Application Form */}
-      {showPropertyManagerApplication && (
-        <div className="fixed inset-0 z-[10000] overflow-y-auto bg-[#0A0A0A]">
-          <GenericApplicationForm
-            config={{
-              title: "Property Manager Application",
-              description: "Professional property management account setup",
-              color: "#14b8a6",
-              endpoint: "/applications",
-              steps: [
-                {
-                  title: "Company Information",
-                  description: "Tell us about your property management company",
-                  icon: Building2,
-                  fields: [
-                    { id: 'company_name', label: 'Company Name', type: 'text', required: true, placeholder: 'ABC Property Management' },
-                    { id: 'contact_name', label: 'Primary Contact Name', type: 'text', required: true, placeholder: 'John Smith' },
-                    { id: 'email', label: 'Business Email', type: 'email', required: true, placeholder: 'john@abcproperties.com' },
-                    { id: 'phone', label: 'Business Phone', type: 'tel', required: true, placeholder: '(603) 555-0123' },
-                    { id: 'address', label: 'Business Address', type: 'text', required: true, placeholder: '123 Main Street' },
-                    { id: 'city', label: 'City', type: 'text', required: true, placeholder: 'Nashua' },
-                    { id: 'state', label: 'State', type: 'text', required: true, placeholder: 'NH' },
-                    { id: 'zip', label: 'ZIP Code', type: 'text', required: true, placeholder: '03060' },
-                  ]
-                },
-                {
-                  title: "Portfolio Details",
-                  description: "Information about your property portfolio",
-                  icon: Home,
-                  fields: [
-                    { id: 'num_properties', label: 'Number of Properties Managed', type: 'number', required: true, placeholder: '25' },
-                    { id: 'num_units', label: 'Total Number of Units', type: 'number', required: true, placeholder: '150' },
-                    { id: 'property_types', label: 'Property Types', type: 'textarea', required: true, placeholder: 'Multi-family residential, commercial, mixed-use, etc.', rows: 3 },
-                    { id: 'service_area', label: 'Service Area', type: 'text', required: true, placeholder: 'Southern NH, Greater Boston' },
-                  ]
-                },
-                {
-                  title: "Service Needs",
-                  description: "What services do you need?",
-                  icon: Wrench,
-                  fields: [
-                    {
-                      id: 'service_needs',
-                      label: 'Services Needed',
-                      type: 'skill',
-                      required: true,
-                      skills: [
-                        { id: 'emergency_repairs', label: 'Emergency Repairs', description: '24/7 emergency maintenance' },
-                        { id: 'preventive_maintenance', label: 'Preventive Maintenance', description: 'Scheduled maintenance programs' },
-                        { id: 'unit_turnover', label: 'Unit Turnover', description: 'Cleaning and repairs between tenants' },
-                        { id: 'hvac_service', label: 'HVAC Service', description: 'Heating and cooling maintenance' },
-                        { id: 'plumbing_electrical', label: 'Plumbing & Electrical', description: 'Licensed trade services' },
-                        { id: 'landscaping_snow', label: 'Landscaping & Snow Removal', description: 'Grounds maintenance' },
-                        { id: 'vendor_coordination', label: 'Vendor Coordination', description: 'Multi-vendor project management' },
-                      ]
-                    }
-                  ]
-                },
-                {
-                  title: "Budget & Volume",
-                  description: "Help us understand your service requirements",
-                  icon: DollarSign,
-                  fields: [
-                    { id: 'monthly_budget', label: 'Estimated Monthly Maintenance Budget', type: 'text', required: true, placeholder: '$10,000 - $25,000' },
-                    { id: 'service_frequency', label: 'How often do you need services?', type: 'select', required: true, options: ['', 'Daily', 'Multiple times per week', 'Weekly', 'As needed'] },
-                    { id: 'priority_response', label: 'Priority Response Time Needed?', type: 'select', required: true, options: ['', 'Yes - 24/7 emergency', 'Yes - Same day', 'Next business day', 'Standard scheduling'] },
-                  ]
-                }
-              ]
-            }}
-            onNavigate={() => {
-              setShowPropertyManagerApplication(false);
-              onClose();
-            }}
-          />
-          <button
-            onClick={() => setShowPropertyManagerApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-          >
-            <X className="w-6 h-6 text-white" />
-          </button>
-        </div>
-      )}
 
       {/* Landlord Application Form */}
       {showLandlordApplication && (
@@ -723,6 +688,13 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
               title: "Landlord Account Application",
               description: "Setup your landlord portal account",
               color: "#6366f1",
+              /**
+               * Without this the form falls back to `applicationType: 'general'`,
+               * which the server maps to a CUSTOMER portal. A landlord approved
+               * that way lands somewhere that cannot invite their own tenants —
+               * the one thing a landlord portal is for.
+               */
+              applicationType: "landlord",
               endpoint: "/applications",
               steps: [
                 {
@@ -816,6 +788,14 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
               title: "Condo Association / HOA Application",
               description: "Setup your association account with role-based access",
               color: "#f59e0b",
+              /**
+               * Same gap as the landlord form above: unset, this arrived as
+               * `general` and was granted a customer portal. An association buys
+               * the exterior and common-area work while its unit owners buy the
+               * interior, so the wrong portal is the wrong commercial
+               * relationship, not just the wrong menu.
+               */
+              applicationType: "condo_association",
               endpoint: "/applications",
               steps: [
                 {

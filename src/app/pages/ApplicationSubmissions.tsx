@@ -11,7 +11,9 @@ const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae
 
 import {
   applicationFields, unlistedKeys, normalizeApplicationStatus,
+  isTechnicianApplication, technicianTrades, technicianCertifications,
 } from '../lib/applicationFields';
+import TechnicianProbationPanel from '../components/TechnicianProbationPanel';
 
 interface Application {
   id: string;
@@ -597,6 +599,30 @@ export default function ApplicationSubmissions() {
                 reading raw JSON to do it. The fields are named and ordered now,
                 and the untouched record stays below for anything not covered.
               */}
+              {/*
+                What he is actually good at, first.
+
+                Before this, a field technician's trades, levels, tasks and
+                certifications matched none of the business fields below and
+                fell through to the grey "also submitted" line — so answering
+                "what is he good at" meant opening the raw JSON. It leads the
+                detail view because it is the decision being made.
+              */}
+              {isTechnicianApplication(selectedApplication) && (
+                <TechnicianAbilities application={selectedApplication} />
+              )}
+
+              {/*
+                Probation only appears once the technician is actually on —
+                there is nothing to review about somebody who has not started,
+                and an empty probation panel beside a pending application would
+                read as a step somebody had forgotten to do.
+              */}
+              {isTechnicianApplication(selectedApplication)
+                && normalizeApplicationStatus(selectedApplication.status) === 'approved' && (
+                <TechnicianProbationPanel applicationId={selectedApplication.id} />
+              )}
+
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Application Details</h3>
                 <div className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
@@ -660,6 +686,114 @@ export default function ApplicationSubmissions() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+/**
+ * A technician's abilities, read in the order somebody deciding would want them.
+ *
+ * ADVANCED FIRST, THEN DOWN
+ *
+ * Not alphabetical and not in form order. The question this panel answers is
+ * "what is he good at", so the trades he is strongest in come first and the
+ * reviewer can stop reading as soon as they have the answer.
+ *
+ * DECLARED AND CONFIRMED SIT SIDE BY SIDE
+ *
+ * A level on an application is a claim. What probation found is a different
+ * fact, and showing only one of them would present the applicant's own estimate
+ * as if somebody had checked it. An unconfirmed trade says so plainly rather
+ * than being left blank, because a blank reads as "nothing to report".
+ */
+function TechnicianAbilities({ application }: { application: Application }) {
+  const trades = technicianTrades(application);
+  const certifications = technicianCertifications(application);
+
+  if (trades.length === 0 && certifications.length === 0) {
+    return (
+      <div className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+        <h3 className="text-lg font-semibold text-white mb-2">Tech Abilities</h3>
+        <p className="text-sm text-gray-500">
+          This application arrived without a trade profile. It was most likely submitted
+          on the older form, which asked only for a list of ticked skills — those appear
+          under Application Details below.
+        </p>
+      </div>
+    );
+  }
+
+  const toneFor = (level: string) =>
+    level === 'Advanced' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+      : level === 'Novice' ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+      : 'border-zinc-600/50 bg-zinc-600/10 text-zinc-300';
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-white mb-3">Tech Abilities</h3>
+
+      {trades.length > 0 && (
+        <div className="space-y-3">
+          {trades.map(trade => (
+            <div key={trade.tradeId} className="rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-base font-semibold text-white">{trade.trade}</span>
+                <span className={`rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide border ${toneFor(trade.declared)}`}>
+                  {trade.declared || 'unrated'}
+                </span>
+                <span className="text-sm text-gray-400">
+                  {trade.years} {trade.years === 1 ? 'year' : 'years'} in this trade
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm">
+                {trade.confirmed
+                  ? <span className="text-emerald-300">Confirmed during probation: <strong>{trade.confirmed}</strong></span>
+                  : <span className="text-amber-300/90">Declared by the applicant — not yet confirmed on real work.</span>}
+              </p>
+
+              {trade.mismatch && (
+                <p className="mt-2 text-sm text-amber-300">
+                  The level claimed does not match the years given. Worth asking about.
+                </p>
+              )}
+
+              {trade.tasks.length > 0 && (
+                <p className="mt-2 text-sm text-gray-300">
+                  Says he can do on his own: <span className="text-white">{trade.tasks.length}</span> of this trade&rsquo;s job types.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {certifications.length > 0 && (
+        <div className="mt-4 rounded-lg border border-[#2A2A2A] bg-[#0F0F0F] p-4">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">
+            Licences &amp; certifications
+          </h4>
+          <ul className="space-y-2">
+            {certifications.map((cert, index) => (
+              <li key={index} className="text-sm">
+                <span className={cert.lapsed ? 'text-red-300' : 'text-white'}>{cert.label}</span>
+                {cert.number && <span className="text-gray-400"> · {cert.number}</span>}
+                {cert.state && <span className="text-gray-400"> · {cert.state}</span>}
+                {cert.expiresOn && (
+                  <span className={cert.lapsed ? 'text-red-300' : 'text-gray-400'}>
+                    {' '}· {cert.lapsed ? 'EXPIRED' : 'expires'} {cert.expiresOn}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {certifications.some(cert => cert.lapsed) && (
+            <p className="mt-3 text-sm text-red-300">
+              An expired ticket is not a qualification. Ask for the renewal before
+              assigning work that depends on it.
+            </p>
+          )}
         </div>
       )}
     </div>

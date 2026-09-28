@@ -40,6 +40,17 @@ const InvestorApplication = lazy(() => import("./pages/InvestorApplication"));
 const AdvertiserApplication = lazy(() => import("./pages/AdvertiserApplication"));
 const ServiceProviderApplication = lazy(() => import("./pages/ServiceProviderApplication"));
 const TerritoryApplication = lazy(() => import("./pages/TerritoryApplication"));
+/**
+ * Built in full and never reachable.
+ *
+ * This is a purpose-written property-manager form — portfolio size, property
+ * types, service area, current software, maintenance spend, pain points,
+ * timeline, the plan builder and a terms agreement — and nothing routed to it
+ * or imported it. The sign-up modal rendered its own generic copy inline
+ * instead, which asked less and (because it set no `applicationType`) had the
+ * applicant approved into a customer portal.
+ */
+const PropertyManagerApplication = lazy(() => import("./pages/PropertyManagerApplication"));
 const InvestmentOpportunities = lazy(() => import("./pages/InvestmentOpportunities"));
 const InvestmentManagement = lazy(() => import("./pages/InvestmentManagement"));
 const PropertyPartnership = lazy(() => import("./pages/PropertyPartnership"));
@@ -292,6 +303,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "advertiser-application":     AdvertiserApplication,
   "service-provider-application": ServiceProviderApplication,
   "territory-application":      TerritoryApplication,
+  "property-manager-application": PropertyManagerApplication,
   "dropshipper-admin":          DropshipperAdmin,
   "public-store":               PublicStore,
   "order-tracking":             OrderTracking,

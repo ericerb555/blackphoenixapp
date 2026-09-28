@@ -21,17 +21,11 @@ import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import {
   SEED_TASKS, LABOR_CONDITIONS, mergeTasks, seedCoverage, estimateTaskLabor,
+  TRADE_LABELS,
   type LaborTask,
 } from '../lib/laborTasks';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-
-const TRADE_LABELS: Record<string, string> = {
-  carpentry: 'Carpentry', painting: 'Painting', electrical: 'Electrical',
-  plumbing: 'Plumbing', laboring: 'General Labour', sheetrock: 'Drywall & Taping',
-  siding: 'Siding', roofing: 'Roofing', tile: 'Tile', flooring: 'Flooring',
-  masonry: 'Masonry', hvac: 'HVAC',
-};
 
 export default function LaborTasksConfig() {
   const [tasks, setTasks] = useState<LaborTask[]>(SEED_TASKS);

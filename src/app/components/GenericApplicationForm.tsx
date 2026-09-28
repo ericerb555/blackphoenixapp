@@ -4,11 +4,30 @@ import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import ApplicationPlanBuilderSection from './ApplicationPlanBuilderSection';
+import TradeRatingSelector, { claimedTrades } from './TradeRatingSelector';
+import CertificationsField, { namedCertifications } from './CertificationsField';
+import { levelLabel, tradeLabel, certificationLabel, isLapsed } from '../lib/technicianSkills';
+/**
+ * The answer-shape helpers live in a lib because the node test runner cannot
+ * load a `.tsx` file — so anything kept in here is untestable, which is how the
+ * validation and preview bugs both survived. Re-exported so existing importers
+ * of this module are unaffected.
+ */
+import { selectedSkillIds, describeSkill, previewText, type SkillItem } from '../lib/applicationAnswers';
+export { selectedSkillIds, describeSkill, previewText };
+export type { SkillItem };
 
 export interface ApplicationField {
   id: string;
   label: string;
-  type: 'text' | 'email' | 'tel' | 'textarea' | 'url' | 'number' | 'checkbox' | 'file' | 'select' | 'skill';
+  /**
+   * `trade-rating` and `certifications` are the technician application's two
+   * structured answers. They are field types rather than a bespoke form so the
+   * rest of the machinery — step validation, preview, the offline queue, the
+   * submit payload — applies to them unchanged.
+   */
+  type: 'text' | 'email' | 'tel' | 'textarea' | 'url' | 'number' | 'checkbox' | 'file' | 'select' | 'skill'
+    | 'trade-rating' | 'certifications' | 'info';
   placeholder?: string;
   required?: boolean;
   icon?: any;
@@ -18,14 +37,30 @@ export interface ApplicationField {
   options?: string[];
   dragDrop?: boolean; // Enable drag-and-drop for file uploads
   skills?: SkillItem[]; // For skill type fields
+  /**
+   * `false` turns a `skill` field into plain tick boxes.
+   *
+   * The control was written for trades, where "Experience Level" and "Describe
+   * your experience" are the point. The technician form also uses it for things
+   * a person is simply willing to do — roofs, crawl spaces, attics — and asking
+   * somebody to rate their years of experience in "crawl spaces", with a
+   * mandatory paragraph about it, is a question nobody can answer sensibly.
+   */
+  skillDetail?: boolean;
   disabled?: boolean; // Make field read-only
   defaultValue?: string; // Default value for the field
-}
-
-export interface SkillItem {
-  id: string;
-  label: string;
-  description: string;
+  /**
+   * The body of an `info` field: something the form tells the applicant, not
+   * something it asks them.
+   *
+   * The condo association application has used `type: 'info'` with this text
+   * since it was written, to explain what each board role may do. There was no
+   * `info` branch in the renderer, so it fell through to the plain `<input>` at
+   * the bottom — the browser treats an unknown input type as text, so the
+   * explanation was never shown and the applicant got an empty box labelled
+   * "Permission Structure" instead.
+   */
+  infoText?: string;
 }
 
 export interface ApplicationOption {
@@ -132,7 +167,12 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
     if (!field.required) return false;
     const value = formData[field.id];
     if (field.type === 'checkbox') return value !== true;
-    if (field.type === 'skill') return !Array.isArray(value) || value.length === 0;
+    if (field.type === 'skill') return selectedSkillIds(value).length === 0;
+    // A trade must be claimed; certifications are legitimately empty for many
+    // technicians, so a required certifications field asks only that a row
+    // which exists actually names something.
+    if (field.type === 'trade-rating') return claimedTrades(value).length === 0;
+    if (field.type === 'certifications') return namedCertifications(value).length === 0;
     if (field.type === 'file') return !value || value.length === 0;
     return value === undefined || value === null || String(value).trim() === '';
   });
@@ -260,10 +300,71 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
               <div key={idx} className="mb-8 last:mb-0">
                 <h2 className="text-xl font-bold mb-4 text-[#ea580c]">{step.title}</h2>
                 
-                {step.fields && step.fields.map(field => (
+                {/*
+                  Every answer has to survive being rendered here.
+
+                  This was `{formData[field.id] || 'Not provided'}`, which is
+                  fine for a string and fatal for anything else: a skill answer
+                  is an object and a file answer is a FileList, and handing
+                  React either throws "Objects are not valid as a React child"
+                  — taking down the whole preview on the first one it meets.
+
+                  It never showed because the skill validation above made this
+                  screen unreachable. Fixing that would have exposed this, so
+                  both are fixed together.
+                */}
+                {/*
+                  An `info` field is something the form told the applicant, not
+                  an answer they gave, so it has no place in a summary of what
+                  they are about to submit.
+                */}
+                {step.fields && step.fields.filter(field => field.type !== 'info').map(field => (
                   <div key={field.id} className="mb-4">
                     <p className="text-sm text-gray-400">{field.label}</p>
-                    <p className="text-white">{formData[field.id] || 'Not provided'}</p>
+                    {field.type === 'skill' ? (
+                      selectedSkillIds(formData[field.id]).length === 0
+                        ? <p className="text-white">Not provided</p>
+                        : (
+                          <ul className="text-white">
+                            {selectedSkillIds(formData[field.id]).map(skillId => (
+                              <li key={skillId}>{describeSkill(formData[field.id], skillId, field.skills)}</li>
+                            ))}
+                          </ul>
+                        )
+                    ) : field.type === 'trade-rating' ? (
+                      claimedTrades(formData[field.id]).length === 0
+                        ? <p className="text-white">Not provided</p>
+                        : (
+                          <ul className="text-white space-y-1">
+                            {claimedTrades(formData[field.id]).map(rating => (
+                              <li key={rating.tradeId}>
+                                <strong>{tradeLabel(rating.tradeId)}</strong> — {levelLabel(rating.declared)}, {rating.years} {rating.years === 1 ? 'year' : 'years'}
+                                {(rating.tasks || []).length > 0 && (
+                                  <span className="text-gray-400"> · {(rating.tasks || []).length} job types on your own</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                    ) : field.type === 'certifications' ? (
+                      namedCertifications(formData[field.id]).length === 0
+                        ? <p className="text-white">None</p>
+                        : (
+                          <ul className="text-white space-y-1">
+                            {namedCertifications(formData[field.id]).map((entry, idx) => (
+                              <li key={idx}>
+                                {certificationLabel(entry)}
+                                {entry.number ? ` · ${entry.number}` : ''}
+                                {entry.state ? ` · ${entry.state}` : ''}
+                                {entry.expiresOn ? ` · expires ${entry.expiresOn}` : ''}
+                                {isLapsed(entry) && <span className="text-red-300"> · expired</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )
+                    ) : (
+                      <p className="text-white">{previewText(formData[field.id])}</p>
+                    )}
                   </div>
                 ))}
 
@@ -363,7 +464,19 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
                     {field.required && <span className="text-[#ea580c]">*</span>}
                   </label>
 
-                  {field.type === 'textarea' ? (
+                  {field.type === 'info' ? (
+                    /*
+                      Something the form tells the applicant. It fell through to
+                      the plain <input> below for want of this branch, so the
+                      condo association form asked for "Permission Structure" in
+                      an empty text box and never showed the explanation.
+                      `whitespace-pre-line` because the text is written with
+                      blank lines between the roles.
+                    */
+                    <p className="whitespace-pre-line rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm leading-6 text-gray-300">
+                      {field.infoText}
+                    </p>
+                  ) : field.type === 'textarea' ? (
                     <textarea
                       value={formData[field.id] || field.defaultValue || ''}
                       onChange={(e) => handleFieldChange(field.id, e.target.value)}
@@ -424,6 +537,17 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
                       onChange={(skills) => handleFieldChange(field.id, skills)}
                       skills={field.skills || []}
                       required={field.required}
+                      detail={field.skillDetail !== false}
+                    />
+                  ) : field.type === 'trade-rating' ? (
+                    <TradeRatingSelector
+                      value={formData[field.id]}
+                      onChange={(ratings) => handleFieldChange(field.id, ratings)}
+                    />
+                  ) : field.type === 'certifications' ? (
+                    <CertificationsField
+                      value={formData[field.id]}
+                      onChange={(entries) => handleFieldChange(field.id, entries)}
                     />
                   ) : (
                     <input
@@ -720,12 +844,14 @@ function DragDropFileUpload({ fieldId, value, onChange, accept, multiple, requir
 }
 
 // Skill Selector Component
-function SkillSelector({ fieldId, value, onChange, skills, required }: {
+function SkillSelector({ fieldId, value, onChange, skills, required, detail = true }: {
   fieldId: string;
   value: any;
   onChange: (skills: any) => void;
   skills: SkillItem[];
   required?: boolean;
+  /** See `skillDetail` on ApplicationField. */
+  detail?: boolean;
 }) {
   const [selectedSkills, setSelectedSkills] = useState<Record<string, { checked: boolean; level: string; description: string }>>(value || {});
 
@@ -785,7 +911,7 @@ function SkillSelector({ fieldId, value, onChange, skills, required }: {
             </label>
 
             {/* Experience Level & Description (shown when checked) */}
-            {isChecked && (
+            {isChecked && detail && (
               <div className="ml-8 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
                 {/* Experience Level Dropdown */}
                 <div>

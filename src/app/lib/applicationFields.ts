@@ -52,6 +52,14 @@ const HANDLED = new Set([
   'id', 'status', 'submittedAt', 'updatedAt', 'reviewedAt', 'reviewedBy',
   'taxClassification', 'planPreference', 'planProposal', 'planProposalId',
   'onboardingStatus', 'exchangeOrgId', 'personalInfo', 'formData',
+  /**
+   * The technician profile, which has its own panel on the review screen.
+   *
+   * Listed here so a field technician's application does not report its two
+   * most important answers as "also submitted, not shown above" — they ARE
+   * shown, just not by `applicationFields`, which only knows business fields.
+   */
+  'trade_ratings', 'tradeRatings', 'certifications',
 ]);
 
 const text = (value: unknown): string => {
@@ -163,6 +171,145 @@ export function unlistedKeys(app: any): string[] {
     .filter((key) => text(app[key]) !== '' || (app[key] && typeof app[key] === 'object'))
     .sort();
 }
+
+/**
+ * Is this an application from somebody who would go out and do the work?
+ *
+ * Technician and employee applications carry a trade profile that no other
+ * application has, and no other application should be shown an empty abilities
+ * panel because of it.
+ */
+export function isTechnicianApplication(app: any): boolean {
+  const source = String(app?.applicationType || app?.type || '').toLowerCase();
+  return /employee|technician|field_tech|field tech|maintenance tech/.test(source);
+}
+
+export interface TechnicianTradeRow {
+  tradeId: string;
+  trade: string;
+  declared: string;
+  confirmed: string;
+  years: number;
+  tasks: string[];
+  /** The claim and the years do not agree — worth a question at interview. */
+  mismatch: boolean;
+}
+
+export interface TechnicianCertificationRow {
+  label: string;
+  number: string;
+  state: string;
+  expiresOn: string;
+  lapsed: boolean;
+}
+
+/**
+ * What a technician says he can do, ordered so the answer arrives first.
+ *
+ * WHY THIS IS SEPARATE FROM `applicationFields`
+ *
+ * That function names BUSINESS fields — company name, tax id, categories,
+ * insurance — because it was written for vendors and subcontractors. A field
+ * technician's trades, levels, tasks, certifications and references matched
+ * none of them, so every one of those answers fell through to `unlistedKeys`
+ * and appeared as a single grey line reading "Also submitted, not shown above:
+ * availability, certifications, emergency_calls…". To find out what a
+ * technician was good at you opened the raw JSON.
+ *
+ * Eric's words were *"i need to know the techs real abilities what he is good
+ * at"*, so the ordering here is deliberate: strongest trade first, then down.
+ * A reviewer should get the answer in about three seconds.
+ *
+ * DECLARED AND CONFIRMED ARE BOTH SHOWN, ALWAYS
+ *
+ * Because a level on an application is a claim, and what was actually found
+ * during probation is a different fact. Collapsing them would quietly present
+ * the applicant's own estimate as though somebody had verified it.
+ */
+export function technicianTrades(app: any): TechnicianTradeRow[] {
+  const nested = app?.personalInfo || app?.formData || {};
+  const raw = app?.trade_ratings || app?.tradeRatings || nested.trade_ratings || nested.tradeRatings;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+
+  const rank: Record<string, number> = { beginner: 1, novice: 2, advanced: 3 };
+  const label: Record<string, string> = { beginner: 'Beginner', novice: 'Novice', advanced: 'Advanced' };
+
+  return Object.values(raw)
+    .filter((rating: any) => rating && typeof rating === 'object' && rating.tradeId)
+    .map((rating: any) => {
+      const years = Number(rating.years);
+      const declared = String(rating.declared || '');
+      // Mirrors `levelForYears` without importing it, so this module stays
+      // dependency-free for the tests that exercise it in isolation.
+      const impliedByYears = !Number.isFinite(years) || years < 2 ? 'beginner' : years < 5 ? 'novice' : 'advanced';
+      return {
+        tradeId: String(rating.tradeId),
+        trade: TRADE_NAMES[String(rating.tradeId)] || String(rating.tradeId),
+        declared: label[declared] || declared,
+        confirmed: label[String(rating.confirmed || '')] || '',
+        years: Number.isFinite(years) ? years : 0,
+        tasks: Array.isArray(rating.tasks) ? rating.tasks.map((t: any) => String(t)) : [],
+        mismatch: Boolean(declared) && Number.isFinite(years) && impliedByYears !== declared,
+      };
+    })
+    .sort((a, b) => (rank[String(b.declared).toLowerCase()] || 0) - (rank[String(a.declared).toLowerCase()] || 0) || b.years - a.years);
+}
+
+/**
+ * The trade names, duplicated here on purpose.
+ *
+ * `laborTasks.ts` is the source for the FORM, which is right — the applicant
+ * must be offered exactly the trades the company prices. This module is read
+ * by the review screen and by tests, and importing the seed task catalogue
+ * (sixty-odd records) to render a label would pull the estimator into every
+ * caller. Only the labels are repeated, never the trade list that drives the
+ * form, so the two cannot disagree about what is offered.
+ */
+const TRADE_NAMES: Record<string, string> = {
+  carpentry: 'Carpentry', painting: 'Painting', electrical: 'Electrical',
+  plumbing: 'Plumbing', laboring: 'General Labour', sheetrock: 'Drywall & Taping',
+  siding: 'Siding', roofing: 'Roofing', tile: 'Tile', flooring: 'Flooring',
+  masonry: 'Masonry', hvac: 'HVAC',
+};
+
+/** Certifications, with lapsed ones marked rather than quietly listed. */
+export function technicianCertifications(app: any): TechnicianCertificationRow[] {
+  const nested = app?.personalInfo || app?.formData || {};
+  const raw = app?.certifications ?? nested.certifications;
+  if (!Array.isArray(raw)) return [];
+  const now = Date.now();
+
+  return raw
+    .filter((entry: any) => entry && typeof entry === 'object')
+    .map((entry: any) => {
+      const expiresOn = String(entry.expiresOn || '').trim();
+      const expiry = expiresOn ? new Date(expiresOn).getTime() : NaN;
+      return {
+        label: String(entry.otherLabel || CERT_NAMES[String(entry.typeId)] || entry.typeId || '').trim(),
+        number: String(entry.number || '').trim(),
+        state: String(entry.state || '').trim(),
+        expiresOn,
+        lapsed: Number.isFinite(expiry) && expiry < now,
+      };
+    })
+    .filter((row) => row.label !== '');
+}
+
+/** Readable names for the certification ids the form stores. */
+const CERT_NAMES: Record<string, string> = {
+  epa608: 'EPA 608', epa_rrp: 'EPA RRP (lead-safe renovator)',
+  osha10: 'OSHA 10', osha30: 'OSHA 30',
+  electrical_apprentice: 'Electrical apprentice registration',
+  electrical_journeyman: 'Journeyman electrician licence',
+  electrical_master: 'Master electrician licence',
+  plumbing_journeyman: 'Journeyman plumber licence',
+  plumbing_master: 'Master plumber licence',
+  gas_fitting: 'Gas fitting licence', backflow: 'Backflow prevention certification',
+  aerial_lift: 'Aerial / scissor lift operator',
+  fall_protection: 'Fall protection / competent person',
+  confined_space: 'Confined space entry', cdl: 'Commercial driver licence (CDL)',
+  first_aid_cpr: 'First aid / CPR',
+};
 
 /**
  * One vocabulary for status.

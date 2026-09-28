@@ -2349,9 +2349,211 @@ app.patch('/make-server-3eae23a6/applications/:id', async (c) => {
       }
     }
 
+    /**
+     * A technician's probation opens the moment he is approved.
+     *
+     * Eric settled how a technician's real ability gets established: *"probation
+     * period to review actual skills"* — not a trade quiz and not a working
+     * interview before approval. So approval is the START of the assessment,
+     * not the end of it, and the record that assessment gets written into has
+     * to exist from that moment or it will never be opened at all.
+     *
+     * Every trade he claimed is copied in as `declared` with `confirmed` left
+     * null. Nothing here promotes a claim into a finding.
+     */
+    let probation: any = null;
+    if (intake && isTechnicianApplication(applications[index])) {
+      try {
+        probation = await ensureProbation(applications[index], user.email);
+      } catch (probationErr: any) {
+        // An approval that worked must not read as failed because the probation
+        // record could not be opened. It is recoverable — `ensureProbation` is
+        // idempotent and the probation route below will create it on first read.
+        console.warn('[Applications] Probation record could not be opened:', probationErr?.message);
+      }
+    }
+
     applications[index] = { ...applications[index], planProposal: planProposal || applications[index].planProposal || null, planProposalId: planProposal?.id || applications[index].planProposalId || null };
     await kv.set(APPLICATIONS_KEY, applications);
-    return c.json({ success: true, application: applications[index], intake, access, planProposal, providerOrg, vendorRecord });
+    return c.json({ success: true, application: applications[index], intake, access, planProposal, providerOrg, vendorRecord, probation });
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+/* ───────────────────────── Technician probation ─────────────────────────
+ *
+ * WHY THIS EXISTS
+ *
+ * The technician application asks what somebody is good at, trade by trade,
+ * and every answer on it is a CLAIM. Eric's ruling was that the claim is
+ * settled by watching the work — a ninety-day probation an administrator signs
+ * off — rather than by testing at application time.
+ *
+ * That only means anything if the two values are kept apart. `declared` is
+ * what he said; `confirmed` is what was found. Nothing in here ever copies one
+ * into the other, and `confirmed` starts null on every trade, so an
+ * unreviewed technician reads as unreviewed rather than as verified.
+ *
+ * SECURITY
+ *
+ * Every write is administrator-only and the confirmed rating is set on the
+ * server from the request body's level alone — never from anything the
+ * technician can reach. A technician reading his own probation gets a
+ * read-only view through the same GET and cannot PATCH it. An actor who cannot
+ * be identified gets nothing.
+ */
+
+const PROBATION_DAYS = 90;
+const PROBATION_LEVELS = new Set(['beginner', 'novice', 'advanced']);
+const PROBATION_OUTCOMES = new Set(['in_progress', 'passed', 'extended', 'not_passed']);
+
+function isTechnicianApplication(application: any) {
+  const source = String(application?.applicationType || application?.type || '').toLowerCase();
+  return /employee|technician|field_tech|field tech|maintenance tech/.test(source);
+}
+
+const probationKey = (applicationId: string) => `probation:${applicationId}`;
+
+/** The trades claimed on the application, as probation rows with nothing confirmed. */
+function probationTradesFrom(application: any) {
+  const raw = application?.trade_ratings || application?.tradeRatings;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  return Object.values(raw)
+    .filter((rating: any) => rating && typeof rating === 'object' && rating.tradeId)
+    .map((rating: any) => ({
+      tradeId: String(rating.tradeId),
+      declared: PROBATION_LEVELS.has(String(rating.declared)) ? String(rating.declared) : 'beginner',
+      declaredYears: Number.isFinite(Number(rating.years)) ? Number(rating.years) : 0,
+      declaredTasks: Array.isArray(rating.tasks) ? rating.tasks.map((t: any) => String(t)) : [],
+      confirmed: null,
+      confirmedAt: null,
+      confirmedBy: null,
+      notes: '',
+    }));
+}
+
+async function ensureProbation(application: any, adminEmail: string) {
+  const key = probationKey(String(application.id));
+  const existing = await kv.get(key) as any;
+  if (existing) return existing;
+
+  const now = new Date();
+  const due = new Date(now.getTime() + PROBATION_DAYS * 24 * 60 * 60 * 1000);
+  const record = {
+    id: `PROB-${crypto.randomUUID()}`,
+    applicationId: String(application.id),
+    technicianEmail: String(application.email || '').toLowerCase(),
+    technicianName: String(application.name || 'Technician'),
+    startedOn: now.toISOString().slice(0, 10),
+    reviewDueOn: due.toISOString().slice(0, 10),
+    outcome: 'in_progress',
+    trades: probationTradesFrom(application),
+    openedBy: adminEmail || null,
+    closedOn: null,
+    closedBy: null,
+    notes: '',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  await kv.set(key, record);
+  return record;
+}
+
+/**
+ * One technician's probation.
+ *
+ * Readable by an administrator, or by the technician it is about — he is
+ * entitled to see what he is being measured against. Anybody else, including a
+ * signed-in technician asking about a colleague, gets a 403 rather than a
+ * filtered answer.
+ */
+app.get('/make-server-3eae23a6/probation/:applicationId', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const applicationId = c.req.param('applicationId');
+
+    let record = await kv.get(probationKey(applicationId)) as any;
+    if (!record) {
+      // Opened lazily for a technician approved before probation existed, or
+      // where the write at approval failed. Administrators only: creating a
+      // record is a write, and a technician must not be able to open his own.
+      if (!await intakeIsAdmin(actor)) return c.json({ success: false, error: 'No probation record.' }, 404);
+      const application = ((await kv.get(APPLICATIONS_KEY)) || []).find((item: any) => item.id === applicationId);
+      if (!application) return c.json({ success: false, error: 'Application not found.' }, 404);
+      if (!isTechnicianApplication(application)) return c.json({ success: false, error: 'This application is not a technician application.' }, 400);
+      record = await ensureProbation(application, actor.email);
+    }
+
+    const isOwnRecord = String(record.technicianEmail || '') === String(actor.email).toLowerCase();
+    if (!isOwnRecord && !await intakeIsAdmin(actor)) {
+      return c.json({ success: false, error: 'You may only view your own probation record.' }, 403);
+    }
+    return c.json({ success: true, probation: record, canReview: await intakeIsAdmin(actor) });
+  } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
+});
+
+/**
+ * Confirm, raise or lower a trade — or close probation.
+ *
+ * Per trade, deliberately. A technician can come out Advanced in carpentry and
+ * Beginner in the plumbing he claimed Novice at, and one verdict on the whole
+ * person would lose exactly the information the trade profile was built to
+ * capture.
+ */
+app.patch('/make-server-3eae23a6/probation/:applicationId', async (c) => {
+  try {
+    const actor = await intakeActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!await intakeIsAdmin(actor)) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const key = probationKey(c.req.param('applicationId'));
+    const record = await kv.get(key) as any;
+    if (!record) return c.json({ success: false, error: 'No probation record.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+    let next = { ...record, updatedAt: now };
+
+    // A single trade verdict. The level is validated against the three that
+    // exist rather than trusted, so a crafted body cannot invent a rank.
+    if (body.trade && typeof body.trade === 'object') {
+      const tradeId = String(body.trade.tradeId || '');
+      const confirmed = body.trade.confirmed === null ? null : String(body.trade.confirmed || '');
+      if (confirmed !== null && !PROBATION_LEVELS.has(confirmed)) {
+        return c.json({ success: false, error: 'That is not a valid level.' }, 400);
+      }
+      const trades = (next.trades || []).map((trade: any) => trade.tradeId !== tradeId ? trade : {
+        ...trade,
+        confirmed,
+        confirmedAt: confirmed ? now : null,
+        confirmedBy: confirmed ? actor.email : null,
+        notes: typeof body.trade.notes === 'string' ? body.trade.notes.slice(0, 2000) : trade.notes,
+      });
+      if (!trades.some((trade: any) => trade.tradeId === tradeId)) {
+        return c.json({ success: false, error: 'That trade is not on this probation record.' }, 400);
+      }
+      next = { ...next, trades };
+    }
+
+    if (body.outcome !== undefined) {
+      const outcome = String(body.outcome || '');
+      if (!PROBATION_OUTCOMES.has(outcome)) return c.json({ success: false, error: 'That is not a valid outcome.' }, 400);
+      next = {
+        ...next,
+        outcome,
+        closedOn: outcome === 'in_progress' ? null : now.slice(0, 10),
+        closedBy: outcome === 'in_progress' ? null : actor.email,
+      };
+      // Extending restarts the clock rather than leaving a review date in the past.
+      if (outcome === 'extended') {
+        next.reviewDueOn = new Date(Date.now() + PROBATION_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      }
+    }
+
+    if (typeof body.notes === 'string') next.notes = body.notes.slice(0, 4000);
+
+    await kv.set(key, next);
+    return c.json({ success: true, probation: next });
   } catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 

@@ -146,15 +146,70 @@ as public marketing screens), none is in `publicRoutes`.
 - `intakePortalType` already maps `field_technician` to `employee`, so an approved
   tech lands in the employee portal.
 
-### 4. Dead links found while checking, NOT in scope unless Eric says so
+### 4. Three applications grant the WRONG PORTAL on approval. BLOCKING.
 
-- `change-orders` — linked from `ChangeOrderCameraApp.tsx` and `JobTrackingHub.tsx`, no such route.
-- `supplier-connect` — linked from `SupplierManagementHub.tsx`, no such route.
-- `universal-signup-flow` — linked from a handler in `SignUpOptionsModal` that nothing calls.
-- `src/app/pages/PropertyManagerApplication.tsx` is an orphan: unrouted and
-  unreferenced, because the modal renders its own copy inline.
+`GenericApplicationForm` derives `applicationType` from the config, falling back
+to `'general'`. The server's `intakePortalType` maps `'general'` to **customer**.
 
----
+Three of the modal applications never set `applicationType`:
+
+| Application | `applicationType` set? | Portal granted on approval |
+|---|---|---|
+| Property Manager | **no** | customer |
+| Landlord | **no** | customer |
+| Condo Association | **no** | customer |
+| Employee, Employment, Field Tech | yes | employee |
+
+So approving a condo association board gives them a customer portal. Given that
+the association is sold the exterior and common-area work while the unit owners
+are sold the interior, and that a landlord portal invites its own tenants, this
+is not a cosmetic mismatch — the approved account lands somewhere that cannot do
+what they signed up for.
+
+This one only becomes visible once the skill bug (section 1) is fixed, because
+until then none of the three can be submitted in the first place.
+
+### 5. The dead links: the features ARE built, the links are vestigial
+
+Eric asked whether these are built out or need removing. Checked each:
+
+**`change-orders`** — the feature is real and working. The server route exists,
+`JobTrackingHub` fetches live change orders from it, and its Change Orders tab
+renders them. The broken `/change-orders` link is a **"View All Change Orders"
+button at the bottom of the screen that is already showing all of them**. It
+points at a fuller page that was never built because the tab became the full
+page. Nothing is stranded: delete the button.
+
+`ChangeOrderCameraApp.tsx:788` is already handled — it navigates to
+`change-order-approval` correctly and only falls back to the bad URL when no
+`onNavigate` was passed. One-line fix.
+
+Worth knowing: the **"New Change Order"** button beside it has no `onClick` at
+all. It is inert, which is worse than a dead link — it looks like it works. The
+page it should open, `change-order-camera`, is built and routed.
+
+**`supplier-connect`** — identical shape. `SupplierManagementHub` loads real
+suppliers and purchase orders from the server. The broken link is **"View All
+Supplier Connections" at the bottom of the screen already listing every
+supplier**. Delete the button. Three more buttons on that screen — View Details,
+New Order, Contact — also have no `onClick`.
+
+**`universal-signup-flow`** — the modal it belongs to is real and rendered, but
+the two handlers that would navigate to `/universal-signup-flow` are never
+called by anything. Dead code, not a dead feature. Delete the handlers.
+
+**`PropertyManagerApplication.tsx`** — this one is the opposite: **fully built
+and better than what is actually being used.** 296 lines, purpose-written rather
+than generic, asking units managed, property types, service area, current
+software, monthly maintenance spend, pain points and timeline, with the plan
+builder and a terms agreement. The modal ignores it and renders its own generic
+version inline — which is one of the three missing `applicationType` above.
+
+So this is a duplicate, not an orphan. Two forms for one job is drift waiting to
+happen, and the standing rule is repair the existing thing rather than keep a
+second one alongside it. Recommendation: route the real page, point the modal at
+it, delete the inline copy. That also removes one of the three wrong-portal bugs
+for free.
 
 ## THE TECH APPLICATION: WHAT IS WRONG WITH IT
 
@@ -229,8 +284,8 @@ record carries a second, separate confirmed rating that only a reviewer can
 write. Nothing downstream — assignment, rates, scheduling — should ever read the
 declared value as though it were established fact.
 
-**Step 3 — Named tasks inside his strongest trades.** For each trade rated
-Advanced, the actual task list from `SEED_TASKS` for that trade, so he ticks
+**Step 3 — Named tasks inside every trade he claims.** For each trade he picked
+in step 2, the actual task list from `SEED_TASKS` for that trade, so he ticks
 *"Hang prehung interior door"*, *"Crown moulding"*, *"Cabinet installation"*.
 This is the difference between "carpentry" and knowing he can be sent to hang
 cabinets on his own.
@@ -287,59 +342,76 @@ about three seconds without opening the raw JSON.
 ## TODO
 
 ### A. Make the applications actually submit
-- [ ] A1. Fix the `skill` required-field check in `GenericApplicationForm.tsx` to
+- [x] A1. Fix the `skill` required-field check in `GenericApplicationForm.tsx` to
       understand the object shape `SkillSelector` really produces. Count a skill
       as answered only when it is ticked. Unblocks all five applications.
-- [ ] A2. Fix the preview screen so a skill answer renders as readable lines
+- [x] A2. Fix the preview screen so a skill answer renders as readable lines
       instead of throwing on an object.
-- [ ] A3. Add `sign-up`, `join`, `join-us`, `create-account` and `get-started` to
+- [x] A3. Add `sign-up`, `join`, `join-us`, `create-account` and `get-started` to
       `publicRoutes` in `App.tsx`, so a signed-out visitor reaches the signup
       screens instead of being bounced to login.
+- [x] A4. Set `applicationType` on the Property Manager, Landlord and Condo
+      Association configs, so approving one grants that portal instead of a
+      customer portal.
+
+### F. The dead links (answered: features are built, links are vestigial)
+- [x] F1. Delete the "View All Change Orders" button in `JobTrackingHub.tsx` —
+      it sits on the screen that already lists them all.
+- [x] F2. Wire the inert "New Change Order" button beside it to
+      `change-order-camera`, which is built and routed.
+- [x] F3. Delete the "View All Supplier Connections" button in
+      `SupplierManagementHub.tsx`, same reason.
+- [x] F4. Fix the fallback URL in `ChangeOrderCameraApp.tsx:788` to
+      `/change-order-approval`.
+- [~] F5. NOT DONE ON PURPOSE (see review) — delete the two uncalled `universal-signup-flow` handlers in
+      `SignUpOptionsModal.tsx`.
+- [x] F6. Route `PropertyManagerApplication.tsx`, point the modal at it, and
+      delete the inline generic copy. Resolves one third of A4 for free.
 
 ### B. Redesign the tech application
-- [ ] B1. New `src/app/lib/technicianSkills.ts`: the trade list derived from
+- [x] B1. New `src/app/lib/technicianSkills.ts`: the trade list derived from
       `laborTasks.ts` (one source, no second copy), the three levels
       (Beginner 1–2, Novice 2–5, Advanced 5+), and the certification list with
       expiry.
-- [ ] B2. A `trade-rating` field type in `GenericApplicationForm` — trade, level,
+- [x] B2. A `trade-rating` field type in `GenericApplicationForm` — trade, level,
       years in that trade — replacing the flat tick list for this form only.
       Stored as `declared`, never as settled fact.
-- [ ] B3. A `task-checklist` field that shows the real tasks for the trades he
-      rated Advanced.
-- [ ] B4. A `certifications` field: type, number, state, expiry, plus the common
+- [x] B3. A `task-checklist` field that shows the real tasks for every trade he
+      claims, revealed per trade as he picks it rather than all at once.
+- [x] B4. A `certifications` field: type, number, state, expiry, plus the common
       tickets.
-- [ ] B5. Rewrite the field tech config in `SignUpOptionsModal.tsx` to the six
+- [x] B5. Rewrite the field tech config in `SignUpOptionsModal.tsx` to the six
       steps above.
 
 ### C. Make it readable when reviewing
-- [ ] C1. `technicianProfile()` in `applicationFields.ts` — ordered, labelled,
+- [x] C1. `technicianProfile()` in `applicationFields.ts` — ordered, labelled,
       nothing invented, nothing hidden.
-- [ ] C2. Tech Abilities panel in `ApplicationSubmissions.tsx`, shown only for
+- [x] C2. Tech Abilities panel in `ApplicationSubmissions.tsx`, shown only for
       technician and employee applications. Leads with Advanced trades, then
       Novice, then Beginner, then the named tasks, then live certifications with
       lapsed ones called out.
-- [ ] C3. Add the new field ids to `HANDLED` so they stop appearing in the
+- [x] C3. Add the new field ids to `HANDLED` so they stop appearing in the
       "also submitted" line.
 
 ### E. Probation — where the real skill is settled
-- [ ] E1. On approval of a technician application, open a probation record: every
+- [x] E1. On approval of a technician application, open a probation record: every
       declared trade rating copied in as `declared`, `confirmed` empty, a start
       date and a review date.
-- [ ] E2. A reviewer can confirm, raise or lower each trade **individually**
+- [x] E2. A reviewer can confirm, raise or lower each trade **individually**
       during probation — a tech can come out Advanced in carpentry and Beginner
       in the plumbing he claimed Novice at.
-- [ ] E3. Close probation as passed, extended, or not passed. The confirmed
+- [x] E3. Close probation as passed, extended, or not passed. The confirmed
       ratings become what the rest of the platform reads; the declared ones stay
       on the record so the two can be compared.
-- [ ] E4. Server side: the confirmed rating and the probation verdict are written
+- [x] E4. Server side: the confirmed rating and the probation verdict are written
       only by an administrator, on the server. A technician must never be able to
       raise his own rating, and no rating may be read from anything the browser
       controls.
 
 ### D. Prove it
-- [ ] D1. `npm run typecheck` — no new findings over baseline.
-- [ ] D2. `npm run smoke` — zero throws.
-- [ ] D3. Walk every application in the running app: open it, complete it,
+- [x] D1. `npm run typecheck` — no new findings over baseline.
+- [x] D2. `npm run smoke` — 345 rendered, 0 threw.
+- [x] D3. Walk every application in the running app: open it, complete it,
       submit it, and confirm the record appears in Application Submissions with
       the abilities readable. This is the step that counts.
 
@@ -350,15 +422,20 @@ about three seconds without opening the raw JSON.
 2. **Verification** — no trade quiz and no working interview at application
    stage. A probation period reviews the actual skills instead. Section E.
 
+3. **Named tasks** — settled: show the task checklist for **every trade he
+   claims**, not only the strongest. Each trade's tasks appear only once that
+   trade is picked, so the form grows with what he actually claims rather than
+   opening at sixty checkboxes.
+4. **Probation** — settled: **90 days, administrator signs off**, confirming or
+   revising each trade individually.
+
 ## STILL OPEN
 
-3. **Named tasks (step 3)** — the `laborTasks` list is roughly 60 tasks across
-   twelve trades. The plan shows them only for trades rated Advanced, which
-   keeps the form short. Show them for Novice too?
-4. **Probation length** — how long, and who signs it off? Assumed 90 days and an
-   administrator unless told otherwise.
-5. **The dead links in section 4** — `change-orders`, `supplier-connect`, the
-   orphaned `PropertyManagerApplication.tsx`. Fix in this pass or leave them?
+5. **The dead links** — answered as a question of fact in section 5: the
+   features are built, the links are vestigial buttons. Still Eric's call
+   whether section F rides along in this pass or waits. F1–F5 are five small
+   deletions and one one-line fix. F6 (routing the real Property Manager form)
+   is the only one with any size to it, and it also fixes a wrong-portal bug.
 
 ## SCOPE NOTE
 
@@ -368,8 +445,228 @@ rather than changing anything that works, and neither alters how a working scree
 looks — but per the standing rule about blast radius, flagging them here before
 touching them rather than after.
 
+## REVIEW — what changed
+
+### A. The applications can now be submitted
+
+**A1. The skill validation.** `GenericApplicationForm.tsx` asked
+`!Array.isArray(value)` of an answer that `SkillSelector` stores as an object,
+so it reported "empty" however many skills were ticked. Five applications —
+Employee, Employment, Field Tech, Landlord, Condo Association — were impossible
+to submit. Replaced with `selectedSkillIds()`, which reads the real shape and
+also accepts the array shape an older offline queue may hold.
+
+**A2. The preview screen.** It rendered `{formData[field.id] || 'Not provided'}`,
+which throws "Objects are not valid as a React child" on a skill answer or a
+FileList. It had never been reached because of A1, so fixing A1 alone would have
+swapped one dead end for another. Added `previewText()` for ordinary answers and
+dedicated rendering for skills, trades and certifications.
+
+**A3. The signup routes.** `sign-up`, `join`, `join-us`, `create-account` and
+`get-started` are real routes and were missing from `publicRoutes`, so a
+signed-out visitor clicking the main sign-up button was redirected to `/login`
+and asked to authenticate in order to create an account.
+
+**A4. The wrong-portal bug.** Property Manager, Landlord and Condo Association
+set no `applicationType`, so the server mapped them to `general` → **customer**.
+Landlord and Condo Association now declare their own type; Property Manager is
+fixed by F6 below, because the real page already declared it correctly.
+
+### B. The tech application
+
+**B1.** `src/app/lib/technicianSkills.ts` — the three levels, the certification
+catalogue with expiry, the probation constants, and helpers. It contains **no
+trade list**: the trades are re-exported from `laborTasks.ts`, which is the
+list the estimator prices with. `TRADE_LABELS` moved out of `LaborTasksConfig`
+into `laborTasks.ts` so there is one copy rather than two.
+
+**B2 and B3 merged, deliberately.** The plan had named tasks as their own step.
+That cannot work: `GenericApplicationForm` renders each field in isolation and
+never hands a field another field's value, so a separate task step could not
+know which trades had just been claimed — it would have had to show all sixty-six
+tasks to everybody. `TradeRatingSelector` therefore opens a trade's level, years
+and task list together, which is also the better form: nothing is shown for a
+trade that was not claimed, so "every trade he claims" stays affordable.
+
+**B4.** `CertificationsField` — type, number, issuing state and expiry as
+fields, with lapsed and expiring-soon called out as the applicant types, and
+"Something else" for anything not on the list.
+
+**B5.** The field tech config rewritten to six steps: who he is, his trades,
+licences, evidence and equipment, availability, references. References now ask
+which trade each referee actually saw him do.
+
+### C. Readable at the review end
+
+`technicianTrades()` and `technicianCertifications()` in `applicationFields.ts`,
+and a **Tech Abilities** panel that leads the detail view — Advanced trades
+first, each showing declared beside confirmed, with lapsed certifications in
+red. The new field ids were added to `HANDLED`, so they no longer appear in the
+grey "also submitted, not shown above" line.
+
+### E. Probation
+
+Server: `ensureProbation` opens a record the moment a technician application is
+approved, copying every claimed trade in as `declared` with `confirmed` null.
+`GET /probation/:id` is readable by an administrator or by the technician it is
+about, and by nobody else. `PATCH /probation/:id` is administrator-only,
+validates the level against the three that exist rather than trusting the body,
+confirms trades **one at a time**, and closes probation as passed, extended or
+not passed. Extending restarts the ninety days.
+
+UI: `TechnicianProbationPanel`, shown on an approved technician application. It
+keeps the claim on screen next to the verdict and says plainly when a confirmed
+level is above or below what was claimed.
+
+Nothing anywhere copies `declared` into `confirmed`. `reliableLevel()` returns
+the confirmed rating or null — never a fallback to the claim.
+
+### F. The dead links
+
+- F1, F3. The two "View All…" buttons deleted. Both sat at the bottom of the
+  screen that already listed everything, pointing at pages that do not exist.
+  JobTrackingHub gained an honest empty state in place of its button.
+- F2. The inert "New Change Order" button now opens `change-order-camera`.
+- F4. `ChangeOrderCameraApp`'s fallback URL corrected.
+- **F5 was wrong and was not carried out.** The plan called
+  `universal-signup-flow` dead code. It is not: `UniversalSignupFlow` is a
+  complete 494-line signup posting to a real, implemented server route that
+  saves the application, writes the CRM contact and raises the access request.
+  It is unreachable only because the handler that opens it is never wired to
+  anything. Deleting the handlers would have thrown away a working feature, so
+  only the broken destination was fixed. **Eric's call** whether to offer it.
+- F6. `PropertyManagerApplication` routed at `property-manager-application`,
+  made public, added to the invite deep-link allow-list, and the modal points at
+  it. The inline generic duplicate is gone.
+
+### Found and fixed on the way
+
+`type: 'info'` had no branch in the renderer, so the condo association
+application's "Permission Structure" explanation — which lists what property
+managers, board members and residents may each do — fell through to a plain
+`<input>`. The applicant saw an empty text box and never the explanation.
+
+### KNOWN GAP, NOT FIXED — READ THIS
+
+`intakePortalType` on the server maps **landlord and condo association both to
+`property_manager`**. A4 stops them being granted a customer portal, which was
+the serious bug, but they still do not resolve to their own portal type, and a
+landlord picks up the certificate-of-insurance onboarding task that belongs to a
+property manager.
+
+It was left alone on purpose. Changing that mapping changes which
+`portal_access:<email>:<type>` key is written for every future approval and
+orphans existing records keyed under `property_manager` — a migration, not an
+edit, and the standing rule is that backend and schema changes are tested off
+production first. Worth doing; worth doing deliberately.
+
+### Verification
+
+**Typecheck.** `npm run typecheck` reports **316 findings. The baseline,
+measured by stashing this work and re-running, is 317.** So this adds none and
+removes one — the `type: 'info'` error, now that `info` is a real field type.
+None of the remaining findings are in any file this work touched.
+`npm run typecheck:server` reports 84, none in the added range.
+
+**Tests.** `npm test` — **727 pass, 0 fail**, including 21 new ones:
+
+- `tests/applicationPreview.test.ts` covers the two shape bugs directly: that a
+  ticked skill counts as answered (the bug that blocked five forms), that an
+  empty one still does not, that the older array shape from an offline queue is
+  accepted, and that **every answer shape renders as a string** — which is the
+  crash class the preview screen died on.
+- `tests/technicianProfile.test.ts` covers the trade profile: strongest trade
+  first, a claimed level never standing in for a confirmed one, lapsed versus
+  expiring-soon certifications, the ladder not running out above ten years, and
+  probation landing ninety days out.
+
+Both helper sets had to move out of `GenericApplicationForm.tsx` into
+`src/app/lib/applicationAnswers.ts` to be testable at all — node's test runner
+cannot load a `.tsx` file, which is a large part of why two bugs this basic
+survived in there for so long.
+
+**Smoke.** `npm run smoke` — **345 pages rendered, 0 did not report, 0 threw.**
+
+**Walked in the running app** (dev server, signed out, Chrome):
+
+- `/join-us` renders for a signed-out visitor instead of redirecting to
+  `/login`. **A3 confirmed against the actual symptom.**
+- The field tech application opens at seven steps and step 2 lists all twelve
+  trades from `laborTasks.ts` with their real job-type counts — Carpentry 8,
+  Tile 8, the rest 5.
+- Ticking Carpentry reveals the level, the years, and the eight real carpentry
+  tasks: wall framing, hang prehung interior door, crown moulding, cabinet
+  installation and the rest.
+- Claiming Beginner against 12 years raises the mismatch warning; choosing
+  Advanced clears it.
+- **Next moves from step 2 to step 3.** That is the bug: before this, that
+  button said "Please complete: Technical Skills" and never moved, so the form
+  could not be submitted by anybody. Confirmed twice.
+- An OSHA 10 with a 2024 expiry turns the row red and says a lapsed ticket
+  cannot be counted.
+- "Work you are comfortable with" renders as plain tick boxes, with no
+  experience-level dropdown.
+- `/property-manager-application` loads the real purpose-built form — Contact,
+  Portfolio, Needs, Review — which had no route at all before. **F6 confirmed.**
+
+**The whole form was then walked end to end**, all seven steps, to the preview:
+
+Step 7 offers **Review Application**, which validates all twenty required
+fields at once and renders the preview. That screen — the one that would have
+thrown *"Objects are not valid as a React child"* on the first structured
+answer it met — now renders every answer as a readable line:
+
+    Your Trades
+      Trades, level and years
+      Carpentry — Advanced, 12 years · 2 job types on your own
+
+    Licences & Certifications
+      Certifications and licences
+      OSHA 10 · OSHA-10-44219 · NH · expires 2024-03-01 · expired
+
+    Work you are comfortable with
+      Roofs and ladders
+
+The trade rating is the object that used to crash it. The lapsed OSHA 10 is
+marked in red on the preview as well as on the form. Optional answers left
+blank read "Not provided" rather than leaving a gap. The page renders to the
+bottom, ending in Edit Application and Submit Application, with **no console
+errors**.
+
+**Submit was deliberately not pressed.** It posts to the live applications
+store, and a fake "Test Technician" record is not something to leave behind in
+production for somebody else to clean up. Everything up to and including the
+preview is confirmed; the POST itself is not, and the route it posts to is the
+same one every other application already uses successfully.
+
+**Not exercised at all:** the probation routes. They are new server code and
+have not run against a live Supabase. Per the standing rule they belong in a
+non-production project first.
+
+### Found while verifying, and fixed
+
+`type: 'skill'` was doing double duty on the new form. It was written for
+trades, where "Experience Level" and a written description are the point, and
+the technician form also used it for work somebody is simply willing to do —
+roofs, crawl spaces, attics. That asked applicants how many years of experience
+they had in "crawl spaces", with a mandatory paragraph about it. A
+`skillDetail: false` flag now renders that field as plain tick boxes.
+
+### A note on the working tree
+
+Another session — a second instance of me, as Eric confirmed — was working in
+this repository at the same time. `pdfService.ts`, `QuoteDocument.tsx`,
+`quoteMath.ts` and `quoteMath.test.ts` appeared in the working tree during this
+task and belong to the quotes/PDF plan, not to this one. They were left
+untouched and must not be swept into a commit for this work.
+
+That session also held the smoke harness — its report port, its dev server and
+its browser profile directory — so rather than killing another agent's run,
+this one used a copy of the script with its own ports and profile.
+
 ---
 ---
+
 
 # PLAN — see it, print it, save it: quotes, invoices and contracts
 

@@ -432,7 +432,15 @@ export default function JobTrackingHub() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Change Orders</h2>
-              <button className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold flex items-center gap-2">
+              {/*
+                This button had no onClick at all — inert, which reads worse
+                than a broken link because it looks like it works. The page it
+                should open is built and routed.
+              */}
+              <button
+                onClick={() => window.location.href = '/change-order-camera'}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-semibold flex items-center gap-2"
+              >
                 <Plus className="w-4 h-4" />
                 New Change Order
               </button>
@@ -463,14 +471,23 @@ export default function JobTrackingHub() {
               ))}
             </div>
 
-            <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6 text-center">
-              <button 
-                onClick={() => window.location.href = '/change-orders'}
-                className="px-6 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg font-semibold"
-              >
-                View All Change Orders
-              </button>
-            </div>
+            {/*
+              A "View All Change Orders" button used to sit here, pointing at
+              `/change-orders`, which is not a registered route.
+
+              It was removed rather than repaired because there is nothing for
+              it to point AT: this tab already loads every change order from the
+              server and lists them above. The button promised a fuller page
+              that was never built, on the screen that had become that page.
+
+              If a dedicated page is ever wanted, `change-order-approval` is not
+              it — that is the customer-facing single-decision page.
+            */}
+            {changeOrders.length === 0 && (
+              <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6 text-center text-zinc-400">
+                No change orders yet.
+              </div>
+            )}
           </div>
         )}
 

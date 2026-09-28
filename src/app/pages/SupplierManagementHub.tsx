@@ -325,14 +325,15 @@ export default function SupplierManagementHub() {
               })}
             </div>
 
-            <div className="bg-[#1A1A1A] border border-zinc-800 rounded-lg p-6 text-center">
-              <button 
-                onClick={() => window.location.href = '/supplier-connect'}
-                className="px-6 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] text-white rounded-lg font-semibold"
-              >
-                View All Supplier Connections
-              </button>
-            </div>
+            {/*
+              A "View All Supplier Connections" button used to sit here,
+              pointing at `/supplier-connect`, which is not a registered route.
+
+              Same reasoning as the change-order one it mirrors: this tab
+              already loads every supplier from the server and lists them above,
+              so the button offered a fuller page that does not exist, from the
+              screen that is already the full list.
+            */}
           </div>
         )}
 
