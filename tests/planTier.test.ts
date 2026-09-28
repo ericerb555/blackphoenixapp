@@ -19,7 +19,7 @@ import {
   withinLimit, carryStripeLinkage, FREE_LEVEL, AUDIENCES,
   readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
   addOnsForTier, publicAddOn, type PlanAddOn,
-  selectableAddOns, holdsAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
+  selectableAddOns, holdsAddOn, paysForAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
   ON_CALL_ANSWERED_ADD_ON_ID, holdsOnCallFeature,
   type PlanTier,
@@ -756,4 +756,110 @@ test('a cancelled subscription holds neither', () => {
     addOnIds: [ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID],
   });
   assert.ok(!holdsOnCallFeature(cancelled, tier()));
+});
+
+/* ── a trial grants breadth; a purchase grants persistence ───────────────── */
+
+/**
+ * Eric's rule: every add-on is included in the free trial, and they "add up"
+ * only if the subscriber keeps them afterwards.
+ *
+ * The trap this pins shut is the obvious implementation — seeding the trial's
+ * add-ons onto `addOnIds`. That field means PAID FOR: the Stripe webhook
+ * writes it and a conversion would bill from it, so a trial that filled it in
+ * would invoice somebody for extras they never chose. Left empty, conversion
+ * bills only what was picked, which is the direction a mistake involving money
+ * should fail in.
+ *
+ * So three states that must never collapse into each other: a trial holds
+ * everything and owns nothing, a subscription holds what it bought, and
+ * anything else holds nothing at all.
+ */
+const trialling = (over: Record<string, any> = {}) => ({
+  email: 'a@b.com', portalType: 'content', status: 'active',
+  level: 'full', trialEnd: future, ...over,
+});
+
+test('a running trial holds add-ons it never bought', () => {
+  assert.ok(holdsAddOn('extra-products', trialling(), tier()));
+  assert.ok(holdsAddOn('anything-at-all', trialling(), tier()),
+    'the trial includes the lot, so the subscriber can find out what they want');
+  // The on-call exception is deliberately not asserted here — it has its own
+  // block below, so deleting the exception breaks a test that explains why it
+  // exists rather than one that merely counts add-ons.
+});
+
+test('a trial owns nothing, so conversion has nothing to bill for', () => {
+  const grant = trialling();
+  assert.ok(!paysForAddOn(ON_CALL_ADD_ON_ID, grant, tier()),
+    'billing for what a trial merely included is charging for what was never chosen');
+  assert.deepEqual(heldAddOnIds(grant, tier()), [],
+    'nothing is recorded on the grant, so there is no trial residue to clean up');
+});
+
+test('an EXPIRED trial holds nothing — the whole point of the clock', () => {
+  const lapsed = trialling({ trialEnd: past });
+  assert.ok(!holdsAddOn(ON_CALL_ADD_ON_ID, lapsed, tier()),
+    'an expired trial that still holds everything is the product given away by a date comparison');
+});
+
+test('a revoked trial holds nothing however far off its end date is', () => {
+  for (const status of ['revoked', 'suspended', 'cancelled']) {
+    assert.ok(!holdsAddOn(ON_CALL_ADD_ON_ID, trialling({ status }), tier()),
+      `a grant revoked by hand is revoked, and ${status} is not a running trial`);
+  }
+});
+
+test('trial breadth never leaks into what is being paid for', () => {
+  // The two questions asked of one paying account, so the difference is visible:
+  // bought on-call, did not buy anything else.
+  const grant = paid({ addOnIds: ['on-call'] });
+  assert.ok(paysForAddOn(ON_CALL_ADD_ON_ID, grant, tier()));
+  assert.ok(!paysForAddOn('something-else', grant, tier()));
+  assert.ok(!holdsAddOn('something-else', grant, tier()),
+    'a subscription is not a trial: it holds what it bought and no more');
+});
+
+test('a tier-included extra counts as paid for, not merely held', () => {
+  const t = tier({ includedAddOns: ['on-call'] });
+  assert.ok(paysForAddOn(ON_CALL_ADD_ON_ID, paid(), t),
+    'included free by the tier still persists past a trial — nothing extra to keep');
+});
+
+/* ── the one thing a trial does not include ──────────────────────────────── */
+
+/**
+ * Eric's decision, made when the consequence was put to him: neither on-call
+ * product is included in a free trial.
+ *
+ * The "everything is included" rule was written for software, where a model
+ * call or a seat costs cents and costs nobody their night. On-call puts Black
+ * Phoenix on an emergency line around the clock. The cost is people, not
+ * compute — and emergency cover is a promise, so a trialist would discover it
+ * had lapsed at the worst possible moment.
+ *
+ * Pinned because the natural "simplification" of `holdsAddOn` is to delete the
+ * exception and return true for the whole trial, which reads tidier and would
+ * silently put us back on somebody's emergency line.
+ */
+test('a trial does not include on-call, answered or not', () => {
+  for (const id of [ON_CALL_ADD_ON_ID, ON_CALL_ANSWERED_ADD_ON_ID]) {
+    assert.ok(!holdsAddOn(id, trialling(), tier()),
+      `a trial must not staff an emergency line — ${id}`);
+  }
+  assert.ok(!holdsOnCallFeature(trialling(), tier()),
+    'the combined check must agree, since it is what gates the rota screen');
+});
+
+test('a trial still includes everything else', () => {
+  assert.ok(holdsAddOn('extra-products', trialling(), tier()),
+    'the exception is narrow on purpose and must not spread');
+});
+
+test('paying for on-call outranks the trial clock, so nobody is stranded', () => {
+  // Bought during a trial: resolveEntitlement ranks the subscription above the
+  // trial, so the exclusion never reaches an account that actually paid.
+  const bought = paid({ trialEnd: future, addOnIds: ['on-call-answered'] });
+  assert.ok(holdsAddOn(ON_CALL_ANSWERED_ADD_ON_ID, bought, tier()),
+    'paying for something must never leave somebody worse off than not paying');
 });

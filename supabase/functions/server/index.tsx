@@ -226,7 +226,7 @@ import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
-  heldAddOnIds, holdsAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
+  heldAddOnIds, holdsAddOn, paysForAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -11691,13 +11691,19 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
     if (!tier) return c.json({ error: 'The plan on your account no longer exists. Tell us and we will sort it out.' }, 409);
 
     /**
-     * Already held? Say so rather than billing again.
+     * Already PAID for? Say so rather than billing again.
      *
-     * Two ways to hold it and both count — bought before, or included in the
-     * tier. A second line item for something already granted is a duplicate
-     * charge, which is the one mistake here a customer sees on a statement.
+     * Two ways to be paying for it and both count — bought before, or included
+     * in the tier. A second line item for something already granted is a
+     * duplicate charge, which is the one mistake here a customer sees on a
+     * statement.
+     *
+     * Deliberately `paysForAddOn` and not `holdsAddOn`. A trial holds every
+     * add-on, so asking what they HOLD would answer "that is already on your
+     * plan" to a trialist trying to buy the thing they are trialling — a
+     * refusal at the exact moment they decided to become a customer.
      */
-    if (holdsAddOn(addOnId, grant, tier)) {
+    if (paysForAddOn(addOnId, grant, tier)) {
       return c.json({ error: 'That is already on your plan.', alreadyHeld: true }, 409);
     }
 

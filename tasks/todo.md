@@ -1,3 +1,158 @@
+# C — a trial grants breadth, a purchase grants persistence (28 Sep)
+
+The first item of the agreed subscription plan, and it was an inversion rather
+than a gap: `holdsAddOn` returned false unless the source was a subscription, so
+a free trial held NO add-ons — the opposite of Eric's rule that they are all
+included.
+
+## The design
+
+    trial          holds everything (bar the exception below), owns nothing
+    subscription   holds what was bought, plus what the tier includes
+    anything else  holds nothing at all
+
+The obvious implementation — seeding the trial's add-ons onto `grant.addOnIds`
+— is a trap. That field means PAID FOR: the Stripe webhook writes it and
+conversion would bill from it, so a trial that filled it in would invoice
+somebody for extras they never chose. Left empty, conversion bills only what was
+picked. When money is involved that is the direction a mistake should fail in.
+
+## The second function, which the plan did not foresee
+
+`paysForAddOn` — is this being paid for, and so would it survive the trial?
+
+Found by reading the callers rather than by planning: the "add this to my plan"
+route refused with *"That is already on your plan"* whenever `holdsAddOn` was
+true. Once a trial holds everything, that route would have refused every
+trialist trying to buy the thing they were trialling — a refusal at the exact
+moment somebody decided to become a customer, which is the moment this design
+exists to serve. That route now asks what is PAID for.
+
+The rule of thumb, now in the code: ask what they HOLD to decide access, and
+what they PAY FOR to decide money.
+
+## The exception Eric added
+
+Neither on-call product is included in a trial.
+
+Raised before shipping because `holdsAddOn` is what decides whether Black
+Phoenix answers somebody's emergency line at 3am, and seven accounts are on a
+running trial today — two of them landlords, the audience on-call is published
+for. "Everything included" was written for software, where a call or a seat
+costs cents and costs nobody their night.
+
+Eric's answer was to exclude both products, not just the answered one. The cost
+is people rather than compute, and emergency cover is a promise — a trialist
+would have discovered it had lapsed at the worst possible moment.
+
+`TRIAL_EXCLUDED_ADD_ON_IDS` holds the exception with its reasoning, and a test
+pins it shut, because the tidy-looking simplification of that branch is to
+delete the exception and return true for the whole trial.
+
+Nobody paying is stranded by it: somebody who buys on-call during a trial
+resolves as a subscription, which outranks the trial clock, so paying can never
+leave an account worse off than not paying. Pinned by a test too.
+
+Typecheck 317 app / 84 server (both baseline, none in planTier), 675 tests pass
+(9 new), smoke 0 threw.
+
+## Still to do on the agreed plan
+
+A (the content entry rung, Solo) and B (add-ons that raise the monthly, where
+the Stripe subscription-item work lives). D after those.
+
+---
+
+# PLAN — the subscription shape: three base rungs, portal add-ons, trial includes all
+
+Eric, stopping the Stripe work to get this right first:
+
+> "there will be a base three tiers system for the basics and there will be add
+> on in the portals that can increase the monthly subscriptions depending on
+> what the user wants. they will all be included into the free trial period but
+> will add up if the want them after that"
+
+Decided with him: the content ladder gains an ENTRY rung below Studio; a trial
+that ends with nothing chosen drops to the FREE FLOOR; add-ons stay PER PORTAL,
+the way on-call already is.
+
+## How the pieces tie together
+
+    plan_tier:<audience>:<id>     three rungs per audience. The basics.
+    plan_addon:<audience>:<id>    extras, per portal, each with its own price
+    feature_grant:<email>         who holds what: tierId + addOnIds, or a trial
+    subscriptionTotalCents()      tier price + chosen extras = the monthly figure
+
+The monthly figure is never the tier's price. Anything that charges, reports or
+displays "their subscription" sums the tier and what they hold, server-side.
+
+## What already exists and needs nothing
+
+`subscriptionTotalCents`, `addOnsForTier`, `addOnAvailableOn`, `addOnIncludedIn`,
+`heldAddOnIds`, `addOnQuantity` (per-unit pricing), and `grant.addOnIds` written
+by the Stripe webhook. The pricing half was built to this design already.
+
+## C — the trial rule, first because it is inverted today
+
+`holdsAddOn` returns false unless `source === 'subscription'`, so a trial
+currently holds NO add-ons — the opposite of what Eric wants. The guard is
+protecting something real: `addOnIds` survives a cancellation, so reading it
+without asking whether anything is being paid for would keep serving an account
+that stopped paying.
+
+The design that satisfies both: **a trial grants breadth, a purchase grants
+persistence.**
+
+- [ ] C1. `holdsAddOn` returns true for ANY add-on while `source === 'trial'`.
+- [ ] C2. Trial add-ons are NEVER written into `addOnIds`. That field keeps
+      meaning "paid for", so at conversion nothing is billed unless chosen —
+      the money side fails closed, and there is no trial data to clean up.
+- [ ] C3. A cancelled subscription still holds nothing, because its source is
+      neither. Pin this with a test; it is the case the current guard exists for.
+- [ ] C4. Pin trial-end-to-free-floor with a test. It is today's behaviour and
+      Eric confirmed it, so the test is there to stop it drifting.
+
+## A — three rungs per audience
+
+- [ ] A1. Publish a content entry rung below Studio. PROPOSED: **Solo, $79/mo**,
+      `aiCallsPerMonth 600`, `rendersPerMonth 40`, `seats 1`, `reelsPerMonth 5`.
+      Inactive, no Stripe price, like the other two.
+
+      **The constraint that sets the floor:** the free backstop is 300 model
+      calls and 10 renders. An entry rung publishing less than that would make
+      paying us WORSE than not paying, silently. 600/40 clears it with room.
+- [ ] A2. Vendor already has three (Listed, Stocked, Preferred). Leave it.
+- [ ] A3. No ladders for the other audiences in this pass. They have none today
+      and inventing six is exactly the whim this plan replaces.
+
+## B — add-ons that raise the monthly figure
+
+- [ ] B1. A portal panel listing the add-ons available on the subscriber's tier,
+      marked included-or-extra, with the new monthly total shown before they
+      commit. Reads `addOnsForTier`; total from `subscriptionTotalCents`.
+- [ ] B2. Route computes the total from the CATALOGUE, never from a posted
+      amount, and resolves the tier from the grant, not the request.
+- [ ] B3. **The hard part, named rather than discovered later:** changing add-ons
+      mid-subscription is a Stripe subscription-item change, not a grant edit.
+      Today `addOnIds` is only ever written by the webhook from checkout
+      metadata, so there is no path that adds one to a subscription already
+      running. This is where the work is, and it should be built after C and A.
+
+## D — conversion, once the above is true
+
+- [ ] D1. A trial grant carries `level: 'full'` and NO `tierId`, so a trialist
+      choosing a plan is an ordinary `/plan-checkout`. Prove it end to end —
+      Eric's rule is that every way onto the platform is verified, and this is
+      the path that turns a trial into money.
+
+## Order and why
+
+C first: small, pure, testable, and it is a live inversion of a rule Eric has
+stated. A second: data only, no code. B last: it is the only part that touches
+Stripe subscriptions, and it should not be built on a trial rule that is wrong.
+
+---
+
 # The price button says which audience it is about to charge (28 Sep)
 
 Eric went to create the Stripe test prices for the two content tiers and

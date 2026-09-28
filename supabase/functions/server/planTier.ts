@@ -526,8 +526,97 @@ export function heldAddOnIds(
  * reading those without asking whether anything is still being paid for would
  * keep answering emergency calls for an account that stopped paying months
  * ago. `resolveEntitlement` is the single place that judgement lives.
+ *
+ * A TRIAL GRANTS BREADTH; A PURCHASE GRANTS PERSISTENCE
+ *
+ * Eric's rule is that every add-on is included in the free trial and they
+ * "add up" only if the subscriber keeps them afterwards. So a running trial
+ * holds ANY extra, without any of them being recorded on the grant.
+ *
+ * Writing them onto the grant instead would have been the obvious way and it
+ * is a trap: `addOnIds` means PAID FOR, it is what the Stripe webhook writes
+ * and what conversion would bill from, so a trial that seeded it would invoice
+ * somebody for extras they never chose — the first surprise being a charge.
+ * Left empty, conversion bills nothing that was not explicitly picked, which
+ * is the direction a mistake should fail in when money is involved.
+ *
+ * The three states this function now distinguishes, none of which collapse
+ * into another:
+ *
+ *   trial        holds everything, owns nothing
+ *   subscription holds what was bought, plus what the tier includes
+ *   anything else (expired, cancelled, revoked, free) holds nothing at all
+ *
+ * The third is the case the original guard existed for and it is unchanged: an
+ * expired trial is not a trial, because `resolveEntitlement` stops calling it
+ * one the moment the clock runs out.
  */
+/**
+ * The extras a free trial does NOT include, and why there are any.
+ *
+ * Both on-call products, on Eric's decision. The rule that a trial includes
+ * everything was written for software: a model call, a seat, a report costs
+ * cents and costs nobody their night. On-call is not that. The answered
+ * product puts Black Phoenix on somebody's emergency line around the clock and
+ * sends a technician out at 3am, and even the unanswered one is the thing a
+ * building leans on when a pipe bursts.
+ *
+ * Two reasons it is excluded rather than given away:
+ *
+ * The cost is people, not compute. A trial that quietly staffs a phone line
+ * for four months is a real bill and a real rota, arriving without anyone
+ * deciding to take it on.
+ *
+ * And emergency cover is a promise. Somebody whose trial included it would
+ * find out it had lapsed at the worst imaginable moment — the burst pipe, the
+ * call that does not connect. Better never to have offered it than to withdraw
+ * it silently on a date they were not watching.
+ *
+ * Keep this list short. Every entry is a place where "included in the trial"
+ * stops being true, so each one needs a reason of this weight.
+ */
+export const TRIAL_EXCLUDED_ADD_ON_IDS: string[] = [
+  ON_CALL_ADD_ON_ID,
+  ON_CALL_ANSWERED_ADD_ON_ID,
+];
+
 export function holdsAddOn(
+  addOnId: string,
+  grant: FeatureGrant | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+): boolean {
+  const id = String(addOnId || '').trim();
+  if (!id) return false;
+
+  if (resolveEntitlement(grant).source === 'trial') {
+    /**
+     * No paying account is stranded by this. Somebody who bought on-call
+     * during their trial resolves as `subscription` and never reaches here —
+     * `resolveEntitlement` ranks a paid subscription above the trial clock
+     * precisely so that paying for something cannot leave you worse off.
+     */
+    return !TRIAL_EXCLUDED_ADD_ON_IDS.includes(id);
+  }
+
+  return paysForAddOn(id, grant, tier);
+}
+
+/**
+ * Is this extra actually being PAID for — and so would it survive the trial?
+ *
+ * The other half of "a trial grants breadth, a purchase grants persistence",
+ * and the question to ask wherever money rather than access is at stake.
+ *
+ * Use it instead of `holdsAddOn` when deciding whether to SELL something. A
+ * trialist holds every add-on, so a checkout guarded on `holdsAddOn` would
+ * answer "that is already on your plan" to a trialist trying to buy the very
+ * thing they are trialling — refusing the purchase at exactly the moment they
+ * decided to convert, which is the moment this whole design exists to serve.
+ *
+ * It is also what a conversion screen should list: what they already own
+ * versus what they are only borrowing until the clock stops.
+ */
+export function paysForAddOn(
   addOnId: string,
   grant: FeatureGrant | null | undefined,
   tier: Partial<PlanTier> | null | undefined,
