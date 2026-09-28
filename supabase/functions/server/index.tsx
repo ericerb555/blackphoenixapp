@@ -231,6 +231,7 @@ import {
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
+import { hourlyCostRate } from "./employeeRates.ts";
 import quoteFromBlueprintRouter from "./quote-from-blueprint.tsx";
 import jobFinancialsRouter from "./job-financials.tsx";
 import designStandardsRouter from "./design-standards.tsx";
@@ -14583,7 +14584,7 @@ app.get('/make-server-3eae23a6/work-orders/quoting-accuracy', async (c) => {
 
     const payRateByEmployee: Record<string, number> = {};
     for (const e of (employees as any[] || [])) {
-      if (e?.id) payRateByEmployee[String(e.id)] = Number(e.payRate) || 0;
+      if (e?.id) payRateByEmployee[String(e.id)] = hourlyCostRate(e) ?? 0; // HOURLY: payRate is ANNUAL for salaried staff — see employeeRates.ts
     }
     const paidPayments = (payments as any[] || []).filter((p: any) =>
       ['paid', 'completed'].includes(String(p.status || '').toLowerCase()));
@@ -14707,7 +14708,7 @@ app.get('/make-server-3eae23a6/work-orders/completion-reports', async (c) => {
 
     const payRateByEmployee: Record<string, number> = {};
     for (const e of (employees as any[] || [])) {
-      if (e?.id) payRateByEmployee[String(e.id)] = Number(e.payRate) || 0;
+      if (e?.id) payRateByEmployee[String(e.id)] = hourlyCostRate(e) ?? 0; // HOURLY: payRate is ANNUAL for salaried staff — see employeeRates.ts
     }
     const reports = (requests as any[]).flatMap((request: any) => {
       const linkedInvoices = (invoices as any[] || []).filter((invoice: any) => {

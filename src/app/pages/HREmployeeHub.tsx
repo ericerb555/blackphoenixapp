@@ -11,10 +11,39 @@ type Status = 'active' | 'inactive' | 'onleave';
 
 interface Employee {
   id: string; firstName: string; lastName: string; email: string; phone: string;
-  role: string; department: string; payType: PayType; payRate: number;
+  role: string; department: string; payType: PayType;
+  /** What we PAY. Hourly, or ANNUAL when payType is 'salary'. */
+  payRate: number;
+  /**
+   * What an hour of their time is CHARGED at. Always hourly.
+   *
+   * The gap between this and the cost is the labour margin on a job, which is
+   * why both are kept — the same reason a purchase order's total (what we pay
+   * the vendor) is held apart from what the customer is charged.
+   */
+  billRate?: number;
   status: Status; startDate: string; hoursThisWeek: number; hoursThisPeriod: number;
   certifications: string[]; notes: string;
 }
+
+/**
+ * What one hour of this person costs.
+ *
+ * Mirrors `employeeRates.ts` on the server, and exists for the same reason: a
+ * salaried employee's `payRate` is ANNUAL, so using it as an hourly figure
+ * makes a project manager's hour cost seventy-two thousand pounds. Shown on
+ * this screen beside the bill rate, so the margin is the real one.
+ */
+const HOURS_PER_YEAR = 2080;
+const hourlyCost = (e: Partial<Employee>): number | null => {
+  const rate = Number(e?.payRate);
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return e?.payType === 'salary' ? rate / HOURS_PER_YEAR : rate;
+};
+const hourlyBill = (e: Partial<Employee>): number | null => {
+  const rate = Number(e?.billRate);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+};
 
 interface PayrollRun {
   id: string; periodStart: string; periodEnd: string;
@@ -97,15 +126,74 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   const [demoBusy, setDemoBusy] = useState(false);
   const hasDemoShift = heldShifts.some(s => s.id.startsWith('DEMO-HELD-'));
 
+  /**
+   * The employee records the platform actually uses.
+   *
+   * `time_employee:<id>` is the store job costing, the timeclock and the hours
+   * summary all read. Mapped into this screen's shape here — one `name` field
+   * becomes first and last, because that is what this screen was built around
+   * and splitting on the first space is lossless enough for a display name.
+   */
+  async function loadTimeEmployees(): Promise<Employee[]> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return [];
+      const res = await fetch(`${TIME_API(projectId)}/employees`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      const rows: any[] = Array.isArray(json?.employees) ? json.employees : [];
+      return rows.map((r) => {
+        const [firstName = '', ...rest] = String(r.name || '').trim().split(/\s+/);
+        return {
+          id: String(r.id),
+          firstName,
+          lastName: rest.join(' '),
+          email: String(r.email || ''),
+          phone: String(r.phoneNumber || ''),
+          role: String(r.role || 'Employee'),
+          department: String(r.department || 'field'),
+          payType: (r.payType === 'salary' ? 'salary' : 'hourly') as PayType,
+          payRate: Number(r.payRate) || 0,
+          billRate: Number(r.billRate) || 0,
+          status: 'active' as Status,
+          startDate: String(r.createdAt || '').slice(0, 10),
+          hoursThisWeek: Number(r.hoursWeek) || 0,
+          hoursThisPeriod: Number(r.hoursWeek) || 0,
+          certifications: [],
+          notes: '',
+        };
+      });
+    } catch {
+      // A screen that cannot reach the server shows what it has rather than
+      // nothing; the local copy is still there.
+      return [];
+    }
+  }
+
   // Hydrate from the server on mount (falls back to the localStorage-seeded
   // initial state if nothing is stored server-side yet).
   useEffect(() => {
     (async () => {
-      const [emp, pay] = await Promise.all([
+      /**
+       * The real employee records, not this screen's own copy.
+       *
+       * `hr_employees` is still read as a fallback for anything created here
+       * before the two stores were joined, but `time_employee:` wins — it is
+       * what job costing, the timeclock and payroll hours all read, so a rate
+       * edited here now reaches them.
+       */
+      const [serverEmployees, emp, pay] = await Promise.all([
+        loadTimeEmployees(),
         loadDual('hr_employees'),
         loadDual('hr_payroll'),
       ]);
-      const base: Employee[] = (Array.isArray(emp) && emp.length) ? emp : employees;
+      const local: Employee[] = (Array.isArray(emp) && emp.length) ? emp : [];
+      const byId = new Map<string, Employee>();
+      for (const e of local) if (e?.id) byId.set(String(e.id), e);
+      for (const e of serverEmployees) if (e?.id) byId.set(String(e.id), { ...byId.get(String(e.id)), ...e });
+      const base: Employee[] = [...byId.values()];
       if (Array.isArray(pay) && pay.length) setPayroll(pay);
 
       // Overlay real logged hours from the time-tracking system (matched by full name).
@@ -226,16 +314,53 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
     return !q || `${e.firstName} ${e.lastName} ${e.role}`.toLowerCase().includes(q);
   });
 
-  function saveEmp(emp: Partial<Employee>) {
+  /**
+   * Save to the employee record the rest of the platform actually reads.
+   *
+   * This used to write only `hr_employees`, a store of its own, joined to time
+   * tracking by matching full names. Job costing reads `time_employee:<id>`,
+   * so a pay rate set here reached the figures on this page and nothing else —
+   * every hour booked by that person was still counted as unpriced.
+   *
+   * Now it posts to the same admin-gated route the timeclock uses, so there is
+   * one employee list and one place each rate lives. The local state is updated
+   * from what the server returns rather than from what was typed, so a refusal
+   * shows as a refusal instead of a saved-looking screen.
+   */
+  async function saveEmp(emp: Partial<Employee>) {
     if (!emp.firstName || !emp.lastName) { toast.error('Name required'); return; }
-    const full = { ...emp, id: emp.id || `EMP-${Date.now()}` } as Employee;
-    setEmployees(prev => {
-      const i = prev.findIndex(x => x.id === full.id);
-      if (i >= 0) { const n = [...prev]; n[i] = full; return n; }
-      return [...prev, full];
-    });
-    setEditing(null);
-    toast.success('Saved');
+    const id = emp.id || `EMP-${Date.now()}`;
+    const name = `${emp.firstName} ${emp.lastName}`.trim();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Sign in again to save.');
+      const res = await fetch(`${TIME_API(projectId)}/employees`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id, name,
+          role: emp.role || 'Employee',
+          department: emp.department || 'field',
+          phoneNumber: emp.phone || '',
+          payType: emp.payType || 'hourly',
+          payRate: Number(emp.payRate) || 0,
+          billRate: Number(emp.billRate) || 0,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.success === false) throw new Error(json?.error || `Save failed (${res.status})`);
+
+      const full = { ...emp, id } as Employee;
+      setEmployees(prev => {
+        const i = prev.findIndex(x => x.id === full.id);
+        if (i >= 0) { const n = [...prev]; n[i] = full; return n; }
+        return [...prev, full];
+      });
+      setEditing(null);
+      toast.success('Saved');
+    } catch (error: any) {
+      toast.error(error.message || 'Could not save this employee.');
+    }
   }
 
   function deleteEmp(id: string) {
@@ -277,10 +402,46 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                 </select>
               </div>
               <div>
-                <p className="text-xs text-gray-500 mb-1">Rate</p>
+                <p className="text-xs text-gray-500 mb-1">
+                  {editing.payType === 'salary' ? 'Salary (per year)' : 'Pay rate (per hour)'}
+                </p>
                 <input type="number" value={editing.payRate || ''} onChange={e => setEditing(p => ({ ...p, payRate: parseFloat(e.target.value) }))}
                   className="w-full px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
                   style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }} />
+                {/*
+                  Said out loud, because the same field means two different
+                  things depending on the pay type and a salary entered as an
+                  hourly rate would cost a job seventy-two thousand an hour.
+                */}
+                {editing.payType === 'salary' && hourlyCost(editing) !== null && (
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    Costs ${hourlyCost(editing)!.toFixed(2)}/hr on a job ({HOURS_PER_YEAR}h year)
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Billed out (per hour)</p>
+                <input type="number" value={editing.billRate || ''} onChange={e => setEditing(p => ({ ...p, billRate: parseFloat(e.target.value) }))}
+                  className="w-full px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
+                  style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }} />
+                {/*
+                  The margin, shown where both numbers are being typed — it is
+                  the figure the pair exists to produce, and a rate billed
+                  below cost should be visible while it is being set rather
+                  than discovered on a job report later.
+                */}
+                {(() => {
+                  const cost = hourlyCost(editing);
+                  const bill = hourlyBill(editing);
+                  if (cost === null || bill === null) return null;
+                  const profit = bill - cost;
+                  return (
+                    <p className={`mt-1 text-[11px] ${profit < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      {profit < 0 ? 'Billed BELOW cost: ' : 'Margin: '}
+                      ${profit.toFixed(2)}/hr ({((profit / bill) * 100).toFixed(0)}%)
+                    </p>
+                  );
+                })()}
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Status</p>

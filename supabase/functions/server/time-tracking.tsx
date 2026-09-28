@@ -374,7 +374,7 @@ timeTrackingRouter.get("/employees/:id", async (c) => {
 timeTrackingRouter.post("/employees", async (c) => {
   try {
     const body = await c.req.json();
-    const { id, name, role, department, phoneNumber, payRate, assignedProject } = body;
+    const { id, name, role, department, phoneNumber, payRate, payType, billRate, assignedProject } = body;
     const denial = requireEmployeeAccess(c, id);
     if (denial) return denial;
     
@@ -392,7 +392,24 @@ timeTrackingRouter.post("/employees", async (c) => {
       role: isAdmin ? (role || existing?.role || 'Employee') : (existing?.role || 'Employee'),
       department: isAdmin ? (department || existing?.department || 'General') : (existing?.department || 'General'),
       phoneNumber: isAdmin ? (phoneNumber || existing?.phoneNumber || '') : (existing?.phoneNumber || ''),
+      /**
+       * What we PAY. Hourly for an hourly employee, ANNUAL for a salaried one —
+       * `payType` says which, and `hourlyCostRate` is the only thing that
+       * should convert it. Never multiply this by hours directly.
+       */
       payRate: isAdmin ? Number(payRate ?? existing?.payRate ?? 0) : Number(existing?.payRate || 0),
+      payType: isAdmin
+        ? (String(payType || existing?.payType || 'hourly').toLowerCase() === 'salary' ? 'salary' : 'hourly')
+        : (existing?.payType || 'hourly'),
+      /**
+       * What we CHARGE for an hour of their time. Always hourly, whatever the
+       * pay type. The gap between this and the cost is the labour margin, which
+       * is the whole reason both are kept.
+       *
+       * Admin-only for the same reason as the pay rate: a field user changing
+       * what their own time bills at would change what customers are charged.
+       */
+      billRate: isAdmin ? Number(billRate ?? existing?.billRate ?? 0) : Number(existing?.billRate || 0),
       assignedProject: isAdmin ? (assignedProject ?? existing?.assignedProject ?? null) : (existing?.assignedProject ?? null),
       status: existing?.status || 'clocked-out',
       hoursToday: Number(existing?.hoursToday || 0),
