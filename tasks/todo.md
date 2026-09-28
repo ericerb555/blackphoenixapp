@@ -1,3 +1,122 @@
+# The customer portal gets a ladder of its own (28 Sep)
+
+Eric: *"customer definitely have subscriptions to use all the features"*, and
+when asked whether maintenance plans were that subscription: *"no that is an
+option the subscriptions are separate."*
+
+So a customer can hold both, and they are different products — the maintenance
+plan buys visits from the crews, the portal subscription buys the features.
+Three systems were checked before publishing anything:
+
+- **Cohort system** (`territory-cohorts.tsx`) — territory capacity, founding
+  slots, a 30% founder discount and rates of $99/$149/$199. Its member types are
+  `subcontractor`, `vendor`, `advertiser`. **No customer type.** Partner
+  acquisition, not customer subscription.
+- **Maintenance plans** — per-visit services for homeowner, condo, landlord and
+  commercial, multiplied by skill tier and frequency. A real customer
+  subscription, and an option alongside the portal plan rather than instead.
+- **Portal tiers** — vendor x3 live, content x3 from today, customer NONE.
+
+## Published, all inactive
+
+    1  Pro         $29/mo    400 calls    15 renders   1 property    2 seats
+    2  Premium     $79/mo    1,000        50           5             5
+    3  Portfolio   $149/mo   2,500        150          unlimited     15
+
+$29 and $79 are the prices already advertised in `PortalUpgradeModal` and
+`PORTAL_UPGRADE_PRICES`, kept deliberately so nobody sees a change from what the
+portal has been showing. $149 is the new third rung.
+
+## The backstop constraint, and where it bit
+
+Every published ceiling must beat the free backstop in `aiSpend.DEFAULT_LIMITS`,
+or paying makes an account WORSE off than not paying. Calls (300) and renders
+(10) are easy to clear.
+
+**Blueprints are not.** The backstop is 120 SHEETS, which is generous — about
+thirty drawing sets. A $29 rung cannot honestly publish more than that, and
+publishing less would be the exact trap. So `blueprintsPerMonth` is left UNSET
+on Pro and Premium, where silence correctly falls through to 120, and published
+only on Portfolio at 300, where it genuinely exceeds the backstop.
+
+That is the right answer for these tiers and it points at something worth
+deciding later: a free account getting 120 blueprint sheets a month may simply
+be too generous, and lowering it is what would let the lower rungs differentiate
+on blueprints at all. That is a change to `DEFAULT_LIMITS` affecting every
+account, so it is named here rather than made.
+
+## Still open on the customer journey
+
+The charge-but-no-access defect. `/me/upgrade-options` finds no SELLABLE
+customer tier — these three have no Stripe price yet — so it still falls back to
+the legacy rows, which charge once through `/subscriptions/checkout` and write no
+`feature_grant`. Until these tiers have prices and the portal points at
+`/plan-checkout`, a customer can pay and receive nothing.
+
+---
+
+# PLAN — prove the customer portal before real customers meet it
+
+Eric: *"we need to make sure the customer portal is working end to end after
+this i want to invite some customers to start using the portal."*
+
+His standing rule is that every way onto the platform is proven before real
+people meet it, and "proven" means observed in the running app rather than
+inferred from a passing build.
+
+## Found before starting: the trial has a cliff at the end of it
+
+There are NO `plan_tier:customer:*` records. Vendor has three, active, with live
+Stripe prices; content has the three from today, inactive; customer has none.
+
+An invite grants six months of `level: 'full'`. When that expires the account
+drops to the free floor. To buy, `/me/upgrade-options` finds no catalogue tier
+for `customer` and falls back to `PORTAL_UPGRADE_PRICES` — and those rows sell
+through `/subscriptions/checkout`, which charges ONCE in Stripe `mode: 'payment'`
+and writes a `subscription:` record but no `feature_grant`. No grant means no
+tierId, which means the entitlement stays free.
+
+**So a customer who pays $79 at the end of their trial is charged and receives
+nothing.** Not urgent — six months of runway — but it is cheap to fix now and
+expensive to discover from a customer.
+
+## The stages to prove, in order
+
+Each one either works or it does not; no stage is "probably fine".
+
+- [ ] 1. INVITE. Admin sends one to an address Eric controls. Prove the intake,
+      `portal_access`, `feature_grant` and ORGANISATION rows are all written —
+      the organisation especially, because without it Phoenix Exchange is
+      silently empty rather than broken, which is the harder failure to notice.
+- [ ] 2. DELIVERY. The email actually arrives, and the link in it works. This is
+      where invites fail most quietly: `RESEND_API_KEY` missing falls back to
+      Supabase's own invite mail, and the admin sees "sent" either way.
+- [ ] 3. ACCEPT. The link opens onboarding, the profile completes, a password is
+      set, and an auth user exists afterwards.
+- [ ] 4. SIGN IN. That account signs in cleanly and lands in the customer
+      portal — not a blank screen, not a redirect loop.
+- [ ] 5. THE PORTAL LOADS. Their own data, no console errors, and the
+      entitlement resolving as `trial` with the right end date.
+- [ ] 6. THE WORK. Submit a work request, see it appear, and follow it as far as
+      a quote and an invoice. This is what a customer is actually for.
+- [ ] 7. TODAY'S CHANGES, checked against a real account rather than a test:
+      add-ons show as included during the trial, on-call does NOT, and an AI
+      feature refuses at the ceiling rather than running up a bill.
+
+## How the work is split
+
+The admin routes need an administrator's token, which lives in Eric's browser
+and nowhere else. So he drives the UI and I verify the trail underneath it —
+the rows written at each step, the function logs, and the public pages.
+
+## What is needed to start
+
+An email address Eric controls that is NOT a real customer, so stage 1 can send
+a genuine invite. Everything before that is reading; from stage 1 on it writes
+records and sends mail to a real inbox.
+
+---
+
 # A — the content ladder is three rungs (28 Sep)
 
     1  Solo     $79/mo    600 calls    40 renders    1 seat    5 reels
