@@ -1,6 +1,16 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
+import DocumentPreviewModal from '../documents/DocumentPreviewModal';
+import QuoteDocument from '../documents/QuoteDocument';
+import ContractDocument from '../documents/ContractDocument';
+import { quoteToPDFData } from '../documents/quoteMath';
+import {
+  contractParty, contractAmount, contractBody, contractTitle, contractReference,
+  signerName, signerEmail, signedDate, signatureMethodLabel,
+} from '../documents/contractMath';
+import { formatDate as formatDocDate } from '../documents/quoteMath';
+import { PDFService } from '../../lib/services/pdfService';
 import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
@@ -97,6 +107,36 @@ export default function CustomerPortalView() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [signingContractId, setSigningContractId] = useState<string | null>(null);
+
+  /**
+   * The document the customer is looking at, if any.
+   *
+   * One piece of state for all three kinds rather than three booleans: only one
+   * document can be open at a time, and three flags would eventually get into a
+   * state where two are true.
+   */
+  const [preview, setPreview] = useState<
+    { kind: 'quote' | 'contract'; doc: any } | null
+  >(null);
+
+  /** The contract, mapped for the PDF. Kept beside the caller for one reading. */
+  const contractPDFPayload = (contract: any) => ({
+    reference: contractReference(contract),
+    title: contractTitle(contract),
+    status: String(contract?.status || ''),
+    createdOn: formatDocDate(contract?.createdAt) || undefined,
+    amount: contractAmount(contract),
+    party: contractParty(contract),
+    body: contractBody(contract),
+    signature: signerName(contract)
+      ? {
+          name: signerName(contract),
+          email: signerEmail(contract),
+          signedOn: formatDocDate(signedDate(contract)) || undefined,
+          method: signatureMethodLabel(contract),
+        }
+      : null,
+  });
 
   // Check URL for tab query parameter
   useEffect(() => {
@@ -1495,6 +1535,19 @@ export default function CustomerPortalView() {
                         )}
                       </div>
                       <div className="flex gap-2 flex-wrap">
+                        {/*
+                          First action on the row, deliberately. Seeing what was
+                          quoted comes before deciding about it, and until now a
+                          customer could approve a price they had no way to read
+                          as a document or keep a copy of.
+                        */}
+                        <button
+                          onClick={() => setPreview({ kind: 'quote', doc: quote })}
+                          className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-[#2A2A2A]"
+                        >
+                          <FileText className="h-4 w-4" />
+                          View quote
+                        </button>
                         {quote.status === 'pending' && quote.approvalUrl && (
                           <a href={quote.approvalUrl} className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-bold rounded-lg transition">
                             <CheckCircle className="w-4 h-4" />
@@ -1764,7 +1817,7 @@ export default function CustomerPortalView() {
         {activeTab === 'contracts' && (
           <div className="space-y-5">
             <div><h2 className="text-2xl font-bold text-white">Your contracts</h2><p className="mt-1 text-sm text-gray-400">Review and sign contracts connected to your approved quotes.</p></div>
-            {loadingContracts ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">Loading contracts…</div> : contracts.length === 0 ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">No contracts are awaiting your signature.</div> : contracts.map(contract => <article key={contract.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-white">{contract.title || 'Service Contract'}</h3><p className="mt-1 text-sm text-gray-400">Created {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString() : 'recently'}</p></div><span className={`rounded-full border px-3 py-1 text-sm font-semibold ${getStatusColor(contract.status || 'pending')}`}>{String(contract.status || 'pending').replace('_', ' ')}</span></div>{contract.terms && <p className="mt-4 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-sm leading-6 text-gray-300">{contract.terms}</p>}<div className="mt-4 flex items-center justify-between gap-4"><p className="text-lg font-bold text-white">{contract.amount !== undefined && contract.amount !== null ? `$${Number(contract.amount).toLocaleString()}` : 'Amount in contract'}</p>{contract.status !== 'active' ? <button onClick={() => signContract(contract)} disabled={signingContractId === contract.id} className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-50"><FileCheck className="h-4 w-4" />{signingContractId === contract.id ? 'Signing…' : 'Review & sign'}</button> : <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-400"><CheckCircle className="h-4 w-4" /> Signed {contract.signedAt ? new Date(contract.signedAt).toLocaleDateString() : ''}</span>}</div></article>)}
+            {loadingContracts ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">Loading contracts…</div> : contracts.length === 0 ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">No contracts are awaiting your signature.</div> : contracts.map(contract => <article key={contract.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-white">{contract.title || 'Service Contract'}</h3><p className="mt-1 text-sm text-gray-400">Created {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString() : 'recently'}</p></div><span className={`rounded-full border px-3 py-1 text-sm font-semibold ${getStatusColor(contract.status || 'pending')}`}>{String(contract.status || 'pending').replace('_', ' ')}</span></div>{contract.terms && <p className="mt-4 line-clamp-3 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-sm leading-6 text-gray-300">{contract.terms}</p>}<div className="mt-4 flex flex-wrap items-center justify-between gap-4"><p className="text-lg font-bold text-white">{contract.amount !== undefined && contract.amount !== null ? `$${Number(contract.amount).toLocaleString()}` : 'Amount in contract'}</p><div className="flex flex-wrap items-center gap-2">{/* Read the whole agreement, laid out, before signing it — and keep a copy after. The card shows an excerpt; this shows the document. */}<button onClick={() => setPreview({ kind: 'contract', doc: contract })} className="inline-flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-[#2A2A2A]"><FileText className="h-4 w-4" />View contract</button>{contract.status !== 'active' ? <button onClick={() => signContract(contract)} disabled={signingContractId === contract.id} className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-50"><FileCheck className="h-4 w-4" />{signingContractId === contract.id ? 'Signing…' : 'Review & sign'}</button> : <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-400"><CheckCircle className="h-4 w-4" /> Signed {contract.signedAt ? new Date(contract.signedAt).toLocaleDateString() : ''}</span>}</div></div></article>)}
           </div>
         )}
 
@@ -1957,6 +2010,36 @@ export default function CustomerPortalView() {
         initialSection={settingsSection}
         portalName="Customer portal"
       />
+
+      {/*
+        One preview for every kind of document the customer holds.
+        `printElementId` follows the document being shown — the print rule
+        un-hides one named element, so the wrong id here prints a blank page
+        with nothing to indicate why.
+      */}
+      {preview?.kind === 'quote' && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreview(null)}
+          title="Your quote"
+          printElementId="quote-content"
+          onDownload={() => PDFService.downloadQuotePDF(quoteToPDFData(preview.doc))}
+        >
+          <QuoteDocument quote={preview.doc} />
+        </DocumentPreviewModal>
+      )}
+
+      {preview?.kind === 'contract' && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreview(null)}
+          title="Your contract"
+          printElementId="contract-content"
+          onDownload={() => PDFService.downloadContractPDF(contractPDFPayload(preview.doc))}
+        >
+          <ContractDocument contract={preview.doc} />
+        </DocumentPreviewModal>
+      )}
     </div>
   );
 }

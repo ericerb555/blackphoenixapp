@@ -13,6 +13,16 @@
 
 import { useState } from 'react';
 import PipelineMessagePanel from './PipelineMessagePanel';
+import DocumentPreviewModal from './documents/DocumentPreviewModal';
+import QuoteDocument from './documents/QuoteDocument';
+import ContractDocument from './documents/ContractDocument';
+import InvoiceDocument from './documents/InvoiceDocument';
+import { quoteToPDFData, formatDate as formatDocDate } from './documents/quoteMath';
+import {
+  contractParty, contractAmount, contractBody, contractTitle, contractReference,
+  signerName, signerEmail, signedDate, signatureMethodLabel,
+} from './documents/contractMath';
+import { PDFService } from '../lib/services/pdfService';
 import {
   X, FileText, Image as ImageIcon, Video, FileCheck, ChevronDown, ChevronUp,
   Clock, DollarSign, CheckCircle, XCircle, MapPin, Phone, Mail, Building2,
@@ -694,19 +704,49 @@ function Row({ label, value }: { label: string; value: any }) {
 
 // Quote Tab
 function QuoteTab({ item, onUpdate, onOpenQuoteEditor }: any) {
+  const [previewing, setPreviewing] = useState(false);
+
   return (
     <div className="space-y-6">
       <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
-        <h3 className="text-lg font-bold text-white mb-4">Quote Editor</h3>
+        <h3 className="text-lg font-bold text-white mb-4">Quote</h3>
         <p className="text-gray-400 mb-4">Full quote editing interface will be integrated here</p>
-        <button
-          onClick={() => onOpenQuoteEditor && onOpenQuoteEditor(item)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#fb923c] text-white rounded-lg font-semibold"
-        >
-          <Sparkles className="w-4 h-4" />
-          Open Full Quote Editor
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {/*
+            The office sees the SAME document the customer sees — same
+            component, not a staff rendering of it. Two renderings is how
+            "what does the quote say" ends up with two answers.
+          */}
+          {item.quote && (
+            <button
+              onClick={() => setPreviewing(true)}
+              className="flex items-center gap-2 rounded-lg border border-gray-700 bg-black/40 px-4 py-2 font-semibold text-gray-200 transition hover:bg-gray-800"
+            >
+              <FileText className="w-4 h-4" />
+              View quote document
+            </button>
+          )}
+          <button
+            onClick={() => onOpenQuoteEditor && onOpenQuoteEditor(item)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ea580c] to-[#fb923c] text-white rounded-lg font-semibold"
+          >
+            <Sparkles className="w-4 h-4" />
+            Open Full Quote Editor
+          </button>
+        </div>
       </div>
+
+      {previewing && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreviewing(false)}
+          title="Quote Preview"
+          printElementId="quote-content"
+          onDownload={() => PDFService.downloadQuotePDF(quoteToPDFData(item.quote))}
+        >
+          <QuoteDocument quote={item.quote} />
+        </DocumentPreviewModal>
+      )}
     </div>
   );
 }
@@ -772,7 +812,8 @@ function MaterialsSearchTab({ item, onUpdate }: any) {
 // Contract Tab
 function ContractTab({ item }: any) {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  
+  const [previewing, setPreviewing] = useState(false);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'signed': return 'text-green-400 bg-green-500/20 border-green-500/50';
@@ -800,6 +841,14 @@ function ContractTab({ item }: any) {
                 <div className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusColor(item.contract.status)}`}>
                   {String(item.contract?.status || 'draft').toUpperCase().replace('-', ' ')}
                 </div>
+                {/* The agreement as a document — same one the customer holds. */}
+                <button
+                  onClick={() => setPreviewing(true)}
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-black/40 px-4 py-2 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+                >
+                  <FileText className="w-4 h-4" />
+                  View contract
+                </button>
                 {/* Create Invoice Button */}
                 {item.contract.status === 'signed' || item.contract.status === 'active' ? (
                   <button
@@ -1031,16 +1080,55 @@ function ContractTab({ item }: any) {
           projectId={item.id}
         />
       )}
+
+      {previewing && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreviewing(false)}
+          title="Contract Preview"
+          printElementId="contract-content"
+          onDownload={() => PDFService.downloadContractPDF({
+            reference: contractReference(item.contract),
+            title: contractTitle(item.contract),
+            status: String(item.contract?.status || ''),
+            createdOn: formatDocDate(item.contract?.createdAt) || undefined,
+            amount: contractAmount(item.contract),
+            party: contractParty(item.contract),
+            body: contractBody(item.contract),
+            signature: signerName(item.contract)
+              ? {
+                  name: signerName(item.contract),
+                  email: signerEmail(item.contract),
+                  signedOn: formatDocDate(signedDate(item.contract)) || undefined,
+                  method: signatureMethodLabel(item.contract),
+                }
+              : null,
+          })}
+        >
+          <ContractDocument contract={item.contract} />
+        </DocumentPreviewModal>
+      )}
     </div>
   );
 }
 
 // Invoice Tab
 function InvoiceTab({ item }: any) {
+  const [previewing, setPreviewing] = useState(false);
+
   return (
     <div className="space-y-6">
       <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
         <h3 className="text-lg font-bold text-white mb-4">Invoice & Payment</h3>
+        {item.invoice && (
+          <button
+            onClick={() => setPreviewing(true)}
+            className="mb-4 flex items-center gap-2 rounded-lg border border-gray-700 bg-black/40 px-4 py-2 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+          >
+            <FileText className="w-4 h-4" />
+            View invoice document
+          </button>
+        )}
         {item.invoice ? (
           <div className="space-y-3">
             <p className="text-gray-400">Invoice Number: <span className="text-white font-mono">{item.invoice.invoiceNumber}</span></p>
@@ -1051,6 +1139,17 @@ function InvoiceTab({ item }: any) {
           <p className="text-gray-400">No invoice created yet</p>
         )}
       </div>
+
+      {previewing && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreviewing(false)}
+          title="Invoice Preview"
+          printElementId="invoice-content"
+        >
+          <InvoiceDocument invoice={item.invoice} />
+        </DocumentPreviewModal>
+      )}
     </div>
   );
 }
