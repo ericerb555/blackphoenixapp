@@ -92,10 +92,19 @@ function toLocalInput(iso: string): string {
 const SEED: Employee[] = [];
 
 
-const SEED_PAYROLL: PayrollRun[] = [
-  { id: 'PAY-001', periodStart: '2026-06-28', periodEnd: '2026-07-11', status: 'paid', totalGross: 18640, employeeCount: 4 },
-  { id: 'PAY-002', periodStart: '2026-07-12', periodEnd: '2026-07-25', status: 'draft', totalGross: 19120, employeeCount: 4 },
-];
+/**
+ * There are no seed payroll runs either.
+ *
+ * This held two: PAY-001 marked PAID at 18,640 gross, and PAY-002 as a draft
+ * at 19,120, both for `employeeCount: 4` — the four invented employees removed
+ * alongside them.
+ *
+ * A fabricated payroll history is worse than a fabricated staff list. It says
+ * money was paid to people on dates it was not, on the screen somebody would
+ * check to find out whether it had been. One marked "paid" is a record of a
+ * transaction that never happened.
+ */
+const SEED_PAYROLL: PayrollRun[] = [];
 
 function load<T>(key: string, fallback: T): T {
   try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; }
