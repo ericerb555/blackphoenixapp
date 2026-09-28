@@ -21,9 +21,11 @@ import {
   addOnsForTier, publicAddOn, monthlyFigure, type PlanAddOn,
   selectableAddOns, holdsAddOn, paysForAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
+  tierViewOfCohort, cohortTotalCents, pricedViewFor,
   ON_CALL_ANSWERED_ADD_ON_ID, holdsOnCallFeature,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
+import { cohortFromTier } from '../supabase/functions/server/cohortPricing.ts';
 
 const tier = (over: Partial<PlanTier> = {}): PlanTier => ({
   id: 'listed',
@@ -921,4 +923,176 @@ test('an add-on not available on the tier is not charged for', () => {
 
 test('nothing held is just the tier price', () => {
   assert.equal(monthlyFigure('subscription', baseTier(), []).cents, 7900);
+});
+
+// ── The same money, resolved through the cohort ───────────────────────────
+
+/**
+ * The migration's promise is that nobody's invoice changes. These are that
+ * promise as assertions.
+ *
+ * Cohorts price by seat count through bands, which `plan_tier` cannot do —
+ * that is the whole reason for the move. But a tier migrates as ONE band at
+ * multiplier 1, so until somebody deliberately adds banding, the cohort must
+ * charge exactly what the tier charged. Rewriting priced logic during a
+ * migration is how a customer gets the wrong invoice; these say it did not
+ * happen.
+ */
+const studio: Partial<PlanTier> = {
+  id: 'studio',
+  name: 'Studio',
+  priceCents: 14900,
+  includedAddOns: ['reels'],
+  discountPercent: 10,
+  active: true,
+};
+
+const extras: Array<Partial<PlanAddOn>> = [
+  { id: 'reels', name: 'Reels', priceCents: 4900 },          // included — free
+  { id: 'renders', name: 'Renders', priceCents: 2500 },      // extra
+  { id: 'agency-only', name: 'Agency', priceCents: 9900, availableOn: ['agency'] }, // not offered
+];
+
+test('A MIGRATED COHORT CHARGES EXACTLY WHAT THE TIER CHARGED', () => {
+  const cohort = cohortFromTier(studio);
+  assert.equal(
+    cohortTotalCents(cohort, 1, extras),
+    subscriptionTotalCents(studio, extras),
+    'the migration must not move anybody\'s bill',
+  );
+  // And the figure itself: base 14900 + renders 2500. Reels is included and
+  // the agency add-on is not offered on this tier, so neither is charged.
+  assert.equal(cohortTotalCents(cohort, 1, extras), 17400);
+});
+
+test('the included add-on stays free after migration', () => {
+  const cohort = cohortFromTier(studio);
+  assert.equal(cohortTotalCents(cohort, 1, [{ id: 'reels', priceCents: 4900 }]), 14900);
+});
+
+/**
+ * `availableOn` lists TIER ids. If the adapter handed over the cohort's own
+ * id, every restricted add-on would look unavailable and be silently dropped
+ * from the total — an undercharge that nothing would report.
+ */
+test('AVAILABILITY RESOLVES AGAINST THE SOURCE TIER ID, NOT THE COHORT ID', () => {
+  const cohort = cohortFromTier(studio);
+  assert.equal(tierViewOfCohort(cohort).id, 'studio');
+  assert.notEqual(tierViewOfCohort(cohort).id, cohort.id);
+
+  const offered: Partial<PlanAddOn> = { id: 'studio-only', priceCents: 1000, availableOn: ['studio'] };
+  assert.equal(cohortTotalCents(cohort, 1, [offered]), 15900, 'must still be charged');
+});
+
+test('the included list and the contract discount survive the migration', () => {
+  const view = tierViewOfCohort(cohortFromTier(studio));
+  assert.deepEqual(view.includedAddOns, ['reels']);
+  assert.equal(view.discountPercent, 10);
+});
+
+test('a tier with no included add-ons migrates to an empty list, not undefined', () => {
+  const view = tierViewOfCohort(cohortFromTier({ id: 'basic', priceCents: 1000 }));
+  assert.deepEqual(view.includedAddOns, []);
+  assert.equal(view.discountPercent, 0);
+});
+
+/**
+ * Banding is the capability the move was for, so it has to actually work once
+ * somebody adds it — and it must apply to the BASE only, never to the extras.
+ */
+test('a banded cohort discounts the base and leaves the add-ons alone', () => {
+  const banded = {
+    ...cohortFromTier(studio),
+    pricingTiers: [
+      { minUsers: 0, maxUsers: 9, priceMultiplier: 1 },
+      { minUsers: 10, maxUsers: 99999, priceMultiplier: 0.5 },
+    ],
+  };
+  assert.equal(cohortTotalCents(banded, 1, extras), 17400, 'small: full base + renders');
+  // Base halves to 7450; renders stays at 2500.
+  assert.equal(cohortTotalCents(banded, 20, extras), 9950);
+});
+
+test('a cohort with no price totals to its add-ons rather than NaN', () => {
+  const total = cohortTotalCents(cohortFromTier({ id: 'x' }), 1, [{ id: 'renders', priceCents: 2500 }]);
+  assert.equal(total, 2500);
+});
+
+test('a missing cohort prices at nothing instead of throwing', () => {
+  assert.equal(cohortTotalCents(null, 1, []), 0);
+  assert.equal(tierViewOfCohort(null).priceCents, 0);
+});
+
+/**
+ * Cohorts carry a price in whole currency units and tiers carry cents. A
+ * rounding slip between them is a per-customer, per-month error that nobody
+ * would spot on one invoice.
+ */
+test('the dollars-to-cents conversion round-trips an odd price exactly', () => {
+  const odd = cohortFromTier({ id: 'odd', priceCents: 3333 });
+  assert.equal(odd.basePrice, 33.33);
+  assert.equal(cohortTotalCents(odd, 1, []), 3333);
+});
+
+// ── Which record prices the account ───────────────────────────────────────
+
+/**
+ * The consolidation is mid-flight: cohorts are the intended system of record
+ * and today there are none. These pin the changeover so that no subscriber
+ * sees a wrong figure — or worse, a believable $0 — on either side of it.
+ */
+test('with no cohort, the tier prices the account', () => {
+  const view = pricedViewFor(studio, null);
+  assert.equal(view.pricedBy, 'tier');
+  assert.equal(subscriptionTotalCents(view.tier, []), 14900);
+});
+
+test('with a cohort, the cohort prices it — AT THE SAME FIGURE', () => {
+  const view = pricedViewFor(studio, cohortFromTier(studio));
+  assert.equal(view.pricedBy, 'cohort');
+  assert.equal(
+    subscriptionTotalCents(view.tier, extras),
+    subscriptionTotalCents(studio, extras),
+    'the changeover must not move anybody\'s bill',
+  );
+});
+
+/**
+ * The failure that would be believed. A half-migrated or empty cohort must
+ * not reprice a paying subscriber to nothing.
+ */
+test('A PRICELESS COHORT FALLS BACK TO THE TIER, NEVER TO ZERO', () => {
+  for (const broken of [{ id: 'c' }, { id: 'c', basePrice: 0 }, { id: 'c', basePrice: NaN }]) {
+    const view = pricedViewFor(studio, broken as any);
+    assert.equal(view.pricedBy, 'tier', JSON.stringify(broken));
+    assert.equal(subscriptionTotalCents(view.tier, []), 14900);
+  }
+});
+
+test('with neither, the total is zero rather than a crash', () => {
+  const view = pricedViewFor(null, null);
+  assert.equal(view.pricedBy, 'tier');
+  assert.equal(subscriptionTotalCents(view.tier, []), 0);
+});
+
+test('seats reach the cohort, so a banded cohort prices by size', () => {
+  const banded = {
+    ...cohortFromTier(studio),
+    pricingTiers: [
+      { minUsers: 0, maxUsers: 9, priceMultiplier: 1 },
+      { minUsers: 10, maxUsers: 99999, priceMultiplier: 0.5 },
+    ],
+  };
+  assert.equal(subscriptionTotalCents(pricedViewFor(studio, banded, 1).tier, []), 14900);
+  assert.equal(subscriptionTotalCents(pricedViewFor(studio, banded, 20).tier, []), 7450);
+});
+
+/**
+ * A trialist has no tier and no cohort, and must still be told there is no
+ * figure rather than shown a zero. `monthlyFigure` owns that judgement; this
+ * checks the changeover did not route around it.
+ */
+test('a trialist still gets no figure, whichever record is in play', () => {
+  assert.equal(monthlyFigure('trial', pricedViewFor(studio, cohortFromTier(studio)).tier, []).cents, null);
+  assert.equal(monthlyFigure('trial', pricedViewFor(studio, null).tier, []).basis, 'trial');
 });

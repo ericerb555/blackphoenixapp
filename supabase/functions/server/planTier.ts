@@ -28,6 +28,10 @@
  * real Stripe price to it.
  */
 
+// The cohort's banded price feeds the same add-on arithmetic as a tier's flat
+// one; see `tierViewOfCohort` below. cohortPricing imports nothing, so no cycle.
+import { priceFor, type Cohort } from './cohortPricing.ts';
+
 /** Which portal a tier is sold into. One catalogue per audience. */
 export type Audience =
   | 'vendor' | 'subcontractor' | 'advertiser' | 'customer'
@@ -444,6 +448,101 @@ export function addOnsForTier(
     })
     .filter((a) => a.purchasable)
     .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));
+}
+
+/* ── the same money, resolved through the cohort ─────────────────────────── */
+
+/**
+ * The tier-shaped view of a cohort.
+ *
+ * WHY AN ADAPTER RATHER THAN A SECOND PRICING FUNCTION
+ *
+ * Because the add-on rules are correct and expensive to get right — is it
+ * offered on this plan, is the plan already giving it away, is its price real
+ * in this Stripe mode — and there are 98 tests standing behind them. Writing
+ * a cohort-flavoured copy of `subscriptionTotalCents` would be rewriting
+ * priced logic in the middle of a migration, which is how somebody gets the
+ * wrong invoice. So the cohort is adapted INTO the shape those functions
+ * already take, and they are called unchanged.
+ *
+ * The one thing the cohort genuinely does differently is the base price: it
+ * is banded by seat count, which is the entire reason cohorts were chosen
+ * over `plan_tier`. That is resolved by `priceFor` and handed over as
+ * `priceCents`, and everything after it is the existing arithmetic.
+ *
+ * `id` is the SOURCE TIER's id, not the cohort's. An add-on's `availableOn`
+ * lists tier ids, and the catalogue still speaks in those; using the cohort's
+ * own id here would make every restricted add-on look unavailable and quietly
+ * drop it from the total.
+ */
+export function tierViewOfCohort(
+  cohort: Cohort | null | undefined,
+  seats = 1,
+): Partial<PlanTier> {
+  return {
+    id: String(cohort?.sourceTierId ?? cohort?.id ?? ''),
+    priceCents: Math.round(priceFor(cohort, seats).price * 100),
+    includedAddOns: Array.isArray(cohort?.includedAddOns) ? cohort.includedAddOns : [],
+    discountPercent: Number(cohort?.discountPercent ?? 0) || 0,
+  };
+}
+
+/**
+ * What a cohort membership costs per month, in cents.
+ *
+ * Identical to `subscriptionTotalCents` for a cohort migrated from a tier —
+ * there is a test asserting exactly that, because the migration's promise is
+ * that nobody's invoice changes. It differs only once somebody deliberately
+ * adds bands or scaling to a cohort, which is the capability the move was for.
+ */
+export function cohortTotalCents(
+  cohort: Cohort | null | undefined,
+  seats: number,
+  chosen: Array<Partial<PlanAddOn>> = [],
+): number {
+  return subscriptionTotalCents(tierViewOfCohort(cohort, seats), chosen);
+}
+
+/**
+ * Which record prices this account — the cohort, or the tier it came from.
+ *
+ * WHY THERE IS A FALLBACK AT ALL, AND WHY IT IS THIS WAY ROUND
+ *
+ * The consolidation is mid-flight. Cohorts are the intended system of record,
+ * but today there are none: the migration has not been run, and it should be
+ * run against a test project before it touches accounts that are paying. So
+ * the price has to come from the tier until a cohort exists, and then from
+ * the cohort, with no moment in between where somebody is shown nothing.
+ *
+ * It fails back to the tier rather than to zero. A missing cohort must never
+ * turn into a $0 figure on a subscriber's screen — that is a number they will
+ * believe, and it is the same class of mistake as the fabricated revenue,
+ * only pointing the other way.
+ *
+ * A cohort with no price is treated as absent for the same reason. An empty
+ * or half-migrated record must not silently reprice somebody to nothing.
+ *
+ * SAFE BECAUSE THE TWO AGREE
+ *
+ * A cohort migrated from a tier charges exactly what that tier charged —
+ * there is a test asserting it — so switching over changes no invoice. The
+ * figures only diverge once somebody deliberately adds bands to a cohort,
+ * which is the capability the whole move was for.
+ */
+export interface PricedView {
+  tier: Partial<PlanTier>;
+  /** Which record the price came from, so a caller can say so or log it. */
+  pricedBy: 'cohort' | 'tier';
+}
+
+export function pricedViewFor(
+  tier: Partial<PlanTier> | null | undefined,
+  cohort: Cohort | null | undefined,
+  seats = 1,
+): PricedView {
+  const usable = cohort && Number(cohort.basePrice ?? 0) > 0;
+  if (usable) return { tier: tierViewOfCohort(cohort, seats), pricedBy: 'cohort' };
+  return { tier: tier ?? {}, pricedBy: 'tier' };
 }
 
 /**

@@ -148,10 +148,38 @@ wrong number on a dashboard, independent of this consolidation.
       `/revenue/analytics`, `/revenue/trends` and `/revenue/category/:cat` —
       were still reading the stored fields and therefore reporting zero; they
       derive now. `update-subscribers` was retired in V0d.
-- [ ] V3. `subscriptionTotalCents`, `holdsAddOn`, `paysForAddOn` and the add-on
+- [x] V3. `subscriptionTotalCents`, `holdsAddOn`, `paysForAddOn` and the add-on
       catalogue are **kept and reused**, resolving through the cohort. They are
       correct, 98 tests cover them, and rewriting priced logic during a
       migration is how a customer gets the wrong invoice.
+      Kept and reused, exactly as written. `tierViewOfCohort()` adapts a cohort
+      INTO the shape those functions already take, so the add-on rules —
+      offered on this plan, already included, priced in this Stripe mode — are
+      called unchanged rather than reimplemented. The only thing the cohort
+      does differently is the base price, which is banded by seat count.
+      **A migrated cohort charges exactly what the tier charged, and a test
+      asserts it.**
+
+      Two fields were being dropped by the migration and are now carried:
+      `includedAddOns` (losing it would start billing a top-tier customer for
+      what their tier already covers — a real charge on a real card) and
+      `discountPercent` (losing it quietly raises the price of every contract
+      that subscriber signs).
+
+      `pricedViewFor()` handles the changeover and is wired into `/my-plan`, so
+      this is not another orphan. It **fails back to the tier, never to zero** —
+      a missing or half-migrated cohort must not show a subscriber a believable
+      $0, which is the fabricated-revenue mistake pointing the other way.
+
+- [ ] V3a. **Banding has no Stripe representation, and this blocks using it.**
+      `/plan-checkout` bills a Stripe *price id*, not a computed figure, and a
+      migrated cohort carries the same ids the tier had — so nothing diverges
+      today. But the moment somebody adds a real band to a cohort, the screen
+      would show the banded figure while Stripe charged the flat one. Banding
+      must not be used on a live cohort until a checkout exists that bills the
+      banded amount. Worth saying plainly: the seat-banded pricing that
+      justified choosing cohorts over `plan_tier` is computable but **not yet
+      chargeable**.
 
 ### V0 — the screen has to read the server first
 

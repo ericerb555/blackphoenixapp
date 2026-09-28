@@ -227,8 +227,9 @@ import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
   heldAddOnIds, holdsAddOn, paysForAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
-  addOnsForTier, monthlyFigure,
+  addOnsForTier, monthlyFigure, pricedViewFor,
 } from "./planTier.ts";
+import { cohortIdForTier } from "./cohortMembership.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import { hourlyCostRate } from "./employeeRates.ts";
@@ -12138,13 +12139,31 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
     const available = addOnsForTier(catalogue, tierRecord, addOnMode);
 
     /**
+     * The cohort this account belongs to, if one exists yet.
+     *
+     * Cohorts are the intended system of record for money, and the migration
+     * that creates them has not been run — so this is null today and the tier
+     * still prices everybody. `pricedViewFor` handles the changeover, and
+     * fails back to the tier rather than to zero: a missing cohort must never
+     * show a subscriber a believable $0.
+     *
+     * Safe to switch on because a migrated cohort charges exactly what its
+     * tier charged; there is a test asserting it. The two only diverge once
+     * somebody deliberately bands a cohort, which is what the move was for.
+     */
+    const cohortKey = cohortIdForTier((grant as any)?.tierId);
+    const cohortRecord = cohortKey ? await kv.get(`cohort_${cohortKey}`) : null;
+    const seats = Math.max(1, Number((grant as any)?.seats ?? 1) || 1);
+    const priced = pricedViewFor(tierRecord, cohortRecord as any, seats);
+
+    /**
      * The monthly figure — or null, which is not the same as zero. The
      * judgement lives in `monthlyFigure` so it can be tested; see the note on
      * it for why a trialist gets no number rather than a misleading $0.
      */
     const { cents: monthlyTotalCents, basis: totalBasis } = monthlyFigure(
       entitlement.source,
-      tierRecord,
+      priced.tier,
       catalogue.filter((a) => addOns.includes(a.id)),
     );
 

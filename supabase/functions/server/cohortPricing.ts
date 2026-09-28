@@ -72,6 +72,8 @@ export function cohortFromTier(tier: {
   limits?: Record<string, number>;
   stripePriceId?: string;
   stripePriceIdTest?: string;
+  includedAddOns?: string[];
+  discountPercent?: number;
 }): Cohort & Record<string, unknown> {
   const tierId = String(tier?.id ?? '').trim();
   return {
@@ -88,6 +90,19 @@ export function cohortFromTier(tier: {
     limits: tier?.limits ?? {},
     stripePriceId: tier?.stripePriceId,
     stripePriceIdTest: tier?.stripePriceIdTest,
+    /**
+     * These two carry or the migration overcharges people.
+     *
+     * `includedAddOns` is how the ladder steps: the top tier includes what
+     * the rungs below pay extra for. A cohort that forgot it would start
+     * billing a top-tier customer for something their tier already covers —
+     * a real charge on a real card, caused by a migration that looked
+     * lossless. `discountPercent` is the same failure pointing the other
+     * way: losing it quietly raises the price of every contract that
+     * subscriber signs.
+     */
+    includedAddOns: Array.isArray(tier?.includedAddOns) ? tier.includedAddOns : [],
+    discountPercent: Number(tier?.discountPercent ?? 0) || 0,
     /** A flat tier is one band over every size. Banding is added by a person. */
     pricingTiers: [{ minUsers: 0, maxUsers: Number.MAX_SAFE_INTEGER, priceMultiplier: 1, name: 'all' }],
     sourceTierId: tierId,
@@ -107,6 +122,12 @@ export interface Cohort {
   priceCeiling?: number;
   maxSpots?: number;
   activeSubscribers?: number;
+  /** Extras this cohort covers at no charge. Same meaning as on a tier. */
+  includedAddOns?: string[];
+  /** Percent off contract work for a subscriber. Same meaning as on a tier. */
+  discountPercent?: number;
+  /** The tier this cohort was migrated from, when it was. */
+  sourceTierId?: string;
 }
 
 /** A number, or the fallback when it is missing or nonsense. */
