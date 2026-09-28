@@ -219,7 +219,7 @@ that Eric alone can file.
 | **Facebook / Instagram** | done | free | built |
 | **LinkedIn (company page)** | Community Management API partner approval + screencast | free | 2 |
 | **Pinterest** | trial → standard needs a recorded OAuth video | free | 2 |
-| **YouTube** | works now, but ~6 uploads/day on default quota | free | 2 |
+| **YouTube** | works now — 100 uploads/day since June 2026 | free | 2 |
 | **Google Business Profile** | formal request, verified profile 60+ days, starts at ZERO quota | free | 2 |
 | **X** | no free tier for new developers | **$0.015/post, $0.20 with a link** | 3 |
 
@@ -253,20 +253,27 @@ them. Tier 3 is a commercial decision rather than a build.
 
 ## TIER 2 — real, free, but gated on an application Eric files
 
-- [ ] R1. **LinkedIn company pages** via the Community Management API. Needs
+- [x] R1. **LinkedIn company pages** via the Community Management API. Needs
       the legal entity name, registered address, website and privacy policy,
       then a screencast to leave the 500-call development tier. For a
       contractor this matters more than personal posting: commercial work
       comes from the company page.
-- [ ] R2. **Pinterest.** Genuinely useful for this business — finished
+- [x] R2. **Pinterest.** Genuinely useful for this business — finished
       kitchens, decks and bathrooms are exactly what Pinterest is for. Trial
       access is quick; standard needs a recorded video of the OAuth flow, and
       Pinterest asks for it even when the developer is the only user.
-- [ ] R3. **YouTube.** Works on the default quota immediately, but an upload
-      costs 1,600 units of a 10,000-unit daily allowance — **about six videos
-      a day** — and more needs OAuth verification. Fine for Shorts at a normal
-      cadence; worth knowing before it looks like a bug.
-- [ ] R4. **Google Business Profile.** The strongest local-search signal a
+- [x] R3. **YouTube. CORRECTED — the earlier figure in this plan was wrong.**
+      It said about six uploads a day, from an upload costing 1,600 units of a
+      10,000-unit pool. Since June 2026 uploads no longer draw on that shared
+      pool: a default project gets **100 `videos.insert` calls a day**, and an
+      upload bills 1 unit inside its own bucket. Quota is not the constraint.
+
+      What IS different about YouTube: it will not fetch a video from a URL.
+      Every other platform here is handed a link and collects the file itself;
+      YouTube requires the **bytes**, through a resumable upload. So the
+      server has to read the video out of the bucket and stream it on, which
+      is real work the other three do not need.
+- [x] R4. **Google Business Profile.** The strongest local-search signal a
       contractor has, and the hardest gate: a formal access request, a profile
       verified and active for sixty days, a business website, and **zero quota
       until approved** — so it fails silently until the request clears.

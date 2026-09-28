@@ -26,7 +26,8 @@
 
 export type PlatformId =
   | 'facebook' | 'instagram' | 'tiktok'
-  | 'bluesky' | 'mastodon' | 'linkedin' | 'threads';
+  | 'bluesky' | 'mastodon' | 'linkedin' | 'threads'
+  | 'pinterest' | 'youtube' | 'google_business' | 'linkedin_company';
 
 export interface PlatformSpec {
   id: PlatformId;
@@ -46,6 +47,23 @@ export interface PlatformSpec {
    * instances is two accounts, so the connect flow has to capture which one.
    */
   needsInstance?: boolean;
+  /**
+   * Pinterest pins belong to a board, so one has to be chosen before anything
+   * can be posted. There is no "default board" to fall back on.
+   */
+  needsBoard?: boolean;
+  /**
+   * A Google Business Profile post belongs to a location, and a business with
+   * two premises has two. Picking one for somebody would post to the wrong
+   * shopfront half the time.
+   */
+  needsLocation?: boolean;
+  /**
+   * A LinkedIn company post is authored by an organization urn, and a person
+   * may administer several pages. Guessing which would post as the wrong
+   * company.
+   */
+  needsOrganization?: boolean;
   /**
    * Said in the interface at connection time, where it changes what somebody
    * expects. Only set where there is something genuinely surprising.
@@ -80,6 +98,38 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
   },
   threads: {
     id: 'threads', label: 'Threads', auth: 'oauth', media: 'none', maxChars: 500,
+  },
+  /**
+   * A SEPARATE platform from `linkedin`, not a setting on it.
+   *
+   * The two need different scopes, and that is the whole reason. Adding
+   * `w_organization_social` to the self-serve connection would make LinkedIn
+   * refuse the whole authorisation for any app it has not approved — so
+   * asking for it by default would break the personal posting that works
+   * today, in order to offer company posting that does not yet.
+   *
+   * Kept apart, both can be held at once: personal posting works now, and
+   * company posting starts working when the partner approval lands, with
+   * nothing to rewire.
+   */
+  linkedin_company: {
+    id: 'linkedin_company', label: 'LinkedIn Page', auth: 'oauth', media: 'none', maxChars: 3000,
+    needsOrganization: true,
+    caveat: 'Company pages need LinkedIn\'s Community Management approval. Until it is granted, connecting fails.',
+  },
+  pinterest: {
+    id: 'pinterest', label: 'Pinterest', auth: 'oauth', media: 'image-or-video', maxChars: 500,
+    needsBoard: true,
+    caveat: 'On trial access, pins are visible only to you until Pinterest grants standard access.',
+  },
+  youtube: {
+    id: 'youtube', label: 'YouTube', auth: 'oauth', media: 'video', maxChars: 100,
+    caveat: 'The title is limited to 100 characters. Vertical video under 60 seconds posts as a Short.',
+  },
+  google_business: {
+    id: 'google_business', label: 'Google Business Profile', auth: 'oauth', media: 'none', maxChars: 1500,
+    needsLocation: true,
+    caveat: 'Google grants zero quota until it approves the access request, so posting fails until then.',
   },
 };
 

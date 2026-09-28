@@ -44,6 +44,10 @@ const LINKEDIN_CLIENT_ID = Deno.env.get("LINKEDIN_CLIENT_ID") || "";
 const LINKEDIN_CLIENT_SECRET = Deno.env.get("LINKEDIN_CLIENT_SECRET") || "";
 const THREADS_APP_ID = Deno.env.get("THREADS_APP_ID") || "";
 const THREADS_APP_SECRET = Deno.env.get("THREADS_APP_SECRET") || "";
+const PINTEREST_APP_ID = Deno.env.get("PINTEREST_APP_ID") || "";
+const PINTEREST_APP_SECRET = Deno.env.get("PINTEREST_APP_SECRET") || "";
+const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID") || "";
+const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET") || "";
 
 /**
  * Where Facebook sends the user back.
@@ -86,6 +90,18 @@ interface SocialAccount {
   authorUrn?: string;
   /** Threads: the Threads user id, which is not the Instagram one. */
   threadsUserId?: string;
+  /** Pinterest: the board a pin goes to. There is no default. */
+  boardId?: string;
+  /** Google Business: `accounts/x/locations/y`, the premises being posted for. */
+  locationName?: string;
+  /**
+   * Google refresh token. Google's access tokens last an hour, which is
+   * shorter than the gap between two scheduled posts, so unlike every other
+   * platform here the token has to be renewed rather than simply stored.
+   */
+  refreshToken?: string;
+  /** When the stored access token stops working. Google only, for now. */
+  expiresAt?: string;
 }
 
 const accountsKey = (userId: string) => `social_accounts:${userId}`;
@@ -337,14 +353,22 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
       }
       const state = crypto.randomUUID();
       await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
-      // `w_member_social` is self-serve. Company pages need the Community
-      // Management API and LinkedIn's partner approval — a separate scope and
-      // a separate application, deliberately not requested here.
-      const scopes = ["openid", "profile", "w_member_social"].join(" ");
+      /*
+        `w_member_social` is self-serve; the company scopes need LinkedIn's
+        Community Management approval.
+
+        The company scope is requested ONLY for the company connection.
+        Adding it to the personal one would make LinkedIn refuse the whole
+        authorisation for any app it has not approved — breaking posting that
+        works today to offer posting that does not yet.
+      */
+      const scopes = platform === "linkedin_company"
+        ? ["openid", "profile", "w_organization_social", "rw_organization_admin"].join(" ")
+        : ["openid", "profile", "w_member_social"].join(" ");
       const authUrl =
         `https://www.linkedin.com/oauth/v2/authorization` +
         `?response_type=code&client_id=${encodeURIComponent(LINKEDIN_CLIENT_ID)}` +
-        `&redirect_uri=${encodeURIComponent(fbRedirectUri("linkedin"))}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri(platform))}` +
         `&scope=${encodeURIComponent(scopes)}&state=${state}`;
       return c.json({ authUrl });
     }
@@ -368,6 +392,53 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
         `?client_id=${encodeURIComponent(THREADS_APP_ID)}` +
         `&redirect_uri=${encodeURIComponent(fbRedirectUri("threads"))}` +
         `&scope=${encodeURIComponent(scopes)}&response_type=code&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    if (platform === "pinterest") {
+      if (!PINTEREST_APP_ID || !PINTEREST_APP_SECRET) {
+        return c.json({
+          error: "Pinterest is not configured. Add PINTEREST_APP_ID and PINTEREST_APP_SECRET secrets.",
+        }, 400);
+      }
+      const state = crypto.randomUUID();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
+      // `boards:read` is needed as well as the write scopes: a pin has to go
+      // to a board, and the board list is how one gets chosen.
+      const scopes = ["boards:read", "pins:read", "pins:write"].join(",");
+      const authUrl =
+        `https://www.pinterest.com/oauth/` +
+        `?client_id=${encodeURIComponent(PINTEREST_APP_ID)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("pinterest"))}` +
+        `&response_type=code&scope=${encodeURIComponent(scopes)}&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    /**
+     * YouTube and Google Business Profile share Google's OAuth but ask for
+     * different scopes, so the platform decides which.
+     *
+     * `access_type=offline` and `prompt=consent` are both required: without
+     * them Google returns no refresh token, and an access token that expires
+     * in an hour is useless to anything scheduled.
+     */
+    if (platform === "youtube" || platform === "google_business") {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        return c.json({
+          error: "Google is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets.",
+        }, 400);
+      }
+      const state = crypto.randomUUID();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
+      const scopes = platform === "youtube"
+        ? ["https://www.googleapis.com/auth/youtube.upload"]
+        : ["https://www.googleapis.com/auth/business.manage"];
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth` +
+        `?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri(platform))}` +
+        `&response_type=code&access_type=offline&prompt=consent` +
+        `&scope=${encodeURIComponent(scopes.join(" "))}&state=${state}`;
       return c.json({ authUrl });
     }
 
@@ -480,14 +551,14 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
       return c.html(callbackHtml(platform, true, `Connected to ${instance.replace(/^https?:\/\//, "")}.`));
     }
 
-    if (platform === "linkedin") {
+    if (platform === "linkedin" || platform === "linkedin_company") {
       const tokRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "authorization_code",
           code,
-          redirect_uri: fbRedirectUri("linkedin"),
+          redirect_uri: fbRedirectUri(platform),
           client_id: LINKEDIN_CLIENT_ID,
           client_secret: LINKEDIN_CLIENT_SECRET,
         }).toString(),
@@ -495,6 +566,46 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
       const tok = await tokRes.json().catch(() => ({}));
       if (!tokRes.ok || !tok?.access_token) {
         return c.html(callbackHtml(platform, false, tok?.error_description || "LinkedIn token exchange failed."));
+      }
+
+      const accounts = await getAccounts(userId);
+
+      /**
+       * A company connection is authored by an organization, so the page the
+       * person administers is looked up instead of their identity. This call
+       * is also where an unapproved app finds out: without Community
+       * Management access LinkedIn refuses it, and that refusal is reported
+       * as the approval it is rather than as a broken connection.
+       */
+      if (platform === "linkedin_company") {
+        const orgRes = await fetch(
+          "https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&projection=(elements*(organization~(localizedName)))",
+          { headers: { Authorization: `Bearer ${tok.access_token}`, "X-Restli-Protocol-Version": "2.0.0" } },
+        );
+        const orgs = await orgRes.json().catch(() => ({}));
+        if (!orgRes.ok) {
+          return c.html(callbackHtml(platform, false,
+            `${orgs?.message || "LinkedIn would not list your Pages."} `
+            + "This is normally the Community Management approval: until LinkedIn grants it, "
+            + "company posting cannot work. Personal posting is unaffected."));
+        }
+        const first = orgs?.elements?.[0];
+        const orgUrn = first?.organization;
+        if (!orgUrn) {
+          return c.html(callbackHtml(platform, false,
+            "No LinkedIn Page is administered by this account, so there is nothing to post to."));
+        }
+        const pageName = first?.["organization~"]?.localizedName || "LinkedIn Page";
+
+        accounts["linkedin_company"] = {
+          platform: "linkedin_company", connected: true,
+          name: pageName, handle: pageName,
+          connectedAt: new Date().toISOString(),
+          userAccessToken: tok.access_token,
+          authorUrn: orgUrn,
+        };
+        await saveAccounts(userId, accounts);
+        return c.html(callbackHtml(platform, true, `Connected to ${pageName}.`));
       }
 
       // The member urn is what a post is authored by, so it is required
@@ -507,7 +618,6 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
         return c.html(callbackHtml(platform, false, "LinkedIn would not say who you are; the connection was not saved."));
       }
 
-      const accounts = await getAccounts(userId);
       accounts["linkedin"] = {
         platform: "linkedin", connected: true,
         name: me.name || "LinkedIn", handle: me.name || "LinkedIn", avatar: me.picture,
@@ -561,6 +671,137 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
       };
       await saveAccounts(userId, accounts);
       return c.html(callbackHtml(platform, true, "Connected."));
+    }
+
+    if (platform === "pinterest") {
+      const tokRes = await fetch("https://api.pinterest.com/v5/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${btoa(`${PINTEREST_APP_ID}:${PINTEREST_APP_SECRET}`)}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: fbRedirectUri("pinterest"),
+        }).toString(),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.message || "Pinterest token exchange failed."));
+      }
+
+      /**
+       * A board is picked now rather than at post time, because a pin has
+       * nowhere to go without one. The first board is taken as a sensible
+       * default and can be changed later; no board at all is reported as
+       * something to fix rather than saved as a connection that cannot post.
+       */
+      let boardId: string | undefined;
+      let boardName = "";
+      try {
+        const boardsRes = await fetch("https://api.pinterest.com/v5/boards?page_size=1", {
+          headers: { Authorization: `Bearer ${tok.access_token}` },
+        });
+        const boards = await boardsRes.json();
+        boardId = boards?.items?.[0]?.id;
+        boardName = boards?.items?.[0]?.name || "";
+      } catch { /* reported below */ }
+
+      if (!boardId) {
+        return c.html(callbackHtml(platform, false,
+          "Connected, but this Pinterest account has no boards. Create one, then connect again."));
+      }
+
+      const accounts = await getAccounts(userId);
+      accounts["pinterest"] = {
+        platform: "pinterest", connected: true,
+        name: boardName ? `Pinterest · ${boardName}` : "Pinterest",
+        handle: boardName, connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token, boardId,
+      };
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, PLATFORMS.pinterest.caveat));
+    }
+
+    if (platform === "youtube" || platform === "google_business") {
+      const tokRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          code,
+          grant_type: "authorization_code",
+          redirect_uri: fbRedirectUri(platform),
+        }).toString(),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.error_description || "Google token exchange failed."));
+      }
+      if (!tok.refresh_token) {
+        // Without it nothing scheduled can ever post, so this is refused
+        // rather than saved as a connection that works once and then stops.
+        return c.html(callbackHtml(platform, false,
+          "Google did not return a refresh token, so scheduled posts could not work. "
+          + "Remove this app at myaccount.google.com/permissions and connect again."));
+      }
+
+      const accounts = await getAccounts(userId);
+      const record: SocialAccount = {
+        platform, connected: true,
+        name: PLATFORMS[platform as keyof typeof PLATFORMS]?.label || platform,
+        handle: "", connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token,
+        refreshToken: tok.refresh_token,
+        expiresAt: new Date(Date.now() + (Number(tok.expires_in) || 3600) * 1000).toISOString(),
+      };
+
+      /**
+       * A Business Profile post belongs to a location, so one is chosen now.
+       * This is also where Google's zero-quota gate shows itself: the account
+       * listing refuses until the access request is approved, which is worth
+       * saying plainly rather than leaving to the first failed post.
+       */
+      if (platform === "google_business") {
+        try {
+          const accRes = await fetch(
+            "https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+            { headers: { Authorization: `Bearer ${tok.access_token}` } },
+          );
+          const accData = await accRes.json().catch(() => ({}));
+          if (!accRes.ok) {
+            return c.html(callbackHtml(platform, false,
+              `${accData?.error?.message || "Google refused to list your business accounts."} `
+              + "This is usually the zero-quota gate: the Business Profile API request has not been approved yet."));
+          }
+          const accountName = accData?.accounts?.[0]?.name;
+          if (accountName) {
+            const locRes = await fetch(
+              `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=name,title&pageSize=1`,
+              { headers: { Authorization: `Bearer ${tok.access_token}` } },
+            );
+            const locData = await locRes.json().catch(() => ({}));
+            const loc = locData?.locations?.[0];
+            if (loc?.name) {
+              record.locationName = `${accountName}/${loc.name}`;
+              record.handle = loc.title || "";
+              record.name = loc.title ? `Google · ${loc.title}` : record.name;
+            }
+          }
+        } catch { /* the refusal above is the one that matters */ }
+
+        if (!record.locationName) {
+          return c.html(callbackHtml(platform, false,
+            "Connected to Google, but no business location came back — so there is nowhere to post. "
+            + "This usually means the Business Profile API request is still pending."));
+        }
+      }
+
+      accounts[platform] = record;
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, PLATFORMS[platform as keyof typeof PLATFORMS]?.caveat || "Connected."));
     }
 
     if (platform === "tiktok") {
@@ -960,6 +1201,9 @@ async function sha256Hex(input: string): Promise<string> {
  */
 async function publishToLinkedIn(account: SocialAccount, content: string) {
   if (!account.authorUrn) throw new Error("This LinkedIn account has no author recorded. Reconnect it.");
+  // Personal and company posts are the same call with a different author urn —
+  // `urn:li:person:…` or `urn:li:organization:…`. The difference that matters
+  // is the scope behind the token, which is settled at connection.
 
   const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
     method: "POST",
@@ -1021,6 +1265,201 @@ async function publishToThreads(account: SocialAccount, content: string, imageUr
   const published = await pubRes.json().catch(() => ({}));
   if (!pubRes.ok) throw new Error(published?.error?.message || "Threads rejected the post.");
   return published?.id;
+}
+
+/**
+ * A usable Google access token, refreshing it when it has expired.
+ *
+ * WHY THIS IS NEEDED HERE AND NOWHERE ELSE
+ *
+ * Google's access tokens last an hour. Every other platform here issues one
+ * that outlives the gap between two scheduled posts — Facebook's is sixty
+ * days, Bluesky makes a fresh session per post, Mastodon's does not expire.
+ * Google's does not survive the night, so a campaign posting at nine in the
+ * morning would fail every day with an expiry that nobody is awake to see.
+ *
+ * The refreshed token is written back, so a run does not refresh on every
+ * call, and a missing refresh token is reported as needing a reconnection
+ * rather than as an authorisation failure — they are different problems and
+ * only one of them is fixed by pressing connect again.
+ */
+async function googleAccessToken(userId: string, account: SocialAccount): Promise<string> {
+  const stillValid = account.expiresAt && Date.parse(account.expiresAt) > Date.now() + 60_000;
+  if (stillValid && account.userAccessToken) return account.userAccessToken;
+
+  if (!account.refreshToken) {
+    throw new Error(`${account.platform} needs reconnecting — Google did not leave a refresh token.`);
+  }
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets.");
+  }
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: account.refreshToken,
+      grant_type: "refresh_token",
+    }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.access_token) {
+    throw new Error(data?.error_description || `Google would not renew the ${account.platform} token. Reconnect it.`);
+  }
+
+  const accounts = await getAccounts(userId);
+  const stored = accounts[account.platform];
+  if (stored) {
+    stored.userAccessToken = data.access_token;
+    stored.expiresAt = new Date(Date.now() + (Number(data.expires_in) || 3600) * 1000).toISOString();
+    await saveAccounts(userId, accounts);
+  }
+  return data.access_token;
+}
+
+/**
+ * Pinterest, where a pin belongs to a board.
+ *
+ * THE TRAP WORTH KNOWING
+ *
+ * On TRIAL access every pin is a sandbox entity visible only to its creator —
+ * and the API still answers 201 with a real-looking pin id. So a successful
+ * response is not the same as a pin anybody can see, which is the identical
+ * shape to TikTok's private-until-audited gate and just as easy to mistake
+ * for a bug. Standard access needs a recorded video of the OAuth flow, which
+ * Pinterest asks for even when the developer is the only user.
+ *
+ * The board is stored at connection time because there is no default to fall
+ * back on: a pin with no board has nowhere to go.
+ */
+async function publishToPinterest(account: SocialAccount, content: string, imageUrl?: string) {
+  if (!imageUrl) throw new Error("Pinterest needs an image.");
+  if (!account.boardId) throw new Error("No Pinterest board is selected. Reconnect and choose one.");
+
+  const [title, ...rest] = content.split("\n");
+  const res = await fetch("https://api.pinterest.com/v5/pins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${account.userAccessToken}` },
+    body: JSON.stringify({
+      board_id: account.boardId,
+      title: fitToPlatform("pinterest", title || content).slice(0, 100),
+      description: rest.join("\n").slice(0, 800) || undefined,
+      media_source: { source_type: "image_url", url: imageUrl },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Pinterest rejected the pin.");
+  return data?.id;
+}
+
+/**
+ * YouTube, which is the one platform here that will not fetch the file.
+ *
+ * Every other platform is handed a URL and collects the video itself.
+ * YouTube requires the BYTES, through a resumable upload: post the metadata
+ * to get a session URI, then PUT the file to it. So the server has to read
+ * the video out of the bucket and stream it on — real work the others do not
+ * need, and the reason this function is longer than the rest.
+ *
+ * Quota is NOT the constraint, despite what is widely repeated: since June
+ * 2026 uploads no longer draw on the shared 10,000-unit pool, and a default
+ * project gets a hundred `videos.insert` calls a day.
+ *
+ * A vertical video under a minute is treated as a Short by YouTube itself —
+ * there is no flag to set, which is why none is sent.
+ */
+async function publishToYouTube(account: SocialAccount, content: string, videoUrl?: string) {
+  if (!videoUrl) throw new Error("YouTube only takes video.");
+
+  const videoRes = await fetch(videoUrl);
+  if (!videoRes.ok) throw new Error("The rendered video could not be read back for upload.");
+  const bytes = new Uint8Array(await videoRes.arrayBuffer());
+
+  const [rawTitle, ...rest] = content.split("\n");
+  const metadata = {
+    snippet: {
+      // YouTube refuses a title over 100 characters outright rather than
+      // trimming it, so it is trimmed here.
+      title: fitToPlatform("youtube", rawTitle || "Untitled"),
+      description: rest.join("\n").slice(0, 5000),
+    },
+    status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+  };
+
+  const startRes = await fetch(
+    "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${account.userAccessToken}`,
+        "Content-Type": "application/json",
+        "X-Upload-Content-Length": String(bytes.byteLength),
+        "X-Upload-Content-Type": "video/mp4",
+      },
+      body: JSON.stringify(metadata),
+    },
+  );
+  if (!startRes.ok) {
+    const err = await startRes.json().catch(() => ({}));
+    throw new Error(err?.error?.message || "YouTube would not start the upload.");
+  }
+  const sessionUri = startRes.headers.get("location");
+  if (!sessionUri) throw new Error("YouTube did not return an upload session.");
+
+  const putRes = await fetch(sessionUri, {
+    method: "PUT",
+    headers: { "Content-Type": "video/mp4", "Content-Length": String(bytes.byteLength) },
+    body: bytes,
+  });
+  const done = await putRes.json().catch(() => ({}));
+  if (!putRes.ok) throw new Error(done?.error?.message || "YouTube rejected the upload.");
+  return done?.id;
+}
+
+/**
+ * Google Business Profile — the strongest local-search signal a contractor
+ * has, and the one most likely to fail for a reason that is not a bug.
+ *
+ * Google grants a new project ZERO quota until it approves an access request,
+ * so every call refuses until that clears. The refusal is caught below and
+ * explained, because "quota exceeded" on a project that has never posted
+ * reads as nonsense otherwise.
+ *
+ * A post belongs to a location, and a business with two premises has two, so
+ * the location is chosen at connection rather than guessed.
+ */
+async function publishToGoogleBusiness(account: SocialAccount, content: string, imageUrl?: string) {
+  if (!account.locationName) throw new Error("No Google Business location is selected. Reconnect and choose one.");
+
+  const body: Record<string, unknown> = {
+    languageCode: "en-US",
+    summary: fitToPlatform("google_business", content),
+    topicType: "STANDARD",
+  };
+  if (imageUrl) body.media = [{ mediaFormat: "PHOTO", sourceUrl: imageUrl }];
+
+  const res = await fetch(
+    `https://mybusiness.googleapis.com/v4/${account.locationName}/localPosts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${account.userAccessToken}` },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = String(data?.error?.message || "Google rejected the post.");
+    if (res.status === 403 || /quota/i.test(message)) {
+      throw new Error(
+        `${message} — Google grants zero quota until it approves the Business Profile API request. `
+        + "Apply in the Google Cloud console; posting cannot work before that.",
+      );
+    }
+    throw new Error(message);
+  }
+  return data?.name;
 }
 
 async function publishToTikTok(account: SocialAccount, content: string, videoUrl?: string) {
@@ -1204,8 +1643,17 @@ export async function publishForUser(
       else if (platform === "tiktok") id = await publishToTikTok(account, content, videoUrl);
       else if (platform === "bluesky") id = await publishToBluesky(account, content);
       else if (platform === "mastodon") id = await publishToMastodon(account, content);
-      else if (platform === "linkedin") id = await publishToLinkedIn(account, content);
+      else if (platform === "linkedin" || platform === "linkedin_company") id = await publishToLinkedIn(account, content);
       else if (platform === "threads") id = await publishToThreads(account, content, imageUrl);
+      else if (platform === "pinterest") id = await publishToPinterest(account, content, imageUrl);
+      else if (platform === "youtube" || platform === "google_business") {
+        // Google's hour-long tokens are renewed before the call rather than
+        // after a failure, so a scheduled post at nine in the morning works.
+        const fresh = { ...account, userAccessToken: await googleAccessToken(userId, account) };
+        id = platform === "youtube"
+          ? await publishToYouTube(fresh, content, videoUrl)
+          : await publishToGoogleBusiness(fresh, content, imageUrl);
+      }
       else throw new Error(`Publishing to ${platform} is not supported yet.`);
       results.push({ platform, success: true, id });
     } catch (err) {
@@ -1319,6 +1767,10 @@ socialRouter.get(`${PREFIX}/social/platforms`, (c) => {
     instagram: !!(FB_APP_ID && FB_APP_SECRET),
     tiktok: !!(TIKTOK_CLIENT_KEY && TIKTOK_CLIENT_SECRET),
     linkedin: !!(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+    linkedin_company: !!(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+    pinterest: !!(PINTEREST_APP_ID && PINTEREST_APP_SECRET),
+    youtube: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    google_business: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
     threads: !!(THREADS_APP_ID && THREADS_APP_SECRET),
     // Neither needs anything registered in advance: Bluesky takes an app
     // password the holder generates, Mastodon registers itself per instance.

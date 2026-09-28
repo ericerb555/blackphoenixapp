@@ -13,7 +13,7 @@ import {
 } from '../supabase/functions/server/socialPlatforms.ts';
 
 test('every platform the publisher knows about is described exactly once', () => {
-  assert.equal(PLATFORM_IDS.length, 7);
+  assert.equal(PLATFORM_IDS.length, 11);
   for (const id of PLATFORM_IDS) {
     assert.equal(PLATFORMS[id].id, id, `${id} disagrees with its own key`);
     assert.ok(PLATFORMS[id].label, `${id} has no label`);
@@ -118,4 +118,68 @@ test('mastodon is the only one whose server is part of the account', () => {
   assert.equal(PLATFORMS.mastodon.needsInstance, true);
   const others = PLATFORM_IDS.filter((id) => id !== 'mastodon');
   for (const id of others) assert.notEqual(PLATFORMS[id].needsInstance, true, `${id} should not need an instance`);
+});
+
+// ── Tier 2: the gated platforms ───────────────────────────────────────────
+
+/**
+ * Pinterest and Google Business both succeed in ways that are not success:
+ * a trial pin comes back with a real id and is visible to nobody, and Google
+ * answers every call with a quota refusal until it approves the request.
+ * Both are stated at connection time, which is what these guard.
+ */
+test('the platforms that can succeed invisibly say so', () => {
+  assert.match(PLATFORMS.pinterest.caveat!, /visible only to you/);
+  assert.match(PLATFORMS.google_business.caveat!, /zero quota/);
+});
+
+test('YOUTUBE ALLOWS ONLY 100 CHARACTERS — a caption written elsewhere will not fit', () => {
+  assert.equal(PLATFORMS.youtube.maxChars, 100);
+  const caption = 'A finished kitchen in Salem, New Hampshire. '.repeat(5);
+  assert.ok(refusalFor('youtube', { content: caption, videoUrl: 'https://x/v.mp4' }));
+  assert.ok(fitToPlatform('youtube', caption).length <= 100);
+});
+
+test('youtube takes video and nothing else', () => {
+  assert.match(refusalFor('youtube', { content: 'hi', imageUrl: 'https://x/i.jpg' })!, /only takes video/);
+  assert.equal(refusalFor('youtube', { content: 'hi', videoUrl: 'https://x/v.mp4' }), null);
+});
+
+test('pinterest needs an image; google business does not need media at all', () => {
+  assert.match(refusalFor('pinterest', { content: 'A new deck' })!, /image or a video/);
+  assert.equal(refusalFor('pinterest', { content: 'A new deck', imageUrl: 'https://x/i.jpg' }), null);
+  assert.equal(refusalFor('google_business', { content: 'Booking spring work now.' }), null);
+});
+
+/**
+ * A pin has no default board and a Business Profile post has no default
+ * location. Choosing either on somebody's behalf posts to the wrong place.
+ */
+test('the platforms that need a destination chosen are marked as such', () => {
+  assert.equal(PLATFORMS.pinterest.needsBoard, true);
+  assert.equal(PLATFORMS.google_business.needsLocation, true);
+
+  const others = PLATFORM_IDS.filter((id) => id !== 'pinterest');
+  for (const id of others) assert.notEqual(PLATFORMS[id].needsBoard, true, `${id} should not need a board`);
+});
+
+/**
+ * The two LinkedIn connections are separate platforms, and the reason is not
+ * tidiness: `w_organization_social` needs LinkedIn's Community Management
+ * approval, and asking for it on the self-serve connection would make
+ * LinkedIn refuse the WHOLE authorisation for an unapproved app — breaking
+ * personal posting, which works today, to offer company posting, which does
+ * not yet. Kept apart, both can be held at once.
+ */
+test('personal and company LinkedIn are separate platforms, both postable as text', () => {
+  assert.notEqual(PLATFORMS.linkedin.id, PLATFORMS.linkedin_company.id);
+  assert.equal(refusalFor('linkedin', { content: 'Hiring two carpenters.' }), null);
+  assert.equal(refusalFor('linkedin_company', { content: 'Hiring two carpenters.' }), null);
+  assert.equal(PLATFORMS.linkedin_company.needsOrganization, true);
+  assert.notEqual(PLATFORMS.linkedin.needsOrganization, true, 'a personal post has no organisation');
+});
+
+test('each LinkedIn says which one it is, so neither looks broken', () => {
+  assert.match(PLATFORMS.linkedin.caveat!, /personal profile/i);
+  assert.match(PLATFORMS.linkedin_company.caveat!, /approval/i);
 });
