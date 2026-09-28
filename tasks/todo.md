@@ -1,3 +1,37 @@
+# A — the content ladder is three rungs (28 Sep)
+
+    1  Solo     $79/mo    600 calls    40 renders    1 seat    5 reels
+    2  Studio   $199/mo   1,500        150           3         20
+    3  Agency   $499/mo   5,000        600           15        unlimited (sold, not enforced)
+
+All three inactive with no Stripe price, which is still the honest state: a
+tier that cannot take money must not be offered. Studio and Agency were
+renumbered so the ladder reads 1, 2, 3.
+
+## The number that is not arbitrary
+
+Solo's 600 calls and 40 renders are above the free backstop in `aiSpend`
+(`DEFAULT_LIMITS`: 300 calls, 10 renders). That constraint is the whole reason
+the entry rung cannot be priced by feel alone: a rung publishing less than the
+backstop would make PAYING US WORSE THAN NOT PAYING, and it would do it
+silently — the tier would show a number, the customer would be charged, and
+they would hit a lower ceiling than a stranger who signed up that morning.
+
+The reasoning is recorded on the record itself, in its `note`, because the next
+person to edit those figures will be in the tier admin rather than in this file.
+
+## The gap this leaves
+
+Nothing enforces that constraint. The tier editor will happily accept
+`aiCallsPerMonth: 100` on a paid tier, and nothing compares a published ceiling
+against the free backstop. A test cannot catch it either, because tiers live in
+the database rather than in code — so the only place it can be caught is the
+editor, at the moment somebody types it.
+
+Offered to Eric rather than built, since A was agreed as data only.
+
+---
+
 # C — a trial grants breadth, a purchase grants persistence (28 Sep)
 
 The first item of the agreed subscription plan, and it was an inversion rather
