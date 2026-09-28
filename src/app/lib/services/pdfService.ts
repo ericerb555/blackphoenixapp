@@ -388,6 +388,131 @@ export class PDFService {
   /**
    * Helper: Convert hex color to RGB
    */
+  /**
+   * A contract, as a PDF.
+   *
+   * WHY THIS IS NOT THE INVOICE LAYOUT WITH DIFFERENT WORDS
+   *
+   * A quote and an invoice share a structure — a table of priced lines — so
+   * swapping four labels was enough. A contract does not: it is prose, and the
+   * terms can run for pages. Forcing it through `autoTable` would either
+   * truncate the agreement or render it as one enormous cell.
+   *
+   * So the brand header is shared and the body flows, breaking across pages
+   * where it has to. The signature block is placed AFTER the terms rather than
+   * at a fixed position, because a signature that lands above the clause it
+   * signs is worse than no layout at all.
+   */
+  static generateContractPDF(data: {
+    reference: string;
+    title: string;
+    status: string;
+    createdOn?: string;
+    amount?: number | null;
+    party: { name: string; email?: string; address?: string };
+    body: string;
+    signature?: { name?: string; email?: string; signedOn?: string; method?: string } | null;
+  }): jsPDF {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const left = 20;
+    const width = pageWidth - 40;
+    const primaryColor = this.hexToRGB(companyInfo.branding.primaryColor);
+
+    doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text(companyInfo.name, left, 20);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('CONTRACT', pageWidth - left, 20, { align: 'right' });
+    if (data.reference) doc.text(data.reference, pageWidth - left, 28, { align: 'right' });
+
+    doc.setTextColor(0, 0, 0);
+    let y = 52;
+
+    doc.setFontSize(15);
+    doc.setFont('helvetica', 'bold');
+    doc.text(data.title, left, y);
+    y += 10;
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Between', left, y);
+    doc.text('And', pageWidth / 2, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text(companyInfo.legalName, left, y);
+    doc.text(data.party.name || 'Customer', pageWidth / 2, y);
+    y += 4;
+    doc.text(`${companyInfo.address.city}, ${companyInfo.address.state}`, left, y);
+    if (data.party.email) doc.text(data.party.email, pageWidth / 2, y);
+    y += 10;
+
+    doc.setFont('helvetica', 'bold');
+    if (data.createdOn) { doc.text(`Dated: ${data.createdOn}`, left, y); }
+    if (data.amount !== null && data.amount !== undefined) {
+      doc.text(`Contract value: $${Number(data.amount).toFixed(2)}`, pageWidth / 2, y);
+    }
+    y += 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('TERMS OF AGREEMENT', left, y);
+    y += 6;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const terms = data.body || 'No terms have been recorded on this contract.';
+    for (const line of doc.splitTextToSize(terms, width)) {
+      // A new page before the line rather than after it, so a clause is never
+      // split across the fold with its first half orphaned.
+      if (y > pageHeight - 60) { doc.addPage(); y = 20; }
+      doc.text(line, left, y);
+      y += 5;
+    }
+
+    y += 12;
+    if (y > pageHeight - 55) { doc.addPage(); y = 20; }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`For ${companyInfo.name}`, left, y);
+    doc.text('Customer', pageWidth / 2, y);
+    y += 14;
+    doc.setDrawColor(120, 120, 120);
+    doc.line(left, y, left + 70, y);
+    doc.line(pageWidth / 2, y, pageWidth / 2 + 70, y);
+    y += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('Authorised signature', left, y);
+    if (data.signature?.name) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(data.signature.name, pageWidth / 2, y - 7);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const details = [data.signature.email, data.signature.signedOn, data.signature.method]
+        .filter(Boolean) as string[];
+      let detailY = y;
+      for (const detail of details) { doc.text(detail, pageWidth / 2, detailY); detailY += 4; }
+    } else {
+      doc.text('Not yet signed', pageWidth / 2, y);
+    }
+
+    return doc;
+  }
+
+  static downloadContractPDF(data: Parameters<typeof PDFService.generateContractPDF>[0], filename?: string): void {
+    const doc = this.generateContractPDF(data);
+    doc.save(filename || `Contract_${data.reference || 'draft'}.pdf`);
+  }
+
   private static hexToRGB(hex: string): { r: number; g: number; b: number } {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result
