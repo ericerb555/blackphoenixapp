@@ -77,12 +77,20 @@ function toLocalInput(iso: string): string {
     + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const SEED: Employee[] = [
-  { id: 'EMP-001', firstName: 'Mike', lastName: 'Torres', email: 'mike@bpb.com', phone: '603-555-0101', role: 'Lead Carpenter', department: 'field', payType: 'hourly', payRate: 32, status: 'active', startDate: '2022-03-15', hoursThisWeek: 38, hoursThisPeriod: 76, certifications: ['OSHA-30'], notes: '' },
-  { id: 'EMP-002', firstName: 'Jake', lastName: 'Sullivan', email: 'jake@bpb.com', phone: '603-555-0103', role: 'Roofer', department: 'field', payType: 'hourly', payRate: 28, status: 'active', startDate: '2023-06-01', hoursThisWeek: 40, hoursThisPeriod: 80, certifications: ['OSHA-10'], notes: '' },
-  { id: 'EMP-003', firstName: 'Lisa', lastName: 'Park', email: 'lisa@bpb.com', phone: '603-555-0105', role: 'Office Manager', department: 'office', payType: 'salary', payRate: 55000, status: 'active', startDate: '2021-09-01', hoursThisWeek: 40, hoursThisPeriod: 80, certifications: [], notes: '' },
-  { id: 'EMP-004', firstName: 'Tom', lastName: 'Walsh', email: 'tom@bpb.com', phone: '603-555-0109', role: 'Project Manager', department: 'management', payType: 'salary', payRate: 72000, status: 'active', startDate: '2020-04-20', hoursThisWeek: 42, hoursThisPeriod: 84, certifications: ['PMP', 'OSHA-30'], notes: '' },
-];
+/**
+ * There are no seed employees.
+ *
+ * This held four invented people — Mike Torres, Jake Sullivan, Lisa Park and
+ * Tom Walsh — on a payroll screen. They were harmless while this screen only
+ * talked to itself. They stopped being harmless when it started reading the
+ * records job costing uses: two of them carried SALARIES (55,000 and 72,000)
+ * in a field that is multiplied by hours everywhere else.
+ *
+ * An empty list is also the honest thing to show. A payroll screen listing
+ * staff who do not exist invites somebody to run payroll against them.
+ */
+const SEED: Employee[] = [];
+
 
 const SEED_PAYROLL: PayrollRun[] = [
   { id: 'PAY-001', periodStart: '2026-06-28', periodEnd: '2026-07-11', status: 'paid', totalGross: 18640, employeeCount: 4 },
