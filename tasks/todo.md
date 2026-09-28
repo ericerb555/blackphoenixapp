@@ -1,3 +1,45 @@
+# Fixing the portal uncovered the next bug (28 Sep)
+
+The API base URL fix went live and every previously-dead call returned 200 —
+work requests, quotes, invoices, contracts, subscriptions. Verified in the
+running app against a real account.
+
+The portal then crashed outright: **"Something went wrong loading this page —
+j.filter is not a function."**
+
+## Why a fix caused a crash
+
+`setQuotes(data || [])` trusted `/quotes` to return a bare array. It does not:
+it returns `{ success, quotes }`. `quotes` state became an object, and the first
+thing render does is `quotes.filter(...)`, so the ErrorBoundary swallowed the
+whole screen. Not a missing quote list — nothing at all.
+
+That branch had never run against a real response in its life, because the base
+URL had been wrong since 6 July. Three months of silent failure had been hiding
+it. The invoices loader immediately below already did it correctly
+(`Array.isArray(data) ? data : data.invoices || []`), which is what the quotes
+line now does too.
+
+## The cause underneath: two routes, one path
+
+    supabase/functions/server/quotes.tsx:206   quotesRouter.get('/make-server-3eae23a6/quotes')
+    supabase/functions/server/index.tsx:5196   app.get('/make-server-3eae23a6/quotes')
+
+Both are registered. The router wins, and it returns an object — while the
+shadowed handler in `index.tsx` carries a comment stating it returns a bare
+array, which is exactly what the frontend was written to trust. A comment that
+is true of dead code is worse than no comment.
+
+This codebase already has a duplicate-route scanner and a history of this class
+of bug; the same shadowing exists for POST /quotes. **Not fixed here.** Removing
+a live route is a server change with a much wider blast radius than accepting
+both shapes, and it wants Eric's sign-off rather than being slipped in behind a
+crash fix.
+
+Typecheck 317 app (baseline), 675 tests pass, smoke 19 rendered / 0 threw.
+
+---
+
 # The customer portal was not working. It had not been since 6 July (28 Sep)
 
 Eric asked for the customer portal to be proven end to end before he invites

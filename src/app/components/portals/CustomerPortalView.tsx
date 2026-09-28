@@ -175,7 +175,24 @@ export default function CustomerPortalView() {
         if (response.ok) {
           const data = await response.json();
           console.log('✅ Loaded quotes for user:', user.id, data);
-          setQuotes(data || []);
+          /**
+           * Either shape, because the server genuinely sends both.
+           *
+           * TWO handlers are registered for GET /quotes — `quotes.tsx` and
+           * `index.tsx` — and the router one wins, returning
+           * `{ success, quotes }`. The other returns a bare array and its own
+           * comment says so, which is what this line used to trust.
+           *
+           * Trusting it crashed the ENTIRE portal: `setQuotes` took the object,
+           * and the first thing render does is `quotes.filter(...)`, so the
+           * whole screen became "Something went wrong loading this page". Not a
+           * missing quote list — nothing at all.
+           *
+           * It only surfaced today because the API base URL was wrong until
+           * this morning, so this branch had never once run against a real
+           * response. Fixing one bug uncovered the next.
+           */
+          setQuotes(Array.isArray(data) ? data : (data.quotes || []));
         } else {
           console.warn('⚠️ Quotes API returned status:', response.status);
           setQuotes([]);
