@@ -10,7 +10,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  bandFor, priceFor, spotsRemaining, isFull, monthlyRevenueOf, cohortFromTier, type Cohort,
+  bandFor, priceFor, spotsRemaining, isFull, monthlyRevenueOf, cohortFromTier,
+  withoutMoneyFigures, type Cohort,
 } from '../supabase/functions/server/cohortPricing.ts';
 
 const banded = (over: Partial<Cohort> = {}): Cohort => ({
@@ -277,4 +278,75 @@ test('a tier with no price migrates at zero rather than NaN', () => {
   const cohort = cohortFromTier({ id: 'x', name: 'X' });
   assert.equal(cohort.basePrice, 0);
   assert.equal(priceFor(cohort, 1).price, 0);
+});
+
+// ── The fields nobody may write ───────────────────────────────────────────
+
+/**
+ * There turned out to be FOUR ways to write a cohort — create, edit,
+ * bulk-update and an `update-subscribers` route — and only create was
+ * guarded. An edit could set `monthlyRevenue: 999999` on the record the
+ * company's P&L screen reads. This is the one guard all of them now share,
+ * so it is tested once and applies everywhere.
+ */
+const MONEY_FIELDS = [
+  'monthlyRevenue', 'activeSubscribers', 'churnRate',
+  'conversionRate', 'averageLTV', 'foundingMemberCount', 'foundingMemberRevenue',
+];
+
+test('EVERY DERIVED MONEY FIELD IS REMOVED FROM A WRITE', () => {
+  const posted: Record<string, unknown> = { name: 'Studio', basePrice: 149 };
+  for (const field of MONEY_FIELDS) posted[field] = 999999;
+
+  const kept = withoutMoneyFigures(posted);
+  for (const field of MONEY_FIELDS) {
+    assert.equal(field in kept, false, `${field} must not survive a write`);
+  }
+});
+
+test('everything that describes what a cohort CHARGES is kept', () => {
+  const kept = withoutMoneyFigures({
+    name: 'Studio',
+    basePrice: 149,
+    maxSpots: 50,
+    pricingTiers: [{ minUsers: 0, maxUsers: 10, priceMultiplier: 1 }],
+    stripePriceId: 'price_live_abc',
+    priceFloor: 99,
+    status: 'active',
+  });
+  assert.equal(kept.name, 'Studio');
+  assert.equal(kept.basePrice, 149);
+  assert.equal(kept.maxSpots, 50, 'a spot cap is a limit, not an earning');
+  assert.equal(kept.stripePriceId, 'price_live_abc');
+  assert.equal(kept.priceFloor, 99);
+  assert.equal(Array.isArray(kept.pricingTiers), true);
+});
+
+/**
+ * A zero is not a safe placeholder. Stripping only truthy values would let
+ * `monthlyRevenue: 0` through and overwrite a derived figure with a false one.
+ */
+test('a ZERO is stripped too, not treated as harmless', () => {
+  const kept = withoutMoneyFigures({ name: 'X', monthlyRevenue: 0, activeSubscribers: 0 });
+  assert.equal('monthlyRevenue' in kept, false);
+  assert.equal('activeSubscribers' in kept, false);
+});
+
+test('an empty or missing body yields an empty record rather than throwing', () => {
+  assert.deepEqual(withoutMoneyFigures({}), {});
+  assert.deepEqual(withoutMoneyFigures(null), {});
+  assert.deepEqual(withoutMoneyFigures(undefined), {});
+});
+
+/**
+ * The migration's output has to survive its own guard — otherwise a migrated
+ * cohort would lose its price on the first edit.
+ */
+test('a migrated cohort passes through the guard unchanged', () => {
+  const migrated = cohortFromTier({
+    id: 'studio', name: 'Studio', priceCents: 14900, active: true,
+    stripePriceId: 'price_live_abc', stripePriceIdTest: 'price_test_abc',
+  });
+  const kept = withoutMoneyFigures(migrated);
+  assert.deepEqual(kept, migrated as Record<string, unknown>);
 });

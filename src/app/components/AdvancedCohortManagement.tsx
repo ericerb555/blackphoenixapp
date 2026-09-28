@@ -31,22 +31,81 @@ import {
   HardHat
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
+
+/**
+ * Cohorts are read from and written to the server.
+ *
+ * This screen used to hold its cohorts in `useState` as two literals —
+ * "Premium Customers, 245 members, $24,500/month" and "Enterprise Clients,
+ * 48, $96,000/month" — $120,500 a month that nobody paid, rendered on three
+ * different pages. Nothing here ever called the server: `useEffect` was
+ * imported and never used.
+ *
+ * The routes are staff-only, so these calls send the signed-in user's access
+ * token rather than the publishable anon key. `authedHeaders` throws when
+ * there is no session instead of quietly falling back, which turns "you are
+ * signed out" into a message rather than a 401 that reads like a broken page.
+ */
+const COHORTS_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/** What the server returns for a cohort. Money figures are derived by it. */
+interface ServerCohort {
+  id: string;
+  name?: string;
+  description?: string;
+  blurb?: string;
+  status?: string;
+  basePrice?: number;
+  tags?: string[];
+  createdAt?: string;
+  /** Derived from memberships, never stored. Read-only here. */
+  monthlyRevenue?: number;
+  activeSubscribers?: number;
+  spotsRemaining?: number | null;
+}
 import { SubscriptionPlans } from './SubscriptionPlans';
 
 type ViewMode = 'subscriptions' | 'cohorts' | 'maintenance' | 'vendors' | 'advertisers' | 'construction';
 
+/**
+ * A cohort as this screen uses it.
+ *
+ * `monthlyRevenue` and `activeSubscribers` are DERIVED BY THE SERVER from the
+ * memberships pointing at the cohort. They arrive on the record but they are
+ * read-only — the server strips them from anything written back, so there is
+ * no field here for a typed-in figure to live in. The create form no longer
+ * offers them.
+ */
 interface Cohort {
   id: string;
   name: string;
   description: string;
-  memberCount: number;
-  monthlyRevenue: number;
-  growthRate: number;
   status: 'active' | 'inactive';
   createdAt: string;
   tags: string[];
+  /** What it charges. This is the part a person sets. */
+  basePrice: number;
+  /** Derived. */
+  monthlyRevenue: number;
+  activeSubscribers: number;
+  spotsRemaining: number | null;
 }
+
+/** Fill in what the server leaves off, so the card never reads undefined. */
+const asCohort = (raw: ServerCohort): Cohort => ({
+  id: String(raw?.id ?? ''),
+  name: String(raw?.name ?? 'Untitled cohort'),
+  description: String(raw?.description ?? raw?.blurb ?? ''),
+  status: raw?.status === 'inactive' ? 'inactive' : 'active',
+  createdAt: String(raw?.createdAt ?? ''),
+  tags: Array.isArray(raw?.tags) ? raw.tags : [],
+  basePrice: Number(raw?.basePrice ?? 0) || 0,
+  monthlyRevenue: Number(raw?.monthlyRevenue ?? 0) || 0,
+  activeSubscribers: Number(raw?.activeSubscribers ?? 0) || 0,
+  spotsRemaining: raw?.spotsRemaining ?? null,
+});
 
 interface SubscriptionPlan {
   id: string;
@@ -117,31 +176,37 @@ export function AdvancedCohortManagement() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [editingItem, setEditingItem] = useState<any | null>(null);
 
-  // Sample data
-  const [cohorts, setCohorts] = useState<Cohort[]>([
-    {
-      id: '1',
-      name: 'Premium Customers',
-      description: 'High-value customers with premium subscriptions',
-      memberCount: 245,
-      monthlyRevenue: 24500,
-      growthRate: 12.5,
-      status: 'active',
-      createdAt: '2024-01-15',
-      tags: ['Premium', 'High Value']
-    },
-    {
-      id: '2',
-      name: 'Enterprise Clients',
-      description: 'Large enterprise accounts',
-      memberCount: 48,
-      monthlyRevenue: 96000,
-      growthRate: 8.3,
-      status: 'active',
-      createdAt: '2024-02-01',
-      tags: ['Enterprise', 'B2B']
+  // Cohorts come from the server. Empty until they load; never invented.
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [cohortsLoading, setCohortsLoading] = useState(true);
+  const [cohortsError, setCohortsError] = useState<string | null>(null);
+
+  /**
+   * Read the cohorts.
+   *
+   * On failure the list is left EMPTY and the error is shown. The alternative
+   * — keeping a stale list on screen, or falling back to samples — is how a
+   * figure nobody can account for ends up being read as revenue.
+   */
+  const loadCohorts = async () => {
+    setCohortsLoading(true);
+    try {
+      const res = await fetch(`${COHORTS_API}/cohorts`, { headers: await authedHeaders() });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        throw new Error(body?.error || `The server answered ${res.status}.`);
+      }
+      setCohorts((Array.isArray(body.cohorts) ? body.cohorts : []).map(asCohort));
+      setCohortsError(null);
+    } catch (err: any) {
+      setCohorts([]);
+      setCohortsError(err?.message || 'Could not load cohorts.');
+    } finally {
+      setCohortsLoading(false);
     }
-  ]);
+  };
+
+  useEffect(() => { void loadCohorts(); }, []);
 
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([
     {
@@ -318,19 +383,40 @@ export function AdvancedCohortManagement() {
   const getFilteredData = () => {
     const data = getCurrentData();
     if (!searchTerm) return data;
+    // Guarded: a real cohort may arrive with no description, and
+    // `undefined.toLowerCase()` took the whole screen down. The samples this
+    // replaced always had one, so nothing ever hit it.
+    const needle = searchTerm.toLowerCase();
     return data.filter((item: any) =>
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchTerm.toLowerCase())
+      String(item?.name ?? '').toLowerCase().includes(needle) ||
+      String(item?.description ?? '').toLowerCase().includes(needle)
     );
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this item?')) return;
 
+    // Cohorts are the only kind on this screen that the server knows about.
+    // The other five lists are still local; see the note above the tab strip.
+    if (viewMode === 'cohorts') {
+      try {
+        const res = await fetch(`${COHORTS_API}/cohorts/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: await authedHeaders(),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body?.success) throw new Error(body?.error || `The server answered ${res.status}.`);
+        await loadCohorts();
+        toast.success('Cohort deleted');
+      } catch (err: any) {
+        // Said plainly, because "deleted successfully" over a failed request
+        // is how somebody stops chasing a thing that is still there.
+        toast.error(err?.message || 'Could not delete the cohort.');
+      }
+      return;
+    }
+
     switch (viewMode) {
-      case 'cohorts':
-        setCohorts(cohorts.filter(c => c.id !== id));
-        break;
       case 'subscriptions':
         setSubscriptionPlans(subscriptionPlans.filter(p => p.id !== id));
         break;
@@ -350,7 +436,7 @@ export function AdvancedCohortManagement() {
     toast.success('Item deleted successfully');
   };
 
-  const handleDuplicate = (item: any) => {
+  const handleDuplicate = async (item: any) => {
     const newItem = {
       ...item,
       id: Date.now().toString(),
@@ -358,10 +444,20 @@ export function AdvancedCohortManagement() {
       createdAt: new Date().toISOString().split('T')[0]
     };
 
+    if (viewMode === 'cohorts') {
+      // The copy carries the PRICE and nothing else about money. The server
+      // strips the derived figures anyway; not sending them says why.
+      await saveCohort({
+        name: newItem.name,
+        description: item.description,
+        basePrice: item.basePrice,
+        tags: item.tags,
+        status: 'active',
+      }, null, 'Cohort duplicated');
+      return;
+    }
+
     switch (viewMode) {
-      case 'cohorts':
-        setCohorts([...cohorts, newItem]);
-        break;
       case 'subscriptions':
         setSubscriptionPlans([...subscriptionPlans, newItem]);
         break;
@@ -381,16 +477,56 @@ export function AdvancedCohortManagement() {
     toast.success('Item duplicated successfully');
   };
 
-  const handleToggleStatus = (id: string) => {
+  /**
+   * Create or update a cohort on the server, then re-read the list.
+   *
+   * It re-reads rather than patching local state because the money figures
+   * are derived server-side: the response is the only place the true revenue
+   * and subscriber count for the changed cohort exist.
+   */
+  const saveCohort = async (
+    fields: Record<string, unknown>,
+    id: string | null,
+    successMessage: string,
+  ) => {
+    try {
+      const res = await fetch(
+        id ? `${COHORTS_API}/cohorts/${encodeURIComponent(id)}` : `${COHORTS_API}/cohorts`,
+        {
+          method: id ? 'PUT' : 'POST',
+          headers: await authedHeaders(),
+          body: JSON.stringify(fields),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) throw new Error(body?.error || `The server answered ${res.status}.`);
+      await loadCohorts();
+      toast.success(successMessage);
+      return true;
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not save the cohort.');
+      return false;
+    }
+  };
+
+  const handleToggleStatus = async (id: string) => {
     const toggleStatus = (item: any) => ({
       ...item,
       status: item.status === 'active' ? 'inactive' : 'active'
     });
 
+    if (viewMode === 'cohorts') {
+      const current = cohorts.find((c) => c.id === id);
+      if (!current) return;
+      await saveCohort(
+        { status: current.status === 'active' ? 'inactive' : 'active' },
+        id,
+        current.status === 'active' ? 'Cohort deactivated' : 'Cohort activated',
+      );
+      return;
+    }
+
     switch (viewMode) {
-      case 'cohorts':
-        setCohorts(cohorts.map(c => c.id === id ? toggleStatus(c) : c));
-        break;
       case 'subscriptions':
         setSubscriptionPlans(subscriptionPlans.map(p => p.id === id ? toggleStatus(p) : p));
         break;
@@ -578,17 +714,69 @@ export function AdvancedCohortManagement() {
               {getCurrentData().filter((item: any) => item.status === 'inactive').length}
             </div>
           </div>
+          {/*
+            This said "+12.3%" in green, as a literal, on every tab whatever
+            the data was. There is no stored history to compute growth from.
+            Monthly revenue IS computable — the server derives it from the
+            memberships — so the card shows that instead of a decorative
+            number, and shows it only on the tab where it is real.
+          */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-zinc-400 text-sm">Growth</span>
+              <span className="text-zinc-400 text-sm">
+                {viewMode === 'cohorts' ? 'Monthly Revenue' : 'Growth'}
+              </span>
               <TrendingUp className="w-5 h-5 text-[#ea580c]" />
             </div>
-            <div className="text-3xl font-bold text-green-500">+12.3%</div>
+            <div className="text-3xl font-bold text-white">
+              {viewMode === 'cohorts'
+                ? new Intl.NumberFormat('en-US', {
+                    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+                  }).format(cohorts.reduce((sum, c) => sum + (c.monthlyRevenue || 0), 0))
+                : <span className="text-zinc-600">—</span>}
+            </div>
           </div>
         </div>
 
+        {/*
+          Cohorts are read from the server, so this tab has the three states
+          a real list has: loading, failed, and genuinely empty. It showed
+          none of them before because the data was a literal and could not
+          fail. An empty list is REPORTED as empty rather than filled with
+          samples — nothing here invents a cohort.
+        */}
+        {viewMode === 'cohorts' && cohortsLoading && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center text-zinc-400">
+            Loading cohorts…
+          </div>
+        )}
+
+        {viewMode === 'cohorts' && !cohortsLoading && cohortsError && (
+          <div className="bg-zinc-900 border border-red-500/30 rounded-lg p-8 text-center">
+            <p className="text-red-400 font-medium mb-2">Cohorts could not be loaded.</p>
+            <p className="text-sm text-zinc-400 mb-4">{cohortsError}</p>
+            <button
+              onClick={() => void loadCohorts()}
+              className="px-4 py-2 bg-[#ea580c] text-white rounded-lg hover:bg-[#c2410c] transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {viewMode === 'cohorts' && !cohortsLoading && !cohortsError && cohorts.length === 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center">
+            <p className="text-white font-medium mb-2">No cohorts yet.</p>
+            <p className="text-sm text-zinc-400">
+              Create one above, or bring the existing plan tiers across with the
+              tier migration on the server.
+            </p>
+          </div>
+        )}
+
         {/* Data Grid */}
-        {viewMode === 'subscriptions' ? (
+        {viewMode === 'cohorts' && (cohortsLoading || cohortsError || cohorts.length === 0) ? null
+          : viewMode === 'subscriptions' ? (
           <SubscriptionPlans onSelectPlan={(planId) => toast.success(`Selected plan: ${planId}`)} />
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -700,13 +888,32 @@ export function AdvancedCohortManagement() {
               setShowCreateModal(false);
               setEditingItem(null);
             }}
-            onSave={(item) => {
+            onSave={async (item) => {
+              if (viewMode === 'cohorts') {
+                // Only the fields a person is allowed to set. The server
+                // strips the derived ones anyway; sending only these makes
+                // the intent legible at the call site rather than relying on
+                // the guard at the other end.
+                const ok = await saveCohort(
+                  {
+                    name: item.name,
+                    description: item.description,
+                    basePrice: Number(item.basePrice) || 0,
+                    maxSpots: item.maxSpots,
+                    status: editingItem ? item.status : 'active',
+                  },
+                  editingItem ? String(editingItem.id) : null,
+                  editingItem ? 'Cohort updated' : 'Cohort created',
+                );
+                if (ok) {
+                  setShowCreateModal(false);
+                  setEditingItem(null);
+                }
+                return;
+              }
               if (editingItem) {
                 // Update existing
                 switch (viewMode) {
-                  case 'cohorts':
-                    setCohorts(cohorts.map(c => c.id === item.id ? item : c));
-                    break;
                   case 'subscriptions':
                     setSubscriptionPlans(subscriptionPlans.map(p => p.id === item.id ? item : p));
                     break;
@@ -733,9 +940,6 @@ export function AdvancedCohortManagement() {
                   createdAt: new Date().toISOString().split('T')[0]
                 };
                 switch (viewMode) {
-                  case 'cohorts':
-                    setCohorts([...cohorts, newItem]);
-                    break;
                   case 'subscriptions':
                     setSubscriptionPlans([...subscriptionPlans, newItem]);
                     break;
@@ -799,7 +1003,7 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
           </div>
           <p className="text-sm text-zinc-400 mb-3">{cohort.description}</p>
           <div className="flex flex-wrap gap-1">
-            {cohort.tags.map((tag, idx) => (
+            {(cohort.tags || []).map((tag, idx) => (
               <span key={idx} className="px-2 py-1 bg-zinc-800 text-zinc-300 rounded text-xs">
                 {tag}
               </span>
@@ -824,7 +1028,7 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
           <div className="text-xs text-zinc-500 mb-1">Members</div>
           <div className="text-lg font-semibold text-white flex items-center gap-1">
             <Users className="w-4 h-4 text-[#ea580c]" />
-            {cohort.memberCount}
+            {cohort.activeSubscribers}
           </div>
         </div>
         <div>
@@ -834,11 +1038,18 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
             {formatCurrency(cohort.monthlyRevenue)}
           </div>
         </div>
+        {/*
+          This cell showed a growth rate. There is no history to compute one
+          from, so the figure was whatever had been typed into the form — and
+          on the two sample cohorts it was simply invented. The price is a
+          real property of the cohort and is what the other two are derived
+          against, so it goes here instead.
+        */}
         <div>
-          <div className="text-xs text-zinc-500 mb-1">Growth</div>
-          <div className="text-lg font-semibold text-green-500 flex items-center gap-1">
-            <TrendingUp className="w-4 h-4" />
-            {cohort.growthRate}%
+          <div className="text-xs text-zinc-500 mb-1">Price</div>
+          <div className="text-lg font-semibold text-white flex items-center gap-1">
+            <DollarSign className="w-4 h-4 text-[#ea580c]" />
+            {formatCurrency(cohort.basePrice)}
           </div>
         </div>
       </div>
@@ -1301,41 +1512,49 @@ function CreateEditModal({ viewMode, editingItem, onClose, onSave }: CreateEditM
           </div>
 
           {/* View-specific fields */}
+{/*
+            A cohort describes WHAT IT CHARGES. It used to ask for Member
+            Count, Monthly Revenue and Growth Rate as well — three figures
+            somebody typed, which is exactly how a fabricated P&L happened.
+            The server now strips all three on write, so those inputs would
+            have been fields you could fill in and the server would discard.
+            Members and revenue are derived from memberships and shown
+            read-only on the card instead.
+          */}
           {viewMode === 'cohorts' && (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">Member Count</label>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">Monthly Price ($)</label>
                   <input
                     type="number"
-                    value={formData.memberCount || 0}
-                    onChange={(e) => setFormData({ ...formData, memberCount: parseInt(e.target.value) })}
+                    min="0"
+                    step="0.01"
+                    value={formData.basePrice ?? 0}
+                    onChange={(e) => setFormData({ ...formData, basePrice: parseFloat(e.target.value) || 0 })}
                     className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">Monthly Revenue</label>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">Spot Limit</label>
                   <input
                     type="number"
-                    value={formData.monthlyRevenue || 0}
-                    onChange={(e) => setFormData({ ...formData, monthlyRevenue: parseFloat(e.target.value) })}
-                    className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">Growth Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={formData.growthRate || 0}
-                    onChange={(e) => setFormData({ ...formData, growthRate: parseFloat(e.target.value) })}
-                    className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-[#ea580c]"
-                    required
+                    min="0"
+                    value={formData.maxSpots ?? ''}
+                    placeholder="Leave empty for no limit"
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      maxSpots: e.target.value === '' ? undefined : parseInt(e.target.value),
+                    })}
+                    className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white placeholder-zinc-600 focus:outline-none focus:border-[#ea580c]"
                   />
                 </div>
               </div>
+              <p className="text-xs text-zinc-500">
+                Members and monthly revenue are worked out from who actually holds this
+                cohort. They cannot be set by hand.
+              </p>
             </>
           )}
 

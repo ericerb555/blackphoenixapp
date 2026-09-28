@@ -16,7 +16,7 @@
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
-import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier } from './cohortPricing.ts';
+import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier, withoutMoneyFigures } from './cohortPricing.ts';
 import { accountStanding, mayDeactivate } from './accountStanding.ts';
 import { trustedRole } from './trustedRole.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -164,13 +164,9 @@ cohortsRouter.post('/cohorts', async (c) => {
      * written by anybody. Stripping them here rather than ignoring them later
      * means there is no field for a fabricated number to live in.
      */
-    const {
-      monthlyRevenue: _mr, activeSubscribers: _as, churnRate: _cr,
-      conversionRate: _cv, averageLTV: _ltv,
-      ...describedByCaller
-    } = cohortData ?? {};
+    const describedByCaller = withoutMoneyFigures(cohortData ?? {});
 
-    const cohort = {
+    const cohort: Record<string, any> = {
       ...describedByCaller,
       id: cohortId,
       createdAt: new Date().toISOString(),
@@ -213,7 +209,8 @@ cohortsRouter.post('/cohorts/bulk-update', async (c) => {
         if (existing) {
           const updated = {
             ...existing,
-            ...update,
+            ...withoutMoneyFigures(update ?? {}),
+            id: update.id,
             updatedAt: new Date().toISOString()
           };
           await kv.set(`${COHORT_PREFIX}${update.id}`, updated);
@@ -885,10 +882,12 @@ cohortsRouter.put('/cohorts/:id', async (c) => {
       }, 404);
     }
     
-    // Merge updates
+    // Merge updates. The money figures are stripped here for the same reason
+    // they are on create: what a cohort earns is derived from its memberships,
+    // and an edit must not be a second door onto the P&L screen.
     const cohort = {
       ...existing,
-      ...updates,
+      ...withoutMoneyFigures(updates ?? {}),
       id, // Preserve ID
       updatedAt: new Date().toISOString(),
       createdAt: existing.createdAt, // Preserve creation date
@@ -1096,52 +1095,29 @@ cohortsRouter.get('/cohorts/revenue/category/:category', async (c) => {
     }, 500);
   }
 });
-// Update subscriber count and recalculate revenue
-cohortsRouter.post('/cohorts/:id/update-subscribers', async (c) => {
-  try {
-    const id = c.req.param('id');
-    const { activeSubscribers, foundingMemberCount } = await c.req.json();
-    
-    const cohort = await kv.get(`${COHORT_PREFIX}${id}`);
-    
-    if (!cohort) {
-      return c.json({
-        success: false,
-        error: 'Cohort not found'
-      }, 404);
-    }
 
-    // Calculate revenue based on subscribers and pricing
-    const price = cohort.currentPrice || cohort.basePrice || 0;
-    const foundingPrice = cohort.foundingPrice || price;
-    
-    const regularSubscribers = activeSubscribers - (foundingMemberCount || 0);
-    const foundingRevenue = (foundingMemberCount || 0) * foundingPrice;
-    const regularRevenue = regularSubscribers * price;
-    const monthlyRevenue = foundingRevenue + regularRevenue;
-
-    // Update cohort
-    const updatedCohort = {
-      ...cohort,
-      activeSubscribers,
-      foundingMemberCount: foundingMemberCount || 0,
-      foundingMemberRevenue: foundingRevenue,
-      monthlyRevenue,
-      updatedAt: new Date().toISOString()
-    };
-
-    await kv.set(`${COHORT_PREFIX}${id}`, updatedCohort);
-
-    return c.json({
-      success: true,
-      cohort: updatedCohort,
-      message: 'Subscriber count and revenue updated successfully'
-    });
-  } catch (error) {
-    console.error('Error updating subscribers:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to update subscribers' 
-    }, 500);
-  }
-});
+/**
+ * Retired. This route WAS the fabrication engine.
+ *
+ * It took an `activeSubscribers` count from the caller, multiplied it by the
+ * cohort's price, and stored the product as `monthlyRevenue` on the record
+ * that the company's P&L screen reads. In other words: tell the server how
+ * many subscribers you have, and it will write the revenue down and believe
+ * it forever. Nothing reconciled that figure against anybody actually paying.
+ *
+ * Both numbers are now derived on read from the `feature_grant` records that
+ * point at the cohort — `monthlyRevenueOf` and `subscribersOf` — so there is
+ * nothing left for this route to do that would not be a lie.
+ *
+ * It is answered rather than deleted so that a caller still pointed at it
+ * gets a reason instead of a 404 that looks like a deployment problem. Its
+ * only client, `updateCohortSubscribers` in `revenueService.ts`, is removed
+ * in the same change; nothing in the app called that.
+ */
+cohortsRouter.post('/cohorts/:id/update-subscribers', (c) =>
+  c.json({
+    success: false,
+    error:
+      'Subscriber counts and revenue are derived from memberships and cannot be set. '
+      + 'Attach a feature_grant to the cohort instead.',
+  }, 410));

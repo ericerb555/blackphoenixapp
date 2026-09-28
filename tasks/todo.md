@@ -145,14 +145,42 @@ This has to come before V, not after. V derives revenue from memberships;
 deriving it correctly for a screen that reads none of it would be more
 carefully tested code that nothing calls.
 
-- [ ] V0a. Load cohorts from `GET /cohorts` on mount; show the real empty
+- [x] V0a. Load cohorts from `GET /cohorts` on mount; show the real empty
       state when there are none. Delete the two invented sample cohorts.
-- [ ] V0b. Remove Monthly Revenue and Member Count from the create form —
+- [x] V0b. Remove Monthly Revenue and Member Count from the create form —
       both are derived now, and an input the server discards is a lie on the
       screen. Show them as read-only derived figures on the card instead.
-- [ ] V0c. Keep the existing layout and styling exactly as they are. This is
+- [x] V0c. Keep the existing layout and styling exactly as they are. This is
       a wiring change, not a redesign.
 
+- [x] V0d. **Three more write holes, found while wiring the screen.** U3 closed
+      `POST /cohorts`, but there were four doors onto a cohort record, not one:
+      `PUT /cohorts/:id` merged `{...existing, ...updates}` with nothing
+      removed, so an EDIT could write `monthlyRevenue: 999999`; `bulk-update`
+      had the same shape; and `POST /cohorts/:id/update-subscribers` took a
+      subscriber count from the caller, multiplied it by the price, and stored
+      the product as revenue — a route whose entire purpose was writing an
+      unverified figure onto the P&L. The first three now share one
+      `withoutMoneyFigures()` guard in `cohortPricing.ts`, tested. The fourth
+      answers 410; its only client, `updateCohortSubscribers` in
+      `revenueService.ts`, is removed, and nothing in the app called it.
+      This had to come before V0a because V0a makes the screen call `PUT`.
+
+### V0 — still outstanding on this screen
+
+The five other tabs on `AdvancedCohortManagement` are still local `useState`
+samples with no server behind them, and their delete/duplicate/toggle
+handlers still say "Item deleted successfully" over nothing. They are not
+cohorts and they are not this task, but they are worth naming:
+
+- [ ] V0e. The **Subscriptions** tab is the default view, and its stats header
+      counts a mock array of two ("Starter Plan, 320 subscribers" / a
+      "Professional Plan" whose features are literally "Feature 1, Feature 2,
+      Feature 3") while the grid below it renders the real `SubscriptionPlans`
+      component. The header and the list disagree on the first screen anybody
+      opening this page sees.
+- [ ] V0f. Vendor, advertiser, maintenance and construction plan tabs: same
+      shape, all local, all inventing subscriber counts.
 ### W — every money surface reads the spine
 
 - [ ] W1. Stripe checkout and the webhook write cohort membership.

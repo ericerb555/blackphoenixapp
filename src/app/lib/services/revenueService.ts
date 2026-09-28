@@ -197,38 +197,16 @@ export async function getCohortsHealth(): Promise<HealthStats | null> {
     return null;
   }
 }
-
 /**
- * Update subscriber count for a cohort and recalculate revenue
+ * `updateCohortSubscribers` was removed here.
+ *
+ * It POSTed a subscriber count to `/cohorts/:id/update-subscribers`, and the
+ * server multiplied it by the price and stored the product as the cohort's
+ * monthly revenue — a figure the company's own P&L screen then read back as
+ * fact. Both numbers are now derived from the `feature_grant` records that
+ * point at the cohort, so there is nothing for a caller to set. The route
+ * answers 410. Nothing in the app called this.
  */
-export async function updateCohortSubscribers(
-  cohortId: string,
-  activeSubscribers: number,
-  foundingMemberCount?: number
-): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_BASE}/cohorts/${cohortId}/update-subscribers`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: JSON.stringify({
-        activeSubscribers,
-        foundingMemberCount: foundingMemberCount || 0
-      })
-    });
-
-    if (!response.ok) {
-      console.error('Failed to update cohort subscribers:', response.status);
-      return false;
-    }
-
-    const data = await response.json();
-    console.log('Updated cohort:', data.cohort);
-    return data.success;
-  } catch (error) {
-    console.error('Error updating cohort subscribers:', error);
-    return false;
-  }
-}
 
 /**
  * Get all cohorts from the system

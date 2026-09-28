@@ -253,3 +253,33 @@ export function monthlyRevenueOf(
 
   return Math.round(total * 100) / 100;
 }
+
+
+/**
+ * A cohort record with every derived money figure removed.
+ *
+ * WHY THIS IS A FUNCTION AND NOT A LINE IN ONE HANDLER
+ *
+ * Because there turned out to be FOUR ways to write a cohort, and closing one
+ * of them is not closing the hole. `POST /cohorts` was fixed first, and
+ * `PUT /cohorts/:id` still did `{ ...existing, ...updates }` with nothing
+ * removed — so an edit could write `monthlyRevenue: 999999` even though the
+ * create route refused it. `bulk-update` had the same shape.
+ *
+ * These five fields describe what a cohort EARNS, and that is a fact about
+ * the memberships pointing at it, not a property somebody types. They are
+ * derived on read by `withDerivedFigures`. Stripping them on every write means
+ * there is no field for a fabricated number to live in, whichever door it
+ * arrives through.
+ */
+export const withoutMoneyFigures = (body: any): Record<string, any> => {
+  const {
+    monthlyRevenue: _mr, activeSubscribers: _as, churnRate: _cr,
+    conversionRate: _cv, averageLTV: _ltv,
+    // Written only by the retired `update-subscribers` route, which computed
+    // revenue from a subscriber count the caller supplied.
+    foundingMemberCount: _fmc, foundingMemberRevenue: _fmr,
+    ...described
+  } = body ?? {};
+  return described;
+};
