@@ -30,6 +30,7 @@ import {
 import { toast } from 'sonner@2.0.3';
 import { projectId } from '../../utils/supabase/info';
 import { ADVERTISER_PLANS, ADVERTISER_WEEKLY_PLANS, type SubscriptionPlan } from '../../config/subscriptionPlans';
+import SubscriptionAddOnsPanel from './SubscriptionAddOnsPanel';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -904,6 +905,14 @@ export function AdvertiserBillingTab({ adStats, campaigns, loading, subscription
           })}
         </div>
       </div>
+
+      {/*
+        What they are ACTUALLY billed, from the server, and the extras they
+        can add. The plans above come from the client-side catalogue in
+        config/subscriptionPlans.ts; this panel reads /my-plan, which computes
+        the figure from the records the server owns. See the note in the panel.
+      */}
+      <SubscriptionAddOnsPanel />
     </div>
   );
 }

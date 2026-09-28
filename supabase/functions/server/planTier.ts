@@ -375,6 +375,51 @@ export function subscriptionTotalCents(
 }
 
 /**
+ * The monthly figure to SHOW somebody — or nothing, which is not zero.
+ *
+ * WHY THIS IS NOT JUST `subscriptionTotalCents`
+ *
+ * That function answers "what does this tier plus these extras cost". This one
+ * answers "what should this account be told it pays", and the two differ for
+ * everybody who is not on a paid tier.
+ *
+ * THE TRIALIST IS THE CASE THIS EXISTS FOR
+ *
+ * A trial holds every add-on and records none of them, and a trialist has no
+ * tier. So tier-plus-extras computes to 0 for them — and a panel reading
+ * "$0/mo" teaches somebody the wrong number for the day their clock stops.
+ * Their real figure depends on which tier they convert to, which they have not
+ * chosen yet, so the honest answer is that there is no figure rather than a
+ * guessed one. Picking a tier on their behalf to produce a number would be
+ * worse than the blank.
+ *
+ * The free floor is the same shape for a different reason: nothing is being
+ * charged, so there is nothing to report.
+ *
+ * `basis` is returned alongside so a screen can say WHY there is no figure.
+ * "Nothing is being charged during your trial" and "you are on the free plan"
+ * are different sentences, and a panel that cannot tell them apart says
+ * neither.
+ */
+export interface MonthlyFigure {
+  /** Cents, or null when this account has no monthly figure at all. */
+  cents: number | null;
+  basis: 'subscription' | 'trial' | 'free';
+}
+
+export function monthlyFigure(
+  entitlementSource: string | null | undefined,
+  tier: Partial<PlanTier> | null | undefined,
+  held: Array<Partial<PlanAddOn>> = [],
+): MonthlyFigure {
+  const source = String(entitlementSource || '').trim();
+  if (source === 'subscription' && tier) {
+    return { cents: subscriptionTotalCents(tier, held), basis: 'subscription' };
+  }
+  return { cents: null, basis: source === 'trial' ? 'trial' : 'free' };
+}
+
+/**
  * The add-ons to show against one tier, each marked as included or extra.
  *
  * `purchasable` is resolved against the server's Stripe mode for the same

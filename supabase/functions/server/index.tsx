@@ -227,6 +227,7 @@ import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
   heldAddOnIds, holdsAddOn, paysForAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
+  addOnsForTier, monthlyFigure,
 } from "./planTier.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -12108,6 +12109,45 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
     const onCall = holdsAddOn(ON_CALL_ADD_ON_ID, grant, tierRecord);
 
     /**
+     * What they pay, and what they could add.
+     *
+     * WHY THIS IS HERE AT ALL
+     *
+     * `subscriptionTotalCents` and `addOnsForTier` have existed, tested and
+     * careful, with NO CALLER anywhere in the product. So the thing Eric
+     * actually asked for — "add on in the portals that can increase the
+     * monthly subscriptions depending on what the user wants" — had no surface
+     * to happen on: a subscriber could not see their monthly figure, could not
+     * see what was available to them, and could not add anything.
+     *
+     * The maths stays on the server. A total computed in a browser is a number
+     * the customer can edit, and `/plan-checkout` recomputes it from the
+     * catalogue for exactly that reason. This is the same figure, read-only.
+     *
+     * `addOnsForTier` strips both Stripe price ids before returning, so the
+     * catalogue can be handed to a portal without leaking them.
+     */
+    const audience = String(grant?.portalType || '').trim();
+    const addOnMode = isStripeTestAccount(email) && Boolean(stripeTestKey())
+      ? 'test'
+      : activeStripeMode();
+    const catalogue = audience
+      ? ((await kv.getByPrefix(`plan_addon:${audience}:`)) as PlanAddOn[] || []).filter(Boolean)
+      : [];
+    const available = addOnsForTier(catalogue, tierRecord, addOnMode);
+
+    /**
+     * The monthly figure — or null, which is not the same as zero. The
+     * judgement lives in `monthlyFigure` so it can be tested; see the note on
+     * it for why a trialist gets no number rather than a misleading $0.
+     */
+    const { cents: monthlyTotalCents, basis: totalBasis } = monthlyFigure(
+      entitlement.source,
+      tierRecord,
+      catalogue.filter((a) => addOns.includes(a.id)),
+    );
+
+    /**
      * Would a checkout from this account be a rehearsal, or real money?
      *
      * Surfaced because the admin panel offers a 'buy it myself' button, and a
@@ -12138,6 +12178,9 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
       tier,
       addOns,
       onCall,
+      available,
+      monthlyTotalCents,
+      totalBasis,
       portalType: grant?.portalType || null,
       rehearsal,
       stripeMode: rehearsal ? 'test' : activeStripeMode(),

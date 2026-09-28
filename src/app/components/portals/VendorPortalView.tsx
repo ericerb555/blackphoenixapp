@@ -28,6 +28,7 @@ import DealsOffersSection from './DealsOffersSection';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
+import SubscriptionAddOnsPanel from './SubscriptionAddOnsPanel';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { VendorInvoicesTab, VendorPaymentsTab, VendorPerformanceTab } from './VendorBilling';
@@ -1056,7 +1057,17 @@ export default function VendorPortalView() {
         )}
 
         {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.accountManager} />}
-        {activeTab === 'plan-builder' && <PlanBuilderTab portalType="vendor" ownerName={vendorInfo.name} currentTier={subscriptionTier} />}
+        {activeTab === 'plan-builder' && (
+          <div className="space-y-6">
+            <PlanBuilderTab portalType="vendor" ownerName={vendorInfo.name} currentTier={subscriptionTier} />
+            {/*
+              The tab is called "Plans & Add-ons" and, until now, had no
+              add-ons on it. This is what the vendor is actually billed and
+              what they can add, computed on the server from the catalogue.
+            */}
+            <SubscriptionAddOnsPanel />
+          </div>
+        )}
         {activeTab === 'investments' && <InvestmentTab portalType="vendor" ownerName={vendorInfo.name} />}
         {activeTab === 'performance' && (
           <div className="space-y-6">

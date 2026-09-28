@@ -144,6 +144,232 @@ to build the PDF payload.
 
 ---
 
+# PLAN — the add-on panel: let a subscriber see what they pay and choose what to add
+
+Eric picked "the trial leak first" from the subscription plan. **Section C is
+already built and already pinned by tests** — the plan simply never had its
+boxes ticked, the same way the quotes plan's were not. Checked against the code
+before writing anything:
+
+| Plan item | Reality |
+|---|---|
+| C1 `holdsAddOn` true for any add-on on trial | Deliberate and documented. `paysForAddOn` is the money-side companion, `TRIAL_EXCLUDED_ADD_ON_IDS` already carves out on-call, and `/plan-add-on` uses `paysForAddOn` on purpose. |
+| C2 trial add-ons never written to `addOnIds` | Pinned: *"a trial owns nothing, so conversion has nothing to bill for"*, *"trial breadth never leaks into what is being paid for"*. |
+| C3 cancelled subscription holds nothing | Pinned twice, including *"a cancelled subscription holds nothing, whatever ids are left on the grant"*. |
+| C4 trial end drops to the free floor | Pinned: *"AN EXPIRED TRIAL IS FREE — this is the one that gives the product away"*, plus the exact-boundary case. |
+
+`tests/planTier.test.ts` — **98 tests, all passing.** There is nothing to fix in
+section C. Its boxes are ticked in this pass and the section is marked done.
+
+## SO WHAT IS ACTUALLY MISSING
+
+The same shape as this morning's `/applications` bug: **the machinery is built,
+tested and careful, and nothing in the product calls it.**
+
+    subscriptionTotalCents()   planTier.ts:364   called by: nothing
+    addOnsForTier()            planTier.ts:385   called by: nothing
+
+Both are complete and tested — included add-ons cost nothing, an add-on not
+available on the tier is not counted rather than quietly charged, purchasable
+is resolved against the server's own Stripe mode. Neither has a single caller
+in `src/` or in any route.
+
+The server side of buying is done too:
+
+- `POST /plan-checkout` takes `addOnIds`, validates them against the catalogue
+  and refuses the whole checkout rather than quietly building a cheaper one.
+- `POST /plan-add-on` adds one extra to a live subscription — the Stripe
+  subscription-item change the plan called "the hard part, named rather than
+  discovered later". It is built.
+
+**What is missing is the screen.** `GET /my-plan` tells a portal what the
+account holds — entitlement, tier, `addOns`, `onCall` — and never what they
+**pay**, nor what they **could add**. So there is no surface anywhere that
+answers Eric's actual sentence:
+
+> "there will be add on in the portals that can increase the monthly
+> subscriptions depending on what the user wants"
+
+Today a subscriber cannot see their monthly figure, cannot see what is
+available to them, and cannot add anything. The two portals that read
+`/my-plan` at all use it only to unlock features by tier.
+
+## THE WORK
+
+### G — make the figure and the catalogue readable
+
+- [x] G1. `/my-plan` also returns `monthlyTotalCents` (from
+      `subscriptionTotalCents`, tier plus what they hold) and `available`
+      (from `addOnsForTier`, each marked `included` / `purchasable` with its
+      price). Server-side, from records the server owns. The Stripe price ids
+      keep not reaching the browser — `addOnsForTier` already strips them.
+- [x] G2. **CHANGED WHILE BUILDING, and the change matters.** The plan said a
+      trialist should be shown "the figure they WOULD pay on conversion". That
+      figure does not exist: it depends on which tier they convert to, and they
+      have not chosen one. Producing a number would have meant picking a tier
+      on their behalf and presenting the guess as their bill.
+
+      So `monthlyTotalCents` is **null** for anyone not on a paid tier — null
+      and not zero, because a panel rendering "$0.00" teaches a trialist the
+      wrong number for the day the clock stops. `totalBasis` says why
+      (`subscription` / `trial` / `free`) so the screen can tell "nothing is
+      charged during your trial" apart from "you are on the free plan", which
+      are different sentences.
+- [x] G3. Extend `tests/planTier.test.ts` for the payload shape: the total is
+      the tier plus extras and never a posted figure; an included add-on adds
+      nothing; a trialist gets null rather than zero.
+
+### H — the panel, in the portals that already have a Billing tab
+
+- [x] H1. `SubscriptionAddOnsPanel` — what you pay now, the extras available on
+      your tier marked included-or-extra with their prices, and **the new
+      monthly total shown before committing**. Reads `/my-plan`; posts to
+      `/plan-add-on`, which already exists and already validates.
+- [x] H2. Drop it into the **existing** Billing tab of the advertiser and vendor
+      portals — the two that already read `/my-plan`. No new tabs, no
+      restyling: per the standing rule the portals keep their design unless a
+      redesign is asked for.
+- [x] H3. Fail closed. Anything the panel cannot read leaves it showing nothing
+      purchasable rather than a guessed price or an enabled button.
+
+### I — prove it
+
+- [x] I1. `npm run typecheck` — no new findings over the 316 baseline.
+- [x] I2. `npm test` — planTier's 98 plus the new ones.
+- [x] I3. `npm run smoke` — zero throws.
+- [ ] I4. Open a portal Billing tab in the running app and read the figure.
+
+## REVIEW — what changed
+
+### The finding that redirected the work
+
+Section C was picked as the starting point because the plan described it as a
+trial leak. **It was not a leak and there was nothing to fix.** The behaviour
+is deliberate, documented at length in `planTier.ts`, and pinned by tests that
+were already passing: a trial grants breadth and a purchase grants persistence,
+`paysForAddOn` is the money-side companion to `holdsAddOn`, and on-call is
+already carved out of trials because staffing a phone line for four months is a
+real bill and a real rota. The four boxes are now ticked rather than re-solved.
+
+What the check DID surface is the same shape of bug as the applications work
+earlier in the day: **built, tested, careful, and called by nothing.**
+
+    subscriptionTotalCents()   planTier.ts   callers before this: none
+    addOnsForTier()            planTier.ts   callers before this: none
+
+`/plan-checkout` and `/plan-add-on` — including the Stripe subscription-item
+change the plan called "the hard part" — were already written. The missing
+piece was the screen, so Eric's actual sentence had nowhere to happen.
+
+### G — the figure and the catalogue
+
+`/my-plan` now also returns `available` (from `addOnsForTier`, which strips both
+Stripe price ids before they can reach a browser) and `monthlyTotalCents` with
+a `totalBasis`.
+
+The judgement about WHICH figure to show moved into `monthlyFigure()` in
+`planTier.ts` rather than staying inline in the route — the same reason the
+application helpers moved this morning: logic inside a Deno route cannot be
+tested, and this decides what a customer is told they pay.
+
+**A trialist gets null, not zero.** See G2 above: the conversion figure does
+not exist until they pick a tier, and "$0.00" is a number that would be wrong
+on exactly the day it stopped being true.
+
+### H — the panel
+
+`SubscriptionAddOnsPanel` shows what the account is billed, the extras
+available on their tier marked included-or-already-held, and — while boxes are
+ticked — what the monthly total *would* become, clearly as a preview. Adding
+one posts to `/plan-add-on`, which revalidates against the catalogue; the
+preview arithmetic is display only, because a total that arrives from a browser
+is a number the customer can edit.
+
+Per-unit add-ons are deliberately excluded from the preview sum and labelled
+"per unit covered". Their price is per unit and the count comes from our own
+records, so adding one price would state a total that is wrong for every
+account with more than one unit.
+
+It fails closed: anything it cannot read leaves it showing no prices and no
+enabled buttons, saying so, rather than guessing.
+
+Placed in the two portals that already read `/my-plan`, in surfaces that
+already exist — the advertiser Billing tab, and the vendor tab that is
+literally called **"Plans & Add-ons"** and had no add-ons on it until now. No
+new tabs and no restyling, per the standing rule about leaving portal design
+alone.
+
+### THE CONFLICT THIS EXPOSED — needs Eric's decision
+
+The advertiser Billing tab's "Your plan — $X per month" comes from
+`src/app/config/subscriptionPlans.ts`, a **hardcoded client-side catalogue**.
+The new panel reads the server's `plan_tier` records. These are two separate
+price lists on one screen, which is exactly what
+`plans-are-one-connected-system` says must not happen.
+
+Nothing was changed about the existing header, because reconciling the two
+alters a price Eric sees on a working screen and that is his call, not a
+side-effect of adding a panel. Today the two cannot contradict each other in
+practice — with no `plan_tier:advertiser` records published, the panel reports
+no figure rather than a competing one — but the moment a tier is published they
+will. **Worth settling before any tier is published, not after.**
+
+### Not done in this pass
+
+- **A1, the entry content rung.** A tier is a KV record created through the
+  admin screen. Publishing "Solo, $79/mo" is Eric pressing buttons, and the
+  constraint is a pricing decision: the free backstop is 300 model calls and 10
+  renders, so an entry rung must clear it or paying would be worse than not.
+- **Proration on `/plan-add-on`.** It performs the subscription-item change;
+  what it does to the current invoice was not read closely and was not changed
+  blind.
+- **Nothing is deployed.** The `/my-plan` change is server code and belongs in
+  a non-production project first.
+
+### Verification
+
+- `npm run typecheck` — **316, unchanged from baseline**, none in any file touched.
+- `npm run typecheck:server` — 84, unchanged.
+- `npm test` — **735 pass, 0 fail**, up from 727: eight new tests on
+  `monthlyFigure`, including that a trialist gets null rather than zero and
+  that a subscription whose tier no longer resolves reports free rather than a
+  stale figure.
+- `npm run smoke` — see below.
+- **Not opened in the running app.** The panel needs a signed-in advertiser or
+  vendor with a published tier to show anything, and there are no
+  `plan_tier:advertiser` records to sign in against. Its empty and
+  failed-to-read states are what would render today, which is correct
+  behaviour but is not the same as seeing it work.
+
+---
+---
+
+## WHAT THIS PASS DOES NOT DO
+
+**A1, the entry content rung.** A tier is a KV record (`plan_tier:<audience>:<id>`)
+created through the admin screen, not code. Publishing "Solo, $79/mo" is Eric
+pressing buttons, not a commit — and the plan's own constraint (the free
+backstop is 300 calls and 10 renders, so an entry rung must clear it) is a
+pricing decision, not an implementation one. Flagged for him rather than
+invented.
+
+**B3, mid-cycle proration.** `/plan-add-on` performs the subscription-item
+change; what it does about proration on the current invoice has not been read
+closely and is not being changed blind. Worth its own look.
+
+**Nothing is deployed.** These are server changes and the standing rule is that
+they are tested off production first.
+
+## OPEN QUESTION
+
+The panel lands in the advertiser and vendor Billing tabs because those exist
+and already read `/my-plan`. Customer, subcontractor, property manager,
+landlord and condo portals have no billing surface at all — should they get one
+in a later pass, or do their subscriptions stay administered by Black Phoenix?
+
+---
+---
+
 # PLAN — every application wired end to end, and a tech application that says what he is actually good at
 
 Eric: *"can we please make sure the applications are all wire and running end to
@@ -1193,13 +1419,13 @@ that stopped paying.
 The design that satisfies both: **a trial grants breadth, a purchase grants
 persistence.**
 
-- [ ] C1. `holdsAddOn` returns true for ANY add-on while `source === 'trial'`.
-- [ ] C2. Trial add-ons are NEVER written into `addOnIds`. That field keeps
+- [x] C1. `holdsAddOn` returns true for ANY add-on while `source === 'trial'`.
+- [x] C2. Trial add-ons are NEVER written into `addOnIds`. That field keeps
       meaning "paid for", so at conversion nothing is billed unless chosen —
       the money side fails closed, and there is no trial data to clean up.
-- [ ] C3. A cancelled subscription still holds nothing, because its source is
+- [x] C3. A cancelled subscription still holds nothing, because its source is
       neither. Pin this with a test; it is the case the current guard exists for.
-- [ ] C4. Pin trial-end-to-free-floor with a test. It is today's behaviour and
+- [x] C4. Pin trial-end-to-free-floor with a test. It is today's behaviour and
       Eric confirmed it, so the test is there to stop it drifting.
 
 ## A — three rungs per audience

@@ -18,7 +18,7 @@ import {
   isPurchasable, notPurchasableReason, publicTier, resolveEntitlement, priceIdFor,
   withinLimit, carryStripeLinkage, FREE_LEVEL, AUDIENCES,
   readInterval, addOnAvailableOn, addOnIncludedIn, subscriptionTotalCents,
-  addOnsForTier, publicAddOn, type PlanAddOn,
+  addOnsForTier, publicAddOn, monthlyFigure, type PlanAddOn,
   selectableAddOns, holdsAddOn, paysForAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
   ON_CALL_ANSWERED_ADD_ON_ID, holdsOnCallFeature,
@@ -862,4 +862,63 @@ test('paying for on-call outranks the trial clock, so nobody is stranded', () =>
   const bought = paid({ trialEnd: future, addOnIds: ['on-call-answered'] });
   assert.ok(holdsAddOn(ON_CALL_ANSWERED_ADD_ON_ID, bought, tier()),
     'paying for something must never leave somebody worse off than not paying');
+});
+
+/**
+ * The figure a portal is allowed to SHOW.
+ *
+ * `subscriptionTotalCents` answers what a tier plus extras costs.
+ * `monthlyFigure` answers what an account should be told it pays, and the two
+ * differ for everybody who is not on a paid tier. The trialist is the case it
+ * exists for: they hold every add-on, record none, and have no tier, so
+ * tier-plus-extras computes to zero — and "$0/mo" is the wrong number to teach
+ * somebody about the day their clock stops.
+ */
+test('a paying subscriber gets the tier plus what they hold', () => {
+  const figure = monthlyFigure('subscription', baseTier(), [addOn()]);
+  assert.equal(figure.cents, 9900);
+  assert.equal(figure.basis, 'subscription');
+});
+
+test('A TRIALIST GETS NO FIGURE, NOT ZERO — zero is a promise we would break', () => {
+  const figure = monthlyFigure('trial', null, []);
+  assert.equal(figure.cents, null, 'null, so a panel cannot render it as $0.00');
+  assert.equal(figure.basis, 'trial');
+});
+
+test('a trialist holding extras still gets no figure — they owe nothing yet', () => {
+  const figure = monthlyFigure('trial', null, [addOn(), addOn({ id: 'another' })]);
+  assert.equal(figure.cents, null);
+  assert.equal(figure.basis, 'trial');
+});
+
+test('the free floor reports free, which is a different sentence from a trial', () => {
+  assert.deepEqual(monthlyFigure('free', null, []), { cents: null, basis: 'free' });
+  assert.deepEqual(monthlyFigure(null, null, []), { cents: null, basis: 'free' });
+  assert.deepEqual(monthlyFigure(undefined, null, []), { cents: null, basis: 'free' });
+});
+
+/**
+ * A cancelled subscription leaves its tier id behind on the grant.
+ * `resolveEntitlement` is what decides it is no longer a subscription, and the
+ * figure has to follow that judgement rather than the leftover record.
+ */
+test('a subscription source with no tier resolved yields no figure', () => {
+  const figure = monthlyFigure('subscription', null, [addOn()]);
+  assert.equal(figure.cents, null, 'no tier means nothing to price against');
+  assert.equal(figure.basis, 'free');
+});
+
+test('an included add-on does not inflate the figure shown', () => {
+  const tier = baseTier({ includedAddOns: ['extra-products'] });
+  assert.equal(monthlyFigure('subscription', tier, [addOn()]).cents, 7900);
+});
+
+test('an add-on not available on the tier is not charged for', () => {
+  const elsewhere = addOn({ availableOn: ['some-other-tier'] });
+  assert.equal(monthlyFigure('subscription', baseTier(), [elsewhere]).cents, 7900);
+});
+
+test('nothing held is just the tier price', () => {
+  assert.equal(monthlyFigure('subscription', baseTier(), []).cents, 7900);
 });
