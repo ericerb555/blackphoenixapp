@@ -1,3 +1,278 @@
+# Item 1 — the invoice layout becomes a component (28 Sep)
+
+`InvoiceDocument` now holds the laid-out invoice that used to be the body of
+`InvoicePreviewModal`. The modal renders it and keeps every action it had.
+
+**No behaviour change, and that is the point of doing this first.** The staff
+invoices page must look and work exactly as before, because nothing depends on
+the extraction yet. Typecheck 317 (baseline), 675 tests, smoke 13 rendered / 0
+threw.
+
+## Two decisions inside it
+
+**The document carries no actions.** No print button, no download, no email, no
+modal chrome — it renders a document and nothing else, so it can sit in a modal,
+a portal tab or a pipeline tab without assuming which. The actions move to
+`DocumentPreviewModal` in item 2.
+
+**With one exception, kept deliberately.** An "Edit line items" button sits
+beside the line-items heading rather than in the chrome, because it belongs
+next to what it edits. It is an optional `onEdit` prop: the staff preview passes
+it and keeps the button it has always had, the customer portal passes nothing
+and never sees it. It was already `print:hidden`, so no printed copy ever showed
+it.
+
+`id="invoice-content"` stays on the outer element — the print stylesheet hides
+everything on the page except that element and its children, so the id is
+load-bearing rather than decorative.
+
+Also removed from the modal: `CompanyHeader`, `companyInfo` and `formatCurrency`,
+which became unused once the body moved. `formatDate` stays — it is still used
+to build the PDF payload.
+
+---
+
+# PLAN — every application wired end to end, and a tech application that says what he is actually good at
+
+Eric: *"can we please make sure the applications are all wire and running end to
+end also make sure the tech application is redesigned as i need to know the techs
+real abilities what he is good at. let review this application and make it more
+detailed in the tech acuatul skills"*
+
+Two things: prove every application path works from the button to the reviewed
+record, and rebuild the field tech application so the answer to "what is he good
+at" is readable rather than guessable.
+
+---
+
+## WHAT THE SURVEY FOUND
+
+### 1. Five of the six modal applications cannot be submitted at all. BLOCKING.
+
+`GenericApplicationForm.tsx:135` decides whether a required field has been
+answered:
+
+    if (field.type === 'skill') return !Array.isArray(value) || value.length === 0;
+
+`SkillSelector` (same file, line 730) stores its answer as an **object** keyed by
+skill id — `{ hvac: { checked: true, level: 'Expert (10+ years)', description: '' } }`
+— not an array. An object is not an array, so the check says "empty" no matter
+how many skills were ticked.
+
+Every application whose skill step is `required: true` is therefore stuck. The
+applicant ticks HVAC, Plumbing and Electrical, sets a level on each, presses
+Next, and is told *"Please complete: Technical Skills"* forever. There is no way
+round it and nothing on screen explains it.
+
+That is:
+
+| Application | Skill field | Blocked |
+|---|---|---|
+| Employee Portal | `skills` | **yes** |
+| **Field Tech / Maintenance Tech** | `technical_skills` | **yes** |
+| Property Manager | `service_needs` | **yes** |
+| Landlord | `service_needs` | **yes** |
+| Condo Association | `service_needs` | **yes** |
+| Subcontractor (Maintenance/Carpentry) | `maintenance_skills`, `carpentry_skills` | no — not required |
+
+The field tech application Eric is asking about is one of the five. Nobody has
+ever been able to submit it.
+
+Behind that sits a second bug that only shows once the first is fixed: the
+preview screen renders `{formData[field.id] || 'Not provided'}`, and handing
+React a plain object throws *"Objects are not valid as a React child"* — so the
+preview would crash on the first skill field it met.
+
+### 2. `/sign-up` is not a public route. BLOCKING.
+
+`SignUpOptionsModal` sends Customer, Subcontractor and Advertiser to
+`window.location.href = '/sign-up'`. `routes.tsx:238` has `"sign-up": SignUp`, so
+the page exists — but `App.tsx`'s `publicRoutes` list contains `'signup'` and not
+`'sign-up'`. A signed-out visitor is redirected straight to `/login`.
+
+The same gap applies to `join`, `join-us`, `create-account` and `get-started`:
+all four are real routes, all four are in `FULL_BLEED_PAGES` (so they were built
+as public marketing screens), none is in `publicRoutes`.
+
+### 3. What is already correct, and should be left alone
+
+- Every application form posts to `POST /applications` on
+  `make-server-3eae23a6`, which is the deployed function. Vendor, subcontractor,
+  service provider, advertiser, investor, territory, property manager, tenant and
+  both modal applications all agree on this.
+- The server route is sound: it saves the application, writes a CRM contact, and
+  on approval builds the intake record, syncs portal access, creates the provider
+  organisation for Phoenix Exchange and raises a plan proposal.
+- `GET /applications` and `PATCH /applications/:id` both require an administrator
+  and `GET /applications/:id` lets an applicant read only their own. That is the
+  fail-closed behaviour we want; nothing there needs touching.
+- The tenant screening link (`/apply?t=<token>`) is routed and public, and its
+  server side validates the token. Wired.
+- `intakePortalType` already maps `field_technician` to `employee`, so an approved
+  tech lands in the employee portal.
+
+### 4. Dead links found while checking, NOT in scope unless Eric says so
+
+- `change-orders` — linked from `ChangeOrderCameraApp.tsx` and `JobTrackingHub.tsx`, no such route.
+- `supplier-connect` — linked from `SupplierManagementHub.tsx`, no such route.
+- `universal-signup-flow` — linked from a handler in `SignUpOptionsModal` that nothing calls.
+- `src/app/pages/PropertyManagerApplication.tsx` is an orphan: unrouted and
+  unreferenced, because the modal renders its own copy inline.
+
+---
+
+## THE TECH APPLICATION: WHAT IS WRONG WITH IT
+
+Today the whole of "what is he good at" is eight tick boxes — HVAC, Plumbing,
+Electrical, Carpentry, Appliance Repair, Painting & Drywall, Flooring,
+Landscaping — plus one overall `years_experience` number and a free-text
+certifications box.
+
+So a tech who has run commercial HVAC for twenty years and once helped a friend
+tile a floor produces exactly the same record as a tech who is the other way
+round. There is no proficiency, no licence, no evidence, and no distinction
+between "I can do this" and "put me in charge of it".
+
+And none of it is readable afterwards. `applicationFields.ts` names business
+fields — company name, tax ID, categories, insurance. A field tech's skills,
+experience, certifications, references and answers land in **`unlistedKeys`**,
+which renders as one grey line: *"Also submitted, not shown above:
+availability, certifications, emergency_calls, ..."*. To learn what a tech is good
+at you open the Raw submission JSON and read it.
+
+### The taxonomy already exists — use it, do not invent a second one
+
+`src/app/lib/laborTasks.ts` holds the twelve trades the estimator actually prices
+with (carpentry, painting, electrical, plumbing, laboring, sheetrock, siding,
+roofing, tile, flooring, masonry, hvac) and, under each, named tasks with
+man-hours per unit — *"Hang prehung interior door, 1.2 h each"*, *"Baseboard and
+casing, 0.045 h per lin ft"*.
+
+Declaring a tech's ability against that same list is what makes the answer worth
+having, and it is what ties this into the rest of the platform rather than
+sitting beside it:
+
+- **Assignment** — the work request board can ask "who is rated to do this
+  trade" instead of a person remembering.
+- **Hours correction** — the standing intent that quoted hours get corrected
+  against what crews really achieve. That comparison only means something per
+  trade and per person.
+- **Rates** — labour rates are already held per `tradeId`, so a tech's trades
+  line up with what the work is billed at.
+
+## THE REDESIGN
+
+Six steps instead of five. The new middle three are the whole point.
+
+**Step 1 — Who he is.** Unchanged: name, email, phone, address.
+
+**Step 2 — Trades, rated.** Each of the twelve trades from `laborTasks.ts`, and
+for each one he claims: a **level**, **years in that trade specifically**, and
+whether he can **lead a crew** in it or only work under someone.
+
+Levels are written as what the job can rely on, not as a word:
+
+| Level | What it means on a job |
+|---|---|
+| Helper | Works under direction, no independent decisions |
+| Can do it | Works alone on routine work, asks on anything unusual |
+| Strong | Works alone on anything in the trade, sets out his own work |
+| Leads it | Runs the trade on a job, directs others, answers for the result |
+
+**Step 3 — Named tasks inside his strongest trades.** For each trade rated
+Strong or Leads it, the actual task list from `SEED_TASKS` for that trade, so he
+ticks *"Hang prehung interior door"*, *"Crown moulding"*, *"Cabinet
+installation"*. This is the difference between "carpentry" and knowing he can be
+sent to hang cabinets on his own.
+
+**Step 4 — Licences, certifications and tickets.** Structured, not a free-text
+box: licence type, number, issuing state, expiry — plus the common ones as
+checkboxes (EPA 608, OSHA 10, OSHA 30, journeyman/master electrical, gas fitting,
+backflow, lift/aerial, confined space) and a free-text field for anything else.
+Expiry matters: a certificate that lapsed is not a qualification.
+
+**Step 5 — Evidence and equipment.** Photos of his work (already supported),
+tools he owns at trade level rather than "Yes — full set", truck/trailer,
+whether he can haul materials, and whether he is OK with heights, crawl spaces
+and attic work — all things that decide what he can actually be sent to.
+
+**Step 6 — Availability and references.** As today, plus the tax classification
+step the form already appends for technician applications.
+
+### And make it readable at the other end
+
+A `technicianProfile()` reader beside `applicationFields()`, and a Tech Abilities
+panel in `ApplicationSubmissions` that leads with the trades he leads, then what
+he is strong at, then the named tasks, then live certifications — with lapsed
+ones called out. A reviewer should be able to answer "what is he good at" in
+about three seconds without opening the raw JSON.
+
+---
+
+## TODO
+
+### A. Make the applications actually submit
+- [ ] A1. Fix the `skill` required-field check in `GenericApplicationForm.tsx` to
+      understand the object shape `SkillSelector` really produces. Count a skill
+      as answered only when it is ticked. Unblocks all five applications.
+- [ ] A2. Fix the preview screen so a skill answer renders as readable lines
+      instead of throwing on an object.
+- [ ] A3. Add `sign-up`, `join`, `join-us`, `create-account` and `get-started` to
+      `publicRoutes` in `App.tsx`, so a signed-out visitor reaches the signup
+      screens instead of being bounced to login.
+
+### B. Redesign the tech application
+- [ ] B1. New `src/app/lib/technicianSkills.ts`: the trade list derived from
+      `laborTasks.ts` (one source, no second copy), the four levels, and the
+      certification list with expiry.
+- [ ] B2. A `trade-rating` field type in `GenericApplicationForm` — trade, level,
+      years, can-lead — replacing the flat tick list for this form only.
+- [ ] B3. A `task-checklist` field that shows the real tasks for the trades he
+      rated Strong or Leads it.
+- [ ] B4. A `certifications` field: type, number, state, expiry, plus the common
+      tickets.
+- [ ] B5. Rewrite the field tech config in `SignUpOptionsModal.tsx` to the six
+      steps above.
+
+### C. Make it readable when reviewing
+- [ ] C1. `technicianProfile()` in `applicationFields.ts` — ordered, labelled,
+      nothing invented, nothing hidden.
+- [ ] C2. Tech Abilities panel in `ApplicationSubmissions.tsx`, shown only for
+      technician and employee applications.
+- [ ] C3. Add the new field ids to `HANDLED` so they stop appearing in the
+      "also submitted" line.
+
+### D. Prove it
+- [ ] D1. `npm run typecheck` — no new findings over baseline.
+- [ ] D2. `npm run smoke` — zero throws.
+- [ ] D3. Walk every application in the running app: open it, complete it,
+      submit it, and confirm the record appears in Application Submissions with
+      the abilities readable. This is the step that counts.
+
+## OPEN QUESTIONS FOR ERIC
+
+1. **The four levels** — are Helper / Can do it / Strong / Leads it the right
+   ladder, and is "can lead a crew in this trade" the distinction that matters
+   to you when you decide who goes to a job?
+2. **Named tasks (step 3)** — the `laborTasks` list is roughly 60 tasks across
+   twelve trades. Showing them only for trades he rated Strong or Leads it keeps
+   it short. Do you want them for every trade he claims at all?
+3. **Skills test** — do you want the option to require a short trade quiz or a
+   working interview before approval, or is the declared profile plus references
+   enough at application stage?
+4. **The dead links in section 4** — fix them in this pass or leave them?
+
+## SCOPE NOTE
+
+A1 and A2 touch `GenericApplicationForm`, which every application renders, and A3
+touches the route guard. Both are narrow, both are fixing things that are broken
+rather than changing anything that works, and neither alters how a working screen
+looks — but per the standing rule about blast radius, flagging them here before
+touching them rather than after.
+
+---
+---
+
 # PLAN — see it, print it, save it: quotes, invoices and contracts
 
 Eric: *"can we also make sure all the quote, invoice, contracts have a view
