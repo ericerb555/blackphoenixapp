@@ -1,8 +1,22 @@
 // Cohort Management API Routes
 // Enterprise-grade cohort pricing and subscription management
+//
+// `kv.getByPrefix` RETURNS THE VALUES, NOT `{ key, value }` ROWS.
+//
+// This file read them as rows — `item.value.monthlyRevenue`, and a
+// `.map(item => item.value)` that produced an array of `undefined`. Every one
+// of those would throw `Cannot read properties of undefined` the moment a
+// single cohort existed; the whole module survived only because the table has
+// always held zero of them. Thirty-odd occurrences across this file and
+// `territory-cohorts.tsx`, all fixed together.
+//
+// It matters more now than it did: cohorts is becoming the system of record
+// for money, so these paths are about to run for real. If a value list ever
+// needs its keys, `kv.getKeysByPrefix` exists for that.
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
+import { priceFor, spotsRemaining } from './cohortPricing.ts';
 
 export const cohortsRouter = new Hono();
 
@@ -27,7 +41,7 @@ cohortsRouter.get('/cohorts', async (c) => {
     
     return c.json({
       success: true,
-      cohorts: cohorts.map(item => item.value),
+      cohorts,
       count: cohorts.length
     });
   } catch (error) {
@@ -133,7 +147,6 @@ cohortsRouter.get('/cohorts/status/active', async (c) => {
     const allCohorts = await kv.getByPrefix(COHORT_PREFIX);
     
     const active = allCohorts
-      .map(item => item.value)
       .filter(cohort => cohort.status === 'active');
     
     return c.json({
@@ -282,8 +295,8 @@ cohortsRouter.post('/cohorts/initialize', (c) =>
 cohortsRouter.get('/cohorts/health', async (c) => {
   try {
     const cohorts = await kv.getByPrefix(COHORT_PREFIX);
-    const totalRevenue = cohorts.reduce((sum, item) => sum + (item.value.monthlyRevenue || 0), 0);
-    const totalSubscribers = cohorts.reduce((sum, item) => sum + (item.value.activeSubscribers || 0), 0);
+    const totalRevenue = cohorts.reduce((sum, item) => sum + (item.monthlyRevenue || 0), 0);
+    const totalSubscribers = cohorts.reduce((sum, item) => sum + (item.activeSubscribers || 0), 0);
 
     return c.json({
       success: true,
@@ -292,7 +305,7 @@ cohortsRouter.get('/cohorts/health', async (c) => {
         totalCohorts: cohorts.length,
         totalRevenue,
         totalSubscribers,
-        servicePlanCohorts: cohorts.filter(c => c.value.type === 'service_plan').length,
+        servicePlanCohorts: cohorts.filter(c => c.type === 'service_plan').length,
       },
       timestamp: new Date().toISOString()
     });
@@ -336,7 +349,7 @@ cohortsRouter.get('/cohorts/revenue/analytics', async (c) => {
     let regularRevenue = 0;
 
     cohorts.forEach(item => {
-      const cohort = item.value;
+      const cohort = item;
       const revenue = cohort.monthlyRevenue || 0;
       const subscribers = cohort.activeSubscribers || 0;
       
@@ -374,13 +387,13 @@ cohortsRouter.get('/cohorts/revenue/analytics', async (c) => {
     // Top performing cohorts
     const topCohorts = cohorts
       .map(item => ({
-        id: item.value.id,
-        name: item.value.name,
-        category: item.value.category || item.value.type,
-        revenue: item.value.monthlyRevenue || 0,
-        subscribers: item.value.activeSubscribers || 0,
-        growthRate: item.value.growthRate || 0,
-        churnRate: item.value.churnRate || 0
+        id: item.id,
+        name: item.name,
+        category: item.category || item.type,
+        revenue: item.monthlyRevenue || 0,
+        subscribers: item.activeSubscribers || 0,
+        growthRate: item.growthRate || 0,
+        churnRate: item.churnRate || 0
       }))
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
@@ -423,11 +436,11 @@ cohortsRouter.get('/cohorts/revenue/trends', async (c) => {
     const cohorts = await kv.getByPrefix(COHORT_PREFIX);
     
     const currentMRR = cohorts.reduce((sum, item) => 
-      sum + (item.value.monthlyRevenue || 0), 0
+      sum + (item.monthlyRevenue || 0), 0
     );
 
     const avgGrowthRate = cohorts.reduce((sum, item) => 
-      sum + (item.value.growthRate || 0), 0
+      sum + (item.growthRate || 0), 0
     ) / cohorts.length;
 
     // Project next 6 months
@@ -632,51 +645,24 @@ cohortsRouter.post('/cohorts/:id/calculate-price', async (c) => {
       }, 404);
     }
     
-    // Find applicable tier based on user count
-    const currentTier = cohort.pricingTiers?.find(tier => 
-      userCount >= tier.minUsers && userCount <= tier.maxUsers
-    );
-    
-    if (!currentTier) {
-      return c.json({
-        success: true,
-        currentPrice: cohort.basePrice,
-        tier: null,
-        message: 'No tier found, using base price'
-      });
-    }
-    
-    // Calculate price with tier multiplier
-    let calculatedPrice = cohort.basePrice * currentTier.priceMultiplier;
-    
-    // Apply scaling strategy if auto-scaling enabled
-    if (cohort.autoScaling) {
-      switch (cohort.scalingStrategy) {
-        case 'linear':
-          calculatedPrice *= (1 + (userCount / 100000) * cohort.scalingMultiplier);
-          break;
-        case 'exponential':
-          calculatedPrice *= Math.pow(cohort.scalingMultiplier, userCount / 50000);
-          break;
-        case 'logarithmic':
-          calculatedPrice *= (1 + Math.log10(userCount / 1000) * cohort.scalingMultiplier);
-          break;
-      }
-    }
-    
-    // Apply floor and ceiling
-    calculatedPrice = Math.max(cohort.priceFloor, Math.min(calculatedPrice, cohort.priceCeiling));
-    
-    // Round to 2 decimals
-    calculatedPrice = Math.round(calculatedPrice * 100) / 100;
-    
+    /**
+     * The arithmetic moved to `cohortPricing.ts` so it could be tested — see
+     * the note there for the three faults it was carrying, each of which
+     * produced a wrong price rather than an error. The answer shape is
+     * unchanged for existing callers.
+     */
+    const { price, band, scalingApplied, clampedBy } = priceFor(cohort, userCount);
+
     return c.json({
       success: true,
-      currentPrice: calculatedPrice,
+      currentPrice: price,
       basePrice: cohort.basePrice,
-      tier: currentTier,
-      scalingApplied: cohort.autoScaling,
-      userCount
+      tier: band,
+      scalingApplied,
+      clampedBy,
+      spotsRemaining: spotsRemaining(cohort),
+      userCount,
+      ...(band ? {} : { message: 'No tier found, using base price' }),
     });
   } catch (error) {
     console.error('Error calculating price:', error);
@@ -693,7 +679,6 @@ cohortsRouter.get('/cohorts/type/:type', async (c) => {
     const allCohorts = await kv.getByPrefix(COHORT_PREFIX);
     
     const filtered = allCohorts
-      .map(item => item.value)
       .filter(cohort => cohort.type === type);
     
     return c.json({
@@ -717,25 +702,25 @@ cohortsRouter.get('/cohorts/revenue/category/:category', async (c) => {
     const cohorts = await kv.getByPrefix(COHORT_PREFIX);
     
     const categoryCohorts = cohorts.filter(item => 
-      item.value.category === category || item.value.type === category
+      item.category === category || item.type === category
     );
 
     const totalRevenue = categoryCohorts.reduce((sum, item) => 
-      sum + (item.value.monthlyRevenue || 0), 0
+      sum + (item.monthlyRevenue || 0), 0
     );
 
     const totalSubscribers = categoryCohorts.reduce((sum, item) => 
-      sum + (item.value.activeSubscribers || 0), 0
+      sum + (item.activeSubscribers || 0), 0
     );
 
     const plans = categoryCohorts.map(item => ({
-      id: item.value.id,
-      name: item.value.name,
-      price: item.value.currentPrice || item.value.basePrice || 0,
-      subscribers: item.value.activeSubscribers || 0,
-      revenue: item.value.monthlyRevenue || 0,
-      status: item.value.status,
-      tier: item.value.tier
+      id: item.id,
+      name: item.name,
+      price: item.currentPrice || item.basePrice || 0,
+      subscribers: item.activeSubscribers || 0,
+      revenue: item.monthlyRevenue || 0,
+      status: item.status,
+      tier: item.tier
     }));
 
     return c.json({

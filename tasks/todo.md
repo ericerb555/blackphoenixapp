@@ -1,3 +1,176 @@
+# PLAN — one money spine: everything through cohorts
+
+Eric: *"yes plan the consolidation everything must go through cohort managment
+system advanced plans"*.
+
+The ruling is made and this plan follows it. It overrode a recommendation to
+keep `feature_grant` + `plan_tier` and retire cohorts, so that option is not
+revisited below.
+
+## WHY THE CHOICE IS DEFENSIBLE, HAVING ARGUED AGAINST IT
+
+A cohort already carries `basePrice` plus `pricingTiers` banded on `minUsers`
+and `maxUsers` — volume pricing by seat count. `plan_tier` has nothing
+equivalent. It also models spots remaining, overdue accounts and account
+shut-off. **The empty system is the better commercial model**, which is what
+"advanced plans" means, and that changes the shape of this work: it is not
+migrating onto weaker foundations, it is filling in a model that was never
+populated.
+
+## WHAT IS TRUE TODAY
+
+| Store | Records | Stripe | Fate |
+| --- | --- | --- | --- |
+| `cohort_*` | **0** | no | **becomes the spine** |
+| `feature_grant` + `plan_tier` / `plan_addon` | 8 / 6 / 6 | yes | folds in; membership survives |
+| Postgres `plans`, `subscriptions` | 0 / 0 | no code at all | deleted |
+| `subscription:` prefix | 1 | no | deleted, after MRR is repointed |
+
+Live money that must not be disturbed: **8 feature grants, 3 invoices, 3
+payments, 4 store orders.** Those are real accounts.
+
+## THREE THINGS THAT MUST BE FIXED BEFORE ANYTHING IS BUILT ON TOP
+
+### 1. The cohort system is broken and has never run
+
+`kv.getByPrefix` returns the VALUES. `cohorts.tsx` treats each as
+`{key, value}`:
+
+    const totalRevenue = cohorts.reduce((sum, item) => sum + (item.value.monthlyRevenue || 0), 0);
+
+With one real cohort that throws `Cannot read properties of undefined`. It has
+survived only because the array is always empty. **Six occurrences in
+`cohorts.tsx`, seven in `territory-cohorts.tsx`** — every one of them on a
+path that runs the moment a cohort exists.
+
+Nothing can be migrated onto this until it is fixed.
+
+### 2. Revenue is stored, not computed
+
+A cohort record holds `monthlyRevenue`, `activeSubscribers`, `churnRate` and
+`averageLTV` as fields, written by a separate `update-subscribers` route. Money
+that is stored rather than derived drifts silently: the dashboard then shows
+whatever was last written, not what is being paid.
+
+If cohorts is to be the system of record, **these become derived**. That is the
+single most important change in this plan.
+
+### 3. FIVE COHORT ROUTES ARE STUBS THAT REPORT SUCCESS
+
+Found while fixing the bug above, and it changes the size of this job.
+
+    /cohorts/applications/approve   console.log, returns "Approved N"
+    /cohorts/applications/reject    console.log, returns "Rejected N"
+    /cohorts/accounts/shutoff       console.log, returns success
+    /cohorts/overdue                reads one key, commented "Mock"
+    /cohorts/applications           reads one key, commented "Mock"
+
+Each answers `success: true` and changes nothing — *"In production, this would
+update the applications in the database."*
+
+That is survivable in an unused module. It is not survivable in the system of
+record for money: approving somebody's application would report approved and
+grant nothing, and **shutting off a non-paying account would report the
+account shut off while it kept working**. Both are worse than an error,
+because both look like they worked.
+
+These have to be real before cohorts holds anything, and they are not in the
+original U/V/W sections. Added as section U4.
+
+### 4. MRR currently reads the wrong store
+
+`analytics-summary.tsx` computes MRR from the `subscription:` prefix — **one
+record** — while the eight real grants are invisible to it. That is a live
+wrong number on a dashboard, independent of this consolidation.
+
+## THE WORK
+
+### U — make cohorts able to hold anything at all
+
+- [x] U1. Fix the `getByPrefix` misuse in `cohorts.tsx` and
+      `territory-cohorts.tsx`. Thirteen places, all latent until a record
+      exists.
+- [x] U2. A pure, tested `cohortPricing.ts`: resolve the band for a seat
+      count, the price at that band, and the spots remaining. The banding
+      logic is the thing being bought into, so it is the thing to test.
+- [ ] U4. Make the five stubbed routes real — approve, reject, shut off, and
+      the two that read a single mock key. Until then cohorts cannot be
+      trusted with an account.
+- [ ] U3. Seed the six existing `plan_tier` records as cohorts, preserving
+      their prices and Stripe price ids. A tier becomes a cohort with a single
+      band; nothing is repriced by this migration.
+
+### V — membership, and money derived from it
+
+- [ ] V1. `feature_grant` gains `cohortId` and becomes the membership record.
+      It already holds who has what and the Stripe subscription behind it, and
+      it is what the webhook writes — so it survives as the join rather than
+      being replaced. Eight live grants are backfilled to their cohort.
+- [ ] V2. **`monthlyRevenue` and `activeSubscribers` become computed** from
+      the grants that point at the cohort, never stored. `update-subscribers`
+      stops writing figures and is removed or repurposed.
+- [ ] V3. `subscriptionTotalCents`, `holdsAddOn`, `paysForAddOn` and the add-on
+      catalogue are **kept and reused**, resolving through the cohort. They are
+      correct, 98 tests cover them, and rewriting priced logic during a
+      migration is how a customer gets the wrong invoice.
+
+### W — every money surface reads the spine
+
+- [ ] W1. Stripe checkout and the webhook write cohort membership.
+- [ ] W2. `/my-plan` resolves the cohort, so the add-on panel built earlier
+      shows the cohort's figure.
+- [ ] W3. **MRR is repointed at cohort memberships** and the `subscription:`
+      prefix is retired. This fixes the wrong number described above.
+- [ ] W4. The dead Postgres `plans` and `subscriptions` tables are dropped —
+      zero rows and no code touches either.
+
+### X — prove it
+
+- [ ] X1. Tests for the banding and for the derived figures: the right band at
+      a boundary seat count, spots remaining, MRR summed from memberships
+      rather than from a stored field.
+- [ ] X2. `npm run typecheck`, `typecheck:server`, `npm test`, `npm run smoke`.
+- [ ] X3. **Exercised in a non-production Supabase project before any of it
+      touches live data.** This moves the system of record for money while
+      eight real accounts are attached to it; the standing rule about testing
+      backend changes off production is not optional here.
+
+## WHAT I WOULD NOT DO, AND WHY IT IS WORTH SAYING
+
+**Not a big-bang cutover.** `feature_grant` keeps working throughout and gains
+a pointer, rather than being emptied into a new shape. If the cohort side is
+wrong, the grants are still the grants and nobody's access or billing breaks
+while it is corrected.
+
+**Not a rewrite of the pricing maths.** The add-on and entitlement logic is
+tested and correct. Cohorts becomes the object that OWNS the price; it does not
+become a second implementation of how a price is added up.
+
+## THE DECISION, MADE
+
+Eric: *"lets do what is best for the platform i will go along with what you
+suggest from here."* So it is called here rather than asked again.
+
+**A cohort OWNS a tier — as the migration path, not as the end state.**
+
+Own, because it can be done while eight paying accounts stay attached: nothing
+is repriced, the Stripe price ids stay bound to exactly what they already
+bill, the tested pricing logic is reused rather than reimplemented, and there
+is no moment where money runs through code that has never held a record.
+
+But own has a real cost, and it is the reason replace was tempting: it leaves
+**two objects for one concept**, permanently, which is the very thing this
+consolidation exists to end. Carrying a cohort that wraps a tier forever would
+be trading four stores for two and calling it done.
+
+So the tier is scaffolding. Once memberships are proven against real accounts
+— X3 below — the tier's fields collapse into the cohort and the layer goes.
+That is a separate, safe step once nothing depends on the old shape, and it is
+written down here so it is not quietly forgotten.
+
+---
+---
+
 # PLAN — one employee list, two rates
 
 Eric chose the larger fix and added a requirement: *"it should be able to add

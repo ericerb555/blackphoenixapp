@@ -36,7 +36,7 @@ territoryCohortRouter.get('/territories', async (c) => {
     
     return c.json({
       success: true,
-      territories: territories.map(item => item.value),
+      territories: territories,
       count: territories.length
     });
   } catch (error) {
@@ -197,7 +197,6 @@ territoryCohortRouter.get('/applications/status/:status', async (c) => {
     const allApplications = await kv.getByPrefix(APPLICATION_PREFIX);
     
     const filtered = allApplications
-      .map(item => item.value)
       .filter(app => app.status === status);
     
     return c.json({
@@ -383,7 +382,7 @@ territoryCohortRouter.get('/members', async (c) => {
     
     return c.json({
       success: true,
-      members: members.map(item => item.value),
+      members: members,
       count: members.length
     });
   } catch (error) {
@@ -423,18 +422,18 @@ territoryCohortRouter.get('/analytics', async (c) => {
     const applications = await kv.getByPrefix(APPLICATION_PREFIX);
     const founderTracking = await kv.get(FOUNDER_TRACKING) || { count: 0, members: [] };
     
-    const membersByType = members.map(item => item.value).reduce((acc, member) => {
+    const membersByType = members.reduce((acc, member) => {
       acc[member.type] = (acc[member.type] || 0) + 1;
       return acc;
     }, {});
     
-    const applicationsByStatus = applications.map(item => item.value).reduce((acc, app) => {
+    const applicationsByStatus = applications.reduce((acc, app) => {
       acc[app.status] = (acc[app.status] || 0) + 1;
       return acc;
     }, {});
     
     // Calculate MRR
-    const totalMRR = members.map(item => item.value)
+    const totalMRR = members
       .filter(m => m.status !== 'expired' && m.status !== 'suspended')
       .reduce((sum, m) => sum + m.subscriptionRate, 0);
     
@@ -443,12 +442,12 @@ territoryCohortRouter.get('/analytics', async (c) => {
       analytics: {
         territories: {
           total: territories.length,
-          active: territories.filter(t => t.value.active).length,
+          active: territories.filter(t => t.active).length,
         },
         members: {
           total: members.length,
           byType: membersByType,
-          byStatus: members.map(item => item.value).reduce((acc, member) => {
+          byStatus: members.reduce((acc, member) => {
             acc[member.status] = (acc[member.status] || 0) + 1;
             return acc;
           }, {}),
@@ -497,14 +496,14 @@ territoryCohortRouter.post('/territories/from-company-hq', async (c) => {
     // Check if a territory already exists for this HQ
     const existingTerritories = await kv.getByPrefix(TERRITORY_PREFIX);
     const existingHQTerritory = existingTerritories.find(t => 
-      t.value.zipCode === hq.zipCode && t.value.isMainTerritory
+      t.zipCode === hq.zipCode && t.isMainTerritory
     );
     
     if (existingHQTerritory) {
       return c.json({
         success: false,
         error: 'A main territory already exists for your company headquarters',
-        territory: existingHQTerritory.value
+        territory: existingHQTerritory
       }, 400);
     }
     
