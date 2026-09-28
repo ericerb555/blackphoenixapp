@@ -96,6 +96,69 @@ function requireEmployeeAccess(c: any, employeeId: string) {
   return ownsEmployee(c, employeeId) ? null : c.json({ success: false, error: "You may only access your own time records." }, 403);
 }
 
+/**
+ * The timesheet record for somebody clocking on for the FIRST time.
+ *
+ * WHY THIS EXISTS
+ *
+ * Eric's rule: "we also need to make sure that admin can clock in and out as
+ * well as the owner if they are working on a work request that's tracking
+ * hours." In a company this size the owner and the administrators are on the
+ * tools, and their hours are as real as anybody's.
+ *
+ * Nothing in the permissions stopped them — `ownsEmployee` already lets a
+ * person punch for themselves, and admins already see every work order to
+ * allocate against. The wall was this: punch-in reads `time_employee:<id>` and
+ * returns "Employee not found" when there is none, and those records are
+ * created through the HR hub for staff. An owner who never went through that
+ * hub was told they are not an employee.
+ *
+ * ONLY EVER FOR YOURSELF
+ *
+ * `selfId` comes from the verified token, and the record is created only when
+ * the id being punched IS that id. An admin punching somebody else in still
+ * needs that person to exist — otherwise a mistyped employee id would quietly
+ * manufacture a new employee and start accruing hours against it.
+ *
+ * NO PAY RATE, DELIBERATELY
+ *
+ * Inventing one would be worse than leaving it out. A rate of zero costs their
+ * labour at nothing, which understates what the job cost and overstates its
+ * margin — the exact fault `jobOutcome` exists to prevent. Left unset, the
+ * hours are still recorded and `ratesMissing` reports them as unpriced, which
+ * is a gap somebody can see and fill rather than a wrong number nobody can.
+ */
+async function ensureOwnTimesheet(c: any, employeeId: string): Promise<any | null> {
+  const existing = await kv.get(`time_employee:${employeeId}`) as any;
+  if (existing) return existing;
+
+  const actor = c.get("actor");
+  const selfId = String(actor?.id || "");
+  if (!selfId || selfId !== String(employeeId)) return null;
+
+  const meta = actor?.user_metadata || {};
+  const now = new Date().toISOString();
+  const employee = {
+    id: selfId,
+    name: String(meta.full_name || meta.name || actor?.email || "Staff member").trim(),
+    email: String(actor?.email || "").toLowerCase(),
+    role: String(actor?.app_metadata?.role || actor?.app_metadata?.accountType || "staff"),
+    status: "clocked-out",
+    /**
+     * Recorded so the gap is visible in the HR hub rather than inferred from
+     * an absent field, and so nobody later reads the missing rate as a
+     * deliberate zero.
+     */
+    needsPayRate: true,
+    selfProvisioned: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await kv.set(`time_employee:${selfId}`, employee);
+  console.log(`[time] created a timesheet for ${employee.email || selfId} on first punch — pay rate not set`);
+  return employee;
+}
+
 function requireAdmin(c: any) {
   return c.get("admin") ? null : c.json({ success: false, error: "Administrator access is required." }, 403);
 }
@@ -362,12 +425,19 @@ timeTrackingRouter.post("/punch-in", async (c) => {
       return c.json({ success: false, error: "Employee ID is required" }, 400);
     }
     
-    // Get employee
-    const employee = await kv.get(`time_employee:${employeeId}`);
+    /**
+     * Get the timesheet, creating one when somebody clocks on for the first
+     * time on their own account — see `ensureOwnTimesheet`.
+     *
+     * Only punch-in does this. Punch-out and breaks are reached with a record
+     * already in hand, and a GET that writes a record as a side effect is the
+     * kind of thing that creates employees out of a mistyped URL.
+     */
+    const employee = await ensureOwnTimesheet(c, employeeId);
     if (!employee) {
       return c.json({ success: false, error: "Employee not found" }, 404);
     }
-    
+
     // Check if already clocked in
     const activeEntry = await closeIfAbandoned(employeeId, await kv.get(`time_entry_active:${employeeId}`));
     if (activeEntry) {
