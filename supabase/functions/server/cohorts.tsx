@@ -17,6 +17,43 @@ import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
 import { priceFor, spotsRemaining } from './cohortPricing.ts';
+import { accountStanding, mayDeactivate } from './accountStanding.ts';
+import { trustedRole } from './trustedRole.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+/**
+ * The applications people actually submit. The same key the Application
+ * Submissions screen reads — there is only one queue, and a second one would
+ * let the two screens disagree about who is still waiting.
+ */
+const APPLICATIONS_KEY = 'applications';
+
+const admin = () => createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+);
+
+/**
+ * Who is making this request.
+ *
+ * `requireStaffOn` has already refused anybody who is not staff, so this is
+ * about WHICH member of staff — needed because deactivating an account is a
+ * decision with a name on it, and because `mayDeactivate` asks what the
+ * actor's role is before allowing it.
+ */
+async function staffActor(c: any): Promise<any | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const { data, error } = await admin().auth.getUser(token);
+    return error ? null : data?.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const staffEmail = async (c: any): Promise<string> =>
+  String((await staffActor(c))?.email || '').toLowerCase() || 'unknown';
 
 export const cohortsRouter = new Hono();
 
@@ -163,12 +200,51 @@ cohortsRouter.get('/cohorts/status/active', async (c) => {
   }
 });
 
-// Get overdue accounts (for payment tracking)
+/**
+ * Who is behind on payment — derived, not stored.
+ *
+ * This read one key called `cohorts_overdue_accounts` with a comment saying
+ * the real thing would come from the payment processor. It always returned an
+ * empty list, so the overdue screen said nobody was behind regardless of who
+ * was.
+ *
+ * The real answer already exists: `accountStanding` decides whether an
+ * account is `ok`, `warning`, `frozen` or `deactivated`, from the Stripe
+ * status on its grant and Eric's fifteen-day rule. It is the same judgement
+ * the portal gate uses, so the overdue list and the locked door can no longer
+ * disagree about who is behind — which they would if this had its own idea.
+ */
 cohortsRouter.get('/cohorts/overdue', async (c) => {
   try {
-    // Mock overdue accounts data - in production this would come from payment processor
-    const overdueAccounts = await kv.get('cohorts_overdue_accounts') || [];
-    
+    const keys = await kv.getKeysByPrefix('feature_grant:');
+    const emails = keys.map((k) => k.slice('feature_grant:'.length)).filter(Boolean);
+
+    const overdueAccounts = [];
+    for (const email of emails) {
+      const [grant, deactivation] = await Promise.all([
+        kv.get(`feature_grant:${email}`).catch(() => null),
+        kv.get(`account_deactivation:${email}`).catch(() => null),
+      ]);
+      const standing = accountStanding({
+        grant: grant as any,
+        deactivation: deactivation as any,
+        // The role is what exempts owners, admins and employees from a freeze.
+        // It is not known from a grant alone, so nothing is exempted here and
+        // the listing reports what is owed rather than who would be cut off.
+        role: '',
+      });
+      if (standing.state === 'ok') continue;
+
+      overdueAccounts.push({
+        email,
+        state: standing.state,
+        reason: standing.reason,
+        pastDueSince: (grant as any)?.pastDueSince ?? null,
+        cohortId: (grant as any)?.cohortId ?? null,
+        subscriptionStatus: (grant as any)?.lastSubscriptionStatus ?? null,
+      });
+    }
+
     return c.json({
       success: true,
       overdueAccounts,
@@ -176,20 +252,33 @@ cohortsRouter.get('/cohorts/overdue', async (c) => {
     });
   } catch (error) {
     console.error('Error fetching overdue accounts:', error);
-    return c.json({ 
-      success: false, 
+    return c.json({
+      success: false,
       error: 'Failed to fetch overdue accounts',
       overdueAccounts: []
     }, 500);
   }
 });
 
-// Get pending applications (for approval management)
+/**
+ * Applications waiting on a decision — the REAL ones.
+ *
+ * This read a key called `cohorts_pending_applications` that nothing ever
+ * wrote. Meanwhile the applications people actually submit live under
+ * `applications`, and are what the Application Submissions screen reviews.
+ *
+ * So this now reads that store rather than a second one. Two application
+ * queues would be worse than none: somebody would approve in one screen and
+ * the other would still show it pending.
+ */
 cohortsRouter.get('/cohorts/applications', async (c) => {
   try {
-    // Mock pending applications - in production this would come from application system
-    const applications = await kv.get('cohorts_pending_applications') || [];
-    
+    const all = ((await kv.get(APPLICATIONS_KEY)) as any[]) || [];
+    const applications = all.filter((a) => {
+      const status = String(a?.status || '').toLowerCase();
+      return status === '' || status === 'new' || status === 'pending' || status === 'reviewed';
+    });
+
     return c.json({
       success: true,
       applications,
@@ -197,75 +286,200 @@ cohortsRouter.get('/cohorts/applications', async (c) => {
     });
   } catch (error) {
     console.error('Error fetching applications:', error);
-    return c.json({ 
-      success: false, 
+    return c.json({
+      success: false,
       error: 'Failed to fetch applications',
       applications: []
     }, 500);
   }
 });
 
-// Approve applications
+/**
+ * Deciding applications, for real.
+ *
+ * WHAT THESE DID
+ *
+ * `console.log('Approving applications:', applicationIds)` and then
+ * `success: true, approved: N`. Nothing was written. Somebody approving four
+ * applications was told four were approved and four people were granted
+ * nothing — and the queue still showed them, because the queue was reading a
+ * different empty key.
+ *
+ * Harmless while the module was unused. Not harmless now that cohorts is the
+ * system of record.
+ *
+ * WHY THIS WRITES TO THE SAME STORE AS THE APPLICATIONS SCREEN
+ *
+ * Because there is only one set of applications. The Application Submissions
+ * screen already decides them, and a second decision path with its own
+ * storage would let the two disagree — approved here, still pending there.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO
+ *
+ * It does not provision the portal, the intake checklist or the provider
+ * organisation. `PATCH /applications/:id` does all of that, and duplicating
+ * it here would give an application approved from the cohort screen less than
+ * one approved from the applications screen — the same word meaning two
+ * different things. So this records the decision and says plainly that the
+ * full onboarding runs through that route.
+ */
+const decideApplications = async (
+  c: any,
+  ids: unknown,
+  decision: 'approved' | 'rejected',
+) => {
+  const wanted = (Array.isArray(ids) ? ids : []).map((id) => String(id ?? '')).filter(Boolean);
+  if (wanted.length === 0) {
+    return c.json({ success: false, error: 'No applications were named.' }, 400);
+  }
+
+  const all = ((await kv.get(APPLICATIONS_KEY)) as any[]) || [];
+  const now = new Date().toISOString();
+  const actor = await staffEmail(c);
+
+  const changed: string[] = [];
+  const missing: string[] = [];
+
+  const updated = all.map((application: any) => {
+    if (!wanted.includes(String(application?.id ?? ''))) return application;
+    changed.push(String(application.id));
+    return {
+      ...application,
+      status: decision,
+      reviewedAt: now,
+      reviewedBy: actor,
+      updatedAt: now,
+    };
+  });
+
+  for (const id of wanted) if (!changed.includes(id)) missing.push(id);
+
+  // Written only when something actually changed, so a request naming four ids
+  // that do not exist cannot rewrite the whole store for nothing.
+  if (changed.length) await kv.set(APPLICATIONS_KEY, updated);
+
+  console.log(`[cohorts] ${actor} ${decision} ${changed.length} application(s)`);
+
+  return c.json({
+    success: changed.length > 0,
+    [decision === 'approved' ? 'approved' : 'rejected']: changed.length,
+    changed,
+    // Named rather than silently ignored: an id that matched nothing is the
+    // difference between "done" and "you decided about somebody else".
+    notFound: missing,
+    message: changed.length
+      ? `${decision === 'approved' ? 'Approved' : 'Rejected'} ${changed.length} application(s).`
+        + (decision === 'approved'
+          ? ' Portal access and onboarding are provisioned by the applications route.'
+          : '')
+      : 'None of those applications exist.',
+  }, changed.length ? 200 : 404);
+};
+
 cohortsRouter.post('/cohorts/applications/approve', async (c) => {
   try {
     const { applicationIds } = await c.req.json();
-    
-    // In production, this would update the applications in the database
-    console.log('Approving applications:', applicationIds);
-    
-    return c.json({
-      success: true,
-      approved: applicationIds.length,
-      message: `Approved ${applicationIds.length} application(s)`
-    });
+    return await decideApplications(c, applicationIds, 'approved');
   } catch (error) {
     console.error('Error approving applications:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to approve applications' 
+    return c.json({
+      success: false,
+      error: 'Failed to approve applications'
     }, 500);
   }
 });
 
-// Reject applications
 cohortsRouter.post('/cohorts/applications/reject', async (c) => {
   try {
     const { applicationIds } = await c.req.json();
-    
-    // In production, this would update the applications in the database
-    console.log('Rejecting applications:', applicationIds);
-    
-    return c.json({
-      success: true,
-      rejected: applicationIds.length,
-      message: `Rejected ${applicationIds.length} application(s)`
-    });
+    return await decideApplications(c, applicationIds, 'rejected');
   } catch (error) {
     console.error('Error rejecting applications:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to reject applications' 
+    return c.json({
+      success: false,
+      error: 'Failed to reject applications'
     }, 500);
   }
 });
 
-// Auto-shutoff for overdue accounts
+/**
+ * Shutting an account off, for real.
+ *
+ * WHAT THIS DID
+ *
+ * Logged the account id and answered "Account disabled successfully". The
+ * account kept working. Of the five stubs this was the worst: a non-paying
+ * account reported as cut off and still being served is a decision somebody
+ * believes they made, and they stop chasing it.
+ *
+ * ONE MECHANISM, NOT TWO
+ *
+ * It now writes the SAME `account_deactivation:{email}` record that
+ * `/accounts/deactivate` writes, and asks the same `mayDeactivate` who is
+ * allowed to do it to whom. A second shut-off with its own storage would mean
+ * an account switched off here still looked active to the portal gate, which
+ * reads that one key.
+ *
+ * A DEACTIVATION IS NOT A FREEZE, AND THIS IS THE DEACTIVATION
+ *
+ * A freeze is automatic, about money, and lifts itself when the account pays.
+ * This is the manual one: somebody decided, and paying does not undo it. That
+ * is the right tool for a cohort screen — the automatic freeze already
+ * happens on its own fifteen days after a payment fails, with no button.
+ */
 cohortsRouter.post('/cohorts/accounts/shutoff', async (c) => {
   try {
-    const { accountId, reason } = await c.req.json();
-    
-    // In production, this would disable the account in the database
-    console.log('Shutting off account:', accountId, 'Reason:', reason);
-    
+    const body = await c.req.json().catch(() => ({}));
+    const targetEmail = String(body?.email || body?.accountId || '').trim().toLowerCase();
+    const reason = String(body?.reason || '').trim();
+
+    if (!targetEmail.includes('@')) {
+      return c.json({
+        success: false,
+        error: 'Which account? An email address is needed, not an id.',
+      }, 400);
+    }
+    if (!reason) {
+      return c.json({
+        success: false,
+        error: 'A reason is required — this is a decision somebody has to answer for later.',
+      }, 400);
+    }
+
+    const actor = await staffActor(c);
+    if (!actor?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+
+    const verdict = mayDeactivate(
+      { role: trustedRole(actor), email: String(actor.email) },
+      // The target's role is not known from a cohort listing, so the check is
+      // made against the weakest assumption. An owner may still act; an
+      // administrator is refused unless the accounts route confirms the role.
+      { role: String(body?.targetRole || ''), email: targetEmail },
+    );
+    if (!verdict.allowed) return c.json({ success: false, error: verdict.reason }, 403);
+
+    const record = {
+      email: targetEmail,
+      active: true,
+      reason,
+      by: String(actor.email).toLowerCase(),
+      byRole: trustedRole(actor),
+      targetRole: String(body?.targetRole || ''),
+      at: new Date().toISOString(),
+      via: 'cohorts',
+    };
+    await kv.set(`account_deactivation:${targetEmail}`, record);
+    console.log(`[cohorts] ${actor.email} deactivated ${targetEmail}: ${reason}`);
+
     return c.json({
       success: true,
-      message: 'Account disabled successfully',
-      accountId
+      message: 'Account deactivated. Paying will not lift this; it has to be reactivated.',
+      deactivation: record,
     });
   } catch (error) {
     console.error('Error shutting off account:', error);
-    return c.json({ 
-      success: false, 
+    return c.json({
+      success: false,
       error: 'Failed to disable account' 
     }, 500);
   }

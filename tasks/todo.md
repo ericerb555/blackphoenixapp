@@ -93,7 +93,7 @@ wrong number on a dashboard, independent of this consolidation.
 - [x] U2. A pure, tested `cohortPricing.ts`: resolve the band for a seat
       count, the price at that band, and the spots remaining. The banding
       logic is the thing being bought into, so it is the thing to test.
-- [ ] U4. Make the five stubbed routes real — approve, reject, shut off, and
+- [x] U4. Make the five stubbed routes real — approve, reject, shut off, and
       the two that read a single mock key. Until then cohorts cannot be
       trusted with an account.
 - [ ] U3. Seed the six existing `plan_tier` records as cohorts, preserving
