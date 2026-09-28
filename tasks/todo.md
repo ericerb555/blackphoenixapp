@@ -1,3 +1,50 @@
+# The work-request store, corrected — and the write path answered (28 Sep)
+
+## I used the wrong prefix, and here is the correction
+
+The earlier migration created `work_request:<id>` rows. That prefix is RETIRED.
+The store the code actually reads and writes is **`wr:<id>`**, written by
+`persistWorkRequest` and read by the GET and PATCH routes at index.tsx 7373,
+7384, 7467 and 7490. `work_request:` survives only as a notification dedupe
+string and in a comment in `design-links.tsx` reading "This used to be
+getByPrefix("work_request:")".
+
+The mistake came from checking whether `work_request:%` rows existed, finding
+none, and concluding the authoritative store was empty — rather than reading
+what the write path actually does. Absence of a prefix is not evidence about
+which prefix is right.
+
+Corrected: the 11 rows were deleted (identified by the `migratedFrom` marker the
+backfill stamped, so nothing else could be caught), and the three real work
+requests were written under `wr:` instead. `wr_index`, the id list those routes
+page through, was populated with them — newest first, which is the order
+`persistWorkRequest` maintains.
+
+## The write path: answered without needing to submit anything
+
+    wr:<id> rows    0
+    wr_index        0 entries
+
+**No work request has ever been persisted through that route.** Which fits
+exactly: the portal's work-request POST pointed at `/functions/v1/server`, a
+function that does not exist, from 6 July until this morning. Submissions never
+arrived, and nothing else used the route either.
+
+So the answer to "does the write path work" is that it never has — and the fix
+for it shipped this morning but has not been exercised by a real submission.
+That is still the thing to prove before customers are invited, and it now needs
+a submission rather than a query.
+
+## The eight gallery records are deliberately still out
+
+Eric asked that the anonymous list become a flag on the row. Doing that now
+would put eight `wr-completed-00N` demo records into the LIVE work-request
+store, where the pipeline lists them as real jobs. They look like seed data, not
+work anybody did.
+
+Held back rather than quietly done, because it is his call whether those
+records belong in the pipeline at all — they may simply want deleting, which
+would make the flag question moot.
 # Item 2 — one shell for every document (28 Sep)
 
 `DocumentPreviewModal` now carries the actions — Print, Download PDF, Email,
