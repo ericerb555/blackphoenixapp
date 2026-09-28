@@ -120,6 +120,39 @@ wrong number on a dashboard, independent of this consolidation.
       correct, 98 tests cover them, and rewriting priced logic during a
       migration is how a customer gets the wrong invoice.
 
+### V0 — the screen has to read the server first
+
+Found while checking who consumes U3's output, and it reorders the rest.
+
+`AdvancedCohortManagement.tsx` is 1,552 lines and **calls the server
+nowhere**. It imports `useEffect` and never uses it; it imports `projectId`
+and never fetches. Every cohort on it is a `useState` literal:
+
+    Premium Customers   245 members   $24,500/month
+    Enterprise Clients   48 members   $96,000/month
+
+That is $120,500 a month of revenue that does not exist, and it renders in
+three places — the Cohort Management page, the Advertising Hub and the
+Vendors Admin Hub. It is the fabricated-P&L problem again, this time living
+in the frontend rather than in a seed route, which is why closing the server
+side did not touch it.
+
+It also has a **Monthly Revenue input** in its create form. As of U3 the
+server strips that field, so typing a figure there now does nothing — the
+screen would report a number the server refuses to keep.
+
+This has to come before V, not after. V derives revenue from memberships;
+deriving it correctly for a screen that reads none of it would be more
+carefully tested code that nothing calls.
+
+- [ ] V0a. Load cohorts from `GET /cohorts` on mount; show the real empty
+      state when there are none. Delete the two invented sample cohorts.
+- [ ] V0b. Remove Monthly Revenue and Member Count from the create form —
+      both are derived now, and an input the server discards is a lie on the
+      screen. Show them as read-only derived figures on the card instead.
+- [ ] V0c. Keep the existing layout and styling exactly as they are. This is
+      a wiring change, not a redesign.
+
 ### W — every money surface reads the spine
 
 - [ ] W1. Stripe checkout and the webhook write cohort membership.
