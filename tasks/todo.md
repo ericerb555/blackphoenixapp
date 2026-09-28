@@ -1,3 +1,33 @@
+# The work-request store, tidied (28 Sep)
+
+Eric: *"delete the eight."*
+
+    wr:<id>                  3 rows      the record, what the routes read and write
+    wr_index                 3 entries    the id list those routes page through
+    all_work_requests        3 items      legacy array, still the live write path
+    work_requests            gone         never existed; the key held nothing
+    work_requests_anonymous  DELETED      8 seeded demo completions
+    work_request:<id>        0            retired prefix, my rows removed
+
+Four shapes down to two, holding the same three real work requests.
+
+## Why deleting the eight was safe
+
+Checked before deleting rather than after. Nothing rendered them: the only
+readers are a comment in `index.tsx` and `allWorkRequests()` in
+`time-tracking.tsx`, which reads the key solely in order to DISCARD completed
+rows — its own comment calls them "the trap… offering to bill time to a
+photograph". No gallery route read the key at all, despite the name.
+
+So the public gallery those eight were kept for was never built, and they had
+sat inert since seeding.
+
+## Still not done
+
+`persistWorkRequest` writes `wr:` AND `all_work_requests` on every save, so the
+legacy array is still maintained rather than derived. Collapsing that is the
+remaining step, and it touches `index.tsx` — which Eric is editing in another
+window, so it is deliberately left alone rather than risking a collision.
 # The work-request store, corrected — and the write path answered (28 Sep)
 
 ## I used the wrong prefix, and here is the correction
