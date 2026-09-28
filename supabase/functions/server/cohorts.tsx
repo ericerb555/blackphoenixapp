@@ -17,6 +17,7 @@ import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
 import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier, withoutMoneyFigures } from './cohortPricing.ts';
+import { membershipsFromGrants, type Membership } from './cohortMembership.ts';
 import { accountStanding, mayDeactivate } from './accountStanding.ts';
 import { trustedRole } from './trustedRole.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -58,48 +59,62 @@ const staffEmail = async (c: any): Promise<string> =>
 /**
  * Every membership, read once.
  *
- * A membership is a `feature_grant` that names a cohort. Revenue and
- * subscriber counts are worked out from these rather than read off the cohort
- * record, because a stored figure is whatever was last written and drifts
- * from what is actually being paid without saying so — which is how a
- * fabricated P&L reached the money screen before.
+ * A membership is a `feature_grant` resolved through `membershipFromGrant`,
+ * which derives the cohort from the `tierId` the grant already carries.
+ *
+ * THIS LINE USED TO READ `g.cohortId`, AND NOTHING HAS EVER WRITTEN THAT
+ * FIELD. Every cohort's revenue and subscriber count therefore derived to
+ * zero — which looks exactly like "no sales yet" and so went unnoticed. The
+ * join was not missing from the data, only from the code: a paying grant has
+ * a `tierId`, and a migrated cohort's id is derived from precisely that.
  *
  * Loaded in one pass and handed to the helpers below, so a page showing ten
  * cohorts does not read every grant ten times.
  */
-async function loadMemberships(): Promise<Array<{ cohortId?: string; status?: string; seats?: number }>> {
+async function loadMemberships(): Promise<Membership[]> {
   const grants = ((await kv.getByPrefix('feature_grant:')) as any[] || []).filter(Boolean);
-  return grants.map((g) => ({
-    cohortId: g?.cohortId,
-    // A grant's Stripe status is what says whether money is moving. An absent
-    // one is treated as active, matching how the rest of the server reads it.
-    status: g?.lastSubscriptionStatus ?? g?.status ?? 'active',
-    seats: Number(g?.seats ?? 1),
-  }));
+  return membershipsFromGrants(grants);
 }
 
-/** How many accounts actually hold this cohort, paying. */
-const subscribersOf = (
-  cohort: any,
-  memberships: Array<{ cohortId?: string; status?: string }>,
-): number => memberships.filter(
-  (m) => String(m?.cohortId ?? '') === String(cohort?.id ?? '')
-    && String(m?.status ?? 'active').toLowerCase() === 'active',
-).length;
+const inCohort = (m: Membership, cohort: any) =>
+  String(m?.cohortId ?? '') === String(cohort?.id ?? '');
+
+/** How many accounts hold this cohort AND are paying for it. */
+const subscribersOf = (cohort: any, memberships: Membership[]): number =>
+  memberships.filter((m) => inCohort(m, cohort) && m.status === 'active').length;
+
+/**
+ * How many accounts hold this cohort at all.
+ *
+ * Different from the count above, and the difference is not pedantry. A trial
+ * and an account in arrears both OCCUPY A SPOT — they are being served — but
+ * neither is money. Using the paying count for capacity would oversell a
+ * capped cohort; using the member count for revenue would report income that
+ * has not arrived. Only an inactive grant is neither.
+ */
+const membersOf = (cohort: any, memberships: Membership[]): number =>
+  memberships.filter((m) => inCohort(m, cohort) && m.status !== 'inactive').length;
 
 /**
  * A cohort as the screens want it: what it charges, plus what it actually
  * earns and how many hold it — derived, never stored.
  */
-const withDerivedFigures = (
-  cohort: any,
-  memberships: Array<{ cohortId?: string; status?: string; seats?: number }>,
-) => ({
-  ...cohort,
-  monthlyRevenue: monthlyRevenueOf(cohort, memberships),
-  activeSubscribers: subscribersOf(cohort, memberships),
-  spotsRemaining: spotsRemaining(cohort),
-});
+const withDerivedFigures = (cohort: any, memberships: Membership[]) => {
+  const members = membersOf(cohort, memberships);
+  return {
+    ...cohort,
+    monthlyRevenue: monthlyRevenueOf(cohort, memberships),
+    activeSubscribers: subscribersOf(cohort, memberships),
+    members,
+    /**
+     * Capacity counts everybody being served, so the seat total is handed in
+     * rather than read off the record — the stored `activeSubscribers` this
+     * used to rely on is one of the fields now stripped on every write, so
+     * this had been computing against a field that no longer exists.
+     */
+    spotsRemaining: spotsRemaining({ ...cohort, activeSubscribers: members }),
+  };
+};
 
 export const cohortsRouter = new Hono();
 
@@ -672,7 +687,9 @@ cohortsRouter.get('/cohorts/health', async (c) => {
 // Revenue Analytics - Get comprehensive revenue data
 cohortsRouter.get('/cohorts/revenue/analytics', async (c) => {
   try {
-    const cohorts = await kv.getByPrefix(COHORT_PREFIX);
+    // Figures are derived from memberships; the stored ones are never written.
+    const _memberships = await loadMemberships();
+    const cohorts = (await kv.getByPrefix(COHORT_PREFIX)).map((x) => withDerivedFigures(x, _memberships));
     
     // Calculate revenue by category
     const revenueByCategory = {
@@ -784,7 +801,9 @@ cohortsRouter.get('/cohorts/revenue/trends', async (c) => {
   try {
     // In a real implementation, this would query historical data
     // For now, we'll return current snapshot with projected trends
-    const cohorts = await kv.getByPrefix(COHORT_PREFIX);
+    // Figures are derived from memberships; the stored ones are never written.
+    const _memberships = await loadMemberships();
+    const cohorts = (await kv.getByPrefix(COHORT_PREFIX)).map((x) => withDerivedFigures(x, _memberships));
     
     const currentMRR = cohorts.reduce((sum, item) => 
       sum + (item.monthlyRevenue || 0), 0
@@ -1052,7 +1071,9 @@ cohortsRouter.get('/cohorts/type/:type', async (c) => {
 cohortsRouter.get('/cohorts/revenue/category/:category', async (c) => {
   try {
     const category = c.req.param('category');
-    const cohorts = await kv.getByPrefix(COHORT_PREFIX);
+    // Figures are derived from memberships; the stored ones are never written.
+    const _memberships = await loadMemberships();
+    const cohorts = (await kv.getByPrefix(COHORT_PREFIX)).map((x) => withDerivedFigures(x, _memberships));
     
     const categoryCohorts = cohorts.filter(item => 
       item.category === category || item.type === category

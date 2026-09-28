@@ -108,13 +108,46 @@ wrong number on a dashboard, independent of this consolidation.
 
 ### V — membership, and money derived from it
 
-- [ ] V1. `feature_grant` gains `cohortId` and becomes the membership record.
+- [x] V1. `feature_grant` gains `cohortId` and becomes the membership record.
       It already holds who has what and the Stripe subscription behind it, and
       it is what the webhook writes — so it survives as the join rather than
       being replaced. Eight live grants are backfilled to their cohort.
-- [ ] V2. **`monthlyRevenue` and `activeSubscribers` become computed** from
+      **DONE DIFFERENTLY, AND THE CHANGE IS THE POINT.** This item said the
+      grant should *gain* a `cohortId` and that eight live grants should be
+      backfilled. Writing it turned that around: a paying grant already
+      carries `tierId`, and a migrated cohort's id is derived from precisely
+      that (`cohort-tier-{tierId}`). So the cohort an account belongs to is a
+      **function of what the grant already says**, not a new fact to store.
+      `cohortMembership.ts` derives it. Nothing is written to the eight live
+      paying accounts, there is no second field to keep in step when somebody
+      changes tier, and a stored `cohortId` can never disagree with the
+      `tierId` beside it. The Stripe webhook needs no change either — it
+      already writes the only field this reads.
+
+      **The bug this uncovered:** `loadMemberships` read `grant.cohortId`, and
+      *nothing has ever written that field*. Every cohort's revenue and
+      subscriber count was deriving to zero, which looks exactly like "no
+      sales yet" and so went unnoticed. The join was missing from the code,
+      not from the data.
+
+      A membership resolves to one of four statuses, and only `active`
+      becomes money: a running trial, a Stripe-side trial and an account in
+      arrears are all **members who occupy a spot but are not revenue**, and
+      a revoked grant is neither. 19 tests pin this, including that the
+      derived id matches `cohortFromTier` — if those two ever drift, every
+      figure silently returns to zero.
+- [x] V2. **`monthlyRevenue` and `activeSubscribers` become computed** from
       the grants that point at the cohort, never stored. `update-subscribers`
       stops writing figures and is removed or repurposed.
+      Done alongside V1. `activeSubscribers` (paying) and `members` (everyone
+      being served) are now two separate derived figures, because using the
+      paying count for capacity would oversell a capped cohort and using the
+      member count for revenue would report income that never arrived.
+      `spotsRemaining` counts members, and had been computing against a
+      stored field that no longer exists. Three analytics routes —
+      `/revenue/analytics`, `/revenue/trends` and `/revenue/category/:cat` —
+      were still reading the stored fields and therefore reporting zero; they
+      derive now. `update-subscribers` was retired in V0d.
 - [ ] V3. `subscriptionTotalCents`, `holdsAddOn`, `paysForAddOn` and the add-on
       catalogue are **kept and reused**, resolving through the cohort. They are
       correct, 98 tests cover them, and rewriting priced logic during a

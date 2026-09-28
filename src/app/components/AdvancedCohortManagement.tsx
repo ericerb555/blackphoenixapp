@@ -63,6 +63,8 @@ interface ServerCohort {
   /** Derived from memberships, never stored. Read-only here. */
   monthlyRevenue?: number;
   activeSubscribers?: number;
+  /** Everyone being served, trials and arrears included. Occupies a spot. */
+  members?: number;
   spotsRemaining?: number | null;
 }
 import { SubscriptionPlans } from './SubscriptionPlans';
@@ -90,6 +92,7 @@ interface Cohort {
   /** Derived. */
   monthlyRevenue: number;
   activeSubscribers: number;
+  members: number;
   spotsRemaining: number | null;
 }
 
@@ -104,6 +107,7 @@ const asCohort = (raw: ServerCohort): Cohort => ({
   basePrice: Number(raw?.basePrice ?? 0) || 0,
   monthlyRevenue: Number(raw?.monthlyRevenue ?? 0) || 0,
   activeSubscribers: Number(raw?.activeSubscribers ?? 0) || 0,
+  members: Number(raw?.members ?? raw?.activeSubscribers ?? 0) || 0,
   spotsRemaining: raw?.spotsRemaining ?? null,
 });
 
@@ -1024,11 +1028,22 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
       </div>
 
       <div className="grid grid-cols-3 gap-4 pt-4 border-t border-zinc-800">
+        {/*
+          Members and payers are deliberately two different numbers. A trial
+          and an account in arrears are both being served and both occupy a
+          spot, but neither is revenue. Showing only one figure would either
+          hide who is on the platform or overstate what it earns.
+        */}
         <div>
           <div className="text-xs text-zinc-500 mb-1">Members</div>
           <div className="text-lg font-semibold text-white flex items-center gap-1">
             <Users className="w-4 h-4 text-[#ea580c]" />
-            {cohort.activeSubscribers}
+            {cohort.members}
+            {cohort.members !== cohort.activeSubscribers && (
+              <span className="text-xs font-normal text-zinc-500">
+                ({cohort.activeSubscribers} paying)
+              </span>
+            )}
           </div>
         </div>
         <div>
