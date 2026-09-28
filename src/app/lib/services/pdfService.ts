@@ -30,11 +30,49 @@ export interface InvoicePDFData {
   terms?: string;
 }
 
+/**
+ * The words that differ between an invoice and a quote.
+ *
+ * WHY THIS IS FOUR STRINGS AND NOT A SECOND GENERATOR
+ *
+ * A quote and an invoice are the same document with different labels: company
+ * header, number, dates, customer, line items, totals, notes, terms. Writing a
+ * parallel `generateQuotePDF` would have meant 250 lines of near-identical
+ * layout, and the two would drift — the branding updated on one, a column
+ * widened on the other, and nobody noticing until a customer held both.
+ *
+ * So the layout is shared and only the wording is swapped.
+ */
+export interface DocumentWording {
+  /** The large title, top right. */
+  heading: string;
+  /** Label for the second date. An invoice is due; a quote expires. */
+  secondDateLabel: string;
+  /** Who it is addressed to. */
+  addressedToLabel: string;
+  /** Prefix for the saved filename. */
+  filePrefix: string;
+}
+
+const INVOICE_WORDING: DocumentWording = {
+  heading: 'INVOICE',
+  secondDateLabel: 'Due Date:',
+  addressedToLabel: 'Bill To:',
+  filePrefix: 'Invoice',
+};
+
+const QUOTE_WORDING: DocumentWording = {
+  heading: 'ESTIMATE',
+  secondDateLabel: 'Valid Until:',
+  addressedToLabel: 'Prepared For:',
+  filePrefix: 'Estimate',
+};
+
 export class PDFService {
   /**
    * Generate PDF for an invoice
    */
-  static generateInvoicePDF(data: InvoicePDFData): jsPDF {
+  static generateInvoicePDF(data: InvoicePDFData, wording: DocumentWording = INVOICE_WORDING): jsPDF {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -67,7 +105,7 @@ export class PDFService {
     doc.setFontSize(28);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(primaryColor.r, primaryColor.g, primaryColor.b);
-    doc.text('INVOICE', pageWidth - 20, yPos, { align: 'right' });
+    doc.text(wording.heading, pageWidth - 20, yPos, { align: 'right' });
 
     // Invoice details box
     yPos += 5;
@@ -76,19 +114,19 @@ export class PDFService {
     doc.setTextColor(0, 0, 0);
 
     const detailsX = pageWidth - 70;
-    doc.text('Invoice Number:', detailsX, yPos);
+    doc.text(`${wording.filePrefix} Number:`, detailsX, yPos);
     doc.setFont('helvetica', 'bold');
     doc.text(data.invoiceNumber, pageWidth - 20, yPos, { align: 'right' });
 
     yPos += 6;
     doc.setFont('helvetica', 'normal');
-    doc.text('Invoice Date:', detailsX, yPos);
+    doc.text(`${wording.filePrefix} Date:`, detailsX, yPos);
     doc.setFont('helvetica', 'bold');
     doc.text(data.date, pageWidth - 20, yPos, { align: 'right' });
 
     yPos += 6;
     doc.setFont('helvetica', 'normal');
-    doc.text('Due Date:', detailsX, yPos);
+    doc.text(wording.secondDateLabel, detailsX, yPos);
     doc.setFont('helvetica', 'bold');
     doc.text(data.dueDate, pageWidth - 20, yPos, { align: 'right' });
 
@@ -137,7 +175,7 @@ export class PDFService {
     // Customer info (Bill To)
     yPos = 110;
     doc.setFont('helvetica', 'bold');
-    doc.text('Bill To:', 20, yPos);
+    doc.text(wording.addressedToLabel, 20, yPos);
     
     yPos += 5;
     doc.setFontSize(11);
@@ -296,6 +334,32 @@ export class PDFService {
     const doc = this.generateInvoicePDF(data);
     const name = filename || `Invoice_${data.invoiceNumber}.pdf`;
     doc.save(name);
+  }
+
+  /**
+   * The same layout, worded as an estimate.
+   *
+   * Takes the already-mapped payload rather than a raw quote record so that
+   * the ONE place that knows how a stored quote is shaped is
+   * `quoteToPDFData`, beside the component that renders the same fields on
+   * screen. Two readings of a quote record is how a PDF and a preview end up
+   * showing different totals.
+   */
+  static generateQuotePDF(data: InvoicePDFData): jsPDF {
+    return this.generateInvoicePDF(data, QUOTE_WORDING);
+  }
+
+  static downloadQuotePDF(data: InvoicePDFData, filename?: string): void {
+    const doc = this.generateQuotePDF(data);
+    doc.save(filename || `${QUOTE_WORDING.filePrefix}_${data.invoiceNumber || 'draft'}.pdf`);
+  }
+
+  static getQuotePDFBase64(data: InvoicePDFData): string {
+    const doc = this.generateQuotePDF(data);
+    const dataUri = doc.output('datauristring');
+    const marker = 'base64,';
+    const idx = dataUri.indexOf(marker);
+    return idx >= 0 ? dataUri.slice(idx + marker.length) : dataUri;
   }
 
   /**
