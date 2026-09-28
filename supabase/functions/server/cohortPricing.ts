@@ -32,6 +32,69 @@ export interface PricingBand {
   name?: string;
 }
 
+/**
+ * Turn an existing plan tier into a cohort, carrying nothing that was not
+ * already true.
+ *
+ * WHY THIS IS A PURE FUNCTION AND NOT A LOOP IN A ROUTE
+ *
+ * Because of what happened the last time cohorts were seeded. A route once
+ * wrote twelve invented cohorts into production — "Vendor Starter, 1,247
+ * subscribers, $61,103 a month", close to a million dollars of monthly
+ * revenue that had never been earned — onto the screen the company reads its
+ * own P&L from, refreshing every sixty seconds to look live. That route is
+ * now a 410.
+ *
+ * So this migration is written to be READ before it is run, and tested. The
+ * rules it follows:
+ *
+ *   - The price comes from the tier. Nothing is repriced.
+ *   - Both Stripe price ids travel with it, so the cohort bills against
+ *     exactly what the tier already billed against.
+ *   - NO subscriber count, revenue, churn or LTV is written. Not zero as a
+ *     placeholder — absent, so that anything reporting money has to derive it
+ *     from real memberships and cannot pick up a number somebody seeded.
+ *   - One band covering every seat count, because a flat tier is a cohort
+ *     with no banding. Bands are added afterwards, deliberately, by a person.
+ *   - `sourceTierId` records where it came from, so the migration can be
+ *     re-run without duplicating and the pair can be reconciled later when
+ *     the tier collapses into the cohort.
+ */
+export function cohortFromTier(tier: {
+  id?: string;
+  name?: string;
+  blurb?: string;
+  audience?: string;
+  priceCents?: number;
+  interval?: string;
+  active?: boolean;
+  features?: string[];
+  limits?: Record<string, number>;
+  stripePriceId?: string;
+  stripePriceIdTest?: string;
+}): Cohort & Record<string, unknown> {
+  const tierId = String(tier?.id ?? '').trim();
+  return {
+    id: `cohort-tier-${tierId}`,
+    name: String(tier?.name ?? tierId),
+    blurb: tier?.blurb,
+    audience: tier?.audience,
+    category: tier?.audience,
+    // Cohorts price in whole currency units; tiers store cents.
+    basePrice: Math.max(0, Number(tier?.priceCents ?? 0) || 0) / 100,
+    interval: tier?.interval ?? 'month',
+    status: tier?.active ? 'active' : 'inactive',
+    features: Array.isArray(tier?.features) ? tier.features : [],
+    limits: tier?.limits ?? {},
+    stripePriceId: tier?.stripePriceId,
+    stripePriceIdTest: tier?.stripePriceIdTest,
+    /** A flat tier is one band over every size. Banding is added by a person. */
+    pricingTiers: [{ minUsers: 0, maxUsers: Number.MAX_SAFE_INTEGER, priceMultiplier: 1, name: 'all' }],
+    sourceTierId: tierId,
+    migratedAt: new Date().toISOString(),
+  };
+}
+
 export interface Cohort {
   id?: string;
   name?: string;

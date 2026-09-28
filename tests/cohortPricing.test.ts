@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  bandFor, priceFor, spotsRemaining, isFull, monthlyRevenueOf, type Cohort,
+  bandFor, priceFor, spotsRemaining, isFull, monthlyRevenueOf, cohortFromTier, type Cohort,
 } from '../supabase/functions/server/cohortPricing.ts';
 
 const banded = (over: Partial<Cohort> = {}): Cohort => ({
@@ -193,4 +193,88 @@ test('another cohort\'s memberships are not counted', () => {
 test('no memberships is zero revenue, not a stored figure', () => {
   assert.equal(monthlyRevenueOf(banded(), []), 0);
   assert.equal(monthlyRevenueOf(banded({ id: undefined }), [{ cohortId: 'coh-1', status: 'active' }]), 0);
+});
+
+// ── Migrating a tier into a cohort ────────────────────────────────────────
+
+/**
+ * These matter because of what happened last time cohorts were seeded: a
+ * route wrote twelve invented cohorts into production — "Vendor Starter,
+ * 1,247 subscribers, $61,103 a month" — putting close to a million dollars of
+ * revenue nobody had earned onto the company's own P&L screen. That route is
+ * now a 410.
+ *
+ * This migration carries only what is already true, and these pin that.
+ */
+const tier = {
+  id: 'studio',
+  name: 'Studio',
+  audience: 'content',
+  priceCents: 14900,
+  interval: 'month',
+  active: true,
+  features: ['Reels', 'Renders'],
+  limits: { renders: 40 },
+  stripePriceId: 'price_live_abc',
+  stripePriceIdTest: 'price_test_abc',
+};
+
+test('the price comes across exactly, converted from cents', () => {
+  const cohort = cohortFromTier(tier);
+  assert.equal(cohort.basePrice, 149);
+  assert.equal(priceFor(cohort, 1).price, 149, 'and prices at that figure');
+});
+
+test('BOTH STRIPE PRICE IDS TRAVEL — the cohort bills what the tier billed', () => {
+  const cohort = cohortFromTier(tier) as any;
+  assert.equal(cohort.stripePriceId, 'price_live_abc');
+  assert.equal(cohort.stripePriceIdTest, 'price_test_abc');
+});
+
+/**
+ * The whole lesson of the fabricated P&L, as a test.
+ */
+test('NO REVENUE OR SUBSCRIBER FIGURE IS CARRIED — not even zero', () => {
+  const cohort = cohortFromTier(tier) as any;
+  for (const field of ['monthlyRevenue', 'activeSubscribers', 'churnRate', 'conversionRate', 'averageLTV']) {
+    assert.equal(field in cohort, false, `${field} must not exist on a migrated cohort`);
+  }
+});
+
+test('revenue is zero until somebody actually holds it', () => {
+  const cohort = cohortFromTier(tier);
+  assert.equal(monthlyRevenueOf(cohort, []), 0);
+  assert.equal(
+    monthlyRevenueOf(cohort, [{ cohortId: cohort.id, status: 'active', seats: 1 }]),
+    149,
+    'and is the real price once one account does',
+  );
+});
+
+test('a flat tier becomes one band over every size', () => {
+  const cohort = cohortFromTier(tier);
+  assert.equal(cohort.pricingTiers?.length, 1);
+  assert.equal(priceFor(cohort, 1).price, 149);
+  assert.equal(priceFor(cohort, 5000).price, 149, 'no banding until a person adds it');
+});
+
+/**
+ * The id is derived so re-running the migration updates rather than doubling.
+ */
+test('the id is derived from the tier, and records where it came from', () => {
+  const cohort = cohortFromTier(tier) as any;
+  assert.equal(cohort.id, 'cohort-tier-studio');
+  assert.equal(cohort.sourceTierId, 'studio');
+  assert.equal(cohortFromTier(tier).id, cohort.id, 'stable across runs');
+});
+
+test('a withdrawn tier arrives inactive rather than quietly sellable', () => {
+  assert.equal((cohortFromTier({ ...tier, active: false }) as any).status, 'inactive');
+  assert.equal((cohortFromTier(tier) as any).status, 'active');
+});
+
+test('a tier with no price migrates at zero rather than NaN', () => {
+  const cohort = cohortFromTier({ id: 'x', name: 'X' });
+  assert.equal(cohort.basePrice, 0);
+  assert.equal(priceFor(cohort, 1).price, 0);
 });

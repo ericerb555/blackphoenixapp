@@ -16,7 +16,7 @@
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
-import { priceFor, spotsRemaining } from './cohortPricing.ts';
+import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier } from './cohortPricing.ts';
 import { accountStanding, mayDeactivate } from './accountStanding.ts';
 import { trustedRole } from './trustedRole.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -55,6 +55,52 @@ async function staffActor(c: any): Promise<any | null> {
 const staffEmail = async (c: any): Promise<string> =>
   String((await staffActor(c))?.email || '').toLowerCase() || 'unknown';
 
+/**
+ * Every membership, read once.
+ *
+ * A membership is a `feature_grant` that names a cohort. Revenue and
+ * subscriber counts are worked out from these rather than read off the cohort
+ * record, because a stored figure is whatever was last written and drifts
+ * from what is actually being paid without saying so — which is how a
+ * fabricated P&L reached the money screen before.
+ *
+ * Loaded in one pass and handed to the helpers below, so a page showing ten
+ * cohorts does not read every grant ten times.
+ */
+async function loadMemberships(): Promise<Array<{ cohortId?: string; status?: string; seats?: number }>> {
+  const grants = ((await kv.getByPrefix('feature_grant:')) as any[] || []).filter(Boolean);
+  return grants.map((g) => ({
+    cohortId: g?.cohortId,
+    // A grant's Stripe status is what says whether money is moving. An absent
+    // one is treated as active, matching how the rest of the server reads it.
+    status: g?.lastSubscriptionStatus ?? g?.status ?? 'active',
+    seats: Number(g?.seats ?? 1),
+  }));
+}
+
+/** How many accounts actually hold this cohort, paying. */
+const subscribersOf = (
+  cohort: any,
+  memberships: Array<{ cohortId?: string; status?: string }>,
+): number => memberships.filter(
+  (m) => String(m?.cohortId ?? '') === String(cohort?.id ?? '')
+    && String(m?.status ?? 'active').toLowerCase() === 'active',
+).length;
+
+/**
+ * A cohort as the screens want it: what it charges, plus what it actually
+ * earns and how many hold it — derived, never stored.
+ */
+const withDerivedFigures = (
+  cohort: any,
+  memberships: Array<{ cohortId?: string; status?: string; seats?: number }>,
+) => ({
+  ...cohort,
+  monthlyRevenue: monthlyRevenueOf(cohort, memberships),
+  activeSubscribers: subscribersOf(cohort, memberships),
+  spotsRemaining: spotsRemaining(cohort),
+});
+
 export const cohortsRouter = new Hono();
 
 // A cohort is a subscription tier: its price, how many spots are left, what it
@@ -74,8 +120,12 @@ const COHORT_ANALYTICS_PREFIX = 'cohort_analytics_';
 // Get all cohorts
 cohortsRouter.get('/cohorts', async (c) => {
   try {
-    const cohorts = await kv.getByPrefix(COHORT_PREFIX);
-    
+    const [raw, memberships] = await Promise.all([
+      kv.getByPrefix(COHORT_PREFIX),
+      loadMemberships(),
+    ]);
+    const cohorts = raw.map((cohort) => withDerivedFigures(cohort, memberships));
+
     return c.json({
       success: true,
       cohorts,
@@ -100,17 +150,31 @@ cohortsRouter.post('/cohorts', async (c) => {
     // Generate ID if not provided
     const cohortId = cohortData.id || `cohort-${Date.now()}`;
     
-    // Add metadata
+    /**
+     * MONEY FIGURES ARE NOT ACCEPTED FROM THE REQUEST.
+     *
+     * This used to take `monthlyRevenue`, `activeSubscribers`, `churnRate`,
+     * `conversionRate` and `averageLTV` straight off the body and store them.
+     * That is exactly how twelve invented cohorts once put close to a million
+     * dollars of monthly revenue onto the company's own P&L screen — the
+     * seeding route simply POSTed the figures and they were believed.
+     *
+     * A cohort now describes what it CHARGES. What it earns is derived from
+     * the memberships that point at it, by `monthlyRevenueOf`, and cannot be
+     * written by anybody. Stripping them here rather than ignoring them later
+     * means there is no field for a fabricated number to live in.
+     */
+    const {
+      monthlyRevenue: _mr, activeSubscribers: _as, churnRate: _cr,
+      conversionRate: _cv, averageLTV: _ltv,
+      ...describedByCaller
+    } = cohortData ?? {};
+
     const cohort = {
-      ...cohortData,
+      ...describedByCaller,
       id: cohortId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      activeSubscribers: cohortData.activeSubscribers || 0,
-      monthlyRevenue: cohortData.monthlyRevenue || 0,
-      churnRate: cohortData.churnRate || 0,
-      conversionRate: cohortData.conversionRate || 0,
-      averageLTV: cohortData.averageLTV || 0,
     };
     
     // Save to database
@@ -505,12 +569,88 @@ cohortsRouter.post('/cohorts/initialize', (c) =>
     error: 'Seeding is not available. Create cohorts through POST /cohorts.',
   }, 410));
 
+/**
+ * Bring the existing plan tiers across as cohorts.
+ *
+ * NOT THE SEEDING ROUTE ABOVE, AND THE DIFFERENCE IS THE WHOLE POINT
+ *
+ * That one invented twelve cohorts with a million dollars of revenue nobody
+ * had earned. This one reads the six tiers that already exist, carries their
+ * real prices and their real Stripe price ids, and **writes no revenue, no
+ * subscriber count, no churn and no LTV at all** — not even zero, so nothing
+ * reporting money can pick up a figure that came from a migration rather than
+ * from somebody paying.
+ *
+ * IDEMPOTENT, AND IT SAYS WHAT IT WOULD DO BEFORE IT DOES IT
+ *
+ * `POST` with no body reports what WOULD be created and changes nothing.
+ * `{ "confirm": true }` writes. A migration of the company's pricing should
+ * be readable before it is run, and re-runnable without doubling anything:
+ * each cohort's id is derived from its tier, so a second run updates rather
+ * than duplicates.
+ *
+ * Existing cohorts are never overwritten. If somebody has edited one since
+ * the last run, that edit is theirs and this leaves it alone.
+ */
+cohortsRouter.post('/cohorts/migrate-tiers', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const confirm = body?.confirm === true;
+
+    const tiers = ((await kv.getByPrefix('plan_tier:')) as any[] || []).filter(Boolean);
+    if (tiers.length === 0) {
+      return c.json({ success: false, error: 'There are no plan tiers to migrate.' }, 404);
+    }
+
+    const planned: any[] = [];
+    const skipped: any[] = [];
+
+    for (const tier of tiers) {
+      const cohort = cohortFromTier(tier);
+      const existing = await kv.get(`${COHORT_PREFIX}${cohort.id}`);
+      if (existing) {
+        skipped.push({ id: cohort.id, name: cohort.name, why: 'already exists' });
+        continue;
+      }
+      planned.push(cohort);
+    }
+
+    if (!confirm) {
+      return c.json({
+        success: true,
+        dryRun: true,
+        wouldCreate: planned.map((p) => ({ id: p.id, name: p.name, basePrice: p.basePrice })),
+        skipped,
+        message: `${planned.length} cohort(s) would be created from ${tiers.length} tier(s). `
+          + 'No revenue or subscriber figures are carried across. Send { "confirm": true } to apply.',
+      });
+    }
+
+    for (const cohort of planned) await kv.set(`${COHORT_PREFIX}${cohort.id}`, cohort);
+    const actor = await staffEmail(c);
+    console.log(`[cohorts] ${actor} migrated ${planned.length} tier(s) to cohorts`);
+
+    return c.json({
+      success: true,
+      created: planned.length,
+      cohorts: planned.map((p) => ({ id: p.id, name: p.name, basePrice: p.basePrice })),
+      skipped,
+      message: `Created ${planned.length} cohort(s) from existing tiers. `
+        + 'Revenue and subscriber counts are derived from memberships, not seeded.',
+    });
+  } catch (error) {
+    console.error('Error migrating tiers to cohorts:', error);
+    return c.json({ success: false, error: 'Failed to migrate tiers' }, 500);
+  }
+});
+
 // Health check for cohorts system
 cohortsRouter.get('/cohorts/health', async (c) => {
   try {
     const cohorts = await kv.getByPrefix(COHORT_PREFIX);
-    const totalRevenue = cohorts.reduce((sum, item) => sum + (item.monthlyRevenue || 0), 0);
-    const totalSubscribers = cohorts.reduce((sum, item) => sum + (item.activeSubscribers || 0), 0);
+    const memberships = await loadMemberships();
+    const totalRevenue = cohorts.reduce((sum, item) => sum + monthlyRevenueOf(item, memberships), 0);
+    const totalSubscribers = cohorts.reduce((sum, item) => sum + subscribersOf(item, memberships), 0);
 
     return c.json({
       success: true,

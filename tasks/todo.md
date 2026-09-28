@@ -96,9 +96,15 @@ wrong number on a dashboard, independent of this consolidation.
 - [x] U4. Make the five stubbed routes real — approve, reject, shut off, and
       the two that read a single mock key. Until then cohorts cannot be
       trusted with an account.
-- [ ] U3. Seed the six existing `plan_tier` records as cohorts, preserving
+- [x] U3. Seed the six existing `plan_tier` records as cohorts, preserving
       their prices and Stripe price ids. A tier becomes a cohort with a single
       band; nothing is repriced by this migration.
+      `cohortFromTier()` is pure and tested; `POST /cohorts/migrate-tiers` is
+      a dry run unless given `{confirm:true}`, is idempotent, and will not
+      overwrite a cohort somebody has edited. No revenue, subscriber, churn or
+      LTV field is written — not even zero — and `POST /cohorts` now strips
+      those five fields from the request body, so the only way a money figure
+      reaches a screen is by being derived from real memberships.
 
 ### V — membership, and money derived from it
 
