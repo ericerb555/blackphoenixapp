@@ -114,3 +114,24 @@ export const getByPrefix = async (prefix: string): Promise<any[]> => {
   }
   return data?.map((d) => d.value) ?? [];
 };
+
+/**
+ * The KEYS under a prefix, when the identity is in the key rather than the value.
+ *
+ * `getByPrefix` drops the keys, which is usually what a caller wants. It is not
+ * what you want when the key encodes who a record belongs to —
+ * `autopilot:index:{userId}` is the case this was added for: a scheduled run
+ * has to discover which users have campaigns before it can advance any.
+ *
+ * It lives here rather than being a direct query in the caller so that the
+ * table name stays in one file. Two places naming the table is how a rename
+ * ends up half-applied.
+ */
+export const getKeysByPrefix = async (prefix: string): Promise<string[]> => {
+  const supabase = client()
+  const { data, error } = await supabase.from("kv_store_57095a78").select("key").like("key", prefix + "%");
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data?.map((d) => d.key as string) ?? [];
+};

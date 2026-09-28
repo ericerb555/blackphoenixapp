@@ -11,6 +11,45 @@
 import { Hono } from 'npm:hono@4';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import {
+  platformsFor, shouldPublishNow, statusFromResults, describeResults,
+  type PublishResult,
+} from './storePostPublish.ts';
+
+const INTERNAL_BASE = `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-3eae23a6`;
+
+/**
+ * Send a composed post to the pages it names.
+ *
+ * Goes through `/social/publish` rather than reimplementing the Graph API
+ * calls: that route owns the account lookup, the Facebook and Instagram
+ * differences, and the per-platform error handling, and it is the same route
+ * autopilot uses. Two publishers would drift.
+ *
+ * The caller's own Authorization header is forwarded, exactly as autopilot's
+ * `callInternal` does, so the post is published from the accounts belonging to
+ * the person who pressed the button — never from a shared identity.
+ */
+async function publishPost(
+  c: any,
+  content: string,
+  platforms: string[],
+  imageUrl?: string,
+): Promise<PublishResult[]> {
+  const auth = c.req.header('Authorization') || '';
+  const apikey = c.req.header('apikey') || auth.split(' ')[1] || '';
+  const res = await fetch(`${INTERNAL_BASE}/social/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth, apikey },
+    body: JSON.stringify({ content, platforms, imageUrl }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (Array.isArray(data?.results)) return data.results as PublishResult[];
+  // A refusal before any platform was tried — a missing session, say. Reported
+  // against every platform rather than swallowed, so the record says why.
+  const reason = String(data?.error || `Publishing failed (HTTP ${res.status}).`);
+  return platforms.map((platform) => ({ platform, success: false, error: reason }));
+}
 
 export const storeContentRouter = new Hono();
 
@@ -156,17 +195,49 @@ storeContentRouter.post('/posts', async (c) => {
   if (!auth.ok) return c.json({ success: false, error: auth.error }, 401);
   try {
     const body = await c.req.json();
-    const { id, title, postBody, productIds, channels, status } = body || {};
+    const { id, title, postBody, productIds, channels, status, imageUrl } = body || {};
     const postId = id || `post_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const record = {
+    const record: Record<string, any> = {
       id: postId,
       title: title || 'Untitled post',
       body: postBody || '',
       productIds: Array.isArray(productIds) ? productIds : [],
       channels: Array.isArray(channels) ? channels : [],
+      imageUrl: typeof imageUrl === 'string' ? imageUrl : '',
       status: status || 'draft',
       createdAt: new Date().toISOString(),
     };
+
+    /**
+     * Actually post it, when that is what was asked for.
+     *
+     * Until now this route saved the record and stopped. Nothing else in the
+     * server ever read a `store_post:` row, so a post composed from live store
+     * products was filed under "ready to schedule" against a scheduler that
+     * does not exist, and never reached a page.
+     *
+     * Publishing happens BEFORE the write so the record can carry what really
+     * happened rather than an intention. It is gated on an explicit
+     * `publishNow` — saving a draft must stay safe, because a post on a
+     * business page cannot be taken back once people have seen it.
+     */
+    if (shouldPublishNow(body)) {
+      const { platforms, unsupported } = platformsFor(channels);
+      const results = await publishPost(c, record.body, platforms, record.imageUrl || undefined);
+      record.publishResults = results;
+      record.status = statusFromResults(results);
+      record.publishedAt = record.status === 'published' ? new Date().toISOString() : null;
+      if (unsupported.length) record.notAttempted = unsupported;
+
+      await kv.set(`${POST_PREFIX}${postId}`, record);
+      return c.json({
+        success: record.status === 'published',
+        post: record,
+        results,
+        message: describeResults(results),
+      }, record.status === 'published' ? 200 : 502);
+    }
+
     await kv.set(`${POST_PREFIX}${postId}`, record);
     return c.json({ success: true, post: record });
   } catch (error) {

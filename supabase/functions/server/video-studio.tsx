@@ -1186,6 +1186,94 @@ videoStudioRouter.post("/video-studio/voiceover", async (c) => {
 // ---------------------------------------------------------------------------
 // Project persistence.
 // ---------------------------------------------------------------------------
+/**
+ * The finished video, so that something can actually post it.
+ *
+ * WHAT WAS MISSING
+ *
+ * Assembly happens in the browser — canvas plus MediaRecorder, because this
+ * environment has no ffmpeg — and the only thing done with the result was
+ * `a.download`. The file went to somebody's disk and nowhere else. So there
+ * was no URL for Instagram, Facebook or TikTok to fetch, and no amount of
+ * publishing code would have changed that: all three FETCH a video from a URL
+ * you give them.
+ *
+ * WHY THE VALIDATION HERE IS DELIBERATELY NARROW
+ *
+ * The server can honestly check two things about an uploaded blob: what it
+ * claims to be, and how big it is. It cannot measure the aspect ratio,
+ * duration or frame rate without a media library this runtime does not have.
+ *
+ * So those are checked in the browser, where the canvas dimensions and scene
+ * timings are actually known — `src/app/lib/reelSpec.ts` — and that check
+ * exists to save a wasted render rather than to be a security boundary. The
+ * real authority on a malformed reel is the platform, which refuses it.
+ *
+ * What is NOT negotiable here is the container. WebM is rejected outright
+ * because Meta's API accepts it, queues it, and then fails silently with error
+ * code 24 — so letting one through turns a clear refusal into a mystery.
+ */
+videoStudioRouter.post("/video-studio/rendered", async (c) => {
+  try {
+    // 50 MB. A 90-second 9:16 H.264 reel lands far under this; the ceiling is
+    // here so a runaway recording cannot fill the bucket.
+    const MAX_BYTES = 50 * 1024 * 1024;
+
+    const form = await c.req.formData().catch(() => null);
+    const file = form?.get("video");
+    if (!(file instanceof File)) {
+      return c.json({ success: false, error: "No video was uploaded." }, 400);
+    }
+
+    const type = String(file.type || "").toLowerCase();
+    if (!type.startsWith("video/mp4")) {
+      return c.json({
+        success: false,
+        error: "Reels must be MP4 with H.264. Meta accepts a WebM upload and then fails "
+          + "silently with error code 24, so it is refused here where the reason can be seen.",
+      }, 400);
+    }
+    if (file.size <= 0) return c.json({ success: false, error: "The video is empty." }, 400);
+    if (file.size > MAX_BYTES) {
+      return c.json({
+        success: false,
+        error: `That video is ${(file.size / 1024 / 1024).toFixed(1)}MB; the limit is 50MB.`,
+      }, 400);
+    }
+
+    await ensureBucket();
+    const path = `rendered/${rid()}.mp4`;
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, await file.arrayBuffer(), { contentType: "video/mp4", upsert: false });
+    if (error) {
+      console.log("[Video Studio] rendered upload failed:", error);
+      return c.json({ success: false, error: `Could not store the video: ${error.message}` }, 500);
+    }
+
+    /**
+     * A signed URL, and why that is enough.
+     *
+     * The bucket is private. Meta and TikTok fetch the video themselves from
+     * whatever URL they are handed, with no credentials of ours, so the URL
+     * has to work unauthenticated — which a signed URL does, for its lifetime,
+     * without making the bucket public or the path guessable.
+     *
+     * Seven days covers a transcode queue and a retry many times over, and the
+     * platforms keep their own copy once published.
+     */
+    const url = await freshUrl(path);
+    if (!url) {
+      return c.json({ success: false, error: "The video was stored but could not be signed for upload." }, 500);
+    }
+
+    return c.json({ success: true, path, url, bytes: file.size });
+  } catch (error) {
+    console.log(`[Video Studio] rendered error: ${error}`);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
 videoStudioRouter.post("/video-studio/projects", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));

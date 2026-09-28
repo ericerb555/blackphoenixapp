@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { pickRecordingFormat, checkReel, totalSeconds } from '../lib/reelSpec';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -110,6 +111,24 @@ export default function VideoStudio() {
   const [sceneBusy, setSceneBusy] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  /**
+   * The URL of the last exported video, once it is on the server.
+   *
+   * This is what makes a reel postable at all: Instagram, Facebook and TikTok
+   * each fetch the video from a URL you hand them, and until now the export
+   * only ever reached the user's own disk.
+   */
+  const [renderedUrl, setRenderedUrl] = useState<string | null>(null);
+
+  /**
+   * Asked once, because the answer cannot change mid-session and because the
+   * interface has to warn about it before somebody spends a render.
+   */
+  const [recordingFormat] = useState(() => pickRecordingFormat());
+
+  /** Which platform is mid-post, so the buttons cannot be pressed twice. */
+  const [postingTo, setPostingTo] = useState<string | null>(null);
 
   // Playback / export refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -288,9 +307,16 @@ export default function VideoStudio() {
       await audioCtxRef.current.resume().catch(() => {});
       const tracks = [...vStream.getVideoTracks(), ...(destRef.current?.stream.getAudioTracks() || [])];
       const mixed = new MediaStream(tracks);
-      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
-        ? 'video/webm;codecs=vp9,opus' : 'video/webm';
-      recorder = new MediaRecorder(mixed, { mimeType: mime });
+      /*
+        MP4/H.264 where the browser can, WebM only as a last resort.
+
+        This recorded WebM/VP9 unconditionally, and every platform refuses
+        WebM — Meta accepts the upload, queues it, and then fails silently
+        with error code 24. `pickRecordingFormat` feature-detects rather than
+        assuming, because Chromium builds ship without H.264 and AAC for
+        licensing reasons even where the hardware has them.
+      */
+      recorder = new MediaRecorder(mixed, { mimeType: recordingFormat.mimeType });
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       recorder.start();
     }
@@ -341,15 +367,102 @@ export default function VideoStudio() {
     if (record) {
       setExporting(false);
       if (!stopRef.current && chunks.length) {
-        const blob = new Blob(chunks, { type: 'video/webm' });
+        const blob = new Blob(chunks, { type: recordingFormat.mimeType });
+        const stem = (script.title || 'video').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+
+        // The download stays. Somebody may want the file regardless of whether
+        // it can be posted, and it is the only output when the browser could
+        // not record MP4.
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${(script.title || 'video').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.webm`;
+        a.download = `${stem}.${recordingFormat.extension}`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        toast.success('Video exported (WebM).');
+
+        if (!recordingFormat.postable) {
+          toast.warning(
+            'Exported as WebM — this browser cannot record MP4/H.264, and Instagram, '
+            + 'Facebook and TikTok all refuse WebM. Try Chrome or Safari to post it.',
+          );
+          return;
+        }
+
+        /*
+          Upload it, so there is a URL to post.
+
+          Until now the file only ever reached the user's disk, so nothing
+          could publish it — all three platforms fetch a video from a URL you
+          hand them. The reel rules are checked first, here, where the canvas
+          size and scene timings are actually known; the server re-checks what
+          it can verify of an uploaded blob, and the platform is the final word.
+        */
+        const check = checkReel({
+          width: dims.w,
+          height: dims.h,
+          seconds: totalSeconds(scenes),
+          fps: 30,
+          container: recordingFormat.container,
+        });
+        if (!check.ok) {
+          toast.warning(`Downloaded, but not posted: ${check.problems[0]}`);
+          return;
+        }
+
+        try {
+          const form = new FormData();
+          form.append('video', blob, `${stem}.mp4`);
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch(`${SERVER}/video-studio/rendered`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session?.access_token || publicAnonKey}` },
+            body: form,
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data?.success) throw new Error(data?.error || `Upload failed (${res.status})`);
+          setRenderedUrl(data.url);
+          toast.success('Exported and uploaded — it can now be posted as a reel.');
+        } catch (err: any) {
+          console.error('[VideoStudio] upload:', err);
+          toast.error(`Exported to your computer, but the upload failed: ${err.message}`);
+        }
       }
+    }
+  };
+
+  /**
+   * Send the rendered reel to one platform.
+   *
+   * One at a time, and deliberately: the three fail for different reasons —
+   * Instagram on the reel specification, Facebook on the fetch, TikTok on the
+   * audit — and a single "post everywhere" button collapses three distinct
+   * answers into one toast that cannot say which went wrong.
+   */
+  const postReel = async (platform: 'instagram' | 'facebook' | 'tiktok') => {
+    if (!renderedUrl || !script) return;
+    setPostingTo(platform);
+    try {
+      const caption = [script.title, (script.hashtags || []).join(' ')].filter(Boolean).join('\n\n');
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SERVER}/social/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+        },
+        body: JSON.stringify({ content: caption, videoUrl: renderedUrl, platforms: [platform] }),
+      });
+      const data = await res.json().catch(() => null);
+      const result = data?.results?.[0];
+      if (!result?.success) {
+        throw new Error(result?.error || data?.error || `Posting failed (${res.status})`);
+      }
+      toast.success(`Posted to ${platform}.`);
+    } catch (err: any) {
+      console.error('[VideoStudio] postReel:', err);
+      toast.error(err.message || `Could not post to ${platform}.`);
+    } finally {
+      setPostingTo(null);
     }
   };
 
@@ -560,8 +673,66 @@ export default function VideoStudio() {
                   <Button variant="outline" className="w-full" onClick={saveProject}><Save className="h-4 w-4" /> Save project</Button>
                 </div>
               )}
+              {/*
+                Said BEFORE the render, not after. An export that cannot be
+                posted is a wasted minute, and the reason is a browser
+                capability nobody would think to check.
+              */}
+              {!recordingFormat.postable && (
+                <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                  This browser can only record WebM, which Instagram, Facebook and TikTok
+                  all refuse. The export will download but cannot be posted as a reel —
+                  Chrome or Safari can record the MP4 they need.
+                </p>
+              )}
+
+              {script && aspect !== 'vertical' && (
+                <p className="text-xs leading-5 text-amber-300/90">
+                  Reels have to be 9:16. At {dims.w}×{dims.h} this will export and download,
+                  but it will not be posted.
+                </p>
+              )}
+
+              {/*
+                The connection between rendering and posting.
+
+                Without this the upload is an orphan: a video sitting at a URL
+                with nothing able to send it anywhere, which is the same shape
+                of bug as the product posts that were saved and never read.
+              */}
+              {renderedUrl && (
+                <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+                  <p className="text-xs leading-5 text-emerald-200">
+                    Uploaded and ready to post. It stays available for seven days.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['instagram', 'facebook', 'tiktok'] as const).map((platform) => (
+                      <Button
+                        key={platform}
+                        variant="secondary"
+                        disabled={postingTo !== null}
+                        onClick={() => postReel(platform)}
+                      >
+                        {postingTo === platform ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        {platform === 'tiktok' ? 'TikTok' : platform === 'facebook' ? 'Facebook' : 'Instagram'}
+                      </Button>
+                    ))}
+                  </div>
+                  {/*
+                    N4 — say that it takes minutes. Meta transcodes before it
+                    publishes, and a screen that looks hung is how somebody
+                    presses the button a second time and posts twice.
+                  */}
+                  <p className="text-[11px] leading-4 text-emerald-200/80">
+                    Instagram and Facebook transcode before publishing — this can take a
+                    minute or two. Leave it running rather than pressing again.
+                  </p>
+                </div>
+              )}
+
               <p className="text-xs text-muted-foreground">
-                Export records a live playthrough to WebM. Keep this tab focused while it records.
+                Export records a live playthrough to {recordingFormat.container.toUpperCase()}.
+                Keep this tab focused while it records.
               </p>
             </CardContent>
           </Card>

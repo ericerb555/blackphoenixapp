@@ -144,6 +144,485 @@ to build the PDF payload.
 
 ---
 
+# PLAN — reels that can actually be posted: the video pipeline, then Meta, then TikTok
+
+Eric: *"yes plan tiktok and instagram facebook reels"*.
+
+## THE THING THAT CHANGES THE ORDER
+
+None of the three can post anything today, and **the reason is not the posting
+code — it is the video itself.** Whatever gets wired up first, it would be
+handed a file no platform will accept.
+
+`VideoStudio.tsx` assembles the finished video in the browser with
+`canvas.captureStream` + `MediaRecorder`, encodes it as **WebM / VP9**, and
+then does exactly one thing with it: `a.download = '….webm'`. It goes to Eric's
+disk. **It never reaches a server**, so there is no URL for any platform to
+fetch, and even if there were:
+
+> "only MP4/MOV with H.264 codec work — other formats silently fail with error
+> code 24" — Instagram Reels API, 2026
+
+WebM is refused by Instagram, by Facebook Reels and by TikTok. All three want
+MP4/H.264. So the pipeline comes first or nothing else matters.
+
+## WHAT ELSE IS BROKEN OR ABSENT (checked, not assumed)
+
+**Instagram Reels is written and would fail.** `publishToInstagram` already
+sets `media_type: "REELS"` with `video_url` — and then calls `media_publish`
+immediately. Meta transcodes video asynchronously; the container must be polled
+on `status_code` until `FINISHED` first. Publishing straight away errors. It
+has never been noticed because no account has ever been connected.
+
+**Facebook Reels does not exist at all.** `publishToFacebook` posts to
+`/photos` when there is an image and `/feed` otherwise. Reels are a different
+API entirely — `/video_reels`, a three-phase start/upload/finish.
+
+**TikTok is a stub.** `connect/:platform` returns *"TikTok requires a TikTok
+for Developers app."* Nothing else exists.
+
+## THE TIKTOK APPROVAL GATE — READ BEFORE COMMITTING TO A DATE
+
+TikTok's Content Posting API has a hurdle no amount of code removes:
+
+> "All content posted by unaudited clients is restricted to private viewing
+> mode" — and posting to a non-private account "is blocked at
+> `/publish/video/init/`".
+
+So until TikTok audits the app, every post lands **private**. Lifting that
+needs a manual review: a demo video or screenshots of the integration, and a
+privacy policy URL. **That application is Eric's to file and it has a lead
+time.** The code can be finished and correct and still post privately until
+TikTok says otherwise — worth knowing before it looks like a bug.
+
+Worth it anyway: TikTok has the strongest organic reach of any platform in
+2026 and reaches homeowners aged 25–40, which is the actual customer.
+
+## THE WORK
+
+### M — a video that a platform will accept
+
+- [x] M1. Record MP4/H.264 rather than WebM. Chrome's `MediaRecorder` now takes
+      `video/mp4;codecs=avc1…,mp4a.40.2`. **Feature-detect it** — Chromium
+      builds ship without H.264 and AAC for licensing reasons, so this cannot
+      be assumed. Where it is unavailable, say so plainly rather than exporting
+      a file that will be refused later with a silent error code.
+- [x] M2. Upload the finished video to a Supabase bucket and hand back a URL
+      Meta and TikTok can fetch. Today the only output is a browser download,
+      so there is nothing to publish even when everything else works.
+- [x] M3. Enforce the spec before upload, not after a refusal: 9:16, 3–90
+      seconds, 24–60 fps. A post rejected for aspect ratio after a minute of
+      transcoding is a bad way to find out.
+
+### N — Meta reels
+
+- [x] N1. **Poll the container.** `GET /{container-id}?fields=status_code`
+      until `FINISHED`, then publish. Meta advises about once a minute for up
+      to five; most finish in 30 seconds to 2 minutes. This is the actual bug
+      in the existing Instagram path.
+- [x] N2. `share_to_feed` on the container so a reel appears on the grid as
+      well as the reels tab.
+- [x] N3. Facebook Reels through `/video_reels` — initialise, upload, finish —
+      as a real branch beside the photo and feed ones, not a reuse of them.
+- [x] N4. Surface the wait. These take minutes, not the moment a button is
+      pressed, and a UI that looks hung is how somebody posts twice.
+
+### O — TikTok
+
+- [x] O1. OAuth with `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` and the
+      `video.publish` scope, storing the token the same way Facebook's is.
+- [x] O2. Direct Post: `/publish/video/init/` with `PULL_FROM_URL` against the
+      bucket URL from M2, then poll for completion.
+- [x] O3. **Say the private-until-audited thing in the interface**, beside the
+      TikTok connection. A post that silently goes private looks like a bug and
+      would otherwise be reported as one.
+
+### P — prove it
+
+- [x] P1. Tests for the parts that can be tested without a live account: the
+      container-status decision (poll / publish / give up), the spec check, the
+      format capability check.
+- [x] P2. `npm run typecheck`, `typecheck:server`, `npm test`, `npm run smoke`.
+- [ ] P3. STILL OUTSTANDING — one real reel posted to each connected platform. **This is the only
+      proof that counts** and it cannot happen until an account is connected.
+
+## REVIEW — what changed
+
+### M — a video a platform will accept
+
+`VideoStudio.tsx` recorded WebM/VP9 unconditionally and did exactly one thing
+with the result: `a.download`. It reached a disk and nowhere else. Both halves
+of that were fatal — WebM is refused by all three platforms, and a file on
+somebody's laptop has no URL for anyone to fetch.
+
+`src/app/lib/reelSpec.ts` now picks the best recordable format, **feature-
+detected rather than assumed**: Chromium builds ship without H.264 and AAC for
+licensing reasons, so "Chrome records MP4" is true of Chrome and not of
+everything calling itself Chromium. Where MP4 is unavailable the export still
+happens and is marked unpostable, and the interface says why **before** the
+render rather than after a wasted minute.
+
+`POST /video-studio/rendered` stores the file and returns a signed URL. The
+bucket stays private; a signed URL is fetchable without credentials for its
+lifetime, which is exactly what Meta and TikTok need, without making the
+bucket public or the path guessable.
+
+**The server validates only what it can honestly verify** — the container and
+the size. It has no media library, so it cannot measure aspect ratio, duration
+or frame rate; those are checked in the browser where the canvas dimensions
+and scene timings are actually known, and that check exists to save a render
+rather than as a security boundary. WebM is refused outright at the server
+because Meta accepts it, queues it, and then fails silently with error code 24
+— letting one through turns a clear refusal into a mystery.
+
+15 tests on the rules, including the Chromium-without-H.264 case and that every
+problem is reported at once rather than one render at a time.
+
+### N — Meta reels
+
+**The real bug: the container was never polled.** `publishToInstagram` created
+a REELS container and called `media_publish` on the next line. Meta transcodes
+video asynchronously, so the container is not publishable yet and the call
+fails. Images are synchronous, which is why the photo path worked — and it
+stayed invisible because no account has ever been connected, so no reel was
+ever attempted. `waitForContainer` now polls `status_code` until `FINISHED`,
+backing off to thirty seconds and giving up at five minutes, and reports
+Meta's own message on `ERROR` because it names the cause better than a guess.
+
+`share_to_feed` added, so a reel reaches the profile grid as well as the Reels
+tab — without it, it reads as "it didn't post" to whoever goes looking.
+
+**Facebook Reels did not exist.** `publishToFacebook` posted to `/photos` or
+`/feed`, so a rendered reel would silently have become a text post. There is
+now a real `/video_reels` branch — start, upload, finish — on its own host,
+which could not be folded into the photo path.
+
+### O — TikTok
+
+OAuth with `video.publish` (not `video.upload`, which only drops a draft into
+the creator's inbox — the two are granted separately, and asking for the wrong
+one produces an integration that looks connected and cannot post), its own
+token exchange, and Direct Post via `PULL_FROM_URL` against the bucket URL.
+
+**The audit gate is surfaced in three places** rather than left to be
+discovered: at connection time, in the publish error when TikTok refuses, and
+in the plan above. An unaudited app can only post privately, and a refusal for
+a public account reads like a bug when it is policy.
+
+### The thing that nearly shipped as another orphan
+
+Having built the upload and the publish paths, **nothing connected them** — a
+video would have sat at a URL with no way to send it anywhere, which is the
+identical shape to the product posts that were saved and never read, and to
+the subscription maths with no caller. Caught before finishing.
+
+The rendered reel now has Instagram / Facebook / TikTok buttons. **One platform
+at a time, deliberately:** the three fail for different reasons — the reel
+specification, the fetch, the audit — and a single "post everywhere" button
+collapses three distinct answers into one toast that cannot say which went
+wrong. The wait is stated on screen, because a UI that looks hung is how
+somebody presses again and posts twice.
+
+### Verification
+
+- `npm run typecheck` **316**, `typecheck:server` **84** — both unchanged, and
+  the one error inside `VideoStudio.tsx` was confirmed pre-existing by stashing
+  this work and re-running.
+- `npm test` — **764 pass, 0 fail**, up from 749.
+- `npm run smoke` — the 9 pages this reaches, `video-studio` among them:
+  **0 threw.**
+
+### What is NOT proven, and cannot be yet
+
+**No reel has been posted.** Every publish path here is written from the
+platforms' current documentation and has never executed — no social account is
+connected, so none of it can run. The parts that could be tested without an
+account are tested; the Graph and TikTok calls are not, and should not be
+described as working until one real reel has gone out on each.
+
+That is `P3`, and it is the only proof that counts.
+
+**Nothing is deployed.** Server changes, non-production project first.
+
+**TikTok additionally needs Eric to file for the audit**, which has a queue.
+Until then its posts land private, correctly and visibly.
+
+---
+---
+
+## ORDER, AND WHY
+
+**M first.** Without it the other two are untestable and would ship broken.
+**N second** — the account Eric connects first is Facebook/Instagram, one real
+bug is already sitting there, and it needs no external approval.
+**O last**, because it is gated on an audit that has a queue.
+
+## WHAT THIS DOES NOT DO
+
+**It does not add a scheduler, an inbox, or link-in-bio** — the other three
+gaps from the comparison. This is reels only.
+
+**Nothing is deployed**, and the standing rule sends server changes to a
+non-production project first.
+
+**Step 1 is still outstanding and still blocks the only proof that matters:**
+zero social accounts are connected.
+
+---
+---
+
+# PLAN — make the store actually post: publish product posts, and run without a tab open
+
+Eric: *"lets figure out why the online store isnt posting on my socials making
+money yet"* — then, to the three things below: *"yes lets go all"*.
+
+## WHAT THE LIVE SYSTEM SAYS
+
+Read from the production KV table (`kv_store_57095a78` — the deployed function
+is *named* `make-server-3eae23a6` but its code reads that table; the empty
+`kv_store_3eae23a6` is an unused leftover, checked before raising any alarm):
+
+    social accounts connected      0
+    OAuth attempts left hanging    2
+    product posts ever composed    0
+    autopilot campaigns            0
+    storefront products           22
+    real orders                    1   (plus 2 demo, 3 "Probe Test")
+
+**Nothing is posting because nothing was ever connected.** The publisher is
+real — Facebook Graph, Instagram via the linked Business account — and it has
+no account and no token.
+
+The two hanging OAuth attempts are explained inside `social-media.tsx`: the
+callback used to hit a `verify_jwt: true` function, so Facebook's redirect
+(which carries no Supabase token) was 401'd before the handler ran — *"which is
+why two OAuth attempts sat abandoned in the store with no account behind
+them."* That bug is FIXED; the separate `social-oauth` function now catches the
+redirect. So the two stale rows are from before the fix, and connecting should
+work now.
+
+**Step 1 is Eric's and blocks everything else:** connect one Facebook/Instagram
+account. It needs his login, so it is not something to do on his behalf.
+
+## THE TWO REAL GAPS IN THE CODE
+
+### Gap 1 — a product post is saved and never published
+
+`storeContentRouter.post('/posts')` takes a `channels` array and a `status`,
+writes the record to KV, and returns success. **Nothing anywhere reads
+`channels`.** No code path calls `/social/publish` with it. So composing a post
+"to Facebook and Instagram" files a record that reads as published in the
+Content Centre and never leaves the building.
+
+Harmless today at zero composed posts. It would start lying the moment Eric
+used it.
+
+### Gap 2 — autopilot stops when the tab closes, and cannot be croned as built
+
+`autopilot.tsx` says it plainly: *"this environment has no server cron — the
+runner is driven by a client heartbeat."* `POST /autopilot/tick` exists for an
+external cron and nothing calls it.
+
+`pg_cron` IS available and already working here — `compliance-expiry-reminders`
+runs daily at 12:00, calling the edge function through `net.http_post` with a
+shared secret held in `private_cron_config`. The pattern is proven in this
+project.
+
+**But tick cannot simply be croned, for two reasons that matter:**
+
+1. `getUserId` in `autopilot.tsx` returns **`"default"`** when there is no
+   valid token. A cron carries no user JWT, so it would advance the campaigns
+   of a shared pseudo-user rather than Eric's — and, separately, anyone holding
+   only the publishable key can already POST to it and drive that namespace.
+   This is the identical hole `social-media.tsx` deliberately closed, with a
+   long comment about why: *"Connected pages carry the right to post as a
+   business; that is not something to hand out to whoever asks."*
+
+2. Publishing goes through `callInternal(c, "/social/publish", …)`, which
+   **forwards the caller's Authorization header**. With no user JWT there is no
+   identity, so `social_accounts:{userId}` resolves to nothing and every post
+   comes back "Not connected".
+
+## THE WORK
+
+### J — publish product posts for real
+
+- [x] J1. `POST /posts` publishes when the post says to. A `status` of
+      `published` (or a `publishNow` flag) sends `body` + the post's image to
+      `/social/publish` for each named channel, using the caller's own session
+      — the same `callInternal` pattern autopilot already uses.
+- [x] J2. **Record what actually happened, per channel.** The saved record
+      carries the real per-platform result, and the status becomes `published`
+      only if at least one channel succeeded — otherwise `failed`, with the
+      reasons kept. A post that says "published" when Facebook refused it is
+      the failure mode this whole task exists to remove.
+- [x] J3. A draft stays a draft: no channels, or `status: 'draft'`, publishes
+      nothing. Composing must remain safe.
+- [x] J4. Instagram without an image already throws a clear error inside
+      `publishToInstagram` and `/social/publish` catches it per platform — so
+      that reason reaches the record rather than failing the whole save.
+
+### K — let it run with no tab open, without weakening identity
+
+- [x] K1. Extract the per-platform publishing loop out of the `/social/publish`
+      HTTP handler into an exported `publishForUser(userId, …)`. The route
+      keeps requiring a real session and passes its authenticated userId; no
+      behaviour changes for any existing caller.
+- [x] K2. Close the `"default"` fallback in `autopilot.tsx`: an unidentified
+      caller gets 401 rather than a shared namespace. There are zero autopilot
+      records, so nothing is stranded by this.
+- [x] K3. `POST /autopilot/cron-tick`, guarded by the **same shared secret** the
+      compliance job uses. It enumerates `autopilot:index:*` to find users who
+      actually have campaigns and advances each as that user, calling
+      `publishForUser` directly rather than forwarding a JWT it does not have.
+      The userId is never taken from the request body.
+- [x] K4. A migration adding the `pg_cron` job, copied from the compliance one
+      that already works.
+
+### L — prove it
+
+- [x] L1. `npm run typecheck` / `typecheck:server` — no new findings.
+- [x] L2. Tests for the publish decision: a draft publishes nothing; a
+      published post with no successful channel is recorded as failed; the
+      per-channel reasons survive onto the record.
+- [x] L3. `npm run smoke` — the 8 pages this reaches, content-center among them: 0 threw.
+
+## REVIEW — what changed
+
+### J — product posts now actually post
+
+The bug was quieter than first described, and the correction matters. The
+composer did NOT claim to have posted: it said *"Saved as a social post — ready
+to schedule."* That was almost honest. What made it a lie is that **no
+scheduler for `store_post:` records exists or has ever existed** — nothing in
+the entire server reads one back. So "ready to schedule" meant "will sit here
+forever", and every post composed from live store products would have.
+
+`POST /store-content/posts` now publishes through `/social/publish` when the
+caller asks for it, forwarding their own session so the post goes out from
+their accounts and never from a shared identity. The record carries the real
+per-platform results, and its status is `published` only if a page actually
+took it — otherwise `failed`, with the reasons kept.
+
+The composer gained **Post to socials now**. The old button survives, honestly
+relabelled **Save draft**, because saving must stay safe: publishing is the
+side effect that cannot be undone.
+
+`storePostPublish.ts` holds the decision — whether to publish, which platforms
+a channel list means, what the status becomes — because `store-content.tsx` is
+a `.tsx` the node test runner cannot load, and this decides whether something
+reaches a live business page. 14 tests, including that saving does not post,
+that a draft never posts, and that every platform refusing is recorded as
+`failed` rather than published.
+
+`channels: ['social']` — the only thing the UI ever sent — names no platform at
+all. It expands to every supported platform rather than being dropped, because
+it plainly meant "the socials", and posting nowhere is the behaviour being
+fixed. Unsupported channels come back named rather than silently discarded.
+
+### K — it runs with no tab open, and identity got stronger rather than weaker
+
+**A security fix that stands on its own.** `getUserId` in `autopilot.tsx`
+returned `"default"` for any caller without a valid session, turning "not
+signed in" into a real shared identity. Every key is built from it, and
+`advanceCampaign` publishes to live business pages — so anybody holding only
+the publishable key could create campaigns in that namespace and drive them
+out. `social-media.tsx` had already closed exactly this hole in its own
+`getUserId`, with a comment whose reasoning applies here word for word. It now
+returns null and all sixteen routes refuse. Nothing was stranded: there were
+zero autopilot records in any namespace.
+
+That fix is also what made the cron possible to do properly. A scheduler has no
+session, so the two wrong answers were to invent a shared pseudo-user or to let
+the caller name a user in the request body — both hand out the right to post as
+a business. Instead:
+
+- `publishForUser(userId, …)` was extracted from the `/social/publish` handler.
+  The route still requires a real session and passes its authenticated user, so
+  no existing caller changes; there is one publisher rather than two that drift.
+- `advanceCampaign` takes an optional publisher. Request-driven runs forward
+  the header as before; the scheduled run calls `publishForUser` directly.
+  **This was only a one-line seam** because the runner's other work — caption,
+  hashtags, image — is already on the item or re-signed with the service role.
+  Publishing was the only part that needed a session.
+- `POST /autopilot/cron-tick` is guarded by a shared secret read from
+  `private_cron_config` first and the environment second, refusing outright
+  when neither yields one. **Whose campaigns advance is read from the stored
+  keys, never from the request.**
+- `kv.getKeysByPrefix` was added so the table name stays in one file rather
+  than being queried directly from a second.
+
+### The migration is deliberately NOT armed
+
+`20260928120000_schedule_autopilot_tick.sql.pending` — the same `.pending`
+convention as the on-call escalation schedule, so a deploy does not apply it.
+It schedules a job that posts to live Facebook and Instagram pages with nobody
+watching. Renaming it to `.sql` is a decision, not a side effect.
+
+It generates its own secret so nothing has to be typed anywhere, and copies the
+compliance job's shape exactly — including reading the secret from the row the
+scheduler itself sends, which is the arrangement that stopped a rotation from
+silently 401ing every morning.
+
+**The recommendation inside it, repeated here because it is the important
+part:** leave `requireApproval` ON for the first campaign. The cron then proves
+itself by moving items to "ready" while nothing reaches a page until Eric
+presses approve. Turning it off later is one setting, by which point he will
+have watched it work.
+
+### What this does NOT do
+
+**It does not make money, and nothing here should be described as if it will.**
+The store is not broken — 22 products live, checkout working, one real order
+through. What is missing is traffic. Posting is a prerequisite for traffic, not
+a substitute for it.
+
+**Step 1 is still Eric's and still blocks everything.** Zero social accounts are
+connected. Both features above will run, find no account, and report "Not
+connected" — correctly and visibly, rather than silently. The two abandoned
+OAuth attempts are from before the callback bug was fixed, so connecting should
+work now.
+
+**Nothing is deployed.** All of this is server code.
+
+### Verification
+
+- `npm run typecheck` — **316, unchanged.** `typecheck:server` — **84,
+  unchanged.** None in any file touched.
+- `npm test` — **749 pass, 0 fail**, up from 735.
+- `npm run smoke` — recorded below.
+- **Not exercised end to end**, and cannot be until an account is connected.
+  The publish paths were read carefully and their decisions are tested; the
+  Graph API calls themselves have never run.
+
+---
+---
+
+## WHAT THIS DOES NOT DO
+
+**It does not make money, and should not be described as if it will.** The
+store is not broken: 22 products are live, checkout works, one real order went
+through. What is missing is traffic. Posting is a prerequisite for traffic, not
+a substitute for it — the honest claim is "the machine will run", not "the
+machine will sell".
+
+**Nothing is deployed.** These are server changes and the standing rule sends
+them to a non-production project first. The cron migration in particular
+creates a path that posts to live business accounts with no human in the loop,
+which is worth Eric seeing work somewhere safe before it runs on his own pages.
+
+## THE DECISION INSIDE K3, NAMED RATHER THAN ASSUMED
+
+A cron that advances campaigns will publish to Eric's real Facebook and
+Instagram pages while nobody is watching. Autopilot already supports
+`requireApproval` on a campaign, which holds items until a human approves them.
+**Recommendation: leave that on for the first campaign**, so the cron proves
+itself moving items to "ready" without anything reaching the pages until Eric
+presses approve. Turning it off later is one setting.
+
+---
+---
+
 # PLAN — the add-on panel: let a subscriber see what they pay and choose what to add
 
 Eric picked "the trial leak first" from the subscription plan. **Section C is

@@ -1,0 +1,66 @@
+-- Autopilot campaigns advance on a clock, not on somebody having a tab open.
+--
+-- WHY THIS EXISTS
+--
+-- `autopilot.tsx` says it in its own header: "this environment has no server
+-- cron — the runner is driven by a client heartbeat." So a campaign only moved
+-- forward while the Autopilot page was open in a browser, which means every
+-- overnight and weekend slot silently never posted. The route written for an
+-- external scheduler, /autopilot/tick, was never called by anything.
+--
+-- pg_cron is already installed here and already drives
+-- `compliance-expiry-reminders`. This follows that job deliberately rather than
+-- inventing a second scheme: same http_post shape, same anon key row, same
+-- shared-secret header, secret read from `private_cron_config` so rotating it
+-- means changing one row rather than a row and an environment variable that
+-- can disagree.
+--
+-- WHY .pending
+--
+-- Named `.sql.pending` like `20260923000000_schedule_on_call_escalation`, so it
+-- is NOT applied by a deploy. This one schedules a job that publishes to live
+-- Facebook and Instagram business pages with nobody watching, and the standing
+-- rule is that backend changes are proven in a non-production project first.
+-- Rename to `.sql` to arm it, deliberately.
+--
+-- BEFORE ARMING THIS, READ:
+--
+-- Autopilot campaigns support `requireApproval`, which holds each item until a
+-- human approves it. Leave that ON for the first campaign: the cron will then
+-- prove it is running by moving items to "ready" without anything reaching a
+-- page until you press approve. Turning it off afterwards is one setting, and
+-- by then you will have watched the machine work.
+
+-- The secret the scheduler sends and the route checks. Generated here so it
+-- never has to be typed anywhere, and stored in the same private table the
+-- compliance secret already uses — revoked from public, anon and authenticated.
+insert into private_cron_config (key, value)
+values (
+  'autopilot_cron_secret',
+  encode(gen_random_bytes(32), 'base64')
+)
+on conflict (key) do nothing;
+
+-- Unschedule first so re-running this is safe.
+select cron.unschedule('autopilot-tick')
+where exists (select 1 from cron.job where jobname = 'autopilot-tick');
+
+-- Every fifteen minutes. Campaign items carry their own `dueAt` and are guarded
+-- by `postedAt`, so a tick that finds nothing due does nothing and a double
+-- fire cannot double-post. Fifteen minutes is close enough that a slot lands
+-- near its intended time without asking the function to wake up constantly.
+select cron.schedule(
+  'autopilot-tick',
+  '*/15 * * * *',
+  $$
+  select net.http_post(
+    url     := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/autopilot/cron-tick',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
+      'X-Autopilot-Cron-Secret', (select value from private_cron_config where key = 'autopilot_cron_secret')
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);

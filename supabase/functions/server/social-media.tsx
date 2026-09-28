@@ -37,6 +37,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const FB_APP_ID = Deno.env.get("FACEBOOK_APP_ID") || "";
 const FB_APP_SECRET = Deno.env.get("FACEBOOK_APP_SECRET") || "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
+const TIKTOK_CLIENT_KEY = Deno.env.get("TIKTOK_CLIENT_KEY") || "";
+const TIKTOK_CLIENT_SECRET = Deno.env.get("TIKTOK_CLIENT_SECRET") || "";
 
 /**
  * Where Facebook sends the user back.
@@ -201,9 +203,29 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
     }
 
     if (platform === "tiktok") {
-      return c.json({
-        error: "TikTok requires a TikTok for Developers app. Add TIKTOK_CLIENT_KEY/SECRET to enable it.",
-      }, 400);
+      if (!TIKTOK_CLIENT_KEY || !TIKTOK_CLIENT_SECRET) {
+        return c.json({
+          error: "TikTok is not configured. Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET secrets.",
+        }, 400);
+      }
+      const state = crypto.randomUUID();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
+      /**
+       * `video.publish` is the scope that posts. `video.upload` only puts a
+       * draft in the creator's inbox for them to finish by hand, which is not
+       * what a scheduler is for — and the two are granted separately, so
+       * asking for the wrong one produces an integration that looks connected
+       * and cannot post.
+       */
+      const scopes = ["user.info.basic", "video.publish"].join(",");
+      const authUrl =
+        `https://www.tiktok.com/v2/auth/authorize/` +
+        `?client_key=${encodeURIComponent(TIKTOK_CLIENT_KEY)}` +
+        `&scope=${encodeURIComponent(scopes)}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("tiktok"))}` +
+        `&state=${state}`;
+      return c.json({ authUrl });
     }
 
     return c.json({ error: `Unsupported platform: ${platform}` }, 400);
@@ -255,6 +277,64 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
     }
     const { userId, platform } = typeof stateRaw === "string" ? JSON.parse(stateRaw) : stateRaw;
     await kv.del(stateKey(state));
+
+    /**
+     * TikTok's handshake is its own, so it forks here rather than being bent
+     * into Facebook's. It exchanges at a different host, returns the token in
+     * a JSON body rather than a query string, and has no equivalent of the
+     * Page listing below — the token IS the account.
+     */
+    if (platform === "tiktok") {
+      const form = new URLSearchParams({
+        client_key: TIKTOK_CLIENT_KEY,
+        client_secret: TIKTOK_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: fbRedirectUri("tiktok"),
+      });
+      const ttRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      });
+      const tt = await ttRes.json().catch(() => ({}));
+      if (!ttRes.ok || !tt?.access_token) {
+        console.error("[Social] tiktok token exchange failed:", tt);
+        return c.html(callbackHtml(platform, false, tt?.error_description || "TikTok token exchange failed."));
+      }
+
+      let name = "TikTok";
+      let avatar: string | undefined;
+      try {
+        const meRes = await fetch(
+          "https://open.tiktokapis.com/v2/user/info/?fields=display_name,avatar_url",
+          { headers: { Authorization: `Bearer ${tt.access_token}` } },
+        );
+        const me = await meRes.json();
+        name = me?.data?.user?.display_name || name;
+        avatar = me?.data?.user?.avatar_url;
+      } catch { /* a name is cosmetic; the token is what matters */ }
+
+      const ttAccounts = await getAccounts(userId);
+      ttAccounts["tiktok"] = {
+        platform: "tiktok",
+        connected: true,
+        name,
+        handle: name,
+        avatar,
+        connectedAt: new Date().toISOString(),
+        userAccessToken: tt.access_token,
+      };
+      await saveAccounts(userId, ttAccounts);
+      // Said at the moment of connecting, not when a post mysteriously fails
+      // to appear: an unaudited app can only post privately.
+      return c.html(callbackHtml(
+        platform,
+        true,
+        "Connected. Until TikTok audits this app, posts are published privately — "
+        + "submit it for review in TikTok for Developers to post publicly.",
+      ));
+    }
 
     // 1) Exchange code → short-lived user token
     const tokenRes = await fetch(
@@ -406,8 +486,67 @@ socialRouter.get(`${PREFIX}/social/fetch/:platform`, async (c) => {
 });
 
 // ── Publish / cross-post ──────────────────────────────────────────────────
-async function publishToFacebook(account: SocialAccount, content: string, imageUrl?: string) {
+/**
+ * A Facebook Reel, which is not a Facebook video post with a different name.
+ *
+ * Reels have their own endpoint and their own three-phase handshake —
+ * initialise, upload, finish — on a different host from the Graph calls
+ * everything else here uses. Posting a vertical video to `/feed` or `/videos`
+ * produces an ordinary video post, not a reel, so this cannot be folded into
+ * the function below.
+ *
+ * `upload_phase=finish` returns as soon as Facebook has ACCEPTED the reel, not
+ * when it is live: processing continues afterwards. That is why nothing here
+ * polls — unlike Instagram, there is no container to publish separately, so
+ * acceptance is the honest end of our involvement.
+ */
+async function publishReelToFacebook(account: SocialAccount, content: string, videoUrl: string) {
+  const token = account.pageAccessToken!;
+
+  const startRes = await fetch(`${GRAPH}/${account.pageId}/video_reels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ upload_phase: "start", access_token: token }),
+  });
+  const start = await startRes.json();
+  if (!startRes.ok || !start?.video_id) {
+    throw new Error(start?.error?.message || "Facebook would not start the reel upload.");
+  }
+
+  // Facebook fetches the file itself from the URL we hand it, which is why the
+  // rendered video has to live somewhere reachable without our credentials.
+  const uploadRes = await fetch(`https://rupload.facebook.com/video-upload/v18.0/${start.video_id}`, {
+    method: "POST",
+    headers: {
+      Authorization: `OAuth ${token}`,
+      file_url: videoUrl,
+    },
+  });
+  const upload = await uploadRes.json().catch(() => ({}));
+  if (!uploadRes.ok || upload?.success === false) {
+    throw new Error(upload?.error?.message || upload?.debug_info?.message || "Facebook could not fetch the video.");
+  }
+
+  const finishRes = await fetch(
+    `${GRAPH}/${account.pageId}/video_reels`
+    + `?upload_phase=finish&video_state=PUBLISHED`
+    + `&video_id=${encodeURIComponent(start.video_id)}`
+    + `&description=${encodeURIComponent(content)}`
+    + `&access_token=${encodeURIComponent(token)}`,
+    { method: "POST" },
+  );
+  const finish = await finishRes.json();
+  if (!finishRes.ok || finish?.success === false) {
+    throw new Error(finish?.error?.message || "Facebook would not publish the reel.");
+  }
+  return start.video_id;
+}
+
+async function publishToFacebook(account: SocialAccount, content: string, imageUrl?: string, videoUrl?: string) {
   const base = `${GRAPH}/${account.pageId}`;
+  // A video means a reel. Facebook had no video path at all before this — a
+  // rendered reel would have silently become a text post.
+  if (videoUrl) return publishReelToFacebook(account, content, videoUrl);
   if (imageUrl) {
     const res = await fetch(`${base}/photos`, {
       method: "POST",
@@ -428,6 +567,62 @@ async function publishToFacebook(account: SocialAccount, content: string, imageU
   return data.id;
 }
 
+/**
+ * Post a video to TikTok.
+ *
+ * THE THING TO KNOW BEFORE THIS LOOKS BROKEN
+ *
+ * TikTok restricts every post made by an UNAUDITED app to private viewing, and
+ * blocks the attempt outright at `/publish/video/init/` for an account that is
+ * not private. That is not something the code can work around: lifting it
+ * needs TikTok's manual review of the app — a demo video, screenshots and a
+ * privacy policy URL — which has a queue.
+ *
+ * So a correct integration can post successfully and the video can still be
+ * private, and the refusal for a public account reads like a bug when it is a
+ * policy. The error below says so in as many words, because the alternative is
+ * somebody spending a day looking for a fault that is not there.
+ *
+ * PULL_FROM_URL rather than an upload, for the same reason as Facebook Reels:
+ * the rendered video already lives at a signed URL the platform can fetch, and
+ * pushing the bytes a second time through this function would be slower and no
+ * more reliable.
+ */
+async function publishToTikTok(account: SocialAccount, content: string, videoUrl?: string) {
+  if (!videoUrl) throw new Error("TikTok only takes video. Render a reel first.");
+  const token = account.userAccessToken!;
+
+  const initRes = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      post_info: {
+        title: content.slice(0, 2200),
+        privacy_level: "SELF_ONLY",
+        disable_comment: false,
+      },
+      source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
+    }),
+  });
+  const init = await initRes.json().catch(() => ({}));
+  const err = init?.error;
+
+  if (!initRes.ok || (err?.code && err.code !== "ok")) {
+    const message = String(err?.message || "TikTok refused the post.");
+    if (/audit|unaudited|scope|privacy_level/i.test(message)) {
+      throw new Error(
+        `${message} — TikTok restricts posts from unaudited apps to private. `
+        + "Submit the app for review in TikTok for Developers to post publicly.",
+      );
+    }
+    throw new Error(message);
+  }
+
+  const publishId = init?.data?.publish_id;
+  if (!publishId) throw new Error("TikTok accepted the request but returned no publish id.");
+  return publishId;
+}
+
 async function publishToInstagram(account: SocialAccount, content: string, imageUrl?: string, videoUrl?: string) {
   const media = videoUrl || imageUrl;
   if (!media) throw new Error("Instagram requires an image or video to post.");
@@ -436,8 +631,13 @@ async function publishToInstagram(account: SocialAccount, content: string, image
     caption: content,
     access_token: account.pageAccessToken!,
   };
-  if (videoUrl) { containerBody.media_type = "REELS"; containerBody.video_url = videoUrl; }
-  else { containerBody.image_url = imageUrl!; }
+  if (videoUrl) {
+    containerBody.media_type = "REELS";
+    containerBody.video_url = videoUrl;
+    // Without this a reel appears only in the Reels tab and not on the profile
+    // grid, which reads as "it didn't post" to whoever went looking for it.
+    containerBody.share_to_feed = "true";
+  } else { containerBody.image_url = imageUrl!; }
 
   const createRes = await fetch(`${GRAPH}/${account.igUserId}/media`, {
     method: "POST",
@@ -447,7 +647,10 @@ async function publishToInstagram(account: SocialAccount, content: string, image
   const createData = await createRes.json();
   if (!createRes.ok) throw new Error(createData?.error?.message || "Instagram container creation failed");
 
-  // 2) Publish the container
+  // 2) Wait for Meta to finish transcoding, when there is anything to transcode.
+  if (videoUrl) await waitForContainer(createData.id, account.pageAccessToken!);
+
+  // 3) Publish the container
   const pubRes = await fetch(`${GRAPH}/${account.igUserId}/media_publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -458,6 +661,111 @@ async function publishToInstagram(account: SocialAccount, content: string, image
   return pubData.id;
 }
 
+/**
+ * Wait until Instagram has actually finished with the video.
+ *
+ * THE BUG THIS FIXES
+ *
+ * A reel container was created and `media_publish` was called on the very next
+ * line. Meta transcodes video asynchronously, so the container is not
+ * publishable yet and the call fails. Images are synchronous, which is why the
+ * photo path worked and this never showed — and why it stayed unnoticed: no
+ * account has ever been connected, so no reel has ever been attempted.
+ *
+ * Meta's guidance is to poll roughly once a minute for no more than five.
+ * In practice most finish within thirty seconds to two minutes, so this polls
+ * more often early and gives up at five minutes rather than hanging a request
+ * forever.
+ *
+ * `ERROR` is reported with Meta's own message where there is one. The usual
+ * cause is a video that does not meet the reel specification — wrong aspect
+ * ratio, too long, or not H.264 — and Meta's message names it better than a
+ * guess would.
+ */
+async function waitForContainer(
+  containerId: string,
+  accessToken: string,
+  deadlineMs = 5 * 60 * 1000,
+): Promise<void> {
+  const startedAt = Date.now();
+  let waitMs = 5_000;
+
+  while (Date.now() - startedAt < deadlineMs) {
+    await new Promise((r) => setTimeout(r, waitMs));
+    waitMs = Math.min(30_000, Math.round(waitMs * 1.5));
+
+    const res = await fetch(
+      `${GRAPH}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`,
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || "Could not read the Instagram upload status.");
+
+    const status = String(data?.status_code || "").toUpperCase();
+    if (status === "FINISHED") return;
+    if (status === "ERROR" || status === "EXPIRED") {
+      throw new Error(
+        data?.status
+          || `Instagram could not process the video (${status || "unknown"}). Reels must be MP4/H.264, 9:16, 3–90 seconds.`,
+      );
+    }
+    // IN_PROGRESS / PUBLISHED — keep waiting.
+  }
+
+  throw new Error("Instagram is still processing the video after five minutes. It may still appear; check the account before posting again.");
+}
+
+/**
+ * Publish as a named user, without going through HTTP.
+ *
+ * WHY THIS IS SEPARATE FROM THE ROUTE
+ *
+ * The route gets its identity from a session, which is right: a person posting
+ * from the app posts as themselves. A scheduled run has no session to get it
+ * from — nobody is signed in at three in the morning — and the wrong answers
+ * to that are to invent a shared pseudo-user or to let a caller name whichever
+ * user it likes in a request body. Both hand out the right to post as a
+ * business.
+ *
+ * So the identity comes in as an argument from a caller that already
+ * established it some other way, and the ONLY such caller is the cron tick,
+ * which is guarded by a shared secret and reads the user ids from the
+ * campaigns actually stored on the server. Nothing reaches this from a
+ * request body.
+ *
+ * The route below now calls this with its authenticated user, so there is one
+ * publisher rather than two that can drift.
+ */
+export async function publishForUser(
+  userId: string,
+  content: string,
+  platforms: string[],
+  imageUrl?: string,
+  videoUrl?: string,
+): Promise<Array<{ platform: string; success: boolean; id?: string; error?: string }>> {
+  const accounts = await getAccounts(userId);
+  const results: Array<{ platform: string; success: boolean; id?: string; error?: string }> = [];
+
+  for (const platform of platforms) {
+    const account = accounts[platform];
+    if (!account?.connected) {
+      results.push({ platform, success: false, error: "Not connected" });
+      continue;
+    }
+    try {
+      let id: string | undefined;
+      if (platform === "facebook") id = await publishToFacebook(account, content, imageUrl, videoUrl);
+      else if (platform === "instagram") id = await publishToInstagram(account, content, imageUrl, videoUrl);
+      else if (platform === "tiktok") id = await publishToTikTok(account, content, videoUrl);
+      else throw new Error(`Publishing to ${platform} is not supported yet.`);
+      results.push({ platform, success: true, id });
+    } catch (err) {
+      console.error(`[Social] publish to ${platform} failed:`, err);
+      results.push({ platform, success: false, error: String(err instanceof Error ? err.message : err) });
+    }
+  }
+  return results;
+}
+
 socialRouter.post(`${PREFIX}/social/publish`, async (c) => {
   try {
     const userId = await getUserId(c);
@@ -466,26 +774,8 @@ socialRouter.post(`${PREFIX}/social/publish`, async (c) => {
     if (!content || !Array.isArray(platforms) || platforms.length === 0) {
       return c.json({ error: "content and at least one platform are required." }, 400);
     }
-    const accounts = await getAccounts(userId);
-    const results: Array<{ platform: string; success: boolean; id?: string; error?: string }> = [];
 
-    for (const platform of platforms) {
-      const account = accounts[platform];
-      if (!account?.connected) {
-        results.push({ platform, success: false, error: "Not connected" });
-        continue;
-      }
-      try {
-        let id: string | undefined;
-        if (platform === "facebook") id = await publishToFacebook(account, content, imageUrl);
-        else if (platform === "instagram") id = await publishToInstagram(account, content, imageUrl, videoUrl);
-        else throw new Error(`Publishing to ${platform} is not supported yet.`);
-        results.push({ platform, success: true, id });
-      } catch (err) {
-        console.error(`[Social] publish to ${platform} failed:`, err);
-        results.push({ platform, success: false, error: String(err instanceof Error ? err.message : err) });
-      }
-    }
+    const results = await publishForUser(userId, content, platforms, imageUrl, videoUrl);
 
     const anySuccess = results.some((r) => r.success);
     return c.json({ success: anySuccess, results }, anySuccess ? 200 : 502);

@@ -26,6 +26,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { publishForUser } from "./social-media.tsx";
 
 export const autopilotRouter = new Hono();
 
@@ -47,14 +48,30 @@ function id(prefix: string): string {
 }
 
 // ── Identity & storage (mirrors social-media.tsx so accounts line up) ────────
-async function getUserId(c: any): Promise<string> {
+/**
+ * Who owns the campaigns in this request, or null when nobody does.
+ *
+ * This used to answer `"default"` whenever the session was missing or invalid,
+ * which turned "not signed in" into a real, shared identity. Every key here is
+ * built from it — `autopilot:campaign:{userId}:{id}` — so anybody holding only
+ * the publishable key could create campaigns in that namespace and drive them
+ * forward, and `advanceCampaign` publishes to live business pages.
+ *
+ * `social-media.tsx` closed exactly this hole in its own `getUserId`, with the
+ * reason that applies here word for word: connected pages carry the right to
+ * post as a business, and that is not something to hand out to whoever asks.
+ *
+ * Nothing is stranded by the change — there were no autopilot records at all
+ * when it was made, in the `default` namespace or any other.
+ */
+async function getUserId(c: any): Promise<string | null> {
   try {
     const token = c.req.header("Authorization")?.split(" ")[1];
-    if (!token) return "default";
+    if (!token) return null;
     const { data } = await supabaseAdmin.auth.getUser(token);
-    return data?.user?.id || "default";
+    return data?.user?.id || null;
   } catch {
-    return "default";
+    return null;
   }
 }
 
@@ -130,6 +147,7 @@ function computeDueAt(startAtIso: string, i: number, spacingMinutes: number): st
 autopilotRouter.post("/autopilot/campaigns", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const body = await c.req.json().catch(() => ({}));
 
     const goal = String(body.goal || "").trim();
@@ -201,6 +219,7 @@ autopilotRouter.post("/autopilot/campaigns", async (c) => {
 autopilotRouter.get("/autopilot/campaigns", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const ids = await loadIndex(userId);
     const campaigns = (
       await Promise.all(ids.map((cid) => loadCampaign(userId, cid)))
@@ -217,6 +236,7 @@ autopilotRouter.get("/autopilot/campaigns", async (c) => {
 autopilotRouter.get("/autopilot/campaigns/:id", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     return c.json({ success: true, campaign });
@@ -229,6 +249,7 @@ autopilotRouter.get("/autopilot/campaigns/:id", async (c) => {
 autopilotRouter.post("/autopilot/campaigns/:id/generate-plan", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
 
@@ -282,6 +303,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/generate-plan", async (c) => {
 autopilotRouter.post("/autopilot/campaigns/:id/generate-assets", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     if (!Array.isArray(campaign.items) || campaign.items.length === 0) {
@@ -351,7 +373,37 @@ autopilotRouter.post("/autopilot/campaigns/:id/generate-assets", async (c) => {
 
 // ── The runner: publish every ready item whose dueAt has passed ──────────────
 // Idempotent — an item is only ever published once (guarded by postedAt).
-async function advanceCampaign(c: any, userId: string, campaign: any): Promise<any[]> {
+/**
+ * How this run publishes.
+ *
+ * A request-driven run forwards the signed-in person's Authorization header to
+ * `/social/publish`, which is right: they are posting as themselves.
+ *
+ * A scheduled run has no session to forward — nobody is signed in at three in
+ * the morning — so it calls `publishForUser` directly with the user id it read
+ * from the stored campaign key. That keeps the identity coming from the
+ * server's own records instead of from a request, which is the whole reason
+ * the publisher was split out of its route.
+ *
+ * Everything else the runner needs is already on the item: the caption and
+ * hashtags were composed at plan time, and the image is re-signed here with
+ * the service role rather than over HTTP. Publishing was the only part that
+ * needed a session, which is why this is the only seam.
+ */
+type Publisher = (content: string, platforms: string[], imageUrl?: string) => Promise<any[]>;
+
+const httpPublisher = (c: any): Publisher => async (content, platforms, imageUrl) => {
+  const pub = await callInternal(c, "/social/publish", { content, imageUrl, platforms });
+  return Array.isArray(pub?.results) ? pub.results : [];
+};
+
+async function advanceCampaign(
+  c: any,
+  userId: string,
+  campaign: any,
+  publisher?: Publisher,
+): Promise<any[]> {
+  const publish = publisher || httpPublisher(c);
   if (campaign.status === "paused") return [];
   const now = Date.now();
   const ran: any[] = [];
@@ -385,12 +437,8 @@ async function advanceCampaign(c: any, userId: string, campaign: any): Promise<a
 
     const content = [item.caption, (item.hashtags || []).join(" ")].filter(Boolean).join("\n\n");
     try {
-      const pub = await callInternal(c, "/social/publish", {
-        content,
-        imageUrl: imageUrl || undefined,
-        platforms: [item.channel],
-      });
-      const result = Array.isArray(pub?.results) ? pub.results[0] : null;
+      const results = await publish(content, [item.channel], imageUrl || undefined);
+      const result = results[0] || null;
       if (result?.success) {
         item.status = "posted";
         item.postedAt = new Date().toISOString();
@@ -425,6 +473,7 @@ async function advanceCampaign(c: any, userId: string, campaign: any): Promise<a
 autopilotRouter.post("/autopilot/campaigns/:id/advance", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const ran = await advanceCampaign(c, userId, campaign);
@@ -443,6 +492,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/advance", async (c) => {
 autopilotRouter.get("/autopilot/due", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const ids = await loadIndex(userId);
     const now = Date.now();
     const dueCampaignIds: string[] = [];
@@ -470,6 +520,7 @@ autopilotRouter.get("/autopilot/due", async (c) => {
 autopilotRouter.post("/autopilot/tick", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const ids = await loadIndex(userId);
     const results: Record<string, any[]> = {};
     for (const cid of ids) {
@@ -484,6 +535,84 @@ autopilotRouter.post("/autopilot/tick", async (c) => {
   }
 });
 
+/**
+ * The scheduled run — the whole reason campaigns stop when a tab closes.
+ *
+ * WHAT WAS WRONG
+ *
+ * The header of this file says it: *"this environment has no server cron — the
+ * runner is driven by a client heartbeat."* So a campaign only advanced while
+ * somebody had the Autopilot page open, which means overnight and weekend
+ * slots simply never posted. `/autopilot/tick` was written for an external
+ * scheduler and nothing ever called it.
+ *
+ * `pg_cron` IS available in this project and already drives
+ * `compliance-expiry-reminders` daily. This route is the autopilot equivalent,
+ * and it follows that one deliberately rather than inventing a second scheme.
+ *
+ * AUTHENTICATED BY A SHARED SECRET, AND THE USER IDS COME FROM THE SERVER
+ *
+ * A scheduler has no user. The secret is read from `private_cron_config` — the
+ * row the scheduler itself sends, so rotating it means changing one thing in
+ * one place — falling back to the environment, and refusing outright when
+ * neither yields a value. An unset secret must never mean "no check required".
+ *
+ * Whose campaigns get advanced is read from the stored keys
+ * (`autopilot:index:{userId}`), never from the request. A machine endpoint that
+ * accepted a user id in its body would let anybody holding the secret post as
+ * any connected business.
+ */
+autopilotRouter.post("/autopilot/cron-tick", async (c) => {
+  let secret = "";
+  try {
+    const { data } = await supabaseAdmin
+      .from("private_cron_config")
+      .select("value")
+      .eq("key", "autopilot_cron_secret")
+      .maybeSingle();
+    secret = String(data?.value || "");
+  } catch {
+    // Fall through to the environment. A database blip must not turn a machine
+    // endpoint into an open one — the check below still refuses with neither.
+  }
+  if (!secret) secret = Deno.env.get("AUTOPILOT_CRON_SECRET") || "";
+
+  const offered = c.req.header("X-Autopilot-Cron-Secret") || "";
+  if (!secret || offered !== secret) {
+    return c.json({ success: false, error: "Unauthorized." }, 401);
+  }
+
+  try {
+    const keys = await kv.getKeysByPrefix("autopilot:index:");
+    const userIds = keys
+      .map((k) => k.slice("autopilot:index:".length))
+      .filter((u) => u && u !== "default");
+
+    const summary: Record<string, any> = {};
+    for (const userId of userIds) {
+      const ids = await loadIndex(userId);
+      const perCampaign: Record<string, any[]> = {};
+      for (const cid of ids) {
+        const campaign = await loadCampaign(userId, cid);
+        if (!campaign) continue;
+        // Publishes as this user, from the server's own records — see the note
+        // on Publisher above for why this does not forward a header.
+        perCampaign[cid] = await advanceCampaign(
+          c,
+          userId,
+          campaign,
+          (content, platforms, imageUrl) => publishForUser(userId, content, platforms, imageUrl),
+        );
+      }
+      if (Object.keys(perCampaign).length) summary[userId] = perCampaign;
+    }
+    return c.json({ success: true, users: userIds.length, advanced: summary });
+  } catch (error) {
+    console.log(`[Autopilot] cron-tick error: ${error}`);
+    return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
 // ── Human-in-the-loop review controls (only meaningful when requireApproval) ─
 function findItem(campaign: any, itemId: string): any | null {
   return (campaign.items || []).find((it: any) => it.id === itemId) || null;
@@ -493,6 +622,7 @@ function findItem(campaign: any, itemId: string): any | null {
 autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/approve", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const item = findItem(campaign, c.req.param("itemId"));
@@ -511,6 +641,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/approve", async (c)
 autopilotRouter.post("/autopilot/campaigns/:id/approve-all", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     let approved = 0;
@@ -528,6 +659,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/approve-all", async (c) => {
 autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/reject", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const item = findItem(campaign, c.req.param("itemId"));
@@ -546,6 +678,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/reject", async (c) 
 autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/edit", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const item = findItem(campaign, c.req.param("itemId"));
@@ -565,6 +698,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/edit", async (c) =>
 autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/regenerate", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const item = findItem(campaign, c.req.param("itemId"));
@@ -608,6 +742,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/items/:itemId/regenerate", async 
 autopilotRouter.post("/autopilot/campaigns/:id/pause", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     campaign.status = "paused";
@@ -621,6 +756,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/pause", async (c) => {
 autopilotRouter.post("/autopilot/campaigns/:id/resume", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const campaign = await loadCampaign(userId, c.req.param("id"));
     if (!campaign) return c.json({ success: false, error: "Campaign not found." }, 404);
     const anyPending = (campaign.items || []).some(
@@ -638,6 +774,7 @@ autopilotRouter.post("/autopilot/campaigns/:id/resume", async (c) => {
 autopilotRouter.delete("/autopilot/campaigns/:id", async (c) => {
   try {
     const userId = await getUserId(c);
+    if (!userId) return c.json({ success: false, error: "Sign in required." }, 401);
     const cid = c.req.param("id");
     await kv.del(campaignKey(userId, cid));
     const idx = (await loadIndex(userId)).filter((x) => x !== cid);

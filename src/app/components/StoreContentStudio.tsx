@@ -199,9 +199,22 @@ function ProductPosts({ products, loading, reload, initialSelectedId }: { produc
     } finally { setBusy(null); }
   };
 
-  const saveSocial = async () => {
+  /**
+   * The image the post carries.
+   *
+   * Instagram refuses a post without one, so the first selected product's
+   * image is sent. Facebook is happy either way. Nothing is invented — if the
+   * products have no image, none is sent and Instagram says so rather than the
+   * post silently going nowhere.
+   */
+  const postImage = (): string => {
+    const picked = products.filter(p => selected.has(p.id));
+    return picked.find(p => p.image)?.image || '';
+  };
+
+  const submitPost = async (publishNow: boolean) => {
     if (!body.trim()) { toast.error('Compose the post first.'); return; }
-    setBusy('social');
+    setBusy(publishNow ? 'post-now' : 'social');
     try {
       const token = await adminToken();
       const res = await fetch(`${SERVER}/store-content/posts`, {
@@ -212,15 +225,31 @@ function ProductPosts({ products, loading, reload, initialSelectedId }: { produc
           postBody: body,
           productIds: [...selected],
           channels: ['social'],
-          status: 'ready',
+          imageUrl: postImage(),
+          status: publishNow ? 'ready' : 'draft',
+          publishNow,
         }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.success) throw new Error(data?.error || `Save failed (${res.status})`);
-      toast.success('Saved as a social post — ready to schedule.');
+
+      if (!publishNow) {
+        if (!res.ok || !data?.success) throw new Error(data?.error || `Save failed (${res.status})`);
+        toast.success('Saved as a draft.');
+        return;
+      }
+
+      /*
+        A refusal comes back with the per-platform reasons, so say them. This
+        used to save a record and report success regardless — and nothing ever
+        read that record again, so "ready to schedule" meant nowhere.
+      */
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || data?.error || `Could not post (${res.status})`);
+      }
+      toast.success(data?.message || 'Posted to your social accounts.');
     } catch (err: any) {
       console.error('[ProductPosts] social:', err);
-      toast.error(err.message || 'Could not save post.');
+      toast.error(err.message || 'Could not post.');
     } finally { setBusy(null); }
   };
 
@@ -267,17 +296,32 @@ function ProductPosts({ products, loading, reload, initialSelectedId }: { produc
           className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-[#ea580c] min-h-[180px]" />
         <input value={recipients} onChange={e => setRecipients(e.target.value)} placeholder="Email recipients (comma-separated) — for Send as Email"
           className="w-full px-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-[#ea580c]" />
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={sendEmail} disabled={busy === 'email'} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: '#ea580c' }}>
+        {/*
+          "Post now" is new and is the point of this screen. The old Social
+          button saved a record and said "ready to schedule" — against a
+          scheduler that does not exist, so nothing composed here ever reached
+          a page. It is still here, honestly relabelled as a draft.
+        */}
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => submitPost(true)} disabled={busy === 'post-now'} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: '#ea580c' }}>
+            {busy === 'post-now' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Post to socials now
+          </button>
+          <button onClick={sendEmail} disabled={busy === 'email'} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: 'rgba(255,255,255,0.1)' }}>
             {busy === 'email' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Email
           </button>
-          <button onClick={saveSocial} disabled={busy === 'social'} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: 'rgba(255,255,255,0.1)' }}>
-            {busy === 'social' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Social
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => submitPost(false)} disabled={busy === 'social'} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: 'rgba(255,255,255,0.1)' }}>
+            {busy === 'social' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save draft
           </button>
           <button onClick={copyText} className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold text-white" style={{ background: 'rgba(255,255,255,0.1)' }}>
             <Copy className="w-4 h-4" /> Copy
           </button>
         </div>
+        <p className="text-[11px] leading-4 text-gray-500">
+          Posting uses the Facebook or Instagram account connected in the Social Media
+          Hub. Instagram needs an image, so it uses the first selected product&rsquo;s photo.
+        </p>
       </div>
     </div>
   );
