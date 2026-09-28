@@ -4,6 +4,7 @@ import PortalTrialBanner from './PortalTrialBanner';
 import DocumentPreviewModal from '../documents/DocumentPreviewModal';
 import QuoteDocument from '../documents/QuoteDocument';
 import ContractDocument from '../documents/ContractDocument';
+import ContractSignDialog from '../documents/ContractSignDialog';
 import { quoteToPDFData } from '../documents/quoteMath';
 import {
   contractParty, contractAmount, contractBody, contractTitle, contractReference,
@@ -107,6 +108,8 @@ export default function CustomerPortalView() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [signingContractId, setSigningContractId] = useState<string | null>(null);
+  /** The contract open in the signing dialog, if any. */
+  const [signingContract, setSigningContract] = useState<any | null>(null);
 
   /**
    * The document the customer is looking at, if any.
@@ -308,8 +311,15 @@ export default function CustomerPortalView() {
     void loadContracts();
   }, [user?.id]);
 
-  const signContract = async (contract: any) => {
-    const signatureName = window.prompt('Type your full legal name to sign this contract:')?.trim();
+  /**
+   * Sign a contract, having been shown it.
+   *
+   * The name arrives from `ContractSignDialog`, which renders the agreement,
+   * takes an explicit acceptance separate from the typed name, and says what
+   * the record will show before it is written. It replaced a `window.prompt`
+   * that asked for a legal signature with the terms nowhere in sight.
+   */
+  const signContract = async (contract: any, signatureName: string) => {
     if (!signatureName) return;
     setSigningContractId(contract.id);
     try {
@@ -319,6 +329,7 @@ export default function CustomerPortalView() {
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not sign this contract.');
       setContracts(current => current.map(item => item.id === contract.id ? data.contract : item));
+      setSigningContract(null);
       toast.success('Contract signed. Your project team has been notified.');
     } catch (error: any) { toast.error(error.message || 'Could not sign this contract.'); }
     finally { setSigningContractId(null); }
@@ -1817,7 +1828,7 @@ export default function CustomerPortalView() {
         {activeTab === 'contracts' && (
           <div className="space-y-5">
             <div><h2 className="text-2xl font-bold text-white">Your contracts</h2><p className="mt-1 text-sm text-gray-400">Review and sign contracts connected to your approved quotes.</p></div>
-            {loadingContracts ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">Loading contracts…</div> : contracts.length === 0 ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">No contracts are awaiting your signature.</div> : contracts.map(contract => <article key={contract.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-white">{contract.title || 'Service Contract'}</h3><p className="mt-1 text-sm text-gray-400">Created {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString() : 'recently'}</p></div><span className={`rounded-full border px-3 py-1 text-sm font-semibold ${getStatusColor(contract.status || 'pending')}`}>{String(contract.status || 'pending').replace('_', ' ')}</span></div>{contract.terms && <p className="mt-4 line-clamp-3 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-sm leading-6 text-gray-300">{contract.terms}</p>}<div className="mt-4 flex flex-wrap items-center justify-between gap-4"><p className="text-lg font-bold text-white">{contract.amount !== undefined && contract.amount !== null ? `$${Number(contract.amount).toLocaleString()}` : 'Amount in contract'}</p><div className="flex flex-wrap items-center gap-2">{/* Read the whole agreement, laid out, before signing it — and keep a copy after. The card shows an excerpt; this shows the document. */}<button onClick={() => setPreview({ kind: 'contract', doc: contract })} className="inline-flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-[#2A2A2A]"><FileText className="h-4 w-4" />View contract</button>{contract.status !== 'active' ? <button onClick={() => signContract(contract)} disabled={signingContractId === contract.id} className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-50"><FileCheck className="h-4 w-4" />{signingContractId === contract.id ? 'Signing…' : 'Review & sign'}</button> : <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-400"><CheckCircle className="h-4 w-4" /> Signed {contract.signedAt ? new Date(contract.signedAt).toLocaleDateString() : ''}</span>}</div></div></article>)}
+            {loadingContracts ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">Loading contracts…</div> : contracts.length === 0 ? <div className="rounded-xl border border-[#2A2A2A] p-8 text-center text-gray-400">No contracts are awaiting your signature.</div> : contracts.map(contract => <article key={contract.id} className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-white">{contract.title || 'Service Contract'}</h3><p className="mt-1 text-sm text-gray-400">Created {contract.createdAt ? new Date(contract.createdAt).toLocaleDateString() : 'recently'}</p></div><span className={`rounded-full border px-3 py-1 text-sm font-semibold ${getStatusColor(contract.status || 'pending')}`}>{String(contract.status || 'pending').replace('_', ' ')}</span></div>{contract.terms && <p className="mt-4 line-clamp-3 whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-sm leading-6 text-gray-300">{contract.terms}</p>}<div className="mt-4 flex flex-wrap items-center justify-between gap-4"><p className="text-lg font-bold text-white">{contract.amount !== undefined && contract.amount !== null ? `$${Number(contract.amount).toLocaleString()}` : 'Amount in contract'}</p><div className="flex flex-wrap items-center gap-2">{/* Read the whole agreement, laid out, before signing it — and keep a copy after. The card shows an excerpt; this shows the document. */}<button onClick={() => setPreview({ kind: 'contract', doc: contract })} className="inline-flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-2 text-sm font-bold text-gray-200 transition hover:bg-[#2A2A2A]"><FileText className="h-4 w-4" />View contract</button>{contract.status !== 'active' ? <button onClick={() => setSigningContract(contract)} disabled={signingContractId === contract.id} className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:opacity-50"><FileCheck className="h-4 w-4" />{signingContractId === contract.id ? 'Signing…' : 'Review & sign'}</button> : <span className="inline-flex items-center gap-2 text-sm font-semibold text-green-400"><CheckCircle className="h-4 w-4" /> Signed {contract.signedAt ? new Date(contract.signedAt).toLocaleDateString() : ''}</span>}</div></div></article>)}
           </div>
         )}
 
@@ -2028,6 +2039,19 @@ export default function CustomerPortalView() {
           <QuoteDocument quote={preview.doc} />
         </DocumentPreviewModal>
       )}
+
+      {/*
+        Signing shows the agreement, takes acceptance as its own act, and says
+        what the record will hold — replacing a window.prompt that asked for a
+        legal signature with the terms nowhere in sight.
+      */}
+      <ContractSignDialog
+        contract={signingContract}
+        signerEmail={user?.email}
+        busy={signingContractId === signingContract?.id}
+        onClose={() => setSigningContract(null)}
+        onSign={(signatureName) => signContract(signingContract, signatureName)}
+      />
 
       {preview?.kind === 'contract' && (
         <DocumentPreviewModal
