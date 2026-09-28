@@ -1,3 +1,83 @@
+# PLAN — see it, print it, save it: quotes, invoices and contracts
+
+Eric: *"can we also make sure all the quote, invoice, contracts have a view
+option of what the document looks like as well as create a pdf or print option
+as well"* — and, asked where: *"i want these options in the pipeline as well."*
+
+So every one of the three must be viewable, printable and saveable as a PDF from
+BOTH surfaces: the customer portal and the pipeline.
+
+## What the survey found
+
+**Invoices are done, and are the template.** `InvoicePreviewModal` renders a
+laid-out document with Print (`window.print`), Download PDF (`PDFService` →
+jsPDF + `jspdf-autotable`, both already dependencies) and Email.
+
+**But only staff can reach it.** It is opened from exactly one place,
+`InvoicesNew.tsx`. `CustomerPortalView.tsx` contains ZERO references to
+`InvoicePreviewModal`, `PDFService` or `window.print` — so the people who most
+need to print an invoice cannot.
+
+**Quotes have nothing.** No preview component and no generator; `PDFService`
+knows only `generateInvoicePDF`. `CustomerQuoteApproval.tsx` — the public page
+where a customer approves a price — imports a Download icon with no print or PDF
+code behind it. A customer approves a figure they cannot keep a copy of.
+
+**Contracts are worst.** In the portal a contract is `contract.terms` dropped
+into a `<p>` with `whitespace-pre-wrap`. Raw text in a box, no layout, no print,
+no PDF — and it is the document people most need a copy of, because they signed
+it.
+
+**The pipeline already has the right seams.** `UnifiedProjectPipeline.tsx` opens
+a details panel with `quote`, `contract` and `invoice` tabs. Those tabs are where
+the actions belong; no new navigation is needed.
+
+## The one design decision worth stating
+
+**One document component per type, used by both surfaces.** Not a portal version
+and a pipeline version — the customer and the office must be looking at the
+identical document, or the conversation about "what does it say" has two answers.
+
+A shared `DocumentPreviewModal` shell supplies the actions (Print, Download,
+Email) and takes the document body as children. Staying with client-side jsPDF
+rather than introducing a rendering service: it already works here, and
+`EmailInvoiceModal` already generates in the browser and posts the file up.
+
+## Items
+
+- [ ] 1. Extract the invoice's laid-out body into `InvoiceDocument`, rendered by
+      the existing `InvoicePreviewModal`. NO behaviour change — the staff page
+      must look and work exactly as before. This is the step that proves the
+      extraction is safe before anything depends on it.
+- [ ] 2. `DocumentPreviewModal` — the shell with Print / Download / Email,
+      generalised from `InvoicePreviewModal`.
+- [ ] 3. `QuoteDocument` + `PDFService.generateQuotePDF`. Quotes and invoices
+      share most fields, so this follows the invoice closely.
+- [ ] 4. `ContractDocument` + `PDFService.generateContractPDF`. The largest
+      piece, because there is no layout to start from.
+- [ ] 5. Wire all three into the CUSTOMER PORTAL — the quotes, contracts and
+      payments tabs.
+- [ ] 6. Wire all three into the PIPELINE — the existing quote, contract and
+      invoice tabs of the project details panel.
+- [ ] 7. A print stylesheet so `window.print` produces a clean page rather than
+      the application chrome around it.
+
+## Raised, not included
+
+**Contract signing uses `window.prompt`** to collect the legal name. A browser
+dialog cannot show the terms being agreed to, cannot be styled, and is
+suppressed outright by some browsers. For a signature with legal weight that
+wants to be a real dialog displaying what is being signed — which item 4 makes
+natural, since the document will finally exist. Not folded in without Eric
+saying so, because it changes a legal flow rather than a view.
+
+## Still open elsewhere
+
+Proving the work-request write path end to end, and admin/owner clock-in on work
+requests that track hours.
+
+---
+
 # Work requests become individual rows (28 Sep)
 
 Eric: *"use the individual rows."*
