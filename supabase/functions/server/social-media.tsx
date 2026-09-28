@@ -22,7 +22,9 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { PLATFORMS, isPlatform, refusalFor, fitToPlatform } from "./socialPlatforms.ts";
+import {
+  PLATFORMS, isPlatform, refusalFor, fitToPlatform, costOfPost, containsLink,
+} from "./socialPlatforms.ts";
 
 const PREFIX = "/make-server-3eae23a6";
 const GRAPH = "https://graph.facebook.com/v18.0";
@@ -48,6 +50,8 @@ const PINTEREST_APP_ID = Deno.env.get("PINTEREST_APP_ID") || "";
 const PINTEREST_APP_SECRET = Deno.env.get("PINTEREST_APP_SECRET") || "";
 const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID") || "";
 const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET") || "";
+const X_CLIENT_ID = Deno.env.get("X_CLIENT_ID") || "";
+const X_CLIENT_SECRET = Deno.env.get("X_CLIENT_SECRET") || "";
 
 /**
  * Where Facebook sends the user back.
@@ -442,6 +446,32 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
       return c.json({ authUrl });
     }
 
+    /**
+     * X is the only platform here using PKCE, so the verifier is generated
+     * now and kept in the state — the callback cannot complete the exchange
+     * without it, and it must never travel in the authorise URL.
+     */
+    if (platform === "x") {
+      if (!X_CLIENT_ID) {
+        return c.json({ error: "X is not configured. Add X_CLIENT_ID and X_CLIENT_SECRET secrets." }, 400);
+      }
+      const state = crypto.randomUUID();
+      const verifier = makeCodeVerifier();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform, verifier }));
+
+      // `offline.access` is what yields a refresh token. Without it the
+      // connection works for two hours and then silently stops.
+      const scopes = ["tweet.read", "tweet.write", "users.read", "offline.access"].join(" ");
+      const authUrl =
+        `https://x.com/i/oauth2/authorize?response_type=code` +
+        `&client_id=${encodeURIComponent(X_CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("x"))}` +
+        `&scope=${encodeURIComponent(scopes)}&state=${state}` +
+        `&code_challenge=${encodeURIComponent(await codeChallengeFor(verifier))}` +
+        `&code_challenge_method=S256`;
+      return c.json({ authUrl });
+    }
+
     return c.json({ error: `Unsupported platform: ${platform}` }, 400);
   } catch (error) {
     console.error("[Social] connect error:", error);
@@ -671,6 +701,60 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
       };
       await saveAccounts(userId, accounts);
       return c.html(callbackHtml(platform, true, "Connected."));
+    }
+
+    if (platform === "x") {
+      const saved = typeof stateRaw === "string" ? JSON.parse(stateRaw) : stateRaw;
+      const verifier = saved?.verifier;
+      if (!verifier) {
+        return c.html(callbackHtml(platform, false, "That X connection expired. Start again."));
+      }
+
+      const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+      if (X_CLIENT_SECRET) headers.Authorization = `Basic ${btoa(`${X_CLIENT_ID}:${X_CLIENT_SECRET}`)}`;
+
+      const tokRes = await fetch("https://api.x.com/2/oauth2/token", {
+        method: "POST",
+        headers,
+        body: new URLSearchParams({
+          code,
+          grant_type: "authorization_code",
+          client_id: X_CLIENT_ID,
+          redirect_uri: fbRedirectUri("x"),
+          code_verifier: verifier,
+        }).toString(),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.error_description || "X token exchange failed."));
+      }
+      if (!tok.refresh_token) {
+        // Two-hour tokens with no way to renew means it works this afternoon
+        // and not tomorrow, so it is refused rather than saved.
+        return c.html(callbackHtml(platform, false,
+          "X did not return a refresh token, so the connection would stop working in two hours. "
+          + "Check that the app requests offline.access, then connect again."));
+      }
+
+      let handle = "X";
+      try {
+        const meRes = await fetch("https://api.x.com/2/users/me", {
+          headers: { Authorization: `Bearer ${tok.access_token}` },
+        });
+        const me = await meRes.json();
+        if (me?.data?.username) handle = `@${me.data.username}`;
+      } catch { /* cosmetic */ }
+
+      const accounts = await getAccounts(userId);
+      accounts["x"] = {
+        platform: "x", connected: true, name: handle, handle,
+        connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token,
+        refreshToken: tok.refresh_token,
+        expiresAt: new Date(Date.now() + (Number(tok.expires_in) || 7200) * 1000).toISOString(),
+      };
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, PLATFORMS.x.caveat));
     }
 
     if (platform === "pinterest") {
@@ -1182,6 +1266,30 @@ async function publishToMastodon(account: SocialAccount, content: string) {
   return data?.id;
 }
 
+/**
+ * PKCE, which X requires and nothing else here does.
+ *
+ * The verifier is a secret generated now and sent only at the token
+ * exchange; the challenge is its SHA-256, sent in the authorise URL where
+ * anybody can see it. That pairing is what stops an intercepted
+ * authorisation code from being redeemed by somebody else.
+ *
+ * Base64url, not base64: `+` and `/` are not safe in a URL, and the padding
+ * is dropped because the spec says so and X checks.
+ */
+function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function makeCodeVerifier(): string {
+  return base64Url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+async function codeChallengeFor(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return base64Url(new Uint8Array(digest));
+}
+
 /** A stable key for the same post, so a retry does not become two posts. */
 async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
@@ -1317,6 +1425,97 @@ async function googleAccessToken(userId: string, account: SocialAccount): Promis
     await saveAccounts(userId, accounts);
   }
   return data.access_token;
+}
+
+/**
+ * A usable X access token, refreshing it when it has expired.
+ *
+ * X's tokens last TWO HOURS — shorter even than Google's — so anything
+ * scheduled needs the same treatment: renew before the call rather than
+ * discover the expiry when a post fails at three in the morning.
+ *
+ * X also rotates the refresh token on every use, so the new one has to be
+ * written back or the next refresh fails. That is the detail that turns this
+ * from "works today" into "stops working tomorrow" if missed.
+ */
+async function xAccessToken(userId: string, account: SocialAccount): Promise<string> {
+  const stillValid = account.expiresAt && Date.parse(account.expiresAt) > Date.now() + 60_000;
+  if (stillValid && account.userAccessToken) return account.userAccessToken;
+
+  if (!account.refreshToken) throw new Error("X needs reconnecting — no refresh token was stored.");
+  if (!X_CLIENT_ID) throw new Error("X is not configured. Add X_CLIENT_ID and X_CLIENT_SECRET secrets.");
+
+  const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+  // A confidential client authenticates with Basic; a public one sends the id
+  // in the body. Supporting both means either kind of app registration works.
+  if (X_CLIENT_SECRET) headers.Authorization = `Basic ${btoa(`${X_CLIENT_ID}:${X_CLIENT_SECRET}`)}`;
+
+  const res = await fetch("https://api.x.com/2/oauth2/token", {
+    method: "POST",
+    headers,
+    body: new URLSearchParams({
+      refresh_token: account.refreshToken,
+      grant_type: "refresh_token",
+      client_id: X_CLIENT_ID,
+    }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.access_token) {
+    throw new Error(data?.error_description || "X would not renew the token. Reconnect it.");
+  }
+
+  const accounts = await getAccounts(userId);
+  const stored = accounts["x"];
+  if (stored) {
+    stored.userAccessToken = data.access_token;
+    // X rotates this on every refresh; keeping the old one breaks the next.
+    if (data.refresh_token) stored.refreshToken = data.refresh_token;
+    stored.expiresAt = new Date(Date.now() + (Number(data.expires_in) || 7200) * 1000).toISOString();
+    await saveAccounts(userId, accounts);
+  }
+  return data.access_token;
+}
+
+/**
+ * Post to X.
+ *
+ * THIS ONE COSTS MONEY, WHICH IS WHY IT IS LOGGED
+ *
+ * X closed its free tier to new developers in February 2026 and moved to
+ * pay-per-use. A post is about a penny and a half; a post containing a link
+ * is twenty cents, and a post promoting a product is always a link. Eric
+ * chose this knowing the figures — the logging is so the bill is never a
+ * surprise, not so the decision gets relitigated.
+ *
+ * Text only. Attaching media means the v1.1 upload endpoint, which accepts
+ * only OAuth 1.0a — a second, incompatible credential set — and a three-step
+ * chunked upload. See the note on `PLATFORMS.x`.
+ */
+async function publishToX(account: SocialAccount, content: string) {
+  const text = fitToPlatform("x", content);
+  const cents = costOfPost("x", text);
+  console.log(`[Social] X post costing ~${cents}c (${containsLink(text) ? "carries a link" : "no link"})`);
+
+  const res = await fetch("https://api.x.com/2/tweets", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${account.userAccessToken}`,
+    },
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.detail || data?.title || "X rejected the post.";
+    if (res.status === 403) {
+      throw new Error(
+        `${detail} — a 403 here usually means the app has no write access or no `
+        + "pay-per-use billing set up. X removed the free tier for new developers.",
+      );
+    }
+    throw new Error(detail);
+  }
+  return data?.data?.id;
 }
 
 /**
@@ -1646,6 +1845,11 @@ export async function publishForUser(
       else if (platform === "linkedin" || platform === "linkedin_company") id = await publishToLinkedIn(account, content);
       else if (platform === "threads") id = await publishToThreads(account, content, imageUrl);
       else if (platform === "pinterest") id = await publishToPinterest(account, content, imageUrl);
+      else if (platform === "x") {
+        // Two-hour tokens, renewed before the call like Google's.
+        const fresh = { ...account, userAccessToken: await xAccessToken(userId, account) };
+        id = await publishToX(fresh, content);
+      }
       else if (platform === "youtube" || platform === "google_business") {
         // Google's hour-long tokens are renewed before the call rather than
         // after a failure, so a scheduled post at nine in the morning works.
@@ -1771,6 +1975,7 @@ socialRouter.get(`${PREFIX}/social/platforms`, (c) => {
     pinterest: !!(PINTEREST_APP_ID && PINTEREST_APP_SECRET),
     youtube: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
     google_business: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    x: !!X_CLIENT_ID,
     threads: !!(THREADS_APP_ID && THREADS_APP_SECRET),
     // Neither needs anything registered in advance: Bluesky takes an app
     // password the holder generates, Mastodon registers itself per instance.

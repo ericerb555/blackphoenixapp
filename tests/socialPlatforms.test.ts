@@ -10,10 +10,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PLATFORMS, PLATFORM_IDS, isPlatform, refusalFor, fitToPlatform,
+  costOfPost, costOfPosts, containsLink,
 } from '../supabase/functions/server/socialPlatforms.ts';
 
 test('every platform the publisher knows about is described exactly once', () => {
-  assert.equal(PLATFORM_IDS.length, 11);
+  assert.equal(PLATFORM_IDS.length, 12);
   for (const id of PLATFORM_IDS) {
     assert.equal(PLATFORMS[id].id, id, `${id} disagrees with its own key`);
     assert.ok(PLATFORMS[id].label, `${id} has no label`);
@@ -182,4 +183,61 @@ test('personal and company LinkedIn are separate platforms, both postable as tex
 test('each LinkedIn says which one it is, so neither looks broken', () => {
   assert.match(PLATFORMS.linkedin.caveat!, /personal profile/i);
   assert.match(PLATFORMS.linkedin_company.caveat!, /approval/i);
+});
+
+// ── Tier 3: the one that costs money ──────────────────────────────────────
+
+/**
+ * X is the only platform here that charges, and it charges thirteen times
+ * more for a post carrying a link — which a post promoting a product always
+ * is. These exist so the figure can be shown BEFORE the button is pressed: a
+ * cost somebody meets on an invoice is a cost they never agreed to.
+ */
+test('every platform except X is free to post to', () => {
+  for (const id of PLATFORM_IDS.filter((p) => p !== 'x')) {
+    assert.equal(costOfPost(id, 'Visit theblackphoenixcompany.com'), 0, `${id} should be free`);
+  }
+});
+
+test('A POST WITH A LINK COSTS 20c, WITHOUT ONE 1.5c — thirteen times the difference', () => {
+  assert.equal(costOfPost('x', 'Finished a deck in Salem today.'), 1.5);
+  assert.equal(costOfPost('x', 'New decking: https://theblackphoenixcompany.com/store'), 20);
+});
+
+/**
+ * X linkifies a bare domain and charges for it, so counting only `https://`
+ * would understate the bill on exactly the posts that carry a store link.
+ */
+test('a bare domain counts as a link, because X will charge for it', () => {
+  assert.equal(containsLink('Shop at theblackphoenixcompany.com'), true);
+  assert.equal(containsLink('Call us on 603 555 0100'), false);
+  assert.equal(containsLink('A deck, a patio and a pergola.'), false);
+  assert.equal(costOfPost('x', 'Shop at theblackphoenixcompany.com'), 20);
+});
+
+test('the cost of posting to several platforms is the sum, and only X adds to it', () => {
+  const withLink = 'See it: https://theblackphoenixcompany.com/store';
+  assert.equal(costOfPosts(['facebook', 'instagram', 'bluesky'], withLink), 0);
+  assert.equal(costOfPosts(['facebook', 'x', 'bluesky'], withLink), 20);
+  assert.equal(costOfPosts([], withLink), 0);
+});
+
+test('X allows 280 characters, and a longer caption is trimmed rather than refused', () => {
+  assert.equal(PLATFORMS.x.maxChars, 280);
+  const long = 'deck '.repeat(100).trim();
+  assert.ok(fitToPlatform('x', long).length <= 280);
+});
+
+/**
+ * Text only, and that is a limitation rather than a preference: attaching an
+ * image needs the v1.1 endpoint, which takes only OAuth 1.0a.
+ */
+test('X takes a text post and does not require media', () => {
+  assert.equal(refusalFor('x', { content: 'Booking spring work now.' }), null);
+  assert.equal(PLATFORMS.x.media, 'none');
+});
+
+test('X says what it costs, where somebody will read it', () => {
+  assert.match(PLATFORMS.x.caveat!, /20¢|20c/);
+  assert.ok(PLATFORMS.x.costCents);
 });

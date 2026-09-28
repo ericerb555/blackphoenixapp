@@ -221,7 +221,7 @@ that Eric alone can file.
 | **Pinterest** | trial → standard needs a recorded OAuth video | free | 2 |
 | **YouTube** | works now — 100 uploads/day since June 2026 | free | 2 |
 | **Google Business Profile** | formal request, verified profile 60+ days, starts at ZERO quota | free | 2 |
-| **X** | no free tier for new developers | **$0.015/post, $0.20 with a link** | 3 |
+| **X** | no free tier for new developers | **1.5¢/post, 20¢ with a link** | built |
 
 ## WHAT THIS GETS TO
 
@@ -280,7 +280,7 @@ them. Tier 3 is a commercial decision rather than a build.
 
 ## TIER 3 — X, which is now a per-post cost
 
-- [ ] S1. Build it only if Eric wants it. X moved to pay-per-use in February
+- [x] S1. BUILT — Eric asked for it after seeing the figures. X moved to pay-per-use in February
       2026 and closed the free tier to new developers. **$0.015 a post, and
       $0.20 for any post containing a link** — and a store post is a link. At
       three linked posts a day that is about $18 a month, forever, on the

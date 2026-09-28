@@ -27,7 +27,7 @@
 export type PlatformId =
   | 'facebook' | 'instagram' | 'tiktok'
   | 'bluesky' | 'mastodon' | 'linkedin' | 'threads'
-  | 'pinterest' | 'youtube' | 'google_business' | 'linkedin_company';
+  | 'pinterest' | 'youtube' | 'google_business' | 'linkedin_company' | 'x';
 
 export interface PlatformSpec {
   id: PlatformId;
@@ -64,6 +64,18 @@ export interface PlatformSpec {
    * company.
    */
   needsOrganization?: boolean;
+  /**
+   * What one post costs, in US cents, where the platform charges for it.
+   *
+   * X is the only one. It is recorded as data rather than left in a comment
+   * so a screen can show the figure BEFORE the button is pressed — a cost
+   * somebody discovers on an invoice is a cost they did not agree to.
+   *
+   * `withLink` is separate because X prices them very differently: a plain
+   * post is 1.5 cents and a post carrying any link is twenty, and a store
+   * post is always a link.
+   */
+  costCents?: { plain: number; withLink: number };
   /**
    * Said in the interface at connection time, where it changes what somebody
    * expects. Only set where there is something genuinely surprising.
@@ -116,6 +128,20 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
     id: 'linkedin_company', label: 'LinkedIn Page', auth: 'oauth', media: 'none', maxChars: 3000,
     needsOrganization: true,
     caveat: 'Company pages need LinkedIn\'s Community Management approval. Until it is granted, connecting fails.',
+  },
+  /**
+   * X, the only platform here that charges per post.
+   *
+   * `media: 'none'` is a limitation rather than a preference. Posting text is
+   * OAuth 2.0; attaching an image means the v1.1 upload endpoint, which
+   * accepts only OAuth 1.0a — a second, incompatible credential set and a
+   * three-step chunked upload. Text and a link is what a store post is
+   * anyway, and the link preview usually carries the picture.
+   */
+  x: {
+    id: 'x', label: 'X', auth: 'oauth', media: 'none', maxChars: 280,
+    costCents: { plain: 1.5, withLink: 20 },
+    caveat: 'X charges per post: about 1.5¢, or 20¢ for a post containing a link.',
   },
   pinterest: {
     id: 'pinterest', label: 'Pinterest', auth: 'oauth', media: 'image-or-video', maxChars: 500,
@@ -171,6 +197,41 @@ export function refusalFor(
     return `${spec.label} allows ${spec.maxChars} characters; this is ${content.length}.`;
   }
   return null;
+}
+
+/**
+ * What sending this post will cost, in cents, or zero.
+ *
+ * Only X charges, and it charges very differently depending on one thing:
+ * whether the text carries a link. A plain post is about a penny and a half;
+ * the same post with a URL in it is twenty cents — thirteen times more — and
+ * a post promoting a product is always a link.
+ *
+ * Returned so a screen can say the figure before the button is pressed. A
+ * cost somebody meets on an invoice is a cost they never agreed to, and at
+ * three linked posts a day this is roughly eighteen dollars a month.
+ */
+export function costOfPost(platformId: PlatformId, content: string): number {
+  const spec = PLATFORMS[platformId];
+  if (!spec?.costCents) return 0;
+  return containsLink(content) ? spec.costCents.withLink : spec.costCents.plain;
+}
+
+/**
+ * Does this text carry a link?
+ *
+ * Deliberately generous: a bare `theblackphoenixcompany.com` counts, because
+ * X will linkify it and charge for it whether or not it was written with a
+ * scheme. Guessing low here would understate the bill.
+ */
+export function containsLink(content: string): boolean {
+  const text = String(content ?? '');
+  return /https?:\/\/\S+/i.test(text) || /\b[a-z0-9-]+\.(com|net|org|co|io|shop|us)\b/i.test(text);
+}
+
+/** The total for one post across several platforms, in cents. */
+export function costOfPosts(platformIds: PlatformId[], content: string): number {
+  return (platformIds || []).reduce((sum, id) => sum + costOfPost(id, content), 0);
 }
 
 /**
