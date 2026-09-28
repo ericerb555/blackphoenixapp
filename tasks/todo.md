@@ -1,3 +1,64 @@
+# Work requests become individual rows (28 Sep)
+
+Eric: *"use the individual rows."*
+
+## What was actually there
+
+Not two homes for work requests — four shapes, three of them arrays:
+
+    all_work_requests        3 items   real submissions, where live jobs land
+    work_requests            KEY DOES NOT EXIST
+    work_requests_anonymous  8 items   completed jobs for the public gallery
+    work_request:<id>        0 rows    the authoritative store, empty
+
+`work_requests` holding nothing is already documented in the code: every
+property-management assignment read that key, found nothing, and returned "Work
+request not found", so no job had ever been assigned to anybody until
+`findWorkRequest` was added to search all three.
+
+So the store Eric chose as authoritative did not exist yet. This was a
+migration, not a reconciliation.
+
+## Rehearsed on a branch first
+
+Eric's rule is that backend changes are tried off production before they touch
+it, and "it is only additive" is not a reason to skip. A Supabase branch was
+created, seeded with the same eleven ids and shapes, and the migration run there.
+
+Stated plainly: the branch was seeded with records matching the real IDS AND
+SHAPES rather than byte-for-byte copies of the production JSON. The transform is
+field-agnostic — it expands an array into rows and adds a flag — so what the
+rehearsal proves is the LOGIC: that every id becomes a row, that re-running
+creates no duplicates, and that the arrays are left alone. It does not prove
+anything about the contents of individual records, because it cannot.
+
+All four checks passed there, then the same statements ran on production:
+
+    ids in arrays          11
+    work_request: rows     11
+    array ids with no row  none
+    gallery-flagged rows   8
+    arrays untouched       3 + 8
+
+The branch was deleted afterwards so it stops costing anything.
+
+## The anonymous list is now a flag
+
+On Eric's instruction, `publicGallery: true` on the row replaces the separate
+`work_requests_anonymous` list, so one job is one record rather than a job and a
+copy of it. Each row also carries `migratedFrom` and `migratedAt`, which is what
+makes this reversible: the eleven rows can be dropped by that marker alone.
+
+## Deliberately not done yet
+
+Nothing READS the rows yet and nothing WRITES them on create. The arrays are
+still the live path, untouched, so this changed no behaviour at all — which is
+the point of doing it in this order. Moving readers across one at a time, and
+making the create path write a row, is the next step and the one that can break
+something.
+
+---
+
 # One handler for /quotes, and the rule it had been hiding (28 Sep)
 
 Third of the three things agreed before customers are invited: make the code you
