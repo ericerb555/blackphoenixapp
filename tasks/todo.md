@@ -1,3 +1,40 @@
+# The price button says which audience it is about to charge (28 Sep)
+
+Eric went to create the Stripe test prices for the two content tiers and
+created them for vendor Listed and vendor Preferred instead. No harm done —
+test mode, no real money, live prices untouched, and all three vendor tiers now
+have test prices, which is useful for rehearsing a vendor checkout. But it is
+worth understanding rather than shrugging at.
+
+## Why it happened
+
+The panel opens on `audience = 'vendor'` and the Create-price button read
+`Create test price` — the same words on every row of every audience. Somebody
+who came to price a content plan and did not first change the dropdown was
+pressing a vendor button that looked exactly like the one they wanted. Nothing
+on the button, and nothing in a confirmation, named what it was about to act on.
+
+That matters more here than for most buttons because **a Stripe price cannot be
+deleted afterwards, only archived**. The press has to be checkable before it
+happens, not correctable after.
+
+## The change
+
+Both price buttons — tiers and add-ons — now read `Create test price · content`,
+and carry a hover title naming the audience, the plan, the amount and the
+interval, plus the reminder that Stripe prices cannot be edited.
+
+Deliberately not a confirmation dialog. Eric's rule is that a confirm dialog is
+not a safeguard against a mis-click, and it would not have helped here: somebody
+who believed they were on the content plans would have confirmed. Putting the
+fact in the button makes the mistake visible before the press instead of asking
+for agreement after it.
+
+Typecheck 317 app (baseline, none in this file), 666 tests pass, smoke 10
+rendered / 0 threw.
+
+---
+
 # The catalogue is the real vendor ladder (27 Sep)
 
 Eric: *"the catalogue ladder is the real one."*

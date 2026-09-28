@@ -1181,14 +1181,24 @@ export default function PlanTierAdmin() {
                           <AlertTriangle className="h-3.5 w-3.5" />
                           {mode === 'test' ? 'No test price' : 'Not on sale'}
                         </p>
+                        {/* The audience is in the label because it is the one
+                            thing this press depends on and the one thing the
+                            button never showed. The panel opens on `vendor`, so
+                            somebody who came to price a content plan and did
+                            not touch the dropdown was pressing a vendor button
+                            that looked right — which is how two vendor tiers
+                            got test prices nobody asked for. A Stripe price
+                            cannot be deleted afterwards, only archived, so the
+                            press has to be checkable BEFORE it happens. */}
                         <button
                           onClick={() => createPrice('tier', t.id)}
                           disabled={working !== null || !Number(t.priceCents)}
+                          title={`Creates a ${mode}-mode Stripe price for the ${audience.replace(/_/g, ' ')} plan “${t.name}” at ${money(t.priceCents, t.interval)}. Stripe prices cannot be edited afterwards.`}
                           className="block w-full rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
                         >
                           {working === t.id
                             ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating…</span>
-                            : `Create ${mode} price`}
+                            : `Create ${mode} price · ${audience.replace(/_/g, ' ')}`}
                         </button>
 
                         {/* For prices already built in the Stripe dashboard.
@@ -1282,11 +1292,12 @@ export default function PlanTierAdmin() {
                         <button
                           onClick={() => createPrice('addon', a.id)}
                           disabled={working !== null}
+                          title={`Creates a ${mode}-mode Stripe price for the ${audience.replace(/_/g, ' ')} add-on “${a.name}” at ${money(a.priceCents, a.interval)}. Stripe prices cannot be edited afterwards.`}
                           className="block w-full rounded-lg bg-orange-600 px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
                         >
                           {working === a.id
                             ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Creating…</span>
-                            : `Create ${mode} price`}
+                            : `Create ${mode} price · ${audience.replace(/_/g, ' ')}`}
                         </button>
                       )}
                       {!a.purchasable && stripePrices && stripePrices.length > 0 && (
