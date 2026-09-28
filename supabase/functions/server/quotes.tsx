@@ -12,6 +12,7 @@ import { Hono } from "npm:hono@4";
 import { cors } from "npm:hono@4/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { ensureJobId } from "./jobs.tsx";
 
 const quotesRouter = new Hono();
 
@@ -36,12 +37,18 @@ function service() {
   );
 }
 
-async function quoteActor(c: any): Promise<{ email: string; staff: boolean }> {
+/**
+ * `userId` is returned alongside the email because quotes are identified both
+ * ways, and it must come from the VERIFIED token rather than from the query
+ * string the portal sends — `?userId=` is a request, not a proof, and reading
+ * it would let anyone list another person's quotes by typing their id.
+ */
+async function quoteActor(c: any): Promise<{ email: string; staff: boolean; userId: string }> {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!token) return { email: "", staff: false };
+  if (!token) return { email: "", staff: false, userId: "" };
   const { data, error } = await service().auth.getUser(token);
   const user = error ? null : data?.user;
-  if (!user?.email) return { email: "", staff: false };
+  if (!user?.email) return { email: "", staff: false, userId: "" };
 
   const owners = (Deno.env.get("PLATFORM_OWNER_EMAILS") || "")
     .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -50,7 +57,11 @@ async function quoteActor(c: any): Promise<{ email: string; staff: boolean }> {
     user.app_metadata?.role || user.app_metadata?.accountType || "",
   ).toLowerCase().replace(/[\s-]+/g, "_");
 
-  return { email, staff: owners.includes(email) || STAFF_ROLES.has(role) };
+  return {
+    email,
+    staff: owners.includes(email) || STAFF_ROLES.has(role),
+    userId: String(user.id || ""),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,11 +124,48 @@ async function mintQuoteNumber(): Promise<string> {
 }
 
 /** True when this quote is addressed to that email. */
-function quoteBelongsTo(doc: any, email: string): boolean {
+/**
+ * Is this quote this person's?
+ *
+ * WHY THE LIST IS THIS LONG
+ *
+ * Quotes are written by several different screens and each spells the customer
+ * differently — camelCase from one, snake_case from another, an id rather than
+ * an address from a third. Matching too few spellings does not leak anything;
+ * it does something quieter and worse. It HIDES a customer's own quote from
+ * them, and the portal then shows a confident, wrong zero.
+ *
+ * This used to check four email fields while a second, shadowed copy of this
+ * route in `index.tsx` checked those plus `userId`, `createdBy`, `customerId`
+ * and `ownerEmail`. The shadowed one never ran, so its wider coverage was
+ * doing nothing — and deleting it as dead code would have thrown the coverage
+ * away without anyone noticing. The union of both lives here now, which is
+ * what made removing the duplicate safe.
+ *
+ * `userId` matters in particular: the customer portal requests its quotes with
+ * `?userId=`, so a record identified that way and not by address is exactly
+ * the shape this has to catch.
+ */
+function quoteBelongsTo(doc: any, email: string, userId = ""): boolean {
   const target = String(email || "").trim().toLowerCase();
-  if (!target) return false;
-  return [doc?.clientEmail, doc?.client_email, doc?.customerEmail, doc?.email]
-    .some((value: any) => String(value || "").trim().toLowerCase() === target);
+  const id = String(userId || "").trim().toLowerCase();
+
+  if (target) {
+    const addresses = [
+      doc?.clientEmail, doc?.client_email,
+      doc?.customerEmail, doc?.customer_email,
+      doc?.email, doc?.ownerEmail,
+      doc?.createdBy, doc?.customerId,
+    ];
+    if (addresses.some((value: any) => String(value || "").trim().toLowerCase() === target)) return true;
+  }
+
+  if (id) {
+    const ids = [doc?.userId, doc?.customerId, doc?.createdBy];
+    if (ids.some((value: any) => String(value || "").trim().toLowerCase() === id)) return true;
+  }
+
+  return false;
 }
 
 quotesRouter.use("*", cors({
@@ -164,6 +212,16 @@ function normalizeDoc(input: any) {
      * one. Keeping it costs a line.
      */
     workRequestId: input.workRequestId ? String(input.workRequestId) : "",
+    /**
+     * The job this quote belongs to.
+     *
+     * Listed here rather than attached afterwards because this function
+     * rebuilds the record field by field, so anything not named is dropped on
+     * the next save. A `jobId` that survives creation and vanishes on the first
+     * edit is worse than never having one — the quote silently detaches from
+     * the invoice raised against it.
+     */
+    jobId: input.jobId ? String(input.jobId) : "",
     /** Also sent by the pipeline and also silently discarded until now. */
     total: Number(input.total) || 0,
     /**
@@ -205,10 +263,13 @@ async function requireQuoteStaff(c: any): Promise<Response | null> {
 // ── List all quotes/invoices ──────────────────────────────────────────────────
 quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
   try {
-    const { email, staff } = await quoteActor(c);
+    const { email, staff, userId } = await quoteActor(c);
     if (!email) return c.json({ success: false, error: "Sign in required." }, 401);
     const docs = (await kv.getByPrefix("quote:")) || [];
-    return c.json({ success: true, quotes: staff ? docs : docs.filter((doc: any) => quoteBelongsTo(doc, email)) });
+    return c.json({
+      success: true,
+      quotes: staff ? docs : docs.filter((doc: any) => quoteBelongsTo(doc, email, userId)),
+    });
   } catch (error) {
     console.error("[Quotes] Error fetching quotes:", error);
     return c.json({ success: false, error: "Failed to load quotes", details: String(error) }, 500);
@@ -219,6 +280,10 @@ quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
 quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
   const refused = await requireQuoteStaff(c);
   if (refused) return refused;
+
+  // Who is saving — recorded on the job this quote opens. Safe after
+  // `requireQuoteStaff`, which has already refused anyone without an email.
+  const { email } = await quoteActor(c);
 
   try {
     const body = await c.req.json();
@@ -236,6 +301,56 @@ quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
     const number = carried || await mintQuoteNumber();
 
     const doc = normalizeDoc({ ...(existing || {}), ...input, number });
+
+    /**
+     * The job this quote belongs to.
+     *
+     * Eric's rule is that work requests, quotes, invoices and purchase orders
+     * all attach to ONE job identity, whichever of them the work started from.
+     * This route never did it, and the proof was in the data: on 28 Sep not a
+     * single quote in the system carried a `jobId`, including one raised the
+     * week before.
+     *
+     * The code for it did exist — in a copy of this route in `index.tsx` that
+     * Hono had shadowed since the day it was written, so the rule was
+     * implemented and never once executed. Moved here, where it runs.
+     *
+     * Create-or-update, so a quote that already has a job keeps it. Without
+     * that, editing a quote without re-sending its work request would move it
+     * to a job of its own and detach it from the invoice raised against it.
+     */
+    const wrId = String(
+      input.workRequestId || input.work_request_id || input.wrId || doc.workRequestId || "",
+    ).trim();
+
+    /**
+     * The claim falls back to the STORED job, and that is load-bearing.
+     *
+     * `normalizeDoc` rebuilds the record field by field and `jobId` is not one
+     * of the fields it lists, so an edit arrives having already forgotten it.
+     * Without `existing.jobId` here, every save of an existing quote would mint
+     * a fresh job and detach the quote from the invoice raised against it —
+     * the precise failure the shadowed copy of this route warned about.
+     *
+     * Seeded from `input` rather than `doc` for the same reason: the site
+     * address and title never survive normalisation.
+     */
+    doc.jobId = await ensureJobId(doc, {
+      claim: { jobId: input.jobId || (existing as any)?.jobId },
+      parentKey: wrId ? `wr:${wrId}` : undefined,
+      seed: {
+        customerEmail: input.clientEmail || input.customerEmail || input.client_email || doc.clientEmail,
+        customerName: input.clientName || input.customerName || input.customer_name || doc.clientName,
+        siteAddress: input.siteAddress || input.address || input.location || doc.clientAddress,
+        title: input.title || input.projectName || input.serviceType,
+        serviceType: input.serviceType || input.project_type,
+        openedFrom: "quote",
+        openedFromId: doc.id,
+        createdBy: email,
+      },
+      actorEmail: email,
+    });
+
     await kv.set(`quote:${doc.id}`, doc);
     console.log(`[Quotes] Saved ${doc.type} ${doc.number} (${doc.id})${doc.customerId ? " → customer " + doc.customerId : " (unassigned)"}`);
     return c.json({ success: true, quote: doc });

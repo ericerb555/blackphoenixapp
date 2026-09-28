@@ -1,3 +1,61 @@
+# One handler for /quotes, and the rule it had been hiding (28 Sep)
+
+Third of the three things agreed before customers are invited: make the code you
+read be the code that runs.
+
+`GET` and `POST /make-server-3eae23a6/quotes` were each defined TWICE — once in
+`quotes.tsx`, mounted at index.tsx:911, and once directly in `index.tsx` at
+5196 and 5228. Hono takes the first handler that answers, so the pair in
+`index.tsx` had never run. Confirmed live: the response shape is the router's.
+
+**No security hole.** Both copies filter by ownership, and the live one gates
+creation to staff. This was a correctness and maintainability problem.
+
+## Why deleting the dead code was the dangerous option
+
+Everything valuable in this task was in the dead half.
+
+**A wider ownership test.** The shadowed `ownsQuote` matched `userId`,
+`createdBy`, `customerId` and `ownerEmail` as well as four email spellings. The
+live `quoteBelongsTo` knew only the four emails — and the portal asks for its
+quotes with `?userId=`. Deleting the dead route would have discarded that
+coverage silently, and the symptom is not an error: it is a customer's own quote
+invisible behind a confident zero. The union now lives in `quoteBelongsTo`.
+
+The id it matches comes from the VERIFIED TOKEN, never from `?userId=`. The
+query string is a request, not a proof; reading it would let anyone list another
+person's quotes by typing their id.
+
+**The job identity rule, implemented and never executed.** Eric's rule is that
+work requests, quotes, invoices and purchase orders attach to ONE job. The only
+implementation of that for quotes — an `ensureJobId` call — was in the shadowed
+POST. The data confirms what that meant: **not one quote in the store carries a
+`jobId`**, including one raised two days ago. It now runs in the live handler.
+
+`jobId` also had to become a field of `normalizeDoc`, which rebuilds the record
+field by field and drops anything unnamed. Attached afterwards, it would have
+survived creation and vanished on the first edit — a quote detaching itself from
+its own invoice, quietly.
+
+## What this says about the bigger question
+
+Eric asked whether data will stay and whether changes will be easy. This is the
+shape of the risk, twice over in one file: a fix applied to code that does not
+run, and a rule that exists only as unreachable code. Neither shows up as an
+error. Both were found by comparing what the code claims against what the
+database actually holds.
+
+Typecheck 317 app / 84 server (both baseline), 675 tests pass, smoke 0 threw.
+
+**Needs a function deploy to take effect** — it is server code.
+
+## Existing quotes still have no job
+
+The five in the store predate this and remain unlinked. Nothing backfills them;
+that is a separate decision, not a side effect to slip in here.
+
+---
+
 # Fixing the portal uncovered the next bug (28 Sep)
 
 The API base URL fix went live and every previously-dead call returned 200 —

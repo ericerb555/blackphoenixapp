@@ -5193,24 +5193,33 @@ function ownsQuote(quote: any, email: string) {
     .some((value: any) => String(value || '').trim().toLowerCase() === target);
 }
 
-app.get('/make-server-3eae23a6/quotes', async (c) => {
-  try {
-    // Scoped, not open. This returned every quote in the business to anyone who
-    // asked. The `userId` filter that was here looked like a guard and was not:
-    // it fell back to returning everything whenever the filter matched nothing,
-    // so passing an unknown id was the way to see the whole book — and passing
-    // no id at all did the same.
-    const { user, admin } = await financialActor(c);
-    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
-
-    const all = ((await kv.getByPrefix('quote:')) as any[] || []).filter(Boolean).map(stripBase64);
-    const list = admin ? all : all.filter((q: any) => ownsQuote(q, user.email));
-
-    list.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    // Returned as a bare array — the object-expecting callers read `.quotes` defensively.
-    return c.json(list);
-  } catch (error: any) { return c.json({ error: error.message || 'Unable to load quotes.' }, 500); }
-});
+/**
+ * GET and POST /quotes used to be defined here and NEITHER EVER RAN.
+ *
+ * `app.route("/", quotesRouter)` is registered at the top of this file, around
+ * line 911, and `quotes.tsx` claims both verbs on this exact path. Hono takes
+ * the first handler that answers, so these were shadowed from the day they
+ * were written.
+ *
+ * That was not harmless. The copies here carried two real security fixes — a
+ * list that had returned every quote in the business to anyone who asked, and
+ * a create route whose unguarded id let somebody overwrite the prices on an
+ * existing quote. Both fixes were applied to code that never executed.
+ *
+ * They also carried a WIDER ownership test than the live one, and this is the
+ * part that made deleting them dangerous rather than tidy: `ownsQuote` matched
+ * `userId`, `createdBy`, `customerId` and `ownerEmail` as well as the four
+ * email spellings the live route knew about. Removing this block as dead code
+ * would have quietly discarded that coverage, and the symptom would have been
+ * a customer's own quote invisible to them behind a confident zero.
+ *
+ * So the union of both tests now lives in `quoteBelongsTo` in `quotes.tsx`,
+ * and only then were these removed. The live route also enforces staff-only
+ * creation, which is the other fix that was stranded here.
+ *
+ * `ownsQuote` below is still used by /quotes/list, which is a different path
+ * and genuinely live.
+ */
 
 // Alias that returns the object form for callers that expect `{ quotes: [...] }`.
 app.get('/make-server-3eae23a6/quotes/list', async (c) => {
@@ -5225,54 +5234,21 @@ app.get('/make-server-3eae23a6/quotes/list', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load quotes.' }, 500); }
 });
 
-app.post('/make-server-3eae23a6/quotes', async (c) => {
-  try {
-    // Staff only. Quotes are authored by the company — from the command centre's
-    // Start Quote flow and the change-order camera app — while customers accept
-    // them through the by-token routes, which authenticate on the token itself.
-    //
-    // This mattered more than a create check usually does: the id comes from the
-    // request body, so an unguarded POST was also an overwrite. Anyone could
-    // have rewritten the prices on an existing quote by posting its id back.
-    const { user, admin } = await financialActor(c);
-    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
-    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
-
-    const body = await c.req.json().catch(() => ({}));
-    const incoming = body?.quote && typeof body.quote === 'object' ? body.quote : body;
-    const now = new Date().toISOString();
-    const id = String(incoming.id || `quote_${crypto.randomUUID()}`);
-    const quote = stripBase64({ ...incoming, id, createdAt: incoming.createdAt || now, updatedAt: now });
-
-    /**
-     * The job comes from the work request this quote was raised against.
-     *
-     * This route is create-or-update — the id arrives in the body — so a quote
-     * that already has a job keeps it. Without that, editing a quote without
-     * re-sending its work request would move it to a job of its own and detach
-     * it from the invoice raised against it.
-     */
-    const wrId = String(incoming.workRequestId || incoming.work_request_id || incoming.wrId || "").trim();
-    quote.jobId = await ensureJobId(quote, {
-      claim: { jobId: incoming.jobId },
-      parentKey: wrId ? `wr:${wrId}` : undefined,
-      seed: {
-        customerEmail: quote.clientEmail || quote.customerEmail || quote.client_email,
-        customerName: quote.clientName || quote.customerName || quote.customer_name,
-        siteAddress: quote.siteAddress || quote.address || quote.location,
-        title: quote.title || quote.projectName || quote.serviceType,
-        serviceType: quote.serviceType || quote.project_type,
-        openedFrom: 'quote',
-        openedFromId: id,
-        createdBy: user.email,
-      },
-      actorEmail: user.email,
-    });
-
-    await kv.set(`quote:${id}`, quote);
-    return c.json({ success: true, quote });
-  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save quote.' }, 500); }
-});
+/**
+ * POST /quotes was here too, and was shadowed the same way — see the note
+ * above the removed GET.
+ *
+ * Its job-identity block was the reason it could not simply be deleted. Eric's
+ * rule is that a quote attaches to the same job as the work request, invoice
+ * and purchase orders around it, and this was the only implementation of that
+ * for quotes — sitting in a handler Hono never reached. The data said so
+ * plainly: on 28 Sep not one quote in the store carried a `jobId`.
+ *
+ * `ensureJobId` now runs in the live handler in `quotes.tsx`, including the
+ * create-or-update care this version documented: a quote that already has a
+ * job keeps it, rather than minting a new one on every edit and detaching
+ * itself from the invoice raised against it.
+ */
 
 // Generate a shareable signing link for a quote (public token → quote id).
 app.post('/make-server-3eae23a6/quotes/generate-link', async (c) => {
