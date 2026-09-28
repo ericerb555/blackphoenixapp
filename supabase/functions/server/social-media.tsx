@@ -22,6 +22,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { PLATFORMS, isPlatform, refusalFor, fitToPlatform } from "./socialPlatforms.ts";
 
 const PREFIX = "/make-server-3eae23a6";
 const GRAPH = "https://graph.facebook.com/v18.0";
@@ -39,6 +40,10 @@ const FB_APP_SECRET = Deno.env.get("FACEBOOK_APP_SECRET") || "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 const TIKTOK_CLIENT_KEY = Deno.env.get("TIKTOK_CLIENT_KEY") || "";
 const TIKTOK_CLIENT_SECRET = Deno.env.get("TIKTOK_CLIENT_SECRET") || "";
+const LINKEDIN_CLIENT_ID = Deno.env.get("LINKEDIN_CLIENT_ID") || "";
+const LINKEDIN_CLIENT_SECRET = Deno.env.get("LINKEDIN_CLIENT_SECRET") || "";
+const THREADS_APP_ID = Deno.env.get("THREADS_APP_ID") || "";
+const THREADS_APP_SECRET = Deno.env.get("THREADS_APP_SECRET") || "";
 
 /**
  * Where Facebook sends the user back.
@@ -73,6 +78,14 @@ interface SocialAccount {
   pageAccessToken?: string;
   igUserId?: string;
   userAccessToken?: string;
+  /** Bluesky: the repo DID, which is the account's real identifier. */
+  did?: string;
+  /** Mastodon: the server the account lives on — part of the identity there. */
+  instance?: string;
+  /** LinkedIn: the member URN posts are authored by. */
+  authorUrn?: string;
+  /** Threads: the Threads user id, which is not the Instagram one. */
+  threadsUserId?: string;
 }
 
 const accountsKey = (userId: string) => `social_accounts:${userId}`;
@@ -228,6 +241,136 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
       return c.json({ authUrl });
     }
 
+    /**
+     * Bluesky connects without OAuth at all — the account holder generates an
+     * app password in their own settings and pastes it in. There is nothing to
+     * redirect to, so this returns `connected` rather than an `authUrl`.
+     *
+     * The password is verified before it is stored, so a typo is caught here
+     * rather than at the first attempt to post.
+     */
+    if (platform === "bluesky") {
+      const body = await c.req.json().catch(() => ({}));
+      const handle = String(body?.handle || "").trim().replace(/^@/, "");
+      const appPassword = String(body?.appPassword || "").trim();
+      if (!handle || !appPassword) {
+        return c.json({ error: "A Bluesky handle and an app password are both needed." }, 400);
+      }
+
+      const authRes = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: handle, password: appPassword }),
+      });
+      const auth = await authRes.json().catch(() => ({}));
+      if (!authRes.ok || !auth?.accessJwt) {
+        return c.json({
+          error: auth?.message || "Bluesky did not accept that handle and app password.",
+        }, 400);
+      }
+
+      const accounts = await getAccounts(userId);
+      accounts["bluesky"] = {
+        platform: "bluesky",
+        connected: true,
+        name: auth.handle || handle,
+        handle: auth.handle || handle,
+        connectedAt: new Date().toISOString(),
+        did: auth.did,
+        // An app password, not a token: stored in the same server-only field
+        // and never returned to the browser by `publicAccounts`.
+        userAccessToken: appPassword,
+      };
+      await saveAccounts(userId, accounts);
+      return c.json({ connected: true, handle: auth.handle || handle });
+    }
+
+    /**
+     * Mastodon has no central OAuth: each server is its own authority, so an
+     * app has to be registered against the instance first and the person is
+     * then sent to their own server to approve it.
+     */
+    if (platform === "mastodon") {
+      const body = await c.req.json().catch(() => ({}));
+      const raw = String(body?.instance || "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+      if (!raw || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(raw)) {
+        return c.json({ error: "Enter your Mastodon server, for example mastodon.social." }, 400);
+      }
+      const instance = `https://${raw}`;
+
+      const appRes = await fetch(`${instance}/api/v1/apps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Black Phoenix",
+          redirect_uris: fbRedirectUri("mastodon"),
+          scopes: "write:statuses",
+          website: "https://www.theblackphoenixcompany.com",
+        }),
+      });
+      const app = await appRes.json().catch(() => ({}));
+      if (!appRes.ok || !app?.client_id) {
+        return c.json({ error: app?.error || `Could not register with ${raw}.` }, 400);
+      }
+
+      const state = crypto.randomUUID();
+      // The instance and its client secret travel in the state, because the
+      // callback has no other way to know which server it is finishing with.
+      await kv.set(stateKey(state), JSON.stringify({
+        userId, platform, instance,
+        clientId: app.client_id, clientSecret: app.client_secret,
+      }));
+
+      const authUrl =
+        `${instance}/oauth/authorize` +
+        `?client_id=${encodeURIComponent(app.client_id)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("mastodon"))}` +
+        `&response_type=code&scope=write:statuses&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    if (platform === "linkedin") {
+      if (!LINKEDIN_CLIENT_ID || !LINKEDIN_CLIENT_SECRET) {
+        return c.json({
+          error: "LinkedIn is not configured. Add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET secrets.",
+        }, 400);
+      }
+      const state = crypto.randomUUID();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
+      // `w_member_social` is self-serve. Company pages need the Community
+      // Management API and LinkedIn's partner approval — a separate scope and
+      // a separate application, deliberately not requested here.
+      const scopes = ["openid", "profile", "w_member_social"].join(" ");
+      const authUrl =
+        `https://www.linkedin.com/oauth/v2/authorization` +
+        `?response_type=code&client_id=${encodeURIComponent(LINKEDIN_CLIENT_ID)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("linkedin"))}` +
+        `&scope=${encodeURIComponent(scopes)}&state=${state}`;
+      return c.json({ authUrl });
+    }
+
+    /**
+     * Threads runs on Meta's infrastructure but has its own login host and its
+     * own scopes — it is not reached through the Facebook app's dialog, and a
+     * Threads user id is not an Instagram one.
+     */
+    if (platform === "threads") {
+      if (!THREADS_APP_ID || !THREADS_APP_SECRET) {
+        return c.json({
+          error: "Threads is not configured. Add THREADS_APP_ID and THREADS_APP_SECRET secrets.",
+        }, 400);
+      }
+      const state = crypto.randomUUID();
+      await kv.set(stateKey(state), JSON.stringify({ userId, platform }));
+      const scopes = ["threads_basic", "threads_content_publish"].join(",");
+      const authUrl =
+        `https://threads.net/oauth/authorize` +
+        `?client_id=${encodeURIComponent(THREADS_APP_ID)}` +
+        `&redirect_uri=${encodeURIComponent(fbRedirectUri("threads"))}` +
+        `&scope=${encodeURIComponent(scopes)}&response_type=code&state=${state}`;
+      return c.json({ authUrl });
+    }
+
     return c.json({ error: `Unsupported platform: ${platform}` }, 400);
   } catch (error) {
     console.error("[Social] connect error:", error);
@@ -284,6 +427,142 @@ socialRouter.get(`${PREFIX}/social/callback/:platform`, async (c) => {
      * a JSON body rather than a query string, and has no equivalent of the
      * Page listing below — the token IS the account.
      */
+    /**
+     * Each of these finishes against a different host with a different token
+     * shape, so they fork before the Facebook exchange rather than being bent
+     * into it. `stateRaw` carried whatever the connect step needed to know —
+     * for Mastodon that includes the instance and its client secret, because
+     * nothing else here knows which server the handshake began with.
+     */
+    if (platform === "mastodon") {
+      const saved = typeof stateRaw === "string" ? JSON.parse(stateRaw) : stateRaw;
+      const { instance, clientId, clientSecret } = saved || {};
+      if (!instance || !clientId) {
+        return c.html(callbackHtml(platform, false, "That Mastodon connection expired. Start again."));
+      }
+
+      const tokRes = await fetch(`${instance}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: fbRedirectUri("mastodon"),
+          grant_type: "authorization_code",
+          code,
+          scope: "write:statuses",
+        }),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.error_description || "Mastodon token exchange failed."));
+      }
+
+      let handle = instance.replace(/^https?:\/\//, "");
+      let avatar: string | undefined;
+      try {
+        const meRes = await fetch(`${instance}/api/v1/accounts/verify_credentials`, {
+          headers: { Authorization: `Bearer ${tok.access_token}` },
+        });
+        const me = await meRes.json();
+        if (me?.acct) handle = `@${me.acct}@${instance.replace(/^https?:\/\//, "")}`;
+        avatar = me?.avatar;
+      } catch { /* a name is cosmetic; the token is what matters */ }
+
+      const accounts = await getAccounts(userId);
+      accounts["mastodon"] = {
+        platform: "mastodon", connected: true, name: handle, handle, avatar,
+        connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token,
+        instance,
+      };
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, `Connected to ${instance.replace(/^https?:\/\//, "")}.`));
+    }
+
+    if (platform === "linkedin") {
+      const tokRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: fbRedirectUri("linkedin"),
+          client_id: LINKEDIN_CLIENT_ID,
+          client_secret: LINKEDIN_CLIENT_SECRET,
+        }).toString(),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.error_description || "LinkedIn token exchange failed."));
+      }
+
+      // The member urn is what a post is authored by, so it is required
+      // rather than cosmetic — without it there is nothing to post as.
+      const meRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+        headers: { Authorization: `Bearer ${tok.access_token}` },
+      });
+      const me = await meRes.json().catch(() => ({}));
+      if (!meRes.ok || !me?.sub) {
+        return c.html(callbackHtml(platform, false, "LinkedIn would not say who you are; the connection was not saved."));
+      }
+
+      const accounts = await getAccounts(userId);
+      accounts["linkedin"] = {
+        platform: "linkedin", connected: true,
+        name: me.name || "LinkedIn", handle: me.name || "LinkedIn", avatar: me.picture,
+        connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token,
+        authorUrn: `urn:li:person:${me.sub}`,
+      };
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, PLATFORMS.linkedin.caveat));
+    }
+
+    if (platform === "threads") {
+      const tokRes = await fetch("https://graph.threads.net/oauth/access_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: THREADS_APP_ID,
+          client_secret: THREADS_APP_SECRET,
+          grant_type: "authorization_code",
+          redirect_uri: fbRedirectUri("threads"),
+          code,
+        }).toString(),
+      });
+      const tok = await tokRes.json().catch(() => ({}));
+      if (!tokRes.ok || !tok?.access_token) {
+        return c.html(callbackHtml(platform, false, tok?.error_message || "Threads token exchange failed."));
+      }
+
+      let name = "Threads";
+      let avatar: string | undefined;
+      const threadsUserId = String(tok.user_id || "");
+      try {
+        const meRes = await fetch(
+          `https://graph.threads.net/v1.0/me?fields=username,threads_profile_picture_url&access_token=${encodeURIComponent(tok.access_token)}`,
+        );
+        const me = await meRes.json();
+        name = me?.username ? `@${me.username}` : name;
+        avatar = me?.threads_profile_picture_url;
+      } catch { /* cosmetic */ }
+
+      if (!threadsUserId) {
+        return c.html(callbackHtml(platform, false, "Threads did not return a user id; the connection was not saved."));
+      }
+
+      const accounts = await getAccounts(userId);
+      accounts["threads"] = {
+        platform: "threads", connected: true, name, handle: name, avatar,
+        connectedAt: new Date().toISOString(),
+        userAccessToken: tok.access_token,
+        threadsUserId,
+      };
+      await saveAccounts(userId, accounts);
+      return c.html(callbackHtml(platform, true, "Connected."));
+    }
+
     if (platform === "tiktok") {
       const form = new URLSearchParams({
         client_key: TIKTOK_CLIENT_KEY,
@@ -588,6 +867,162 @@ async function publishToFacebook(account: SocialAccount, content: string, imageU
  * pushing the bytes a second time through this function would be slower and no
  * more reliable.
  */
+/**
+ * Bluesky, which is the one platform here with no gatekeeper at all.
+ *
+ * The AT Protocol is an open specification and the endpoints the official
+ * client uses are the ones available to everybody. There is no app to
+ * register, no review, no quota and no fee — the only credential is an app
+ * password the account holder generates in their own settings, which is why
+ * `PLATFORMS.bluesky.auth` is `app-password` rather than `oauth`.
+ *
+ * A session is created per post rather than stored. The tokens are short
+ * lived, creating one is a single cheap call, and an app password can be
+ * revoked by the holder at any moment — so holding a stale session would only
+ * mean failing later in a less obvious way.
+ */
+async function publishToBluesky(account: SocialAccount, content: string) {
+  const service = "https://bsky.social/xrpc";
+
+  const authRes = await fetch(`${service}/com.atproto.server.createSession`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier: account.handle, password: account.userAccessToken }),
+  });
+  const auth = await authRes.json().catch(() => ({}));
+  if (!authRes.ok || !auth?.accessJwt) {
+    throw new Error(auth?.message || "Bluesky refused the app password. Generate a new one in Settings → App Passwords.");
+  }
+
+  const res = await fetch(`${service}/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.accessJwt}` },
+    body: JSON.stringify({
+      repo: auth.did,
+      collection: "app.bsky.feed.post",
+      record: {
+        $type: "app.bsky.feed.post",
+        text: fitToPlatform("bluesky", content),
+        createdAt: new Date().toISOString(),
+      },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Bluesky rejected the post.");
+  return data?.uri || data?.cid;
+}
+
+/**
+ * Mastodon, where the server is part of the account.
+ *
+ * The same handle on two instances is two different accounts, so the instance
+ * is stored alongside the token and every call is made against it. There is no
+ * central API to fall back on — posting to the wrong server is posting as
+ * somebody else.
+ *
+ * `Idempotency-Key` is Mastodon's own protection against a retried request
+ * becoming two posts, and it is free to use, so it is used.
+ */
+async function publishToMastodon(account: SocialAccount, content: string) {
+  const instance = String(account.instance || "").replace(/\/+$/, "");
+  if (!instance) throw new Error("This Mastodon account has no server recorded. Reconnect it.");
+
+  const res = await fetch(`${instance}/api/v1/statuses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${account.userAccessToken}`,
+      "Idempotency-Key": await sha256Hex(`${account.handle}:${content}`),
+    },
+    body: JSON.stringify({ status: fitToPlatform("mastodon", content) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || "Mastodon rejected the post.");
+  return data?.id;
+}
+
+/** A stable key for the same post, so a retry does not become two posts. */
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * LinkedIn, to the signed-in person's own profile.
+ *
+ * `w_member_social` is self-serve and needs no review, and it posts as the
+ * member — it cannot post to a company page. That needs the Community
+ * Management API and LinkedIn's partner approval, which is a separate
+ * application with a screencast, so the caveat on `PLATFORMS.linkedin` says
+ * which one this is. Somebody expecting their company page to update would
+ * otherwise reasonably call this broken.
+ */
+async function publishToLinkedIn(account: SocialAccount, content: string) {
+  if (!account.authorUrn) throw new Error("This LinkedIn account has no author recorded. Reconnect it.");
+
+  const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${account.userAccessToken}`,
+      "X-Restli-Protocol-Version": "2.0.0",
+    },
+    body: JSON.stringify({
+      author: account.authorUrn,
+      lifecycleState: "PUBLISHED",
+      specificContent: {
+        "com.linkedin.ugc.ShareContent": {
+          shareCommentary: { text: fitToPlatform("linkedin", content) },
+          shareMediaCategory: "NONE",
+        },
+      },
+      visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "LinkedIn rejected the post.");
+  return data?.id;
+}
+
+/**
+ * Threads, which runs on the Meta app already registered for Facebook.
+ *
+ * Two steps like Instagram — create a container, then publish it — but on
+ * Threads' own host and with its own user id, which is NOT the Instagram one
+ * even for the same person. Text posts need no transcoding, so unlike a reel
+ * there is nothing to wait for between the two calls.
+ */
+async function publishToThreads(account: SocialAccount, content: string, imageUrl?: string) {
+  const base = "https://graph.threads.net/v1.0";
+  const userId = account.threadsUserId;
+  if (!userId) throw new Error("This Threads account is missing its user id. Reconnect it.");
+
+  const params = new URLSearchParams({
+    media_type: imageUrl ? "IMAGE" : "TEXT",
+    text: fitToPlatform("threads", content),
+    access_token: account.userAccessToken || "",
+  });
+  if (imageUrl) params.set("image_url", imageUrl);
+
+  const createRes = await fetch(`${base}/${userId}/threads`, { method: "POST", body: params });
+  const created = await createRes.json().catch(() => ({}));
+  if (!createRes.ok || !created?.id) {
+    throw new Error(created?.error?.message || "Threads would not accept the post.");
+  }
+
+  const pubRes = await fetch(`${base}/${userId}/threads_publish`, {
+    method: "POST",
+    body: new URLSearchParams({
+      creation_id: created.id,
+      access_token: account.userAccessToken || "",
+    }),
+  });
+  const published = await pubRes.json().catch(() => ({}));
+  if (!pubRes.ok) throw new Error(published?.error?.message || "Threads rejected the post.");
+  return published?.id;
+}
+
 async function publishToTikTok(account: SocialAccount, content: string, videoUrl?: string) {
   if (!videoUrl) throw new Error("TikTok only takes video. Render a reel first.");
   const token = account.userAccessToken!;
@@ -752,10 +1187,25 @@ export async function publishForUser(
       continue;
     }
     try {
+      /**
+       * Asked before anything is sent. A platform that will not take this post
+       * — Instagram with no image, TikTok with no video, a caption past the
+       * limit — says so as a sentence somebody can act on, rather than as
+       * whatever error the platform returns after the attempt.
+       */
+      if (isPlatform(platform)) {
+        const refusal = refusalFor(platform, { content, imageUrl, videoUrl });
+        if (refusal) throw new Error(refusal);
+      }
+
       let id: string | undefined;
       if (platform === "facebook") id = await publishToFacebook(account, content, imageUrl, videoUrl);
       else if (platform === "instagram") id = await publishToInstagram(account, content, imageUrl, videoUrl);
       else if (platform === "tiktok") id = await publishToTikTok(account, content, videoUrl);
+      else if (platform === "bluesky") id = await publishToBluesky(account, content);
+      else if (platform === "mastodon") id = await publishToMastodon(account, content);
+      else if (platform === "linkedin") id = await publishToLinkedIn(account, content);
+      else if (platform === "threads") id = await publishToThreads(account, content, imageUrl);
       else throw new Error(`Publishing to ${platform} is not supported yet.`);
       results.push({ platform, success: true, id });
     } catch (err) {
@@ -852,6 +1302,38 @@ socialRouter.post(`${PREFIX}/social/ai-repurpose`, async (c) => {
 });
 
 // ── Health ────────────────────────────────────────────────────────────────
+/**
+ * Every platform this server can post to, and whether it is usable here.
+ *
+ * So a screen does not hardcode a list that drifts from what the publisher
+ * actually supports — the bug that would otherwise arrive the first time a
+ * platform is added and one of five screens is missed.
+ *
+ * `configured` is whether the secrets exist, reported as a boolean and never
+ * as the secrets themselves. A platform offered without its credentials is a
+ * button that fails after the click, so a screen can grey it out instead.
+ */
+socialRouter.get(`${PREFIX}/social/platforms`, (c) => {
+  const configured: Record<string, boolean> = {
+    facebook: !!(FB_APP_ID && FB_APP_SECRET),
+    instagram: !!(FB_APP_ID && FB_APP_SECRET),
+    tiktok: !!(TIKTOK_CLIENT_KEY && TIKTOK_CLIENT_SECRET),
+    linkedin: !!(LINKEDIN_CLIENT_ID && LINKEDIN_CLIENT_SECRET),
+    threads: !!(THREADS_APP_ID && THREADS_APP_SECRET),
+    // Neither needs anything registered in advance: Bluesky takes an app
+    // password the holder generates, Mastodon registers itself per instance.
+    bluesky: true,
+    mastodon: true,
+  };
+
+  return c.json({
+    platforms: Object.values(PLATFORMS).map((spec) => ({
+      ...spec,
+      configured: configured[spec.id] ?? false,
+    })),
+  });
+});
+
 socialRouter.get(`${PREFIX}/social/health`, (c) =>
   c.json({
     ok: true,

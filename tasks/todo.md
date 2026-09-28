@@ -231,22 +231,22 @@ them. Tier 3 is a commercial decision rather than a build.
 
 ## TIER 1 — build now, nothing to ask anybody for
 
-- [ ] Q1. **Bluesky.** The easiest by a distance: the AT Protocol is an open
+- [x] Q1. **Bluesky.** The easiest by a distance: the AT Protocol is an open
       specification, authentication is an app password rather than OAuth, and
       there is no review of any kind. `com.atproto.repo.createRecord` posts;
       images are uploaded as blobs first.
-- [ ] Q2. **Mastodon.** Open, but per-instance: the server is part of the
+- [x] Q2. **Mastodon.** Open, but per-instance: the server is part of the
       account, so the connection has to capture which instance and register an
       app against it. `POST /api/v1/statuses`.
-- [ ] Q3. **LinkedIn, personal profile.** `w_member_social` is self-serve with
+- [x] Q3. **LinkedIn, personal profile.** `w_member_social` is self-serve with
       no review. **It posts to the signed-in person's own profile and cannot
       post to a company page** — that is tier 2 — so the interface has to say
       which one it is posting as, or it looks broken.
-- [ ] Q4. **Threads.** Goes through the Meta app that Facebook and Instagram
+- [x] Q4. **Threads.** Goes through the Meta app that Facebook and Instagram
       already use, so the marginal work is a scope and a publish path rather
       than a new integration. Two-step like Instagram: create a container,
       then publish.
-- [ ] Q5. One shape for all of them. Each new platform is currently a branch
+- [x] Q5. One shape for all of them. Each new platform is currently a branch
       in `publishForUser` and a branch in the OAuth callback; five more of
       those makes the file unreadable. A small per-platform record — connect,
       exchange, publish — keeps each one in one place.
@@ -284,12 +284,112 @@ them. Tier 3 is a commercial decision rather than a build.
 
 ## PROVE IT
 
-- [ ] T1. Tests for the parts that do not need a live account: the per-platform
+- [x] T1. Tests for the parts that do not need a live account: the per-platform
       record, the caption limits, which platforms accept a bare text post and
       which demand media.
-- [ ] T2. `npm run typecheck`, `typecheck:server`, `npm test`, `npm run smoke`.
+- [x] T2. typecheck 316, server 84, 794 tests pass. Smoke correctly reported nothing to run — this round is entirely server-side.
 - [ ] T3. One real post on each connected platform. Still blocked on the same
       thing everything else is: **no account is connected to anything.**
+
+## REVIEW — Tier 1
+
+### Three platforms became seven
+
+Facebook, Instagram and TikTok are joined by **Bluesky, Mastodon, LinkedIn and
+Threads** — level with most of the field, and reached without a single
+application, approval or fee.
+
+### The registry, written before the four
+
+`socialPlatforms.ts` holds what each platform IS: whether a bare text post is
+allowed, how long a caption may be, whether the server forms part of the
+account, and what is surprising enough to say at connection time.
+
+Without it, seven platforms would mean twenty-one branches across one file,
+and the facts that actually differ would be implied by control flow rather
+than written down. What is deliberately NOT in it is the publishing calls —
+Bluesky speaks XRPC, Meta speaks Graph, TikTok wants a pull URL, and pretending
+those share a shape would be a worse abstraction than separate functions. It
+describes; it does not drive.
+
+`refusalFor` is now asked **before** anything is sent, so "Instagram needs an
+image or a video" and "Bluesky allows 300 characters; this is 400" reach the
+person composing rather than arriving as somebody else's API error afterwards.
+Same principle as the reel specification.
+
+`fitToPlatform` trims rather than refuses where trimming is honest. Bluesky's
+300 characters is the binding constraint in practice — one caption written for
+Instagram will not fit anywhere else — and a post refused outright helps nobody
+when the first three hundred characters would have done. Trimmed on a word
+boundary so it reads as shortened, not as cut off mid-thought.
+
+### The four, and what is peculiar about each
+
+**Bluesky** has no gatekeeper of any kind: an open specification, the same
+endpoints the official client uses, no app registration, no review, no quota,
+no fee. The credential is an app password the holder generates in their own
+settings, which is why it connects without OAuth at all and returns `connected`
+rather than an `authUrl`. The password is verified before it is stored, so a
+typo is caught at connection rather than at the first post. A session is
+created per post rather than kept: tokens are short lived and an app password
+can be revoked at any moment, so a stored session would only fail later and
+less clearly.
+
+**Mastodon** has no central authority. The same handle on two servers is two
+accounts, so the instance is captured, an app is registered against that server,
+and the person is sent to their own server to approve it. The instance and its
+client secret travel in the OAuth state because nothing else in the callback
+knows which server the handshake began with. Mastodon's own
+`Idempotency-Key` is used so a retry cannot become two posts.
+
+**LinkedIn** posts to the signed-in person's profile via `w_member_social`,
+which is self-serve and needs no review. **It cannot post to a company page** —
+that is the Community Management API and a partner approval — so the platform's
+caveat says which one it is. Somebody expecting their company page to update
+would otherwise reasonably call this broken. The member urn is treated as
+required rather than cosmetic: without it there is nothing to post as, so the
+connection is refused rather than saved half-formed.
+
+**Threads** runs on Meta's infrastructure but has its own login host, its own
+scopes and its own user id, which is not the Instagram one even for the same
+person. Two steps like Instagram — container, then publish — with nothing to
+wait for between them, since text needs no transcoding.
+
+### `GET /social/platforms`
+
+The catalogue, so no screen hardcodes a list that drifts from what the
+publisher supports — the bug that arrives the first time a platform is added
+and one of five screens is missed. It reports whether each platform's secrets
+exist as a boolean, never the secrets, so a screen can grey out a button that
+would otherwise fail after the click.
+
+### Verification
+
+- `typecheck` **316**, `typecheck:server` **84** — both unchanged.
+- `npm test` — **794 pass, 0 fail**, up from 764. 15 new tests on the registry.
+- `npm run smoke` — **correctly reported nothing to run.** Every change in this
+  round is server-side, so no page is affected. Not a pass; an honest nothing.
+
+### What is NOT proven
+
+**Nothing has been posted to any of the four.** Every call is written from the
+platforms' current documentation and none has executed, because no account is
+connected to anything. The rules that could be tested are tested; the network
+calls are not, and should not be called working until one real post has gone
+out on each.
+
+Bluesky is the one to try first: it is the only platform here that needs
+nothing from anybody — an app password from account settings and it should
+work.
+
+**LinkedIn and Threads additionally need their secrets** —
+`LINKEDIN_CLIENT_ID` / `SECRET` and `THREADS_APP_ID` / `SECRET`. Both refuse
+clearly when absent rather than failing obscurely.
+
+Nothing is deployed.
+
+---
+---
 
 ## WHAT THIS DOES NOT DO
 
