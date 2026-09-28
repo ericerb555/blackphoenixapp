@@ -106,10 +106,49 @@ export default function DocumentPreviewModal({
       </div>
 
       <style>{`
+        /*
+          Paper margins. Without these the browser uses its own default, which
+          on some printers puts the company header within a few millimetres of
+          the edge — and on others clips it outright.
+        */
+        @page { margin: 14mm; }
+
         @media print {
+          /*
+            Hide the page, show one element and its descendants.
+
+            "visibility" rather than "display" deliberately: visibility keeps
+            layout intact for the element being shown, so a document nested
+            inside a modal still measures correctly. Collapsing the ancestors
+            with "display: none" shifts the output.
+          */
           body * { visibility: hidden; }
           #${printElementId}, #${printElementId} * { visibility: visible; }
           #${printElementId} { position: absolute; left: 0; top: 0; width: 100%; }
+
+          /*
+            The app is dark. The documents each carry "print:bg-white" on
+            themselves, but the PAGE behind them is painted by the body — and a
+            printer asked for a dark ground either wastes a cartridge on it or,
+            more often, drops it and leaves white text on white paper.
+          */
+          html, body { background: #fff !important; }
+
+          /*
+            A line item split across the fold, or a total separated from the
+            rows it totals, is the specific ugliness of printing a table. So is
+            a signature landing alone on a final page away from the terms it
+            signs.
+          */
+          #${printElementId} tr,
+          #${printElementId} table { break-inside: avoid; page-break-inside: avoid; }
+
+          /*
+            Repeat the column headings on every page of a long quote. Without
+            this, page two of a big scope of work is a wall of numbers with
+            nothing saying which column is the rate and which is the amount.
+          */
+          #${printElementId} thead { display: table-header-group; }
         }
       `}</style>
     </div>
