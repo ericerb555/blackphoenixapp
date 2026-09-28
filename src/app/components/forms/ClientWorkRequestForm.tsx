@@ -172,8 +172,9 @@ interface FormData {
   renderingNotes: string;
   inspirationLinks: string[];
   inspirationNotes: string;
-  budgetMin: number;
-  budgetMax: number;
+  /** Null until the customer actually states a budget. See the defaults. */
+  budgetMin: number | null;
+  budgetMax: number | null;
   budgetPriority: string;
   timeline: string;
   priorityLevel: string;
@@ -317,6 +318,27 @@ const US_STATES = [
   'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 ];
 
+/**
+ * The budget as a sentence, or nothing at all.
+ *
+ * One helper rather than the same template string in four places, because the
+ * whole point is that an unstated budget produces NO string. Formatted inline,
+ * a null reads as "$0-$0" — which is not "they did not say", it is a claim
+ * that they said zero, and it would travel into the alert, the staff
+ * notification and the stored record looking deliberate.
+ */
+export function budgetRangeLabel(
+  min: number | null | undefined,
+  max: number | null | undefined,
+): string | undefined {
+  const lo = typeof min === 'number' && Number.isFinite(min) ? min : null;
+  const hi = typeof max === 'number' && Number.isFinite(max) ? max : null;
+  if (lo === null && hi === null) return undefined;
+  if (lo !== null && hi !== null) return `$${lo.toLocaleString()}-$${hi.toLocaleString()}`;
+  const only = (lo ?? hi) as number;
+  return lo !== null ? `From $${only.toLocaleString()}` : `Up to $${only.toLocaleString()}`;
+}
+
 const initialFormData: FormData = {
   // Project Category & Service Type - NEW
   projectCategory: '',
@@ -426,10 +448,23 @@ const initialFormData: FormData = {
   renderingNotes: '',
   inspirationLinks: [''],
   inspirationNotes: '',
-  budgetMin: 200000,
-  budgetMax: 500000,
+  /**
+   * NOT a default budget. Null means the customer has not said.
+   *
+   * These used to start at 200000 and 500000. In the DETAILED path that was
+   * harmless — the next step is Project Details, where the customer sets them.
+   * In the QUICK path that step does not exist, so nobody ever saw these and
+   * every two-minute request was submitted claiming a budget of
+   * "$200,000-$500,000" that its customer had never been shown, let alone
+   * chosen. A blank budget reads as "not asked"; an invented one reads as what
+   * they told you, and flows into everything downstream that takes budget
+   * seriously.
+   */
+  budgetMin: null,
+  budgetMax: null,
   budgetPriority: 'quality',
-  timeline: '6_months',
+  /** Empty for the same reason: unchosen, rather than "within 6 months". */
+  timeline: '',
   priorityLevel: 'standard',
   additionalNotes: '',
   videos: [],
@@ -1222,7 +1257,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                 body: JSON.stringify({
                   category: 'Work Requests',
                   title: `New ${formData.serviceType || 'Project'} - ${formData.clientName}`,
-                  description: `${formData.clientName} submitted a work request for ${formData.serviceType}. Budget: $${formData.budgetMin.toLocaleString()}-$${formData.budgetMax.toLocaleString()}. AI Video Analysis complete with floor plan generated. Ready for quote generation in Design Studio Pro.`,
+                  description: `${formData.clientName} submitted a work request for ${formData.serviceType}. Budget: ${budgetRangeLabel(formData.budgetMin, formData.budgetMax) || "not specified"}. AI Video Analysis complete with floor plan generated. Ready for quote generation in Design Studio Pro.`,
                   priority: 'high',
                   metadata: {
                     workRequestId: workRequest.id,
@@ -1230,7 +1265,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                     clientEmail: formData.clientEmail,
                     clientPhone: formData.clientPhone,
                     serviceType: formData.serviceType,
-                    budgetRange: `$${formData.budgetMin.toLocaleString()}-$${formData.budgetMax.toLocaleString()}`,
+                    budgetRange: budgetRangeLabel(formData.budgetMin, formData.budgetMax),
                     hasAIFloorPlan: true,
                     floorPlanId: formData.aiVideoAnalysis.floorPlan.id,
                     dimensions: formData.aiVideoAnalysis.dimensions,
@@ -1270,7 +1305,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
                   clientEmail: formData.clientEmail,
                   clientPhone: formData.clientPhone,
                   serviceType: formData.serviceType,
-                  budgetRange: `$${formData.budgetMin.toLocaleString()}-$${formData.budgetMax.toLocaleString()}`,
+                  budgetRange: budgetRangeLabel(formData.budgetMin, formData.budgetMax),
                   hasAIFloorPlan: formData.aiVideoAnalysis?.floorPlan?.id ? true : false,
                   estimatedCost: formData.aiVideoAnalysis?.estimatedRenovationCost,
                   dimensions: formData.aiVideoAnalysis?.dimensions
@@ -2205,20 +2240,20 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <NumberInput
           label="Minimum Budget ($)"
-          value={formData.budgetMin}
+          value={formData.budgetMin ?? ''}
           onChange={(e) => {
-            const val = e.target.value === '' ? 0 : Number(e.target.value);
-            updateFormData('budgetMin', isNaN(val) ? 0 : val);
+            const val = e.target.value === '' ? null : Number(e.target.value);
+            updateFormData('budgetMin', val === null || isNaN(val) ? null : val);
           }}
           min={0}
           step={1000}
         />
         <NumberInput
           label="Maximum Budget ($)"
-          value={formData.budgetMax}
+          value={formData.budgetMax ?? ''}
           onChange={(e) => {
-            const val = e.target.value === '' ? 0 : Number(e.target.value);
-            updateFormData('budgetMax', isNaN(val) ? 0 : val);
+            const val = e.target.value === '' ? null : Number(e.target.value);
+            updateFormData('budgetMax', val === null || isNaN(val) ? null : val);
           }}
           min={0}
           step={1000}
@@ -2400,6 +2435,34 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         )}
       </div>
 
+      {/*
+        The "Details" half of "Photos & Details".
+
+        The quick path skips the Project Details step entirely, so before this
+        there was nowhere in it to say what the work actually is — the step
+        promised details in its title and collected only photographs. Every
+        two-minute request arrived reading "No description provided".
+
+        One field rather than the full step, because quick mode is meant to
+        take two minutes. A customer who wants to say more has the detailed
+        path, and staff can always ask.
+      */}
+      {formMode === 'quick' && (
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
+          <h4 className="text-white font-semibold mb-1">What do you need doing?</h4>
+          <p className="text-sm text-gray-400 mb-3">
+            A sentence or two is plenty — we will follow up with questions if we need them.
+          </p>
+          <textarea
+            value={formData.additionalNotes}
+            onChange={(e) => updateFormData('additionalNotes', e.target.value)}
+            rows={4}
+            placeholder="e.g. Repaint the upstairs hallway and landing, walls and ceiling. Some patching needed by the window."
+            className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-white outline-none transition focus:border-orange-500"
+          />
+        </div>
+      )}
+
       {/* AI Video Studio Modal */}
       {showAIVideoStudio && (
         <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4">
@@ -2464,12 +2527,21 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
 
         <div>
           <h4 className="text-sm font-semibold text-gray-400 mb-1">Budget Range</h4>
-          <p className="text-white">${formData.budgetMin.toLocaleString()} - ${formData.budgetMax.toLocaleString()}</p>
+          {/*
+            "Not specified" rather than a figure. This read
+            `budgetMin.toLocaleString()` directly, which throws on a null —
+            and strictNullChecks is off in this project, so the typechecker
+            would never have said so. It would have been found by a customer
+            reaching the review step.
+          */}
+          <p className="text-white">
+            {budgetRangeLabel(formData.budgetMin, formData.budgetMax)?.replace('-', ' - ') || 'Not specified'}
+          </p>
         </div>
 
         <div>
           <h4 className="text-sm font-semibold text-gray-400 mb-1">Timeline</h4>
-          <p className="text-white capitalize">{formData.timeline.replace('_', ' ')}</p>
+          <p className="text-white capitalize">{formData.timeline ? formData.timeline.replace('_', ' ') : 'Not specified'}</p>
         </div>
 
         {formData.projectCategory === 'kitchen_bath' && formData.existingKitchenLength > 0 && (
