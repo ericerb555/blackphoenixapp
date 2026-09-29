@@ -11732,7 +11732,7 @@ buy construction work.
 **"admin" — asked, answered, and already true.** Eric: *"staff should just have it."* No seventh record. Verified in the code rather than assumed: `aiSpend.reserve` returns before reading any ceiling when `isStaff` is true, so staff are not metered at all — they already have the content centre outright.
 
 That check had a bug, now fixed. `aiSpend` kept its **own** copy of the staff role list and it had drifted from the canonical `STAFF_ROLE_SET`, missing `platform_owner`, `business_owner`, `master_admin` and `management`. An account holding one of those was metered at the free backstop of 300 model calls while an `admin` beside them had none. Production holds 1 owner, 1 employee, 2 vendors and 4 accounts with no role at all, so nobody is affected today — the next `master_admin` would have been, and it would have read as a quota bug rather than a stale list.
-- [ ] Y5. Withdraw `plan_tier:content:{solo,studio,agency}` once the add-ons
+- [x] Y5. Withdraw `plan_tier:content:{solo,studio,agency}` once the add-ons
       carry their limits, so there is one place the content centre is sold
       from rather than two that can disagree.
 - [ ] Y6. Eric creates the Stripe prices from the tier admin — test first,
@@ -11798,3 +11798,50 @@ the full suite were green across the whole tree first.
 one-click revert for a function. `git checkout 5c9b05e5 -- supabase/functions/server`
 then deploy would restore what was running before, but it would also undo the
 other session's work, so read the interleaving above first.
+
+## Two findings checked, 29 Sep — both clean, one of them my error
+
+### The RLS advisory on `private_cron_config` was WRONG, and so was I
+
+I relayed Supabase's advisory as critical: *"anyone with the anon key can read
+or modify every row."* That is not true of this table, and I should have
+checked before repeating it.
+
+    anon key -> GET /rest/v1/private_cron_config
+    401  {"code":"42501","message":"permission denied for table private_cron_config"}
+
+Grants on the table are `postgres` and `service_role` only. Neither `anon` nor
+`authenticated` holds a single privilege. **RLS being off is not the same as
+being exposed** when the role has no GRANT — grants are the stronger gate and
+they are correct here. The advisory fires on `rls_enabled = false` without
+looking at them.
+
+Enabling RLS would be harmless defence-in-depth (`service_role` bypasses it),
+and is worth doing if a grant is ever added. It is not urgent and it is not a
+hole. **Not done — offered.**
+
+### Nobody is locked out of their portal
+
+Four of the eight accounts carry no `app_metadata` role, which I flagged as a
+risk because `/auth/me` falls through to `customer`. Traced properly:
+
+- One of the four holds a **landlord** grant. Its intake record
+  (`intake:onboarding:OWNER-INVITE-…`) says `portalType: landlord`, and
+  `/auth/me` ends with `if (!role && intake?.portalType) role = intake.portalType`
+  — so they resolve to landlord and reach their own portal. **Fine.**
+- The other three have no grant, no intake and no approved application. They
+  resolve to `customer`, which is what a signed-up account with no portal
+  should be. **Fine.**
+
+Worth knowing for later: the two middle fallbacks in that chain query
+`user_permissions` and `company_members`, and **neither table exists**. The
+query throws, the `catch` swallows it, and resolution falls through to the
+intake. It works, but two of the four steps are dead and the failure is
+invisible — so the intake record is doing all the work for any account whose
+role was never stamped.
+
+**Y5 done, 29 Sep.** The three `plan_tier:content:*` records are marked
+`supersededByAddOn` with a note naming the add-on that replaced them and the
+six audiences it lives in, and `active` is pinned false. Kept rather than
+deleted: they are the provenance for what the add-ons carry, and each add-on's
+`sourceTierId` points back at them.
