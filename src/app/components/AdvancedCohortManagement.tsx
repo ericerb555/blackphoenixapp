@@ -183,6 +183,15 @@ export function AdvancedCohortManagement() {
   // Cohorts come from the server. Empty until they load; never invented.
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [cohortsLoading, setCohortsLoading] = useState(true);
+  /**
+   * Accounts on a trial that are on no tier, and so in no cohort.
+   *
+   * A trial is full use of everything until it finishes; the tier comes after.
+   * So a trial names no cohort — correct, but it means the member counts below
+   * can read as almost empty while plenty of accounts are being served. Shown
+   * beside them so nobody reads that as a broken screen.
+   */
+  const [trialsNotOnATier, setTrialsNotOnATier] = useState(0);
   const [cohortsError, setCohortsError] = useState<string | null>(null);
 
   /**
@@ -201,9 +210,11 @@ export function AdvancedCohortManagement() {
         throw new Error(body?.error || `The server answered ${res.status}.`);
       }
       setCohorts((Array.isArray(body.cohorts) ? body.cohorts : []).map(asCohort));
+      setTrialsNotOnATier(Number(body.trialsNotOnATier ?? 0) || 0);
       setCohortsError(null);
     } catch (err: any) {
       setCohorts([]);
+      setTrialsNotOnATier(0);
       setCohortsError(err?.message || 'Could not load cohorts.');
     } finally {
       setCohortsLoading(false);
@@ -708,6 +719,11 @@ export function AdvancedCohortManagement() {
             <div className="text-3xl font-bold text-white">
               {getCurrentData().filter((item: any) => item.status === 'active').length}
             </div>
+            {viewMode === 'cohorts' && trialsNotOnATier > 0 && (
+              <div className="text-xs text-zinc-500 mt-1">
+                + {trialsNotOnATier} on trial, not yet on a tier
+              </div>
+            )}
           </div>
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
             <div className="flex items-center justify-between mb-2">
@@ -775,6 +791,13 @@ export function AdvancedCohortManagement() {
               Create one above, or bring the existing plan tiers across with the
               tier migration on the server.
             </p>
+            {trialsNotOnATier > 0 && (
+              <p className="text-sm text-zinc-400 mt-3">
+                {trialsNotOnATier} account{trialsNotOnATier === 1 ? ' is' : 's are'} on
+                a free trial. A trial is not a tier, so it belongs to no cohort until
+                it finishes and the account chooses one.
+              </p>
+            )}
           </div>
         )}
 

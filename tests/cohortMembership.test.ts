@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cohortIdForTier, membershipFromGrant, membershipsFromGrants, monthlyRecurringCents,
+  unattachedTrials,
 } from '../supabase/functions/server/cohortMembership.ts';
 import { cohortFromTier, monthlyRevenueOf } from '../supabase/functions/server/cohortPricing.ts';
 
@@ -288,4 +289,55 @@ test('an empty or broken grant list is zero, not a crash', () => {
 
 test('an odd price converts to whole cents without drift', () => {
   assert.equal(monthlyRecurringCents([paying()], () => ({ basePrice: 33.33 })), 3333);
+});
+
+// ── Trials, which are not a rung of the ladder ────────────────────────────
+
+/**
+ * Eric's rule: "a trial is use of all componats then it moves to tiers upon
+ * completion." A trial is not a tier, so it carries no tierId and belongs to
+ * no cohort — correct, not a gap. But seven of the eight live accounts are
+ * trials, so a screen counting only cohort members reports ONE across the
+ * whole platform while eight are served. That reads as a bug and invites the
+ * wrong fix. These pin the separate count that prevents it.
+ */
+const trial = (over = {}) => ({
+  email: 't@example.com', status: 'active',
+  trialStart: '2026-09-01T00:00:00.000Z', trialEnd: '2026-12-01T00:00:00.000Z',
+  ...over,
+});
+
+test('A TRIAL WITH NO TIER IS COUNTED HERE, because nothing else counts it', () => {
+  assert.equal(unattachedTrials([trial()], NOW), 1);
+});
+
+test('the eight live accounts read as one subscriber and seven trials', () => {
+  const grants = [paying({ email: 'pays@x' }), ...Array.from({ length: 7 }, (_, i) => trial({ email: `t${i}@x` }))];
+  assert.equal(unattachedTrials(grants, NOW), 7);
+  assert.equal(membershipsFromGrants(grants, NOW).filter((m) => m.status === 'active').length, 1);
+});
+
+/**
+ * A trial that DOES name a cohort is already inside that cohort's member
+ * count, so counting it here too would double it.
+ */
+test('a trial that already belongs to a cohort is NOT double-counted', () => {
+  assert.equal(unattachedTrials([trial({ tierId: 'studio' })], NOW), 0);
+});
+
+test('a paying subscriber is not a trial', () => {
+  assert.equal(unattachedTrials([paying()], NOW), 0);
+});
+
+test('an expired trial has stopped, so it is not in flight', () => {
+  assert.equal(unattachedTrials([trial({ trialEnd: '2026-06-01T00:00:00.000Z' })], NOW), 0);
+});
+
+test('a revoked trial is not counted', () => {
+  assert.equal(unattachedTrials([trial({ status: 'revoked' })], NOW), 0);
+});
+
+test('empty and broken lists are zero, not a crash', () => {
+  assert.equal(unattachedTrials([], NOW), 0);
+  assert.equal(unattachedTrials([null, undefined], NOW), 0);
 });

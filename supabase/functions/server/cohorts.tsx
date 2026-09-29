@@ -17,7 +17,7 @@ import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
 import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier, withoutMoneyFigures } from './cohortPricing.ts';
-import { membershipsFromGrants, type Membership } from './cohortMembership.ts';
+import { membershipsFromGrants, unattachedTrials, type Membership } from './cohortMembership.ts';
 import { accountStanding, mayDeactivate } from './accountStanding.ts';
 import { trustedRole } from './trustedRole.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -135,16 +135,25 @@ const COHORT_ANALYTICS_PREFIX = 'cohort_analytics_';
 // Get all cohorts
 cohortsRouter.get('/cohorts', async (c) => {
   try {
-    const [raw, memberships] = await Promise.all([
+    const [raw, grants] = await Promise.all([
       kv.getByPrefix(COHORT_PREFIX),
-      loadMemberships(),
+      kv.getByPrefix('feature_grant:'),
     ]);
+    const memberships = membershipsFromGrants((grants as any[] || []).filter(Boolean));
     const cohorts = raw.map((cohort) => withDerivedFigures(cohort, memberships));
 
     return c.json({
       success: true,
       cohorts,
-      count: cohorts.length
+      count: cohorts.length,
+      /**
+       * Accounts on a trial that belong to no cohort. A trial is not a rung of
+       * the ladder — it is full use of everything until it finishes — so it
+       * carries no tier and lands in no cohort. Reported separately because
+       * seven of the eight live accounts are trials, and a screen showing one
+       * member across the whole platform reads as broken.
+       */
+      trialsNotOnATier: unattachedTrials((grants as any[] || []).filter(Boolean)),
     });
   } catch (error) {
     console.error('Error fetching cohorts:', error);

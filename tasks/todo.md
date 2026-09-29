@@ -468,7 +468,7 @@ All three fixed, all three now covered, plus an exhaustive test over every
 active/audience/interval combination so a field added to `addOnAvailableOn`
 later cannot be forgotten here silently.
 
-- [ ] X3a. **Trials belong to no cohort.** All seven trial grants lack a
+- [x] X3a. **Trials belong to no cohort — and that is correct.** All seven trial grants lack a
       `tierId`, so they resolve to no cohort and appear in no member count.
       That is arguably right — they have not chosen a tier — but it means the
       cohort screen will show 1 member across the whole platform while eight
@@ -11961,3 +11961,26 @@ After: `plans` and `subscriptions` both gone, 22 public tables down to 20, and
 migration is now `20260928140000_drop_dead_plan_tables.sql` (no longer
 `.pending`), idempotent through `to_regclass`, kept as the record of what was
 done and so a fresh environment reaches the same state.
+
+**X3a settled, 29 Sep.** Eric: *"a trial is use of all componats then it moves
+to tiers upon completion."* So a trial is **not** a rung of the ladder — it is
+full use of everything, and the tier is what the account arrives at when the
+trial finishes. A trial grant therefore carries no `tierId` and belongs to no
+cohort, which is correct rather than a gap.
+
+Stamping a tier onto a trial would have been the wrong fix twice over: it would
+show an account as having chosen a rung it has not chosen, and
+`resolveEntitlement` ranks a tier above a trial, so it would change what they
+are served.
+
+What was actually wrong was the *reading*. `GET /cohorts` now returns
+`trialsNotOnATier`, and the screen shows "+ N on trial, not yet on a tier"
+beside the member count and on the empty state — so one subscriber and seven
+trials reads as the truth rather than as a broken page.
+
+**Worth checking with Eric:** `TRIAL_EXCLUDED_ADD_ON_IDS` withholds two things
+from every trial — on-call, and on-call answered by Black Phoenix. The reasons
+in the code are strong (the cost is a staffed phone line rather than compute,
+and emergency cover is a promise that would lapse on a date nobody was
+watching). But it is the one documented exception to "use of all components",
+so he should know it exists.

@@ -208,3 +208,37 @@ export function monthlyRecurringCents(
   }
   return total;
 }
+
+/**
+ * Accounts on a trial that belong to no cohort yet.
+ *
+ * WHY THIS IS COUNTED SEPARATELY RATHER THAN FOLDED IN
+ *
+ * Eric's rule: *"a trial is use of all componats then it moves to tiers upon
+ * completion."* A trial is not a rung of the ladder — it is full use of
+ * everything, and the tier is what the account arrives at when the trial
+ * finishes. So a trial grant carries no `tierId`, belongs to no cohort, and
+ * that is correct rather than a gap.
+ *
+ * The problem it creates is one of reading, not of data. Seven of the eight
+ * live accounts are trials, so a cohort screen that counts only cohort members
+ * reports ONE across the whole platform while eight are being served — a
+ * figure that looks like a bug and invites somebody to "fix" it by stamping a
+ * tier onto a trial. That would be the wrong fix twice over: it would show an
+ * account as having chosen a rung it has not chosen, and `resolveEntitlement`
+ * ranks a tier above a trial, so it would change what they are served.
+ *
+ * Counting them here lets a screen say "1 subscriber, 7 on trial" instead.
+ */
+export function unattachedTrials(
+  grants: Array<GrantLike | null | undefined>,
+  now: Date = new Date(),
+): number {
+  return (grants || []).filter((grant) => {
+    if (!grant) return false;
+    const membership = membershipFromGrant(grant, now);
+    // Only the ones with nowhere to be counted — a trial that DOES name a
+    // cohort is already in that cohort's member count and would double up.
+    return membership.cohortId === null && membership.status === 'trialing';
+  }).length;
+}
