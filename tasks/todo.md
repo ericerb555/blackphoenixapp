@@ -1,3 +1,85 @@
+# PLAN — connecting work requests to the schedule
+
+Eric asked whether the scheduling work is connected to work requests and to
+requested dates from customers. It is not, and the missing link is a concept
+rather than a field.
+
+## What is actually there
+
+    work request    a HORIZON — "ASAP", "within 1 month", "within 6 months",
+                    "flexible". Not a date. The three real requests say
+                    6_months, 3_months and nothing at all.
+    appointment     a DATE and a TIME the customer picked, from
+                    ServiceScheduling's slot grid. The store the master
+                    schedule and the customer portal both already read.
+    availability    who can work, computed and tested
+    measuredHours   how long the work actually takes, learned from finished
+                    jobs
+
+There is no `preferredDate` on a work request and nowhere for a customer to say
+"the 14th", "mornings", or "not Fridays".
+
+## The reading this plan is built on
+
+**These are two different products, and the codebase already half knows it.**
+
+An APPOINTMENT is a slot somebody picks — a site visit, a service call, a
+consultation. Fifteen minutes to an hour, one person, the customer chooses when.
+`ServiceScheduling` already does this and writes to the appointment ledger.
+
+A JOB is work. A kitchen remodel is not booked like a haircut: the customer says
+"within three months", somebody surveys it, it is quoted, and THEN a date is
+proposed from what the crew can actually do. The horizon field exists because
+that is how the work arrives.
+
+So the answer to "does the customer pick the date" is: for an appointment yes,
+for a job no — **we propose and they confirm**. That is what the assistant is
+for, and it is why `measuredHours` matters: proposing a day is guesswork without
+knowing how long the work takes.
+
+**If that reading is wrong, stop here** — it changes every item below.
+
+## The chain, once joined
+
+    work request          horizon + trade + site
+      + measuredHours     how many hours it really takes
+      + availability      who is free, across that horizon
+      = a PROPOSED day    "Tuesday 14th, Dave, 6 hours — because…"
+      → confirmed         writes an appointment, which the master schedule
+                          and the customer portal both already read
+
+Nothing new is invented at the end: a confirmed proposal becomes an appointment
+in the ledger that exists.
+
+## Items
+
+- [ ] 1. `scheduleWindow.ts` — turn a horizon into a date range, tested. "ASAP"
+      is not a date and "within 6 months" is not a deadline for the 6-month
+      mark; both need an honest span to search. Includes the rule that an
+      UNSTATED horizon does not mean today and does not mean never.
+- [ ] 2. Work requests gain OPTIONAL constraints, in the customer portal:
+      earliest date, latest date, days that do not work, mornings or
+      afternoons. Optional because most customers have none, and a required
+      date field would make them invent one.
+- [ ] 3. The planner takes work requests rather than abstract jobs: reads the
+      horizon, the constraints, the measured hours, and proposes days.
+- [ ] 4. Confirming a proposal writes an appointment AND assigns the technician,
+      in one action, so the two cannot disagree.
+- [ ] 5. The assistant surface: the proposed week, what it booked by itself,
+      what needs a decision, and what nobody can do.
+- [ ] 6. A model explains a PARTICULAR choice on request — "why Dave?" — rather
+      than producing the plan. Counting is not worth a model call.
+
+## What this deliberately leaves alone
+
+**Telling the customer a date.** Proposing Tuesday and promising Tuesday are
+different acts. The confirmation step is where a human decides to make the
+promise, and the notification stays separate until Eric says otherwise.
+
+**Travel time.** Still its own problem.
+
+---
+
 # PLAN — the scheduling assistant
 
 Eric: *"make sure we have a scheduling AI assistant that helps keep everything
