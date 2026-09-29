@@ -474,6 +474,25 @@ export function addOnsForTier(
  * lists tier ids, and the catalogue still speaks in those; using the cohort's
  * own id here would make every restricted add-on look unavailable and quietly
  * drop it from the total.
+ *
+ * EVERY FIELD `addOnAvailableOn` READS HAS TO BE HERE
+ *
+ * This is not a convenience list, it is the function's actual input, and an
+ * incomplete view does not fail — it answers differently. A dry run against
+ * the real six tiers caught all three of these at once:
+ *
+ *   `active`    — a withdrawn tier refuses add-ons outright. Without it, the
+ *                three content tiers (all `active: false`) priced $99 HIGHER
+ *                through the cohort than through the tier, because the add-on
+ *                the tier refused was charged by the cohort.
+ *   `audience`  — the check is `addOn.audience && tier.audience && they
+ *                differ`. With no audience on this side it short-circuits and
+ *                refuses nothing, so a VENDOR add-on could be sold on a
+ *                CONTENT cohort. Cross-portal, and it would have looked like
+ *                an ordinary line on an invoice.
+ *   `interval`  — Stripe requires every recurring line on one subscription to
+ *                share an interval. Mismatched, the checkout is refused by
+ *                Stripe in front of the customer.
  */
 export function tierViewOfCohort(
   cohort: Cohort | null | undefined,
@@ -484,6 +503,10 @@ export function tierViewOfCohort(
     priceCents: Math.round(priceFor(cohort, seats).price * 100),
     includedAddOns: Array.isArray(cohort?.includedAddOns) ? cohort.includedAddOns : [],
     discountPercent: Number(cohort?.discountPercent ?? 0) || 0,
+    // A cohort says `status`; a tier says `active`. Same fact, two spellings.
+    active: String(cohort?.status ?? 'active') !== 'inactive',
+    audience: cohort?.audience as PlanTier['audience'],
+    interval: cohort?.interval as PlanTier['interval'],
   };
 }
 

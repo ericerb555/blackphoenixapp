@@ -298,6 +298,52 @@ cohorts and they are not this task, but they are worth naming:
 
 ### X — prove it
 
+**Dry run against production, 28 Sep — read-only, nothing written.**
+
+Read the real records out of `kv_store_57095a78` and ran the actual
+functions against them. Findings:
+
+- **6 plan tiers, 8 feature grants, 0 cohorts, 1 `subscription:` record.**
+- **Exactly ONE account is paying**: a vendor on `stocked`, $79/mo, with a
+  real Stripe subscription. The other seven are trials Eric granted, all
+  running to Jan–Feb 2027, none carrying a `tierId`.
+- Platform MRR from cohort memberships: **$79.00/month.**
+- The three **content** tiers (Solo $79, Studio $199, Agency $499) are
+  `active: false` with **no Stripe price ids at all** — they cannot be sold.
+  The three vendor tiers are active with both live and test prices.
+- `plans` and `subscriptions` Postgres tables: **0 rows each**, confirming
+  W4 against the database rather than from reading code.
+
+**THE DRY RUN CAUGHT A REAL BUG THAT THE UNIT TESTS COULD NOT.**
+`tierViewOfCohort` dropped three fields `addOnAvailableOn` reads. The
+synthetic fixture in the test file is active, monthly and single-audience,
+so it could not expose any of them:
+
+- `active` — the three content tiers are `active: false`, and a withdrawn
+  tier refuses add-ons. Without it they priced **$99 HIGHER** through the
+  cohort than through the tier: an overcharge for an add-on the tier had
+  already refused.
+- `audience` — the check short-circuits when either side is missing, so a
+  **vendor add-on could be sold on a content cohort**. Cross-portal, and it
+  would have looked like an ordinary line on an invoice.
+- `interval` — Stripe refuses a subscription whose recurring lines do not
+  share an interval, in front of the customer.
+
+All three fixed, all three now covered, plus an exhaustive test over every
+active/audience/interval combination so a field added to `addOnAvailableOn`
+later cannot be forgotten here silently.
+
+- [ ] X3a. **Trials belong to no cohort.** All seven trial grants lack a
+      `tierId`, so they resolve to no cohort and appear in no member count.
+      That is arguably right — they have not chosen a tier — but it means the
+      cohort screen will show 1 member across the whole platform while eight
+      accounts are being served. Worth deciding whether a trial should be
+      provisioned against a tier.
+- [ ] X3b. **The content tiers cannot be sold.** Solo, Studio and Agency are
+      the platform's core product and all three are `active: false` with no
+      Stripe price. Creating those prices is the single change that would let
+      anybody buy the thing the platform is for.
+
 - [ ] X1. Tests for the banding and for the derived figures: the right band at
       a boundary seat count, spots remaining, MRR summed from memberships
       rather than from a stored field.

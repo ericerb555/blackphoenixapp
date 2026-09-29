@@ -128,6 +128,14 @@ export interface Cohort {
   discountPercent?: number;
   /** The tier this cohort was migrated from, when it was. */
   sourceTierId?: string;
+  /**
+   * These three are read by `addOnAvailableOn` through `tierViewOfCohort`.
+   * They are on the interface rather than left to `Record<string, unknown>`
+   * so that dropping one is a type error rather than a silent mispricing.
+   */
+  status?: string;
+  audience?: string;
+  interval?: string;
 }
 
 /** A number, or the fallback when it is missing or nonsense. */

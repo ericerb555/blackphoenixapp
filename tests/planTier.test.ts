@@ -1013,9 +1013,18 @@ test('a banded cohort discounts the base and leaves the add-ons alone', () => {
   assert.equal(cohortTotalCents(banded, 20, extras), 9950);
 });
 
-test('a cohort with no price totals to its add-ons rather than NaN', () => {
+test('a cohort with no price and no active flag sells nothing, rather than NaN', () => {
+  // A tier with no `active` flag migrates as inactive — fail closed, because an
+  // unmarked tier is not one somebody said was sellable. So the add-on is
+  // refused and the total is zero. The point of the test is that it is a
+  // number at all: this returned NaN before the base price was guarded.
   const total = cohortTotalCents(cohortFromTier({ id: 'x' }), 1, [{ id: 'renders', priceCents: 2500 }]);
-  assert.equal(total, 2500);
+  assert.equal(total, 0);
+  assert.equal(Number.isFinite(total), true);
+
+  // Marked active, the add-on is charged and the missing base is zero.
+  const live = cohortTotalCents(cohortFromTier({ id: 'x', active: true }), 1, [{ id: 'renders', priceCents: 2500 }]);
+  assert.equal(live, 2500);
 });
 
 test('a missing cohort prices at nothing instead of throwing', () => {
@@ -1095,4 +1104,75 @@ test('seats reach the cohort, so a banded cohort prices by size', () => {
 test('a trialist still gets no figure, whichever record is in play', () => {
   assert.equal(monthlyFigure('trial', pricedViewFor(studio, cohortFromTier(studio)).tier, []).cents, null);
   assert.equal(monthlyFigure('trial', pricedViewFor(studio, null).tier, []).basis, 'trial');
+});
+
+/**
+ * Every field `addOnAvailableOn` reads must survive the cohort adapter.
+ *
+ * FOUND BY A DRY RUN AGAINST THE SIX REAL TIERS, not by these tests — the
+ * synthetic tier above is active, monthly and single-audience, so it could
+ * not expose any of this. All three failures below are silent: the adapter
+ * does not error on a missing field, it just answers differently.
+ */
+const withdrawn: Partial<PlanTier> = { ...studio, active: false };
+const onCall: Partial<PlanAddOn> = { id: 'on-call', priceCents: 9900 };
+
+test('A WITHDRAWN TIER REFUSES ADD-ONS THROUGH THE COHORT TOO', () => {
+  // The three content tiers are all active:false in production. Without
+  // `active` on the view, each priced $99 HIGHER through the cohort than
+  // through the tier — an overcharge for an add-on the tier had refused.
+  assert.equal(subscriptionTotalCents(withdrawn, [onCall]), 14900, 'the tier refuses it');
+  assert.equal(cohortTotalCents(cohortFromTier(withdrawn), 1, [onCall]), 14900, 'so must the cohort');
+});
+
+test('an active tier still charges for the add-on', () => {
+  assert.equal(cohortTotalCents(cohortFromTier(studio), 1, [onCall]), 24800);
+});
+
+/**
+ * The check is `addOn.audience && tier.audience && they differ`. With no
+ * audience on the cohort's side it short-circuits and refuses nothing, so an
+ * add-on from another portal would be charged — and would look like an
+ * ordinary line on the invoice.
+ */
+test('AN ADD-ON FROM ANOTHER AUDIENCE IS NOT SOLD ON THIS COHORT', () => {
+  const contentTier: Partial<PlanTier> = { ...studio, audience: 'content' };
+  const vendorAddOn: Partial<PlanAddOn> = { id: 'vendor-thing', priceCents: 5000, audience: 'vendor' };
+  assert.equal(tierViewOfCohort(cohortFromTier(contentTier)).audience, 'content');
+  assert.equal(
+    cohortTotalCents(cohortFromTier(contentTier), 1, [vendorAddOn]),
+    14900,
+    'a vendor add-on must not be charged on a content cohort',
+  );
+});
+
+/**
+ * Stripe requires every recurring line on one subscription to share an
+ * interval, so a mismatch is refused by Stripe in front of the customer.
+ */
+test('the billing interval travels, so a mismatched add-on is refused', () => {
+  const monthly: Partial<PlanTier> = { ...studio, interval: 'month' };
+  const weekly: Partial<PlanAddOn> = { id: 'weekly', priceCents: 1000, interval: 'week' };
+  assert.equal(tierViewOfCohort(cohortFromTier(monthly)).interval, 'month');
+  assert.equal(cohortTotalCents(cohortFromTier(monthly), 1, [weekly]), 14900, 'not charged');
+});
+
+/**
+ * The general form of the bug, so a field added to `addOnAvailableOn` later
+ * cannot be forgotten here without something failing.
+ */
+test('THE COHORT VIEW AGREES WITH THE TIER ON EVERY COMBINATION', () => {
+  const addOn: Partial<PlanAddOn> = { id: 'x', priceCents: 9900, audience: 'content', interval: 'month' };
+  for (const active of [true, false]) {
+    for (const audience of ['content', 'vendor'] as const) {
+      for (const interval of ['month', 'year'] as const) {
+        const t: Partial<PlanTier> = { id: 'studio', priceCents: 14900, includedAddOns: [], active, audience, interval };
+        assert.equal(
+          cohortTotalCents(cohortFromTier(t), 1, [addOn]),
+          subscriptionTotalCents(t, [addOn]),
+          `active=${active} audience=${audience} interval=${interval}`,
+        );
+      }
+    }
+  }
 });
