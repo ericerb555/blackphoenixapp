@@ -223,30 +223,24 @@ export function AdvancedCohortManagement() {
 
   useEffect(() => { void loadCohorts(); }, []);
 
-  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([
-    {
-      id: '1',
-      name: 'Starter Plan',
-      description: 'Perfect for small businesses',
-      price: 29,
-      billingCycle: 'monthly',
-      features: ['Feature 1', 'Feature 2', 'Feature 3'],
-      subscriberCount: 320,
-      status: 'active',
-      createdAt: '2024-01-10'
-    },
-    {
-      id: '2',
-      name: 'Professional Plan',
-      description: 'For growing businesses',
-      price: 99,
-      billingCycle: 'monthly',
-      features: ['All Starter features', 'Advanced Analytics', 'Priority Support'],
-      subscriberCount: 156,
-      status: 'active',
-      createdAt: '2024-01-10'
-    }
-  ]);
+  /**
+   * THE SUBSCRIPTIONS TAB IS NOT THIS COMPONENT'S TO DRAW.
+   *
+   * It renders <SubscriptionPlans />, which fetches its own tiers and
+   * overrides from the server and carries its own editor. This component used
+   * to keep a `subscriptionPlans` array beside it anyway — "Starter Plan, 320
+   * subscribers" and a "Professional Plan" whose features were literally
+   * "Feature 1, Feature 2, Feature 3" — which nothing rendered.
+   *
+   * It was not harmless. The stats header above the grid counted THAT array,
+   * so the default view of this screen reported two plans and 476 subscribers
+   * that did not exist, directly above a list showing something else entirely.
+   * The Create button wrote into it too, so adding a plan here produced a
+   * record nobody could ever see.
+   *
+   * Removed rather than wired up: the child already owns this tab, and a
+   * second definition of the same thing is what let the two disagree.
+   */
 
   const [vendorPlans, setVendorPlans] = useState<VendorPlan[]>([
     {
@@ -381,7 +375,8 @@ export function AdvancedCohortManagement() {
       case 'cohorts':
         return cohorts;
       case 'subscriptions':
-        return subscriptionPlans;
+        // Owned by <SubscriptionPlans />. Nothing here describes that tab.
+        return [];
       case 'maintenance':
         return maintenancePlans;
       case 'construction':
@@ -432,9 +427,6 @@ export function AdvancedCohortManagement() {
     }
 
     switch (viewMode) {
-      case 'subscriptions':
-        setSubscriptionPlans(subscriptionPlans.filter(p => p.id !== id));
-        break;
       case 'maintenance':
         setMaintenancePlans(maintenancePlans.filter(p => p.id !== id));
         break;
@@ -473,9 +465,6 @@ export function AdvancedCohortManagement() {
     }
 
     switch (viewMode) {
-      case 'subscriptions':
-        setSubscriptionPlans([...subscriptionPlans, newItem]);
-        break;
       case 'maintenance':
         setMaintenancePlans([...maintenancePlans, newItem]);
         break;
@@ -542,9 +531,6 @@ export function AdvancedCohortManagement() {
     }
 
     switch (viewMode) {
-      case 'subscriptions':
-        setSubscriptionPlans(subscriptionPlans.map(p => p.id === id ? toggleStatus(p) : p));
-        break;
       case 'maintenance':
         setMaintenancePlans(maintenancePlans.map(p => p.id === id ? toggleStatus(p) : p));
         break;
@@ -635,16 +621,21 @@ export function AdvancedCohortManagement() {
               >
                 <Settings className="w-5 h-5" />
               </button>
-              <button
-                onClick={() => {
-                  setEditingItem(null);
-                  setShowCreateModal(true);
-                }}
-                className="px-6 py-3 bg-[#ea580c] text-white rounded-lg hover:bg-[#dc2626] transition-colors font-medium flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Create New
-              </button>
+              {/* The subscriptions tab has its own editor inside
+                  <SubscriptionPlans />. This button wrote into an array that
+                  tab does not render, so a plan created here vanished. */}
+              {viewMode !== 'subscriptions' && (
+                <button
+                  onClick={() => {
+                    setEditingItem(null);
+                    setShowCreateModal(true);
+                  }}
+                  className="px-6 py-3 bg-[#ea580c] text-white rounded-lg hover:bg-[#dc2626] transition-colors font-medium flex items-center gap-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  Create New
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -941,9 +932,6 @@ export function AdvancedCohortManagement() {
               if (editingItem) {
                 // Update existing
                 switch (viewMode) {
-                  case 'subscriptions':
-                    setSubscriptionPlans(subscriptionPlans.map(p => p.id === item.id ? item : p));
-                    break;
                   case 'maintenance':
                     setMaintenancePlans(maintenancePlans.map(p => p.id === item.id ? item : p));
                     break;
@@ -967,9 +955,6 @@ export function AdvancedCohortManagement() {
                   createdAt: new Date().toISOString().split('T')[0]
                 };
                 switch (viewMode) {
-                  case 'subscriptions':
-                    setSubscriptionPlans([...subscriptionPlans, newItem]);
-                    break;
                   case 'maintenance':
                     setMaintenancePlans([...maintenancePlans, newItem]);
                     break;

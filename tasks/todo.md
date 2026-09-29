@@ -369,7 +369,7 @@ samples with no server behind them, and their delete/duplicate/toggle
 handlers still say "Item deleted successfully" over nothing. They are not
 cohorts and they are not this task, but they are worth naming:
 
-- [ ] V0e. The **Subscriptions** tab is the default view, and its stats header
+- [x] V0e. The **Subscriptions** tab is the default view, and its stats header
       counts a mock array of two ("Starter Plan, 320 subscribers" / a
       "Professional Plan" whose features are literally "Feature 1, Feature 2,
       Feature 3") while the grid below it renders the real `SubscriptionPlans`
@@ -11984,3 +11984,26 @@ in the code are strong (the cost is a staffed phone line rather than compute,
 and emergency cover is a promise that would lapse on a date nobody was
 watching). But it is the one documented exception to "use of all components",
 so he should know it exists.
+
+**V0e done, 29 Sep.** The Subscriptions tab renders `<SubscriptionPlans />`,
+which fetches its own tiers and overrides and carries its own editor — but
+this component kept a `subscriptionPlans` array beside it that nothing
+rendered: "Starter Plan, 320 subscribers" and a "Professional Plan" whose
+features were literally *Feature 1, Feature 2, Feature 3*.
+
+It was not harmless. The stats header counted **that** array, so the default
+view of the screen reported two plans and 476 subscribers that did not exist,
+directly above a list showing something else. The Create button wrote into it
+too, so a plan added there vanished on the next render.
+
+Removed, along with the five switch branches that maintained it — TypeScript
+found all five once the array was gone. `getCurrentData()` returns nothing for
+that tab, so the header now counts zero rather than a fiction, and the Create
+button is hidden there because the child owns that tab's editing.
+
+Left alone deliberately: `SubscriptionCard` and the `SubscriptionPlan`
+interface, about eighty lines that render the shape just deleted. They were
+already dead before this change — nothing has referenced `<SubscriptionCard />`
+for some time — so removing them is tidying rather than fixing, and it is the
+kind of unasked-for edit that has broken a screen here before. Worth doing
+with V0f, when the remaining four mock tabs are dealt with properly.
