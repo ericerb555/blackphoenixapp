@@ -227,8 +227,9 @@ import {
   notPurchasableReason, resolveEntitlement, publicTier, priceIdFor, readInterval,
   isPurchasable, AUDIENCES, selectableAddOns, type PlanAddOn,
   heldAddOnIds, holdsAddOn, paysForAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
-  addOnsForTier, monthlyFigure, pricedViewFor,
+  addOnsForTier, monthlyFigure, pricedViewFor, priceIdOfAddOn,
 } from "./planTier.ts";
+import { supersededIds, supersedesMessage } from "./addOnGroups.ts";
 import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -11836,6 +11837,37 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
  * should not have a card charged in that moment by a button they pressed to
  * get help.
  */
+
+/**
+ * Reading from and deleting at Stripe, with an explicit key.
+ *
+ * The key is passed in rather than resolved inside, because the caller has
+ * already decided whether this account is rehearsing in test mode or spending
+ * real money, and re-deriving that here is how the two get out of step.
+ *
+ * Used for ending a subscription line when an account moves between rungs of
+ * the same ladder. A failure throws with Stripe's own wording — the caller
+ * decides whether that is fatal, and for a removal it is not: the customer
+ * keeps both lines rather than losing the one they just bought.
+ */
+async function stripeGet(path: string, key: string): Promise<any> {
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    headers: { Authorization: `Basic ${btoa(`${key}:`)}` },
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload?.error?.message || `Stripe refused: ${res.status}`);
+  return payload;
+}
+
+async function stripeDelete(path: string, key: string): Promise<any> {
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Basic ${btoa(`${key}:`)}` },
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload?.error?.message || `Stripe refused: ${res.status}`);
+  return payload;
+}
 app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
   try {
     const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
@@ -11959,7 +11991,71 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
      * identifiable at all, and re-stating them costs nothing next to the cost
      * of one of them going missing.
      */
-    const ids = [...new Set([...(Array.isArray(grant.addOnIds) ? grant.addOnIds : []), addOn.id])];
+    /**
+     * Rungs of the same ladder are alternatives, so buying one ends the others.
+     *
+     * WHY THIS HAPPENS AFTER THE ADD AND NOT BEFORE
+     *
+     * If the add fails after a removal, the account is left holding nothing
+     * and paying for nothing — the thing they had is gone and the thing they
+     * bought never arrived. Adding first means the worst case is briefly
+     * holding both, which is visible, reversible, and credited on the next
+     * invoice. Losing access is neither.
+     *
+     * THE GUARD THAT MATTERS
+     *
+     * Subscription items are matched by PRICE, because the grant records add-on
+     * ids and never the Stripe item ids. So the tier's own price is excluded
+     * explicitly: deleting line item zero would cancel the plan itself rather
+     * than an extra, and it would look like a successful upgrade right up
+     * until the customer lost their portal.
+     */
+    const boughtIds = Array.isArray(grant.addOnIds) ? grant.addOnIds.map(String) : [];
+    const replaced = supersededIds(addOn, catalogue, boughtIds);
+    const removed: string[] = [];
+
+    if (replaced.length) {
+      const tierPriceIds = new Set(
+        [tier?.stripePriceId, tier?.stripePriceIdTest]
+          .map((x) => String(x || '').trim()).filter(Boolean),
+      );
+
+      // Every price this account could be billed at for the rungs being left,
+      // in this mode — a banded add-on has one price per band.
+      const leavingPriceIds = new Set<string>();
+      for (const goneId of replaced) {
+        const rung = catalogue.find((a: any) => String(a?.id) === goneId);
+        for (const pid of priceIdOfAddOn(rung, mode)) leavingPriceIds.add(pid);
+      }
+
+      try {
+        const subscription = await stripeGet(`subscriptions/${encodeURIComponent(subscriptionId)}`, stripeKey);
+        for (const item of (subscription?.items?.data || [])) {
+          const priceId = String(item?.price?.id || '');
+          if (!priceId || !leavingPriceIds.has(priceId)) continue;
+          if (tierPriceIds.has(priceId)) continue; // never the plan itself
+          await stripeDelete(
+            `subscription_items/${encodeURIComponent(String(item.id))}`
+              + '?proration_behavior=create_prorations',
+            stripeKey,
+          );
+        }
+        removed.push(...replaced);
+      } catch (error: any) {
+        /**
+         * The new rung is already on and already billable, so this is not
+         * fatal — but it IS a double charge until somebody fixes it, and a
+         * silent one. Logged loudly and reported in the response rather than
+         * swallowed.
+         */
+        console.error(
+          `[Subscriptions] ${email} upgraded to ${addOn.id} but could not remove `
+          + `${replaced.join(', ')} from ${subscriptionId}: ${error?.message || error}`,
+        );
+      }
+    }
+
+    const ids = [...new Set([...boughtIds, addOn.id])].filter((x) => !removed.includes(x));
     await post(`subscriptions/${encodeURIComponent(subscriptionId)}`, new URLSearchParams({
       'metadata[bp_tier_id]': String(grant.tierId),
       'metadata[bp_audience]': audience,
@@ -11980,11 +12076,26 @@ app.post('/make-server-3eae23a6/plan-add-on', async (c) => {
       ...grant, addOnIds: ids, updatedAt: new Date().toISOString(),
     });
 
-    console.log(`[Subscriptions] ${email} added ${addOn.id} to ${subscriptionId} (${mode})`);
+    console.log(
+      `[Subscriptions] ${email} added ${addOn.id} to ${subscriptionId} (${mode})`
+      + (removed.length ? `, replacing ${removed.join(', ')}` : ''),
+    );
     return c.json({
       success: true,
       addOnIds: ids,
       addOn: publicAddOn(addOn, mode),
+      // What this replaced, and whether Stripe actually let go of it. A rung
+      // that could not be cancelled is a double charge, so it is said rather
+      // than left for the statement to reveal.
+      replaced: removed.map((id) => {
+        const rung = catalogue.find((a: any) => String(a?.id) === id);
+        return { id, name: String(rung?.name || id) };
+      }),
+      replacedMessage: supersedesMessage(
+        addOn,
+        removed.map((id) => catalogue.find((a: any) => String(a?.id) === id)).filter(Boolean) as any,
+      ),
+      couldNotRemove: replaced.filter((id) => !removed.includes(id)),
       // Said plainly, because nothing was charged in this moment and somebody
       // watching their card would otherwise wonder.
       band: charge.band ? { id: charge.band.id, label: charge.band.label || null } : null,

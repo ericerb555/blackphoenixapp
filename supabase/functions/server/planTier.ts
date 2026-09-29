@@ -290,6 +290,27 @@ export interface PlanAddOn extends Sellable {
    * discount the customer grants themselves.
    */
   sizeBands?: SizeBand[];
+  /**
+   * Add-ons that are ALTERNATIVES rather than separate extras.
+   *
+   * Solo, Studio and Agency are rungs of one ladder: buying one must replace
+   * the other, not stack on it. Without a group `addOnIds` is a flat list and
+   * an account could hold all three, billed three times for one product.
+   *
+   * Absent means a standalone extra, which is every add-on in production
+   * today — so grouping changes nothing until a ladder is authored.
+   */
+  group?: string;
+  /**
+   * Which way is up within the group. Higher is the better rung.
+   *
+   * Stated rather than inferred from price: an annual rung can cost more than
+   * a dearer monthly one, a promotion can undercut the rung below, and a price
+   * being edited in Stripe is momentarily whatever it is mid-edit. Inferring
+   * it would let the ladder silently reorder when somebody changes a number —
+   * and what it reorders is which of a customer's lines gets cancelled.
+   */
+  groupRank?: number;
   sortOrder?: number;
 }
 
@@ -807,6 +828,35 @@ export function paysForAddOn(
  * can ring us tonight. Callers that display this should say when it was a
  * floor rather than a measurement.
  */
+
+/**
+ * Every Stripe price this add-on could be billed at, in one mode.
+ *
+ * More than one, because a size-banded add-on carries a price per band and the
+ * account is on whichever band its unit count put it in. When a subscription
+ * line has to be found and ended, the id of the line is not recorded anywhere
+ * — the grant stores add-on ids, not Stripe item ids — so it is matched by
+ * price, and every price the add-on might be sitting on has to be considered.
+ *
+ * Strictly one mode. Returning the live price alongside the test one would let
+ * a rehearsal match, and delete, a real billing line.
+ */
+export function priceIdOfAddOn(
+  addOn: Partial<PlanAddOn> | null | undefined,
+  mode: StripeMode = 'live',
+): string[] {
+  const field = mode === 'test' ? 'stripePriceIdTest' : 'stripePriceId';
+  const out = new Set<string>();
+
+  const own = String((addOn as any)?.[field] || '').trim();
+  if (own) out.add(own);
+
+  for (const band of (addOn?.sizeBands || [])) {
+    const banded = String((band as any)?.[field] || '').trim();
+    if (banded) out.add(banded);
+  }
+  return [...out];
+}
 export function addOnQuantity(
   addOn: Partial<PlanAddOn> | null | undefined,
   unitsCovered = 0,

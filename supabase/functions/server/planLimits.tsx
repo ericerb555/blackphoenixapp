@@ -24,6 +24,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { resolveEntitlement, withinLimit, heldAddOnIds, type PlanTier } from "./planTier.ts";
 import { effectiveLimits } from "./effectiveLimits.ts";
+import { applicableAddOns } from "./addOnGroups.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",
@@ -103,7 +104,7 @@ export async function checkPlanLimit(opts: {
   let addOns: Array<{ limits?: Record<string, number> }> = [];
   if (held.length) {
     const catalogue = ((await kv.getByPrefix(`plan_addon:${grant.portalType}:`)) as any[]) || [];
-    addOns = catalogue.filter((a: any) => a && held.includes(String(a.id || '')));
+    addOns = applicableAddOns(catalogue.filter((a: any) => a && held.includes(String(a.id || ''))));
   }
   const tier: PlanTier = { ...stored, limits: effectiveLimits(stored.limits, addOns) };
 

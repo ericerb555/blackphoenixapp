@@ -21,7 +21,7 @@ import {
   addOnsForTier, publicAddOn, monthlyFigure, type PlanAddOn,
   selectableAddOns, holdsAddOn, paysForAddOn, heldAddOnIds, ON_CALL_ADD_ON_ID,
   addOnQuantity, addOnMonthlyCents, bandForUnits, addOnCharge,
-  tierViewOfCohort, cohortTotalCents, pricedViewFor,
+  tierViewOfCohort, cohortTotalCents, pricedViewFor, priceIdOfAddOn,
   ON_CALL_ANSWERED_ADD_ON_ID, holdsOnCallFeature,
   type PlanTier,
 } from '../supabase/functions/server/planTier.ts';
@@ -1175,4 +1175,68 @@ test('THE COHORT VIEW AGREES WITH THE TIER ON EVERY COMBINATION', () => {
       }
     }
   }
+});
+
+// ── Finding the Stripe line behind an add-on ──────────────────────────────
+
+/**
+ * A subscription line is matched by PRICE when a ladder rung has to be ended,
+ * because the grant records add-on ids and never Stripe item ids. That makes
+ * these the input to a DELETE against live billing, so the mode separation is
+ * the assertion that matters: a rehearsal must never be able to match, and
+ * therefore cancel, a real line.
+ */
+const bandedAddOn: Partial<PlanAddOn> = {
+  id: 'on-call',
+  stripePriceId: 'price_live_flat',
+  stripePriceIdTest: 'price_test_flat',
+  sizeBands: [
+    { id: 'small', stripePriceId: 'price_live_small', stripePriceIdTest: 'price_test_small' },
+    { id: 'large', stripePriceId: 'price_live_large', stripePriceIdTest: 'price_test_large' },
+  ] as any,
+};
+
+test('A TEST-MODE LOOKUP NEVER RETURNS A LIVE PRICE', () => {
+  const test = priceIdOfAddOn(bandedAddOn, 'test');
+  assert.deepEqual(test.sort(), ['price_test_flat', 'price_test_large', 'price_test_small']);
+  assert.equal(test.some((p) => p.includes('live')), false, 'a rehearsal must not reach a real line');
+});
+
+test('a live lookup returns only live prices', () => {
+  const live = priceIdOfAddOn(bandedAddOn, 'live');
+  assert.deepEqual(live.sort(), ['price_live_flat', 'price_live_large', 'price_live_small']);
+  assert.equal(live.some((p) => p.includes('test')), false);
+});
+
+test('every band is included, because the account sits on one of them', () => {
+  assert.equal(priceIdOfAddOn(bandedAddOn, 'live').length, 3);
+});
+
+test('a flat add-on yields its single price', () => {
+  assert.deepEqual(priceIdOfAddOn({ id: 'x', stripePriceId: 'price_1' }, 'live'), ['price_1']);
+});
+
+test('live is the default, so a forgotten argument cannot silently mean test', () => {
+  assert.deepEqual(priceIdOfAddOn({ id: 'x', stripePriceId: 'price_1', stripePriceIdTest: 'price_t' }),
+    ['price_1']);
+});
+
+/**
+ * An empty list means "match nothing", which makes the removal a no-op. That
+ * is the right failure: an add-on with no price in this mode has no line here
+ * to end, and guessing one would end somebody else's.
+ */
+test('an add-on with no price in this mode matches nothing', () => {
+  assert.deepEqual(priceIdOfAddOn({ id: 'x', stripePriceId: 'price_1' }, 'test'), []);
+  assert.deepEqual(priceIdOfAddOn(null, 'live'), []);
+  assert.deepEqual(priceIdOfAddOn({ id: 'x' }, 'live'), []);
+});
+
+test('duplicate prices across bands collapse to one', () => {
+  const shared: Partial<PlanAddOn> = {
+    id: 'x',
+    stripePriceId: 'price_1',
+    sizeBands: [{ id: 'a', stripePriceId: 'price_1' }, { id: 'b', stripePriceId: 'price_1' }] as any,
+  };
+  assert.deepEqual(priceIdOfAddOn(shared, 'live'), ['price_1']);
 });

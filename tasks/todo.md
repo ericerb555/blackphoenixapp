@@ -1,4 +1,41 @@
 # PLAN — one money spine: everything through cohorts
+      Done. `group` says two add-ons are alternatives; `groupRank` says which
+      way is up — **stated, not inferred from price**, because an annual rung
+      can cost more than a dearer monthly one and a price being edited in
+      Stripe is momentarily whatever it is mid-edit. Inferring it would let the
+      ladder reorder itself when somebody changes a number, and what it
+      reorders is which of a customer's lines gets cancelled.
+
+      Buying a rung ends the others, **after** the add rather than before: if
+      the add failed after a removal the account would hold nothing and pay for
+      nothing, whereas briefly holding both is visible, reversible and credited
+      on the next invoice. Prorated, so the unused part comes back.
+
+      **The guard that matters:** the grant records add-on ids and never Stripe
+      item ids, so a line is found by matching its price. The tier's own price
+      ids are excluded explicitly — deleting line item zero would cancel the
+      plan itself, and it would look like a successful upgrade right up until
+      the customer lost their portal. `priceIdOfAddOn` is also strictly
+      single-mode, so a rehearsal cannot match and delete a real billing line.
+
+      A removal that fails is **not** silently swallowed: the new rung is
+      already live, so the account is double-charged until somebody acts. It is
+      logged loudly and returned as `couldNotRemove`.
+
+      `applicableAddOns` collapses a ladder to its highest rung before limits
+      are summed, in both enforcers — otherwise an account holding two rungs
+      would have both allowances added together, handing out capacity nobody
+      sold.
+
+      Inert until a ladder is authored: every add-on in production has no
+      group, and 18 tests pin that an ungrouped add-on replaces nothing.
+
+- [ ] Y3a. **Not yet exercised against Stripe.** The removal path has never
+      run — there is no ladder in the catalogue to trigger it, and the one
+      paying account holds no add-ons. Before any content rung goes live it
+      should be rehearsed end to end in test mode: buy Solo, upgrade to Studio,
+      and confirm in the Stripe dashboard that exactly one line ended, that the
+      tier's line is untouched, and that the proration credit appears.
 
 Eric: *"yes plan the consolidation everything must go through cohort managment
 system advanced plans"*.
@@ -11624,7 +11661,7 @@ catalogue.
       reading the tier directly, so holding the content add-on actually raises
       the AI-call, render and reel ceilings above the free backstop (300 calls,
       10 renders).
-- [ ] Y3. A `group` on `PlanAddOn`, and mutual exclusion within it. Buying
+- [x] Y3. A `group` on `PlanAddOn`, and mutual exclusion within it. Buying
       `content-studio` while holding `content-solo` must replace rather than
       stack. Needs a removal path: drop the Stripe subscription item for the
       one being left, then rewrite `addOnIds`. **Touches live billing — the

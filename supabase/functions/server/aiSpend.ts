@@ -35,6 +35,7 @@ import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import { resolveEntitlement, heldAddOnIds, type PlanTier } from "./planTier.ts";
 import { pickCeiling, TIER_LIMIT_KEY, type SpendBucket } from "./aiCeiling.ts";
 import { effectiveLimit } from "./effectiveLimits.ts";
+import { applicableAddOns } from "./addOnGroups.ts";
 
 /**
  * What is being spent. Each bucket has its own counter and its own ceiling.
@@ -125,7 +126,7 @@ export async function ceilingFor(
     let addOns: Array<{ limits?: Record<string, number> }> = [];
     if (held.length) {
       const catalogue = (await kv.getByPrefix(`plan_addon:${grant.portalType}:`)) as any[] || [];
-      addOns = catalogue.filter((a: any) => a && held.includes(String(a.id || '')));
+      addOns = applicableAddOns(catalogue.filter((a: any) => a && held.includes(String(a.id || ''))));
     }
 
     const merged = effectiveLimit(tier?.limits, addOns, TIER_LIMIT_KEY[bucket]);
