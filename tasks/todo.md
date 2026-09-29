@@ -11693,6 +11693,33 @@ catalogue.
 
       Nothing seeded is sellable: `active: false` and no Stripe price, matching
       how the tiers were authored. Prices and the Active box are Y6.
+
+#### The seed was run, 28 Sep
+
+Dry run first, computed against the real catalogue: **18 to write, 0 unchanged,
+0 skipped, no collision** with the six existing `on-call` records (different
+ids, so nothing to clash with).
+
+Then applied. Verified after:
+
+| | |
+|---|---|
+| content add-ons written | **18** |
+| on-call records touched | 0 (still 6) |
+| plan tiers touched | 0 (still 6) |
+| feature grants touched | 0 (still 8) |
+| table rows | 679 → **697**, exactly +18 |
+
+**Run as SQL, not through the route.** The edge function carrying
+`/plan-addons/seed-content` is not deployed, and deploying it would have pushed
+every server change from this session live at once — a far larger blast radius
+than eighteen inert rows. The SQL was generated from `contentAddOn()` rather
+than hand-written, so the records are what the code produces, and it used
+`on conflict (key) do nothing` so it could not overwrite anything whatever the
+dry run had said.
+
+Reversible by deleting the eighteen `plan_addon:%:content-%` keys. Nothing is
+buyable as a result: every record is `active: false` with no Stripe price.
       **Which audiences may buy it is still Eric's to say** — vendor and
       customer at least; the on-call precedent is landlord, property_manager
       and condo_association.
