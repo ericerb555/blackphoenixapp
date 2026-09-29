@@ -11747,3 +11747,54 @@ is **not gated by anything**. What the tiers actually sell is metered capacity
 screen. That is a coherent product, but if the intent was that non-subscribers
 should not reach the content centre at all, that gate does not exist and is
 not in this plan.
+
+## Deployed — make-server-3eae23a6, version 583
+
+Eric asked for it on 28 Sep. Everything below had been written, tested and
+committed but was running nowhere: the previous deploy was **version 582 at
+22:12Z**, which captured HEAD at `5c9b05e5` (the Tier 3 socials work). Every
+commit after that — the whole cohort spine, the derived MRR, the limits merge,
+the add-on ladder — was repo-only until now.
+
+### What went live
+
+- The cohort consolidation: U3 tier migration, V1–V3 derived membership and
+  pricing, W3's repointed MRR.
+- `effectiveLimits` and both enforcers reading it.
+- The add-on ladder: `group`, `groupRank`, supersede-on-purchase.
+- `/plan-addons/seed-content` and the four closed cohort write holes.
+- The staff-exemption fix (four company-side roles that were being metered).
+
+### How, and what was checked
+
+`supabase functions deploy make-server-3eae23a6 --project-ref …` — named
+explicitly, so only that one function was touched. The other seven are still
+on their previous versions.
+
+`supabase/config.toml` already maps the slug to `./functions/server/index.tsx`
+and states `verify_jwt = true` so a deploy cannot silently change it. Both
+survived: the deployed entrypoint and import map are unchanged.
+
+Verified after:
+
+| | |
+|---|---|
+| version | 582 → **583** |
+| `verify_jwt` | still `true` |
+| `/health` | **200** |
+| `/cohorts` with the anon key | **401** — the staff gate holds |
+| worker boots in the 15 min after | 8, 104–179 ms, **zero errors** |
+| other functions changed | none |
+
+### Worth knowing
+
+**This deployed the other session's work too.** The repository is shared and
+its commits are interleaved with mine — the employee-rates and payroll work
+around 17:22–18:45. The tree was clean, so HEAD was the shared truth and there
+was no way to deploy one session's changes without the other's. Typecheck and
+the full suite were green across the whole tree first.
+
+**Rollback** is a redeploy from an earlier commit — Supabase keeps no
+one-click revert for a function. `git checkout 5c9b05e5 -- supabase/functions/server`
+then deploy would restore what was running before, but it would also undo the
+other session's work, so read the interleaving above first.
