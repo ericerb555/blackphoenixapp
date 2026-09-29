@@ -218,6 +218,29 @@ export interface Job {
   trade?: string;
   /** How long it takes. From measured hours where the loop has learned them. */
   hours?: number;
+  /**
+   * A technician the customer asked for by name, or one a quote was written
+   * around. Eric: "there is no standard but if a customer request or quotes out
+   * a particular tech then we add it."
+   *
+   * This is a PROMISE, not a preference. When it is set, nobody else is a
+   * candidate — not the next best person, not somebody equally qualified who
+   * happens to be free. If they cannot do it, the answer is to say so, because
+   * quietly sending a stranger is breaking a promise without telling anybody
+   * and the customer discovers it when the van arrives.
+   */
+  requestedTechId?: string;
+}
+
+/**
+ * Was a particular technician promised for this job?
+ *
+ * Its own function because two places have to agree about it: the scheduler,
+ * which must not offer anybody else, and the call-out handler, which must not
+ * reassign it automatically.
+ */
+export function hasRequestedTech(job: Job | null | undefined): boolean {
+  return Boolean(String(job?.requestedTechId || '').trim());
 }
 
 export interface Candidate {
@@ -269,9 +292,23 @@ export function candidatesFor(
   const needed = Number(job?.hours) > 0 ? Number(job.hours) : 0;
   const out: Candidate[] = [];
 
-  for (const tech of techs || []) {
+  /**
+   * A promised technician narrows the field to one person, or to nobody.
+   *
+   * Deliberately BEFORE the trade check: if the customer asked for Dave, Dave
+   * is the answer whether or not our records say he holds the trade. Our
+   * paperwork is not a reason to send somebody the customer did not ask for.
+   */
+  const promised = String(job?.requestedTechId || '').trim();
+  const pool = promised
+    ? (techs || []).filter((t) => String(t?.id) === promised)
+    : (techs || []);
+
+  for (const tech of pool) {
     if (!tech?.id) continue;
-    const { eligible, unverified } = tradeMatch(tech, job);
+    const { eligible, unverified } = promised
+      ? { eligible: true, unverified: false }
+      : tradeMatch(tech, job);
     if (!eligible) continue;
 
     const avail = availabilityOn(tech, date, unavailability, bookings);
@@ -313,4 +350,23 @@ export function mayAutoAssign(candidates: Candidate[]): boolean {
   if (candidates.length !== 1) return false;
   const only = candidates[0];
   return !only.unverifiedTrade && !only.assumedPattern;
+}
+
+/**
+ * May this job be moved to somebody else without asking?
+ *
+ * Eric asked for automatic reassignment when a technician calls out, because
+ * the morning of a call-out is when an assistant earns its place. This is the
+ * one exception: a job where a particular technician was PROMISED.
+ *
+ * Reassigning that automatically substitutes a stranger at the precise moment
+ * nobody is watching. It has to reach a human who can ring the customer and
+ * offer them the choice — a later date with the person they asked for, or
+ * somebody else today.
+ *
+ * So "auto-reassign where possible" means where nobody was promised.
+ */
+export function mayAutoReassign(job: Job | null | undefined, candidates: Candidate[]): boolean {
+  if (hasRequestedTech(job)) return false;
+  return mayAutoAssign(candidates);
 }

@@ -15,6 +15,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   dayOfWeek, blocksDay, availabilityOn, candidatesFor, mayAutoAssign,
+  hasRequestedTech, mayAutoReassign,
   DEFAULT_WORKING_DAYS, DEFAULT_WORKING_HOURS,
 } from '../supabase/functions/server/availability.ts';
 
@@ -226,4 +227,62 @@ test('one candidate with an unverified trade still asks', () => {
   const list = candidatesFor([tech({ trades: [] })], TUE, { trade: 'flooring' }, [], []);
   assert.equal(list.length, 1);
   assert.ok(!mayAutoAssign(list));
+});
+
+/* ── a requested tech is a promise ───────────────────────────────────────── */
+
+/**
+ * Eric: "there is no standard but if a customer request or quotes out a
+ * particular tech then we add it."
+ *
+ * So no level gate — a job never refuses somebody for being too junior. But a
+ * NAMED technician narrows the field to that person or to nobody, and the
+ * failure being pinned here is the silent substitution: sending whoever is free
+ * to a customer who asked for Dave, and letting them find out when the van
+ * arrives.
+ */
+test('a named tech is the only candidate', () => {
+  const dave = tech({ id: 'DAVE' });
+  const sam = tech({ id: 'SAM' });
+  const list = candidatesFor([dave, sam], TUE, { requestedTechId: 'DAVE' }, [], []);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].tech.id, 'DAVE');
+});
+
+test('a named tech who cannot work returns NOBODY, not a substitute', () => {
+  const dave = tech({ id: 'DAVE' });
+  const sam = tech({ id: 'SAM' });
+  const off = [{ employeeId: 'DAVE', from: TUE, kind: 'time_off' as const, status: 'approved' as const }];
+  const list = candidatesFor([dave, sam], TUE, { requestedTechId: 'DAVE' }, off, []);
+  assert.equal(list.length, 0,
+    'Sam is free and qualified, and offering him is breaking a promise quietly');
+});
+
+test('a named tech is offered even when our records do not show the trade', () => {
+  const dave = tech({ id: 'DAVE', trades: ['roofing'] });
+  const list = candidatesFor([dave], TUE, { requestedTechId: 'DAVE', trade: 'flooring' }, [], []);
+  assert.equal(list.length, 1,
+    'our paperwork is not a reason to send somebody the customer did not ask for');
+});
+
+test('hasRequestedTech reads a blank as no promise', () => {
+  assert.ok(hasRequestedTech({ requestedTechId: 'DAVE' }));
+  assert.ok(!hasRequestedTech({ requestedTechId: '  ' }));
+  assert.ok(!hasRequestedTech({}));
+  assert.ok(!hasRequestedTech(null));
+});
+
+/* ── which qualifies the call-out rule ───────────────────────────────────── */
+
+test('a job with no promised tech may be auto-reassigned', () => {
+  const list = candidatesFor([tech()], TUE, { trade: 'flooring', hours: 4 }, [], []);
+  assert.ok(mayAutoReassign({ trade: 'flooring' }, list));
+});
+
+test('a job with a PROMISED tech is never auto-reassigned', () => {
+  const sam = tech({ id: 'SAM' });
+  const list = candidatesFor([sam], TUE, { trade: 'flooring', hours: 4 }, [], []);
+  assert.ok(mayAutoAssign(list), 'Sam alone would otherwise be an automatic answer');
+  assert.ok(!mayAutoReassign({ trade: 'flooring', requestedTechId: 'DAVE' }, list),
+    'substituting a stranger at the moment nobody is watching is the one thing not to automate');
 });
