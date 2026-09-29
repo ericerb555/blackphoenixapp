@@ -244,13 +244,57 @@ cohorts and they are not this task, but they are worth naming:
       shape, all local, all inventing subscriber counts.
 ### W — every money surface reads the spine
 
-- [ ] W1. Stripe checkout and the webhook write cohort membership.
-- [ ] W2. `/my-plan` resolves the cohort, so the add-on panel built earlier
+- [x] W1. Stripe checkout and the webhook write cohort membership.
+      **Already true, and nothing had to change — which is the payoff of V1.**
+      The subscription webhook is not in `server/`; it is its own edge function
+      at `supabase/functions/stripe-webhooks/index.ts`, and it already writes
+      `tierId`, `stripeSubscriptionId` and `lastSubscriptionStatus` onto the
+      grant on checkout, renewal and cancellation. Because the cohort is
+      *derived* from `tierId` rather than stored, that is the whole membership
+      record. Had V1 gone the way the plan first described, this webhook would
+      have needed editing in three separate branches.
+
+- [x] W2. `/my-plan` resolves the cohort, so the add-on panel built earlier
       shows the cohort's figure.
-- [ ] W3. **MRR is repointed at cohort memberships** and the `subscription:`
-      prefix is retired. This fixes the wrong number described above.
+      Done in V3 via `pricedViewFor`, which falls back to the tier when no
+      cohort exists — which is the case today.
+
+- [x] W3. **MRR is repointed at cohort memberships.**
+      `GET /territory/subscriptions` reported `summary.mrr` as the sum of
+      `amount` across every `subscription:` record marked active. Those are
+      written by `/subscriptions/checkout`, which runs Stripe in
+      `mode: 'payment'` — **it bills once.** Nothing renews them and nothing
+      ever closes them, so every one-off sale ever made was counted as monthly
+      income in perpetuity: a figure that could only climb, that no
+      cancellation or refund could reduce. It now comes from
+      `monthlyRecurringCents()`, scoped to the territory's own roster, counting
+      only memberships Stripe will actually bill again. The `subscription:`
+      records are still listed as the sales they are — only the MRR line moved.
+
 - [ ] W4. The dead Postgres `plans` and `subscriptions` tables are dropped —
       zero rows and no code touches either.
+      **Written but deliberately NOT applied.** The migration is at
+      `supabase/migrations/20260928140000_drop_dead_plan_tables.sql.pending`.
+      Confirmed from the code side: nothing in the repository references either
+      table and no migration here creates them, so they were made in the
+      dashboard and their contents are described nowhere in version control.
+      That is exactly why "zero rows" needs checking against the database
+      rather than believed. The migration refuses to drop a table holding any
+      rows, but that guard is a safety net, not a substitute for checking,
+      backing up, and running it against a non-production project first.
+      **Needs Eric's go-ahead; a dropped table does not come back.**
+
+- [ ] W5. **A past-due account leaves its cohort entirely.** Noticed while
+      checking W1. On `customer.subscription.updated` with a non-live status
+      the webhook sets `tierId: undefined`, so the grant no longer names a
+      cohort and the account vanishes from the member count — even though it
+      is still being served through the fifteen-day grace period. The
+      `past_due` branch in `membershipFromGrant` is correct and tested but
+      cannot be reached from real data today. Fixing it means keeping `tierId`
+      while clearing access some other way, which changes what
+      `resolveEntitlement` sees and therefore who keeps access during the
+      grace period. That is a real decision about a live policy, not a
+      tidy-up, so it is recorded rather than made.
 
 ### X — prove it
 

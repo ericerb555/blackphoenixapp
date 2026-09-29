@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cohortIdForTier, membershipFromGrant, membershipsFromGrants,
+  cohortIdForTier, membershipFromGrant, membershipsFromGrants, monthlyRecurringCents,
 } from '../supabase/functions/server/cohortMembership.ts';
 import { cohortFromTier, monthlyRevenueOf } from '../supabase/functions/server/cohortPricing.ts';
 
@@ -194,4 +194,98 @@ test('REVENUE COUNTS THE PAYING ACCOUNT AND NOTHING ELSE', () => {
 
   assert.equal(memberships.length, 4, 'all four belong to the cohort');
   assert.equal(monthlyRevenueOf(cohort, memberships), 149, 'only one of them is money');
+});
+
+// ── Monthly recurring revenue ─────────────────────────────────────────────
+
+/**
+ * The figure this replaces was wrong in a way that could only grow.
+ *
+ * The territory screen summed `amount` across every `subscription:` record
+ * marked active. Those are written by `/subscriptions/checkout`, which runs
+ * Stripe in `mode: 'payment'` — it bills ONCE, and nothing renews or closes
+ * the record. So every one-off sale ever made counted as recurring revenue
+ * forever: the number could never come down, and a territory owner was told
+ * their monthly income included a sale made once, a year ago.
+ */
+const cohorts: Record<string, { basePrice: number }> = {
+  'cohort-tier-studio': { basePrice: 149 },
+  'cohort-tier-agency': { basePrice: 499 },
+};
+const lookup = (id: string) => cohorts[id] ?? null;
+
+test('MRR sums only the paying memberships', () => {
+  const total = monthlyRecurringCents([
+    paying({ email: 'a@x.com' }),
+    paying({ email: 'b@x.com', tierId: 'agency' }),
+  ], lookup);
+  assert.equal(total, 64800, '$149 + $499');
+});
+
+test('A ONE-OFF SALE IS NOT RECURRING REVENUE', () => {
+  // A grant with no subscription behind it — what a `mode: 'payment'` sale
+  // leaves. It must contribute nothing.
+  const total = monthlyRecurringCents([
+    paying({ email: 'a@x.com' }),
+    { email: 'oneoff@x.com', status: 'active', tierId: 'agency' },
+  ], lookup);
+  assert.equal(total, 14900, 'only the real subscription counts');
+});
+
+test('trials, arrears and cancellations contribute nothing', () => {
+  const total = monthlyRecurringCents([
+    paying({ email: 'pays@x.com' }),
+    paying({ email: 'trial@x.com', lastSubscriptionStatus: 'trialing' }),
+    paying({ email: 'behind@x.com', lastSubscriptionStatus: 'past_due' }),
+    paying({ email: 'gone@x.com', lastSubscriptionStatus: 'canceled' }),
+    paying({ email: 'revoked@x.com', status: 'revoked' }),
+  ], lookup);
+  assert.equal(total, 14900);
+});
+
+test('seats multiply the figure', () => {
+  assert.equal(monthlyRecurringCents([paying({ seats: 4 })], lookup), 59600);
+});
+
+/**
+ * A territory owner must see their own roster and nobody else's. Getting this
+ * wrong would show one owner the whole platform's income.
+ */
+test('SCOPED TO THE GIVEN ACCOUNTS, AND NOBODY ELSE', () => {
+  const grants = [
+    paying({ email: 'mine@x.com' }),
+    paying({ email: 'theirs@x.com', tierId: 'agency' }),
+  ];
+  assert.equal(monthlyRecurringCents(grants, lookup, { emails: new Set(['mine@x.com']) }), 14900);
+  assert.equal(monthlyRecurringCents(grants, lookup, { emails: new Set() }), 0, 'an empty roster earns nothing');
+  assert.equal(monthlyRecurringCents(grants, lookup), 64800, 'no set means the whole platform');
+});
+
+test('the email match is case-insensitive', () => {
+  const total = monthlyRecurringCents(
+    [paying({ email: 'Mixed@Example.COM' })],
+    lookup,
+    { emails: new Set(['mixed@example.com']) },
+  );
+  assert.equal(total, 14900);
+});
+
+/**
+ * A membership pointing at a cohort that does not exist must contribute
+ * nothing rather than throw or guess a price.
+ */
+test('a missing or priceless cohort contributes nothing', () => {
+  assert.equal(monthlyRecurringCents([paying({ tierId: 'ghost' })], lookup), 0);
+  assert.equal(monthlyRecurringCents([paying()], () => ({ basePrice: 0 })), 0);
+  assert.equal(monthlyRecurringCents([paying()], () => null), 0);
+  assert.equal(monthlyRecurringCents([paying()], () => ({ basePrice: NaN })), 0);
+});
+
+test('an empty or broken grant list is zero, not a crash', () => {
+  assert.equal(monthlyRecurringCents([], lookup), 0);
+  assert.equal(monthlyRecurringCents([null, undefined], lookup), 0);
+});
+
+test('an odd price converts to whole cents without drift', () => {
+  assert.equal(monthlyRecurringCents([paying()], () => ({ basePrice: 33.33 })), 3333);
 });

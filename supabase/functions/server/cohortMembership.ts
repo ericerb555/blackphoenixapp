@@ -154,3 +154,57 @@ export const membershipsFromGrants = (
   (grants || [])
     .map((g) => membershipFromGrant(g, now))
     .filter((m) => m.cohortId !== null);
+
+/**
+ * Monthly recurring revenue for a named set of accounts.
+ *
+ * WHAT THIS REPLACES, AND WHY THE OLD FIGURE WAS WRONG
+ *
+ * The territory screen summed `amount` across every `subscription:` record
+ * whose status read `active`. Those records are written by
+ * `/subscriptions/checkout`, which runs Stripe in `mode: 'payment'` — it bills
+ * ONCE. The `renewalDate` and `autoRenew: true` they carry are acted on by
+ * nothing; nothing renews them and nothing ever marks them finished.
+ *
+ * So every one-off sale ever made was being counted as recurring revenue, in
+ * perpetuity. The figure could only climb, and no cancellation, refund or
+ * lapse could bring it down. A territory owner reading it was told their
+ * monthly income included sales made once, a year ago.
+ *
+ * Recurring revenue means a subscription Stripe will bill again. That is what
+ * a cohort membership is, which is why this counts those instead.
+ *
+ * Only `active` counts. A trial, an account in arrears and a cancelled
+ * subscription are all excluded, for the reasons set out on
+ * `membershipFromGrant` — none of them is money arriving next month.
+ */
+export function monthlyRecurringCents(
+  grants: Array<Record<string, any> | null | undefined>,
+  cohortById: (id: string) => { basePrice?: number } | null | undefined,
+  options: { emails?: Set<string> | null; now?: Date } = {},
+): number {
+  const { emails = null, now = new Date() } = options;
+
+  let total = 0;
+  for (const grant of grants || []) {
+    if (!grant) continue;
+
+    // Scoped by account when a set is given — a territory owner sees their own
+    // roster and nobody else's. No set means the whole platform.
+    if (emails) {
+      const email = String(grant.email ?? '').toLowerCase();
+      if (!email || !emails.has(email)) continue;
+    }
+
+    const membership = membershipFromGrant(grant, now);
+    if (membership.status !== 'active' || !membership.cohortId) continue;
+
+    const cohort = cohortById(membership.cohortId);
+    if (!cohort) continue;
+
+    const price = Number(cohort.basePrice ?? 0);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    total += Math.round(price * 100) * membership.seats;
+  }
+  return total;
+}

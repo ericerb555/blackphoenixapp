@@ -229,7 +229,7 @@ import {
   heldAddOnIds, holdsAddOn, paysForAddOn, ON_CALL_ADD_ON_ID, publicAddOn, addOnCharge,
   addOnsForTier, monthlyFigure, pricedViewFor,
 } from "./planTier.ts";
-import { cohortIdForTier } from "./cohortMembership.ts";
+import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
 import { hourlyCostRate } from "./employeeRates.ts";
@@ -18114,9 +18114,37 @@ app.get('/make-server-3eae23a6/territory/subscriptions', async (c) => {
     const workspace = (await kv.get(territoryWorkspaceKey(actor.user.id)) as any) || { customers: [] };
     const customerEmails = new Set((workspace.customers || []).map((customer: any) => String(customer.email || '').toLowerCase()).filter(Boolean));
     if (!customerEmails.size) return c.json({ success: true, subscriptions: [], summary: { active: 0, paused: 0, mrr: 0, hoursRemaining: 0, invoicesDue: 0, paymentsReceived: 0 } });
-    const [allSubscriptions, allInvoices, allPayments] = await Promise.all([
+    const [allSubscriptions, allInvoices, allPayments, allGrants, allCohorts] = await Promise.all([
       kv.getByPrefix('subscription:'), kv.getByPrefix('invoice:'), kv.getByPrefix('payment:'),
+      kv.getByPrefix('feature_grant:'), kv.getByPrefix('cohort_'),
     ]);
+
+    /**
+     * MONTHLY RECURRING REVENUE, FROM SUBSCRIPTIONS THAT ACTUALLY RECUR.
+     *
+     * This used to be `active.reduce(sum + record.amount)` over the
+     * `subscription:` records below. Those are written by
+     * `/subscriptions/checkout`, which runs Stripe in `mode: 'payment'` — it
+     * bills ONCE. Nothing renews them and nothing ever closes them, so the
+     * `renewalDate` and `autoRenew: true` they carry are decoration.
+     *
+     * The effect was a figure that could only climb: every one-off sale ever
+     * made counted as monthly income in perpetuity, and no cancellation,
+     * refund or lapse could bring it down. A territory owner was being told
+     * their monthly revenue included a sale made once, a year ago.
+     *
+     * Recurring means Stripe will bill it again, which is what a cohort
+     * membership is. The `subscription:` records are still listed below as
+     * the sales they are — only the MRR line moves.
+     */
+    const cohortIndex = new Map(
+      ((allCohorts || []) as any[]).filter(Boolean).map((x: any) => [String(x?.id ?? ''), x]),
+    );
+    const mrr = monthlyRecurringCents(
+      (allGrants || []) as any[],
+      (id) => cohortIndex.get(id) ?? null,
+      { emails: customerEmails as Set<string> },
+    ) / 100;
     const subscriptions = ((allSubscriptions || []) as any[]).filter((subscription: any) => customerEmails.has(String(subscription.stakeholderEmail || subscription.customerEmail || '').toLowerCase()));
     const subscriptionIds = new Set(subscriptions.map((subscription: any) => String(subscription.id)));
     const invoices = ((allInvoices || []) as any[]).filter((invoice: any) => subscriptionIds.has(String(invoice.subscriptionId || '')) || customerEmails.has(String(invoice.customerEmail || invoice.clientEmail || invoice.email || '').toLowerCase()));
@@ -18128,7 +18156,7 @@ app.get('/make-server-3eae23a6/territory/subscriptions', async (c) => {
     const paused = records.filter((record: any) => !['active', 'past_due'].includes(String(record.status).toLowerCase()));
     const paymentsReceived = payments.filter((payment: any) => ['paid', 'succeeded', 'complete', 'completed'].includes(String(payment.status || '').toLowerCase())).reduce((total: number, payment: any) => total + Number(payment.amount || payment.amountPaid || 0), 0);
     const invoicesDue = invoices.filter((invoice: any) => !['paid', 'void', 'cancelled'].includes(String(invoice.status || '').toLowerCase())).reduce((total: number, invoice: any) => total + Number(invoice.balance_due ?? invoice.total_amount ?? invoice.total ?? 0), 0);
-    return c.json({ success: true, subscriptions: records.map(stripBase64), summary: { active: active.length, paused: paused.length, mrr: active.reduce((total: number, record: any) => total + Number(record.amount || 0), 0), hoursRemaining: active.reduce((total: number, record: any) => total + Number(record.balance?.remaining || 0), 0), invoicesDue, paymentsReceived } });
+    return c.json({ success: true, subscriptions: records.map(stripBase64), summary: { active: active.length, paused: paused.length, mrr, hoursRemaining: active.reduce((total: number, record: any) => total + Number(record.balance?.remaining || 0), 0), invoicesDue, paymentsReceived } });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load territory subscriptions.' }, 500); }
 });
 
