@@ -22,7 +22,8 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { resolveEntitlement, withinLimit, type PlanTier } from "./planTier.ts";
+import { resolveEntitlement, withinLimit, heldAddOnIds, type PlanTier } from "./planTier.ts";
+import { effectiveLimits } from "./effectiveLimits.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",
@@ -82,16 +83,35 @@ export async function checkPlanLimit(opts: {
     return ALLOW(used, `no paid tier resolved (source: ${entitlement.source})`);
   }
 
-  const tier = (await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`)) as PlanTier | null;
-  if (!tier) return ALLOW(used, `tier ${grant.portalType}/${grant.tierId} no longer exists`);
+  const stored = (await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`)) as PlanTier | null;
+  if (!stored) return ALLOW(used, `tier ${grant.portalType}/${grant.tierId} no longer exists`);
+
+  /**
+   * The tier's ceilings raised by whatever add-ons this account is paying for.
+   *
+   * `PlanAddOn.limits` was documented as merging over the tier's and nothing
+   * read it, so an add-on sold on capacity granted none. The merge knows that
+   * zero means unlimited, so an extra can never lower a ceiling the tier had
+   * already lifted — a customer paying more and getting less is the worst
+   * shape this bug could take, because it looks like the purchase worked.
+   *
+   * Everything below reads `tier`, which is the stored record with the merged
+   * limits standing in. `withinLimit` stays the single place the zero-means-
+   * unlimited reading lives.
+   */
+  const held = heldAddOnIds(grant, stored);
+  let addOns: Array<{ limits?: Record<string, number> }> = [];
+  if (held.length) {
+    const catalogue = ((await kv.getByPrefix(`plan_addon:${grant.portalType}:`)) as any[]) || [];
+    addOns = catalogue.filter((a: any) => a && held.includes(String(a.id || '')));
+  }
+  const tier: PlanTier = { ...stored, limits: effectiveLimits(stored.limits, addOns) };
 
   const raw = tier.limits?.[key];
   if (raw === undefined || raw === null) {
     return ALLOW(used, `tier ${tier.name} publishes no ${key} limit`);
   }
 
-  // Zero is unlimited — the convention the editor, the assistant and the vendor
-  // tiers all use. withinLimit is the single place that reading lives.
   if (withinLimit(tier, key, used)) {
     return {
       allowed: true,

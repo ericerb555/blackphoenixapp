@@ -32,8 +32,9 @@
  */
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
-import { resolveEntitlement, type PlanTier } from "./planTier.ts";
+import { resolveEntitlement, heldAddOnIds, type PlanTier } from "./planTier.ts";
 import { pickCeiling, TIER_LIMIT_KEY, type SpendBucket } from "./aiCeiling.ts";
+import { effectiveLimit } from "./effectiveLimits.ts";
 
 /**
  * What is being spent. Each bucket has its own counter and its own ceiling.
@@ -100,8 +101,36 @@ export async function ceilingFor(
     }
 
     const tier = await kv.get(`plan_tier:${grant.portalType}:${grant.tierId}`) as PlanTier | null;
+
+    /**
+     * The add-ons this account is paying for, and the capacity they bought.
+     *
+     * `PlanAddOn.limits` has always been documented as raising the tier's
+     * ceilings, and until now nothing read it — so an add-on sold on capacity
+     * granted none of it. `effectiveLimit` does that merge, and knows that
+     * zero means unlimited, so buying an extra can never lower a ceiling the
+     * tier had already lifted.
+     *
+     * Only the audience's own catalogue is read, in one pass, because an
+     * add-on id is only meaningful within the audience that published it.
+     *
+     * DELIBERATELY STILL BEHIND THE SUBSCRIPTION GATE ABOVE. A trialist holds
+     * every add-on for access, but this ceiling governs REAL MODEL SPEND, and
+     * trials already sit on the backstop rather than on their tier's limits.
+     * Letting add-ons raise a trialist's ceiling here would change what the
+     * seven live trial accounts can spend, which is a decision about Eric's
+     * bill rather than a wiring change.
+     */
+    const held = heldAddOnIds(grant, tier);
+    let addOns: Array<{ limits?: Record<string, number> }> = [];
+    if (held.length) {
+      const catalogue = (await kv.getByPrefix(`plan_addon:${grant.portalType}:`)) as any[] || [];
+      addOns = catalogue.filter((a: any) => a && held.includes(String(a.id || '')));
+    }
+
+    const merged = effectiveLimit(tier?.limits, addOns, TIER_LIMIT_KEY[bucket]);
     return pickCeiling({
-      tierLimit: tier?.limits?.[TIER_LIMIT_KEY[bucket]],
+      tierLimit: merged,
       tierName: tier?.name || grant.tierId,
       fallback,
     });

@@ -11615,12 +11615,12 @@ catalogue.
 
 ### The work
 
-- [ ] Y1. `effectiveLimits(tier, heldAddOns)` — pure and tested. Merges each
+- [x] Y1. `effectiveLimits(tier, heldAddOns)` — pure and tested. Merges each
       held add-on's limits over the tier's as a delta, which is what the type
       has always promised. Highest wins where both name a key, and a key only
       the add-on names is granted. This is the piece that makes an add-on
       worth buying.
-- [ ] Y2. `aiSpend.ceilingFor` and `planLimits` resolve through `Y1` instead of
+- [x] Y2. `aiSpend.ceilingFor` and `planLimits` resolve through `Y1` instead of
       reading the tier directly, so holding the content add-on actually raises
       the AI-call, render and reel ceilings above the free backstop (300 calls,
       10 renders).
@@ -11636,6 +11636,19 @@ catalogue.
       **Which audiences may buy it is still Eric's to say** — vendor and
       customer at least; the on-call precedent is landlord, property_manager
       and condo_association.
+
+**Buying audiences, Eric 28 Sep:** vendor, subcontractor, advertiser,
+condo_association, property_manager, landlord. **Not `customer`** — the content
+centre is sold to businesses that market themselves, not to the homeowners who
+buy construction work.
+
+He then added **"admin"**. That one is not a plan audience: `Audience` has no
+`admin`, and an owner or administrator already reaches everything by role
+rather than by subscription, so there is nothing for them to buy. Two readings
+worth separating before a seventh record is written — whether he means staff
+should simply *have* the content centre (already true), or that a seventh
+catalogue entry should exist for an `admin` audience that does not yet exist.
+Asked rather than guessed.
 - [ ] Y5. Withdraw `plan_tier:content:{solo,studio,agency}` once the add-ons
       carry their limits, so there is one place the content centre is sold
       from rather than two that can disagree.
