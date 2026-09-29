@@ -157,3 +157,63 @@ test('a content rung stacks on a tier that already meters AI', () => {
   assert.equal(out.rendersPerMonth, 300);
   assert.equal(out.products, 0, 'unlimited products stay unlimited');
 });
+
+// ── Who is exempt from metering entirely ──────────────────────────────────
+
+/**
+ * `aiSpend.reserve` returns before reading any ceiling for staff, so this set
+ * decides who has uncapped model spend. aiSpend kept its OWN copy of the role
+ * list and the copy had drifted from the canonical one here, missing
+ * `platform_owner`, `business_owner`, `master_admin` and `management` — so a
+ * master_admin was metered at the free backstop of 300 calls while an `admin`
+ * beside them had no ceiling at all.
+ *
+ * aiSpend now delegates to `isTrustedStaff` in a single line and keeps no list
+ * of its own, so there is nothing left to drift. It cannot be imported here —
+ * it reaches `kv_store.tsx`, which node's test runner cannot load — so what is
+ * pinned is the canonical answer it now defers to.
+ */
+import { isTrustedStaff, STAFF_ROLE_SET, trustedRole } from '../supabase/functions/server/trustedRole.ts';
+
+const as = (role: string) => ({ app_metadata: { role } });
+
+test('EVERY COMPANY-SIDE ROLE COUNTS AS STAFF, not just some of them', () => {
+  for (const role of STAFF_ROLE_SET) {
+    assert.equal(isTrustedStaff(as(role)), true, `${role} must not be metered`);
+  }
+});
+
+test('the four that aiSpend had drifted out of its own list are staff', () => {
+  for (const role of ['platform_owner', 'business_owner', 'master_admin', 'management']) {
+    assert.equal(STAFF_ROLE_SET.has(role), true, `${role} belongs in the canonical set`);
+    assert.equal(isTrustedStaff(as(role)), true, role);
+  }
+});
+
+test('a portal guest is not staff', () => {
+  for (const role of ['customer', 'vendor', 'subcontractor', 'landlord', 'tenant', '']) {
+    assert.equal(isTrustedStaff(as(role)), false, `${role || '(none)'} must stay metered`);
+  }
+});
+
+/**
+ * What this grants is uncapped model spend — real money — so it has to be
+ * unreachable from anything the account can write itself. `user_metadata` is
+ * writable from the browser with `supabase.auth.updateUser`; `app_metadata`
+ * only by the service role.
+ */
+test('STAFF CANNOT BE CLAIMED FROM THE BROWSER', () => {
+  assert.equal(isTrustedStaff({ user_metadata: { role: 'owner' } }), false);
+  assert.equal(isTrustedStaff({ user_metadata: { accountType: 'admin' } }), false);
+  assert.equal(
+    isTrustedStaff({ app_metadata: { role: 'customer' }, user_metadata: { role: 'owner' } }),
+    false,
+    'the writable bag must never override the trustworthy one',
+  );
+});
+
+test('the role is read tolerantly of spacing and case, but only from app_metadata', () => {
+  assert.equal(trustedRole({ app_metadata: { role: 'Master Admin' } }), 'master_admin');
+  assert.equal(isTrustedStaff({ app_metadata: { role: 'Master-Admin' } }), true);
+  assert.equal(trustedRole({ user_metadata: { role: 'owner' } }), '');
+});

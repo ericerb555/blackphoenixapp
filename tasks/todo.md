@@ -11642,13 +11642,9 @@ condo_association, property_manager, landlord. **Not `customer`** — the conten
 centre is sold to businesses that market themselves, not to the homeowners who
 buy construction work.
 
-He then added **"admin"**. That one is not a plan audience: `Audience` has no
-`admin`, and an owner or administrator already reaches everything by role
-rather than by subscription, so there is nothing for them to buy. Two readings
-worth separating before a seventh record is written — whether he means staff
-should simply *have* the content centre (already true), or that a seventh
-catalogue entry should exist for an `admin` audience that does not yet exist.
-Asked rather than guessed.
+**"admin" — asked, answered, and already true.** Eric: *"staff should just have it."* No seventh record. Verified in the code rather than assumed: `aiSpend.reserve` returns before reading any ceiling when `isStaff` is true, so staff are not metered at all — they already have the content centre outright.
+
+That check had a bug, now fixed. `aiSpend` kept its **own** copy of the staff role list and it had drifted from the canonical `STAFF_ROLE_SET`, missing `platform_owner`, `business_owner`, `master_admin` and `management`. An account holding one of those was metered at the free backstop of 300 model calls while an `admin` beside them had none. Production holds 1 owner, 1 employee, 2 vendors and 4 accounts with no role at all, so nobody is affected today — the next `master_admin` would have been, and it would have read as a quota bug rather than a stale list.
 - [ ] Y5. Withdraw `plan_tier:content:{solo,studio,agency}` once the add-ons
       carry their limits, so there is one place the content centre is sold
       from rather than two that can disagree.

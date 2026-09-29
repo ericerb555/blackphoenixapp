@@ -31,7 +31,7 @@
  * somebody else spending ours.
  */
 import * as kv from "./kv_store.tsx";
-import { trustedRole } from "./trustedRole.ts";
+import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import { resolveEntitlement, heldAddOnIds, type PlanTier } from "./planTier.ts";
 import { pickCeiling, TIER_LIMIT_KEY, type SpendBucket } from "./aiCeiling.ts";
 import { effectiveLimit } from "./effectiveLimits.ts";
@@ -159,13 +159,27 @@ export function limitKey(bucket: SpendBucket, userId: string): string {
     : `${bucket}_budget_limit:${userId}`;
 }
 
-const STAFF_ROLES = new Set([
-  "admin", "owner", "super_admin", "superadmin", "staff", "employee",
-  "project_manager", "estimator", "office",
-]);
-
+/**
+ * Staff are not metered at all — `reserve` returns before any ceiling is read.
+ *
+ * WHY THIS DEFERS TO THE CANONICAL SET RATHER THAN KEEPING ITS OWN
+ *
+ * It kept its own, and the two had drifted. This list was missing
+ * `platform_owner`, `business_owner`, `master_admin` and `management` — all
+ * real company-side roles elsewhere in this server — so an account holding one
+ * of them was metered at the free backstop of 300 model calls and 10 renders,
+ * while an `admin` sitting beside them had no ceiling at all. Nobody holds
+ * those four today, so nothing is currently affected; the next `master_admin`
+ * account created would have hit it, and it would have read as a quota bug
+ * rather than as a stale list.
+ *
+ * The role comes from `app_metadata`, which only the service role can write,
+ * so this exemption cannot be granted from a browser. That matters more here
+ * than in most places: what it grants is uncapped model spend, which is real
+ * money.
+ */
 export function isStaff(user: any): boolean {
-  return STAFF_ROLES.has(trustedRole(user));
+  return isTrustedStaff(user);
 }
 
 /**
