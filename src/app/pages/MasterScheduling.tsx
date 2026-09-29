@@ -141,140 +141,87 @@ export default function MasterScheduling() {
     { id: 'hvac-tech', name: 'HVAC Tech', color: '#7cb342', enabled: true },
   ]);
 
-  // Enhanced employees with skills
-  const [employees] = useState<Employee[]>([
-    { id: 'e1', name: 'John Smith', avatar: 'JS', positions: ['project-manager'], availability: 'Full Time', hoursScheduled: 40, maxHours: 40, phone: '555-0101', email: 'john@example.com', skills: ['Project Management', 'Customer Relations'] },
-    { id: 'e2', name: 'Mike Rodriguez', avatar: 'MR', positions: ['lead-tech'], availability: 'Full Time', hoursScheduled: 38, maxHours: 40, phone: '555-0102', email: 'mike@example.com', skills: ['HVAC', 'Electrical', 'Plumbing'] },
-    { id: 'e3', name: 'Lisa Martinez', avatar: 'LM', positions: ['electrician'], availability: 'Full Time', hoursScheduled: 36, maxHours: 40, phone: '555-0103', email: 'lisa@example.com', skills: ['Electrical', 'Low Voltage'] },
-    { id: 'e4', name: 'David Chen', avatar: 'DC', positions: ['plumber'], availability: 'Full Time', hoursScheduled: 35, maxHours: 40, phone: '555-0104', email: 'david@example.com', skills: ['Plumbing', 'Gas Lines'] },
-    { id: 'e5', name: 'Sarah Johnson', avatar: 'SJ', positions: ['technician'], availability: 'Part Time', hoursScheduled: 20, maxHours: 30, phone: '555-0105', email: 'sarah@example.com', skills: ['General Maintenance', 'Painting'] },
-    { id: 'e6', name: 'Robert Williams', avatar: 'RW', positions: ['carpenter'], availability: 'Full Time', hoursScheduled: 38, maxHours: 40, phone: '555-0106', email: 'robert@example.com', skills: ['Carpentry', 'Framing', 'Finish Work'] },
-    { id: 'e7', name: 'Emily Davis', avatar: 'ED', positions: ['hvac-tech'], availability: 'Full Time', hoursScheduled: 40, maxHours: 40, phone: '555-0107', email: 'emily@example.com', skills: ['HVAC', 'Refrigeration'] },
-    { id: 'e8', name: 'James Wilson', avatar: 'JW', positions: ['technician'], availability: 'Full Time', hoursScheduled: 32, maxHours: 40, phone: '555-0108', email: 'james@example.com', skills: ['General Repairs', 'Electrical'] },
-  ]);
+  /**
+   * The roster, the work and the shifts — all loaded, none invented.
+   *
+   * These three arrays held eight fictional employees (John Smith, Mike
+   * Rodriguez, Lisa Martinez…), eight fictional jobs and their shifts, all
+   * cross-referencing ids e1 to e8. A scheduling screen showing staff who do
+   * not exist, booked onto work nobody ordered, is worse than an empty one:
+   * somebody plans a week around it.
+   *
+   * They are loaded from the records the rest of the platform uses —
+   * `time_employee:` for who exists, `unavailability:` for who cannot work,
+   * and the appointment store this page already wrote to.
+   */
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  /** Approved time off and call-outs, so the calendar can show who is out. */
+  const [unavailability, setUnavailability] = useState<any[]>([]);
 
-  // Jobs/Work Orders
-  const [jobs, setJobs] = useState<Job[]>([
-    {
-      id: 'WO-501',
-      title: 'Kitchen Renovation - TechCorp',
-      customer: 'Sarah Johnson',
-      status: 'in-progress',
-      priority: 'high',
-      startDate: '2026-01-20',
-      endDate: '2026-01-24',
-      estimatedHours: 80,
-      assignedEmployees: ['e1', 'e2', 'e6'],
-      location: '123 Main St, Suite 400',
-      value: 45000,
-      description: 'Complete kitchen renovation including cabinets, countertops, and appliances',
-      color: '#c2185b',
-      requiredSkills: ['Project Management', 'Carpentry', 'Electrical', 'Plumbing']
-    },
-    {
-      id: 'WO-502',
-      title: 'HVAC Replacement - Downtown Office',
-      customer: 'Robert Chen',
-      status: 'scheduled',
-      priority: 'urgent',
-      startDate: '2026-01-22',
-      endDate: '2026-01-23',
-      estimatedHours: 24,
-      assignedEmployees: ['e7', 'e3'],
-      location: '456 Oak Avenue',
-      value: 12500,
-      description: 'Replace commercial HVAC system',
-      color: '#7cb342',
-      requiredSkills: ['HVAC', 'Electrical']
-    },
-    {
-      id: 'WO-503',
-      title: 'Bathroom Remodel - Residential',
-      customer: 'Emily Williams',
-      status: 'scheduled',
-      priority: 'medium',
-      startDate: '2026-01-23',
-      endDate: '2026-01-26',
-      estimatedHours: 60,
-      assignedEmployees: ['e4', 'e8'],
-      location: '789 Elm Street',
-      value: 18000,
-      description: 'Full bathroom renovation with tile work and fixtures',
-      color: '#0d9488',
-      requiredSkills: ['Plumbing', 'Electrical', 'Tile Work']
-    },
-    {
-      id: 'WO-504',
-      title: 'Electrical Panel Upgrade',
-      customer: 'Michael Brown',
-      status: 'pending',
-      priority: 'high',
-      startDate: '2026-01-25',
-      endDate: '2026-01-25',
-      estimatedHours: 8,
-      assignedEmployees: ['e3'],
-      location: '321 Pine Road',
-      value: 5500,
-      description: 'Upgrade main electrical panel to 200 amp service',
-      color: '#00acc1',
-      requiredSkills: ['Electrical']
-    },
-    {
-      id: 'WO-505',
-      title: 'Deck Construction',
-      customer: 'Jennifer Martinez',
-      status: 'scheduled',
-      priority: 'low',
-      startDate: '2026-01-21',
-      endDate: '2026-01-24',
-      estimatedHours: 48,
-      assignedEmployees: ['e6', 'e8'],
-      location: '555 Maple Drive',
-      value: 22000,
-      description: 'Build 20x16 composite deck with railings',
-      color: '#b8860b',
-      requiredSkills: ['Carpentry', 'Framing']
-    }
-  ]);
+  /**
+   * Who actually works here, and who cannot work.
+   *
+   * `time_employee:` is the same roster the timeclock punches against and job
+   * costing bills from, so this screen cannot show a different set of people
+   * from the one paying them.
+   *
+   * Unavailability is loaded beside it rather than folded in, because a
+   * technician on approved leave is still ON the roster — they should appear
+   * on the calendar marked as out, not vanish from it. Somebody looking at
+   * Tuesday needs to see that Dave is on holiday, not that Dave does not
+   * exist.
+   */
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const headers = { Authorization: `Bearer ${session.access_token}` };
+      try {
+        const [rosterRes, offRes] = await Promise.all([
+          fetch(`${API_BASE}/time-tracking/employees`, { headers }),
+          fetch(`${API_BASE}/unavailability`, { headers }),
+        ]);
 
-  // Shifts - Employee schedules
-  const [shifts, setShifts] = useState<Shift[]>([
-    // John Smith - Project Manager
-    { id: 's1', employeeId: 'e1', position: 'project-manager', startTime: '8a', endTime: '5p', date: '2026-01-20', color: '#8b7355', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's2', employeeId: 'e1', position: 'project-manager', startTime: '8a', endTime: '5p', date: '2026-01-21', color: '#8b7355', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's3', employeeId: 'e1', position: 'project-manager', startTime: '8a', endTime: '5p', date: '2026-01-22', color: '#8b7355', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's4', employeeId: 'e1', position: 'project-manager', startTime: '8a', endTime: '12p', date: '2026-01-23', color: '#8b7355', status: 'scheduled', jobId: 'WO-501' },
-    
-    // Mike Rodriguez - Lead Tech
-    { id: 's5', employeeId: 'e2', position: 'lead-tech', startTime: '7a', endTime: '4p', date: '2026-01-20', color: '#c2185b', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's6', employeeId: 'e2', position: 'lead-tech', startTime: '7a', endTime: '4p', date: '2026-01-21', color: '#c2185b', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's7', employeeId: 'e2', position: 'lead-tech', startTime: '7a', endTime: '4p', date: '2026-01-22', color: '#c2185b', status: 'scheduled', jobId: 'WO-501' },
-    
-    // Lisa Martinez - Electrician
-    { id: 's8', employeeId: 'e3', position: 'electrician', startTime: '8a', endTime: '5p', date: '2026-01-22', color: '#00acc1', status: 'scheduled', jobId: 'WO-502' },
-    { id: 's9', employeeId: 'e3', position: 'electrician', startTime: '8a', endTime: '5p', date: '2026-01-23', color: '#00acc1', status: 'scheduled', jobId: 'WO-502' },
-    { id: 's10', employeeId: 'e3', position: 'electrician', startTime: '8a', endTime: '4p', date: '2026-01-25', color: '#00acc1', status: 'scheduled', jobId: 'WO-504' },
-    
-    // David Chen - Plumber
-    { id: 's11', employeeId: 'e4', position: 'plumber', startTime: '8a', endTime: '5p', date: '2026-01-23', color: '#0d9488', status: 'scheduled', jobId: 'WO-503' },
-    { id: 's12', employeeId: 'e4', position: 'plumber', startTime: '8a', endTime: '5p', date: '2026-01-24', color: '#0d9488', status: 'scheduled', jobId: 'WO-503' },
-    { id: 's13', employeeId: 'e4', position: 'plumber', startTime: '8a', endTime: '5p', date: '2026-01-25', color: '#0d9488', status: 'scheduled', jobId: 'WO-503' },
-    
-    // Robert Williams - Carpenter
-    { id: 's14', employeeId: 'e6', position: 'carpenter', startTime: '7a', endTime: '4p', date: '2026-01-20', color: '#b8860b', status: 'scheduled', jobId: 'WO-501' },
-    { id: 's15', employeeId: 'e6', position: 'carpenter', startTime: '7a', endTime: '4p', date: '2026-01-21', color: '#b8860b', status: 'scheduled', jobId: 'WO-505' },
-    { id: 's16', employeeId: 'e6', position: 'carpenter', startTime: '7a', endTime: '4p', date: '2026-01-22', color: '#b8860b', status: 'scheduled', jobId: 'WO-505' },
-    { id: 's17', employeeId: 'e6', position: 'carpenter', startTime: '7a', endTime: '4p', date: '2026-01-23', color: '#b8860b', status: 'scheduled', jobId: 'WO-505' },
-    
-    // Emily Davis - HVAC Tech
-    { id: 's18', employeeId: 'e7', position: 'hvac-tech', startTime: '7a', endTime: '6p', date: '2026-01-22', color: '#7cb342', status: 'scheduled', jobId: 'WO-502' },
-    { id: 's19', employeeId: 'e7', position: 'hvac-tech', startTime: '7a', endTime: '6p', date: '2026-01-23', color: '#7cb342', status: 'scheduled', jobId: 'WO-502' },
-    
-    // James Wilson - Technician
-    { id: 's20', employeeId: 'e8', position: 'technician', startTime: '8a', endTime: '4p', date: '2026-01-21', color: '#4a5f7f', status: 'scheduled', jobId: 'WO-505' },
-    { id: 's21', employeeId: 'e8', position: 'technician', startTime: '8a', endTime: '5p', date: '2026-01-23', color: '#4a5f7f', status: 'scheduled', jobId: 'WO-503' },
-    { id: 's22', employeeId: 'e8', position: 'technician', startTime: '8a', endTime: '5p', date: '2026-01-24', color: '#4a5f7f', status: 'scheduled', jobId: 'WO-503' },
-  ]);
+        if (rosterRes.ok) {
+          const json = await rosterRes.json();
+          const rows: any[] = Array.isArray(json?.employees) ? json.employees : [];
+          if (active) {
+            setEmployees(rows.map((r) => {
+              const name = String(r.name || r.email || 'Technician').trim();
+              return {
+                id: String(r.id),
+                name,
+                // Initials from the name we have, rather than a stored avatar
+                // field the roster does not carry.
+                avatar: name.split(/\s+/).map((p: string) => p[0]).join('').slice(0, 2).toUpperCase(),
+                positions: [String(r.role || 'technician').toLowerCase().replace(/\s+/g, '-')],
+                availability: r.payType === 'salary' ? 'Salaried' : 'Hourly',
+                hoursScheduled: Number(r.hoursWeek) || 0,
+                maxHours: 40,
+                phone: String(r.phoneNumber || ''),
+                email: String(r.email || ''),
+                skills: Array.isArray(r.trades) ? r.trades.map(String) : [],
+              } as Employee;
+            }));
+          }
+        }
+
+        if (offRes.ok) {
+          const json = await offRes.json();
+          if (active) setUnavailability(Array.isArray(json?.unavailability) ? json.unavailability : []);
+        }
+      } catch (error) {
+        // A calendar that cannot reach the server shows what it has. It must
+        // not invent a roster to fill the gap — that is what this replaced.
+        console.error('Could not load the roster or time off:', error);
+      }
+    })();
+    return () => { active = false; };
+  }, [user?.id]);
 
   // Customer bookings are stored in the shared appointment ledger. Load them into
   // the operational calendar so the Master Schedule and customer portal never drift.
@@ -480,6 +427,27 @@ export default function MasterScheduling() {
   const getShiftsForEmployeeAndDate = (employeeId: string, date: Date) => {
     const dateStr = formatDate(date);
     return shifts.filter(s => s.employeeId === employeeId && s.date === dateStr);
+  };
+
+  /**
+   * Is this person out on this day, and why?
+   *
+   * Mirrors `blocksDay` on the server deliberately: a call-out counts at once,
+   * time off only once APPROVED. A pending request must not grey somebody out
+   * here — a scheduler who sees "time off" against a request nobody has
+   * decided will plan around a day the technician may not actually get.
+   */
+  const outOn = (employeeId: string, date: Date) => {
+    const dateStr = formatDate(date);
+    return unavailability.find((u: any) => {
+      if (String(u?.employeeId) !== String(employeeId)) return false;
+      const status = String(u?.status || '').toLowerCase();
+      if (status === 'declined' || status === 'cancelled') return false;
+      if (u?.kind === 'time_off' && status !== 'approved') return false;
+      const from = String(u?.from || '');
+      const to = String(u?.to || from);
+      return Boolean(from) && dateStr >= from && dateStr <= to;
+    });
   };
 
   const getJobsForDate = (date: Date) => {
@@ -1027,6 +995,7 @@ export default function MasterScheduling() {
                 shifts={shifts}
                 jobs={jobs}
                 getShiftsForEmployeeAndDate={getShiftsForEmployeeAndDate}
+                outOn={outOn}
                 showWeatherOverlay={showWeatherOverlay}
                 weatherData={weatherData}
                 getWeatherIcon={getWeatherIcon}
@@ -1052,6 +1021,7 @@ export default function MasterScheduling() {
                 jobs={jobs}
                 shifts={shifts}
                 getShiftsForEmployeeAndDate={getShiftsForEmployeeAndDate}
+                outOn={outOn}
                 getJobsForDate={getJobsForDate}
                 showWeatherOverlay={showWeatherOverlay}
                 weatherData={weatherData}
@@ -1530,7 +1500,7 @@ export default function MasterScheduling() {
 }
 
 // Employee Schedule View Component
-function EmployeeScheduleView({ weekDays, employees, shifts, jobs, getShiftsForEmployeeAndDate, showWeatherOverlay, weatherData, getWeatherIcon }: any) {
+function EmployeeScheduleView({ weekDays, employees, shifts, jobs, getShiftsForEmployeeAndDate, outOn, showWeatherOverlay, weatherData, getWeatherIcon }: any) {
   return (
     <div className="min-w-max">
       {/* Calendar Header */}
@@ -1606,8 +1576,27 @@ function EmployeeScheduleView({ weekDays, employees, shifts, jobs, getShiftsForE
             {/* Day Cells */}
             {weekDays.map((day: Date, i: number) => {
               const dayShifts = getShiftsForEmployeeAndDate(employee.id, day);
+              const out = outOn?.(employee.id, day);
               return (
                 <div key={i} className="flex-1 min-w-[140px] p-2 border-r border-[#2A2A2A]">
+                  {/*
+                    Shown BEFORE the shifts, and the shifts are still shown
+                    underneath. Somebody on leave who still has work on the
+                    calendar is exactly the thing whoever opens this needs to
+                    see — hiding the shifts would hide the problem.
+                  */}
+                  {out && (
+                    <div className={`mb-1 rounded border-l-[3px] p-2 text-[11px] font-bold ${
+                      out.kind === 'call_out'
+                        ? 'border-red-500 bg-red-500/15 text-red-300'
+                        : 'border-amber-500 bg-amber-500/15 text-amber-300'
+                    }`}>
+                      {out.kind === 'call_out' ? 'CALLED OUT' : 'TIME OFF'}
+                      {dayShifts.length > 0 && (
+                        <span className="ml-1 font-normal">· {dayShifts.length} still booked</span>
+                      )}
+                    </div>
+                  )}
                   {dayShifts.map((shift: any) => {
                     const job = shift.jobId ? jobs.find((j: any) => j.id === shift.jobId) : null;
                     return (
