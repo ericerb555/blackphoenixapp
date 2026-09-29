@@ -286,3 +286,33 @@ test('a job with a PROMISED tech is never auto-reassigned', () => {
   assert.ok(!mayAutoReassign({ trade: 'flooring', requestedTechId: 'DAVE' }, list),
     'substituting a stranger at the moment nobody is watching is the one thing not to automate');
 });
+
+/* ── the window a schedule asks for ──────────────────────────────────────── */
+
+/**
+ * The overlap rule the listing route uses, pinned here because getting it
+ * wrong is invisible: a fortnight's leave that STARTS before the week being
+ * viewed still takes days out of it, and a containment test would drop it —
+ * showing a week as fully staffed while somebody is in Spain.
+ */
+const overlaps = (r: { from: string; to?: string }, from: string, to: string) =>
+  (String(r.from) <= to) && (String(r.to || r.from) >= from);
+
+test('leave starting before the window still blocks days inside it', () => {
+  const fortnight = { from: '2026-09-21', to: '2026-10-02' };
+  assert.ok(overlaps(fortnight, '2026-09-28', '2026-10-04'),
+    'a containment test would miss this and show the week as fully staffed');
+});
+
+test('leave ending after the window still counts', () => {
+  assert.ok(overlaps({ from: '2026-10-02', to: '2026-10-20' }, '2026-09-28', '2026-10-04'));
+});
+
+test('leave entirely outside the window does not', () => {
+  assert.ok(!overlaps({ from: '2026-11-01', to: '2026-11-05' }, '2026-09-28', '2026-10-04'));
+  assert.ok(!overlaps({ from: '2026-08-01', to: '2026-08-05' }, '2026-09-28', '2026-10-04'));
+});
+
+test('a single day inside the window counts', () => {
+  assert.ok(overlaps({ from: TUE }, '2026-09-28', '2026-10-04'));
+});

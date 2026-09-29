@@ -39,6 +39,7 @@ import rateLearningRouter from "./rateLearningRoutes.tsx";
 import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
+import unavailabilityRouter from "./unavailability.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
 import projectVisionRouter from "./project-vision.tsx";
@@ -914,6 +915,9 @@ app.use('/make-server-3eae23a6/invoice-attachables', async (c, next) => {
 app.route("/", invoiceAttachablesRouter);
 app.route("/", rateLearningRouter);
 app.route("/", quotesRouter);
+// Time off and call-outs. See unavailability.tsx — one record type, because the
+// scheduler asks it one question and two stores means two places to forget.
+app.route("/", unavailabilityRouter);
 app.route("/", deliverablesRouter);
 // Existing design/vision modules were present but unreachable from the deployed function.
 app.route("/", designProjectsRouter);
