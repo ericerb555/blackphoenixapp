@@ -406,7 +406,7 @@ cohorts and they are not this task, but they are worth naming:
       only memberships Stripe will actually bill again. The `subscription:`
       records are still listed as the sales they are — only the MRR line moved.
 
-- [ ] W4. The dead Postgres `plans` and `subscriptions` tables are dropped —
+- [x] W4. The dead Postgres `plans` and `subscriptions` tables are dropped —
       zero rows and no code touches either.
       **Written but deliberately NOT applied.** The migration is at
       `supabase/migrations/20260928140000_drop_dead_plan_tables.sql.pending`.
@@ -11943,3 +11943,21 @@ role was never stamped.
 six audiences it lives in, and `active` is pinned false. Kept rather than
 deleted: they are the provenance for what the add-ons carry, and each add-on's
 `sourceTierId` points back at them.
+
+**W4 done, 29 Sep — the tables are dropped.** Eric's explicit go-ahead. Both
+re-counted at zero inside the transaction rather than trusting the earlier
+check, no inbound foreign keys from anywhere else, no views.
+
+The first attempt **failed, and that was the guard working**:
+`subscriptions.plan_id` carries a foreign key into `plans`, so dropping `plans`
+first was refused. Dropping the referencing table first means `CASCADE` is
+never needed — which is the point, because without it anything else that had
+turned out to depend on either table would have stopped the drop rather than
+being quietly destroyed with it. The migration file carried the same ordering
+bug and is fixed.
+
+After: `plans` and `subscriptions` both gone, 22 public tables down to 20, and
+`kv_store_57095a78`, `feature_grants` and `organizations` all untouched. The
+migration is now `20260928140000_drop_dead_plan_tables.sql` (no longer
+`.pending`), idempotent through `to_regclass`, kept as the record of what was
+done and so a fresh environment reaches the same state.
