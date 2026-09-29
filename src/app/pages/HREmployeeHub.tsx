@@ -5,6 +5,7 @@ import { saveDual, loadDual } from '../lib/database';
 import { projectId } from '../utils/supabase/info';
 import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import TimeOffApprovals from '../components/schedule/TimeOffApprovals';
 
 type PayType = 'hourly' | 'salary' | 'contract';
 type Status = 'active' | 'inactive' | 'onleave';
@@ -118,7 +119,10 @@ const STATUS_CLS: Record<Status, string> = {
 
 export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string) => void }) {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'employees' | 'payroll'>('employees');
+  const [tab, setTab] = useState<'employees' | 'payroll' | 'time off'>('employees');
+  /* Pending requests, counted here so the badge shows from any tab — a request
+     nobody sees is a technician who does not know if they have the day. */
+  const [pendingTimeOff, setPendingTimeOff] = useState(0);
   const [employees, setEmployees] = useState<Employee[]>(() => {
     const s = load<Employee[]>('hr_employees', []);
     return s.length ? s : SEED;
@@ -523,12 +527,17 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
         </div>
 
         <div className="flex gap-1 p-1 rounded-xl" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
-          {(['employees', 'payroll'] as const).map(t => (
+          {(['employees', 'payroll', 'time off'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} className="flex-1 py-2 rounded-lg text-sm font-bold capitalize transition"
               style={tab === t ? { background: '#ea580c', color: 'white' } : { color: '#6b7280' }}>
               {t}
               {/* Held shifts only appear on the payroll tab, so the count has to
                   be visible from the other one or nobody finds them. */}
+              {t === 'time off' && pendingTimeOff > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-black text-amber-400 bg-amber-500/15 border border-amber-500/30">
+                  {pendingTimeOff}
+                </span>
+              )}
               {t === 'payroll' && heldShifts.length > 0 && (
                 <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-black text-amber-400 bg-amber-500/15 border border-amber-500/30">
                   {heldShifts.length}
@@ -591,6 +600,21 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
               );
             })}
           </div>
+        )}
+
+        {tab === 'time off' && (
+          /*
+            Names come from the roster this screen already holds, so the list
+            reads as people rather than as uuids. Falls back to the id when
+            somebody self-provisioned a timesheet and has no HR record yet.
+          */
+          <TimeOffApprovals
+            onPendingCount={setPendingTimeOff}
+            nameFor={(id) => {
+              const match = employees.find(e => String(e.id) === String(id));
+              return match ? `${match.firstName} ${match.lastName}`.trim() : id;
+            }}
+          />
         )}
 
         {tab === 'payroll' && (
