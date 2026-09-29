@@ -6,10 +6,22 @@ import {
   Building2, Sparkles, Circle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { projectId } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const HEADERS = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * THIS PAGE USED THE PUBLISHABLE ANON KEY, AND SO NEVER LOADED.
+ *
+ * The server puts /messaging behind its signed-in tier, and the anon key is
+ * not a user — so every request came back 401 and the inbox was empty for
+ * everybody, the owner included. Four real conversations sat behind it, one
+ * of them a customer who had messaged twice and had no reply.
+ *
+ * `authedHeaders` sends the signed-in user's access token, and throws when
+ * there is no session rather than quietly falling back to a key that cannot
+ * work here.
+ */
 
 const ADMIN_ID = 'blackphoenix-admin';
 const ADMIN_NAME = 'Black Phoenix Team';
@@ -59,7 +71,7 @@ function NewConvModal({ onClose, onCreate }: { onClose: () => void; onCreate: (c
     setLoading(true);
     try {
       const res = await fetch(`${API}/messaging/conversations/direct`, {
-        method: 'POST', headers: HEADERS,
+        method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({
           user1Id: ADMIN_ID, user1Name: ADMIN_NAME,
           user2Id: email.trim().toLowerCase(), user2Name: name.trim(),
@@ -126,7 +138,7 @@ export default function Messaging({ onNavigate }: Props) {
   // Load all admin conversations
   async function loadConversations() {
     try {
-      const res = await fetch(`${API}/messaging/conversations/${ADMIN_ID}`, { headers: HEADERS });
+      const res = await fetch(`${API}/messaging/conversations/${ADMIN_ID}`, { headers: await authedHeaders() });
       const data = await res.json();
       const sorted = (data.conversations || []).sort((a: Conversation, b: Conversation) =>
         new Date(b.lastMessageAt || b.id).getTime() - new Date(a.lastMessageAt || a.id).getTime()
@@ -139,7 +151,7 @@ export default function Messaging({ onNavigate }: Props) {
   // Load messages for selected conversation
   async function loadMessages(convId: string) {
     try {
-      const res = await fetch(`${API}/messaging/conversations/${convId}/messages`, { headers: HEADERS });
+      const res = await fetch(`${API}/messaging/conversations/${convId}/messages`, { headers: await authedHeaders() });
       const data = await res.json();
       setMessages(data.messages || []);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -177,7 +189,7 @@ export default function Messaging({ onNavigate }: Props) {
 
     try {
       await fetch(`${API}/messaging/messages`, {
-        method: 'POST', headers: HEADERS,
+        method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({
           conversationId: selectedConv.id,
           senderId: ADMIN_ID, senderName: ADMIN_NAME, senderRole: 'admin',

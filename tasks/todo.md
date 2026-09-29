@@ -12132,16 +12132,16 @@ one is a real customer (Wanda Atherton, two threads, June, no reply).
 
 ### The work
 
-- [ ] Z1. **Close the read hole first.** `:convId/messages` and
+- [x] Z1. **Close the read hole first.** `:convId/messages` and
       `conversations/:userId` must check the caller: staff may read the staff
       inbox, and everybody else may read only conversations they participate
       in. Fail closed. Pure predicate, tested, so "who may read this thread"
       is one function rather than a condition in two handlers.
-- [ ] Z2. **The staff inbox stops hunting for a magic id.** For a staff
+- [x] Z2. **The staff inbox stops hunting for a magic id.** For a staff
       caller, return conversations having any `admin`-role participant. That
       catches all three historical spellings and anything future. Keep
       `blackphoenix-admin` working so nothing that writes it breaks.
-- [ ] Z3. `Messaging.tsx` sends `authedHeaders()` instead of the anon key, and
+- [x] Z3. `Messaging.tsx` sends `authedHeaders()` instead of the anon key, and
       stops hardcoding `ADMIN_ID` for the fetch.
 - [ ] Z4. **A Messages tab** on the Owner's Dashboard, with an unread count on
       the label so it is visible without opening it.

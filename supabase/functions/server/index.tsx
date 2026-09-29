@@ -232,6 +232,10 @@ import {
 } from "./planTier.ts";
 import { supersededIds, supersedesMessage } from "./addOnGroups.ts";
 import { contentAddOnPlan, wouldOverwriteEdits, CONTENT_AUDIENCES, CONTENT_RUNGS } from "./contentAddOns.ts";
+import {
+  mayReadConversation, visibleConversations, staffInbox,
+  type ConversationViewer,
+} from "./conversationAccess.ts";
 import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -267,7 +271,7 @@ import { storeContentRouter } from "./store-content.tsx";
 import { getConfig as getDropshipperConfig, setEnabled as setDropshipperEnabled, getProviders as getDropshipperProviders } from "./dropshipper-config.tsx";
 import { getAllInventory, getInventoryItem as getDropshipperInventoryItem, getAllOrders as getDropshipperOrders, getErrors as getDropshipperErrors, syncInventory as syncDropshipperInventory, syncAllTracking as syncDropshipperTracking, handleWebhook as handleDropshipperWebhook, forwardOrder as forwardDropshipperOrder } from "./dropshipper.tsx";
 import { getAllStagedProducts, getStagingStats, getStagedCategories, importProductsToLive, clearStagedProducts } from "./dropshipper-catalog.tsx";
-import { trustedRole } from "./trustedRole.ts";
+import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import bidIntakeRouter from "./bid-intake.tsx";
 import architectReviewRouter from "./architect-review.tsx";
 import jurisdictionsRouter from "./jurisdictions.tsx";
@@ -10916,40 +10920,71 @@ Return ONLY the JSON object.`,
 function convKey(id: string) { return `conv:${id}`; }
 function msgsKey(convId: string) { return `msgs:${convId}`; }
 
+/**
+ * Who is asking, from the verified token.
+ *
+ * The `:userId` in the path and the `?email=` on the query used to decide
+ * what came back, and both are typed by the caller — so reading somebody
+ * else's conversations was a matter of putting their address in the URL. They
+ * are ignored now. The signed-in account is the only thing that decides.
+ */
+const conversationViewer = (c: any): ConversationViewer => {
+  const actor = c.get('actor');
+  return {
+    email: String(actor?.email || '').toLowerCase(),
+    userId: String(actor?.id || ''),
+    isStaff: isTrustedStaff(actor),
+  };
+};
+
 app.get('/make-server-3eae23a6/messaging/conversations/:userId', async (c) => {
   try {
-    const userId = c.req.param('userId');
-    const email = c.req.query('email') || '';
-
-    // Direct lookup by email index (most reliable path)
-    if (email) {
-      const emailKey = `customer_convs:${email.toLowerCase()}`;
-      const convIds: string[] = (await kv.get(emailKey) as string[]) || [];
-      const convs: any[] = [];
-      for (const id of convIds) {
-        const conv = await kv.get(convKey(id));
-        if (conv) convs.push(conv);
-      }
-      if (convs.length > 0) return c.json({ conversations: convs });
+    const viewer = conversationViewer(c);
+    if (!viewer.email && !viewer.userId) {
+      return c.json({ conversations: [], error: 'Sign in required.' }, 401);
     }
 
-    // Fallback: scan all conversations
-    const all = await kv.getByPrefix('conv:') as any[];
-    const userConvs = all.filter((conv: any) =>
-      conv?.participants?.some((p: any) =>
-        p.userId === userId ||
-        p.userId === (email || '').toLowerCase() ||
-        (email && (p.userId === email || p.userEmail === email))
-      ) ||
-      (email && conv?.metadata?.customerEmail === email)
-    );
-    return c.json({ conversations: userConvs });
+    const all = ((await kv.getByPrefix('conv:')) as any[] || []).filter(Boolean);
+
+    /**
+     * Staff get the company's inbox; everybody else gets their own threads.
+     *
+     * The inbox is resolved by ROLE rather than by the `blackphoenix-admin`
+     * id the screen used to ask for. None of the real conversations carries
+     * that id — the company side is the literal `admin` on some and the
+     * owner's auth UUID on others — so the inbox came back empty while
+     * customers waited for a reply.
+     */
+    const conversations = viewer.isStaff ? staffInbox(all) : visibleConversations(all, viewer);
+
+    conversations.sort((a: any, b: any) =>
+      String(b?.lastMessageAt || '').localeCompare(String(a?.lastMessageAt || '')));
+
+    return c.json({ conversations });
   } catch (e: any) { return c.json({ conversations: [], error: e.message }); }
 });
 
 app.get('/make-server-3eae23a6/messaging/conversations/:convId/messages', async (c) => {
   try {
+    /**
+     * THIS HAD NO OWNERSHIP CHECK AT ALL.
+     *
+     * It took a conversation id and returned every message in it. The only
+     * gate in front was the blanket "are you signed in", so any signed-in
+     * vendor, tenant or customer could read anybody's thread with the company
+     * — and the ids are `conv_{timestamp}`, which is not hard to arrive at.
+     *
+     * A refusal is a 403 with nothing in it. Answering "no such conversation"
+     * would at least confirm which ids exist.
+     */
     const convId = c.req.param('convId');
+    const viewer = conversationViewer(c);
+    const conversation = await kv.get(convKey(convId));
+
+    if (!conversation || !mayReadConversation(conversation as any, viewer)) {
+      return c.json({ messages: [], error: 'That conversation is not yours to read.' }, 403);
+    }
+
     const msgs = (await kv.get(msgsKey(convId)) as any[]) || [];
     return c.json({ messages: msgs });
   } catch (e: any) { return c.json({ messages: [], error: e.message }); }
