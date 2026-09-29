@@ -147,3 +147,38 @@ test('at equal urgency the tighter deadline comes first', () => {
   assert.ok(moreUrgent(soon, loose) < 0,
     'three weeks left is fewer chances than three months, whatever either stated');
 });
+
+/* ── days the customer said do not work ──────────────────────────────────── */
+
+const WEEK = { earliest: '2026-09-28', latest: '2026-10-04', urgency: 0, assumed: false, label: '' };
+// 2026-09-28 is a Monday, so this window is Mon–Sun.
+
+test('avoided weekdays are dropped, not merely ranked last', () => {
+  const days = daysIn(WEEK, 120, [5]); // no Fridays
+  assert.ok(!days.includes('2026-10-02'), 'the Friday');
+  assert.equal(days.length, 6);
+});
+
+test('several avoided days all go', () => {
+  const days = daysIn(WEEK, 120, [0, 6]); // no weekends
+  assert.ok(!days.includes('2026-10-03'), 'Saturday');
+  assert.ok(!days.includes('2026-10-04'), 'Sunday');
+  assert.equal(days.length, 5);
+});
+
+test('avoiding nothing changes nothing', () => {
+  assert.equal(daysIn(WEEK, 120, []).length, 7);
+  assert.equal(daysIn(WEEK).length, 7);
+});
+
+/**
+ * The case that decides whether this helps or hurts. Somebody who rules out
+ * every day in their own window has made a request that cannot be met — and
+ * an empty list would report that as unschedulable work rather than as a clash
+ * worth a phone call.
+ */
+test('ruling out every day returns the days anyway rather than nothing', () => {
+  const days = daysIn(WEEK, 120, [0, 1, 2, 3, 4, 5, 6]);
+  assert.equal(days.length, 7,
+    'a job nobody can place is a conversation, not an empty result');
+});

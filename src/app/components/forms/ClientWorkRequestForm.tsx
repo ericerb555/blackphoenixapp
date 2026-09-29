@@ -175,6 +175,18 @@ interface FormData {
   /** Null until the customer actually states a budget. See the defaults. */
   budgetMin: number | null;
   budgetMax: number | null;
+  /**
+   * When they would like the work. All optional, and all REQUESTS.
+   *
+   * `preferredDate` is a wish. `earliestDate` and `latestDate` are facts about
+   * their world — away until the 10th, needs it before the term starts — and
+   * the scheduler treats them as harder than the wish. `avoidDays` are weekday
+   * numbers, 0 = Sunday.
+   */
+  preferredDate: string;
+  earliestDate: string;
+  latestDate: string;
+  avoidDays: number[];
   budgetPriority: string;
   timeline: string;
   priorityLevel: string;
@@ -339,6 +351,79 @@ export function budgetRangeLabel(
   return lo !== null ? `From $${only.toLocaleString()}` : `Up to $${only.toLocaleString()}`;
 }
 
+const WEEKDAYS = [
+  { day: 1, label: 'Mon' }, { day: 2, label: 'Tue' }, { day: 3, label: 'Wed' },
+  { day: 4, label: 'Thu' }, { day: 5, label: 'Fri' }, { day: 6, label: 'Sat' },
+];
+
+/**
+ * When the work would suit them — and why it says "we will confirm".
+ *
+ * Eric's rule is that a customer may request and Black Phoenix plans. This
+ * screen has to carry that, because a date box with no explanation reads as a
+ * booking: the customer picks the 14th, hears nothing, and believes somebody
+ * is coming on the 14th.
+ *
+ * So the heading asks rather than offers, and the note says plainly that a day
+ * is confirmed afterwards. Every field is optional, because most customers
+ * have no constraint and a required date makes people invent one — and an
+ * invented date is worse than no date, since the scheduler would work around
+ * something nobody actually needs.
+ *
+ * The distinction the fields draw: a PREFERRED day is a wish, while "not
+ * before" and "needed by" are facts about their world. `scheduleWindow` treats
+ * them differently for exactly that reason.
+ */
+function WhenWouldSuit({ formData, updateFormData }: { formData: any; updateFormData: (k: any, v: any) => void }) {
+  const avoid: number[] = Array.isArray(formData.avoidDays) ? formData.avoidDays : [];
+  const toggle = (day: number) =>
+    updateFormData('avoidDays', avoid.includes(day) ? avoid.filter(d => d !== day) : [...avoid, day]);
+
+  return (
+    <div className="mt-4 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4">
+      <h4 className="text-sm font-semibold text-white">When would suit you?</h4>
+      <p className="mb-3 text-xs text-gray-500">
+        All optional. We will look at the work and the crew and confirm a day with you.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className="mb-1 block text-[11px] font-bold uppercase text-gray-500">Day you would like</label>
+          <input type="date" value={formData.preferredDate || ''}
+            onChange={e => updateFormData('preferredDate', e.target.value)}
+            className="w-full rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-bold uppercase text-gray-500">Not before</label>
+          <input type="date" value={formData.earliestDate || ''}
+            onChange={e => updateFormData('earliestDate', e.target.value)}
+            className="w-full rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-bold uppercase text-gray-500">Needed by</label>
+          <input type="date" value={formData.latestDate || ''} min={formData.earliestDate || undefined}
+            onChange={e => updateFormData('latestDate', e.target.value)}
+            className="w-full rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-orange-500" />
+        </div>
+      </div>
+
+      <label className="mb-2 mt-3 block text-[11px] font-bold uppercase text-gray-500">Days that do not work</label>
+      <div className="flex flex-wrap gap-2">
+        {WEEKDAYS.map(({ day, label }) => (
+          <button key={day} type="button" onClick={() => toggle(day)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              avoid.includes(day)
+                ? 'border-red-500/40 bg-red-500/15 text-red-300'
+                : 'border-[#2A2A2A] text-gray-400 hover:border-gray-600'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const initialFormData: FormData = {
   // Project Category & Service Type - NEW
   projectCategory: '',
@@ -465,6 +550,10 @@ const initialFormData: FormData = {
   budgetPriority: 'quality',
   /** Empty for the same reason: unchosen, rather than "within 6 months". */
   timeline: '',
+  preferredDate: '',
+  earliestDate: '',
+  latestDate: '',
+  avoidDays: [],
   priorityLevel: 'standard',
   additionalNotes: '',
   videos: [],
@@ -1085,6 +1174,21 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           interior: formData.interiorStyle,
           colorPalette: formData.colorPalette,
         },
+        /**
+         * When the customer would like it. A REQUEST, not a booking.
+         *
+         * Eric: "they can request but we plan." Nothing here puts anything in
+         * a calendar or holds a crew — `scheduleWindow` reads these as inputs
+         * and the day is proposed from what the crew can actually do.
+         *
+         * Sent as empty strings rather than omitted when unset, so the record
+         * says "asked and not answered" rather than leaving a later reader to
+         * wonder whether the question was put at all.
+         */
+        preferredDate: formData.preferredDate || '',
+        earliestDate: formData.earliestDate || '',
+        latestDate: formData.latestDate || '',
+        avoidDays: Array.isArray(formData.avoidDays) ? formData.avoidDays : [],
         budget_range: {
           min: formData.budgetMin,
           max: formData.budgetMax,
@@ -2275,6 +2379,8 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           <option value="flexible">Flexible</option>
         </select>
       </div>
+
+      <WhenWouldSuit formData={formData} updateFormData={updateFormData} />
     </div>
   );
 
@@ -2460,6 +2566,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             placeholder="e.g. Repaint the upstairs hallway and landing, walls and ceiling. Some patching needed by the window."
             className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-white outline-none transition focus:border-orange-500"
           />
+          <WhenWouldSuit formData={formData} updateFormData={updateFormData} />
         </div>
       )}
 

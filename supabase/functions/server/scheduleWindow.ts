@@ -152,15 +152,56 @@ export function scheduleWindow(input: WindowInput, today: string): ScheduleWindo
   return { earliest, latest, urgency, assumed, label };
 }
 
-/** Every day in the window, so the planner can walk them. */
-export function daysIn(window: ScheduleWindow, cap = 120): string[] {
-  const out: string[] = [];
+/**
+ * Every day in the window, so the planner can walk them.
+ *
+ * `avoidDays` are weekdays the customer said do not work — 0 is Sunday. They
+ * are dropped rather than ranked last: somebody who said Fridays do not work
+ * means it, and offering a Friday because the week was otherwise full is
+ * proposing a day they have already refused.
+ *
+ * If avoiding them empties the window entirely, the days come back anyway and
+ * the caller is told. A job that cannot be placed at all is worth a
+ * conversation; silently returning nothing would have it read as unschedulable
+ * work rather than as a clash worth ringing about.
+ */
+export function daysIn(
+  window: ScheduleWindow,
+  cap = 120,
+  avoidDays: number[] = [],
+): string[] {
+  const all: string[] = [];
   let cursor = window.earliest;
-  while (cursor <= window.latest && out.length < cap) {
-    out.push(cursor);
+  while (cursor <= window.latest && all.length < cap) {
+    all.push(cursor);
     cursor = addDays(cursor, 1);
   }
-  return out;
+  if (!avoidDays?.length) return all;
+
+  const avoid = new Set(avoidDays.map(Number));
+  const kept = all.filter((day) => {
+    const dow = dayOfWeekFor(day);
+    return dow === null || !avoid.has(dow);
+  });
+  return kept.length > 0 ? kept : all;
+}
+
+/**
+ * The weekday for a plain date, computed without a Date object.
+ *
+ * Duplicated from `availability.ts` on purpose rather than imported: this
+ * module is about windows and that one is about people, and a scheduler is not
+ * a place to introduce a circular import for six lines of arithmetic.
+ * Sakamoto's method; 0 = Sunday.
+ */
+function dayOfWeekFor(date: string): number | null {
+  if (!isDate(date)) return null;
+  const y = Number(date.slice(0, 4));
+  const m = Number(date.slice(5, 7));
+  const d = Number(date.slice(8, 10));
+  const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+  const yy = m < 3 ? y - 1 : y;
+  return (yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) + t[m - 1] + d) % 7;
 }
 
 /**
