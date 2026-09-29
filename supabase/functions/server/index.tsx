@@ -230,6 +230,7 @@ import {
   addOnsForTier, monthlyFigure, pricedViewFor, priceIdOfAddOn,
 } from "./planTier.ts";
 import { supersededIds, supersedesMessage } from "./addOnGroups.ts";
+import { contentAddOnPlan, wouldOverwriteEdits, CONTENT_AUDIENCES, CONTENT_RUNGS } from "./contentAddOns.ts";
 import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
 import { groupMaterialLines, lineTotal } from "./purchaseOrderGrouping.ts";
 import { jobOutcome, varianceByTask, proposeRate, MIN_JOBS_TO_LEARN } from "./jobOutcome.ts";
@@ -12568,6 +12569,106 @@ const createStripePrice = (kind: SellableKind) => async (c: any) => {
     return c.json({ error: error?.message || 'Could not create the Stripe price.' }, 500);
   }
 };
+
+/**
+ * Seed the content centre as add-ons across the buying audiences.
+ *
+ * WHY THIS IS A DRY RUN UNLESS TOLD OTHERWISE
+ *
+ * The last route in this system that seeded records wrote twelve invented
+ * cohorts into production, with close to a million dollars of monthly revenue
+ * nobody had earned, onto the screen the company reads its own P&L from. It is
+ * a 410 now. Anything that writes catalogue records in bulk should be readable
+ * before it runs, so `POST` with no body reports exactly what it WOULD write
+ * and changes nothing; `{ "confirm": true }` applies it.
+ *
+ * WHAT IT WILL NOT DO
+ *
+ * It never overwrites a record somebody has edited, and in particular never
+ * one carrying a Stripe price id. Re-running this after the prices exist would
+ * wipe them and leave three rungs nobody can buy — which is the exact state
+ * the content tiers were already in and the reason this work started.
+ *
+ * Nothing it writes is sellable: `active: false` and no Stripe price, matching
+ * how the three content tiers were already authored. Creating the prices and
+ * flipping the flag are deliberate separate acts, done from the tier admin by
+ * somebody holding the Stripe keys.
+ */
+app.post('/make-server-3eae23a6/plan-addons/seed-content', async (c) => {
+  try {
+    const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!token) return c.json({ error: 'Sign in required.' }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return c.json({ error: 'Sign in required.' }, 401);
+    if (!INTAKE_ADMIN_ROLES.has(trustedRole(user))) {
+      return c.json({ error: 'Only an administrator can seed the catalogue.' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const confirm = body?.confirm === true;
+
+    /**
+     * The audience list is fixed in code rather than taken from the request.
+     * Which portals may buy the content centre is a decision, not a parameter,
+     * and a body-supplied list would let a mistyped audience create a
+     * catalogue nobody can see and nobody knows exists.
+     */
+    const planned = contentAddOnPlan();
+
+    const toWrite: string[] = [];
+    const unchanged: string[] = [];
+    const skipped: Array<{ key: string; why: string }> = [];
+
+    for (const { key, record } of planned) {
+      const existing = await kv.get(key) as any;
+      if (wouldOverwriteEdits(existing)) {
+        skipped.push({
+          key,
+          why: String(existing?.stripePriceId || existing?.stripePriceIdTest || '').trim()
+            ? 'carries a Stripe price id'
+            : 'its price has been edited',
+        });
+        continue;
+      }
+      if (existing && JSON.stringify({ ...existing, updatedAt: undefined, updatedBy: undefined })
+        === JSON.stringify({ ...record, updatedAt: undefined, updatedBy: undefined })) {
+        unchanged.push(key);
+        continue;
+      }
+      toWrite.push(key);
+      if (confirm) {
+        await kv.set(key, {
+          ...record,
+          updatedAt: new Date().toISOString(),
+          updatedBy: String(user.email || '').toLowerCase(),
+        });
+      }
+    }
+
+    console.log(
+      `[PlanCatalog] ${user.email} ${confirm ? 'seeded' : 'previewed'} content add-ons: `
+      + `${toWrite.length} to write, ${unchanged.length} unchanged, ${skipped.length} skipped`,
+    );
+
+    return c.json({
+      success: true,
+      applied: confirm,
+      audiences: [...CONTENT_AUDIENCES],
+      rungs: CONTENT_RUNGS.map((r) => ({ id: r.id, name: r.name, priceCents: r.priceCents })),
+      willWrite: toWrite,
+      unchanged,
+      skipped,
+      message: confirm
+        ? `Wrote ${toWrite.length} add-on record(s). None is sellable yet — each needs a `
+          + `Stripe price creating from the tier admin, then its Active box ticking.`
+        : `Dry run. ${toWrite.length} record(s) would be written, ${unchanged.length} already `
+          + `match and ${skipped.length} would be left alone. Send { "confirm": true } to apply.`,
+    });
+  } catch (error: any) {
+    console.error('[PlanCatalog] seed-content error:', error?.message || error);
+    return c.json({ error: error?.message || 'Could not seed the content add-ons.' }, 500);
+  }
+});
 
 app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/stripe-price', createStripePrice('tier'));
 app.post('/make-server-3eae23a6/plan-addons/:audience/:id/stripe-price', createStripePrice('addon'));

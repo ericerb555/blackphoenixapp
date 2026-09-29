@@ -11666,10 +11666,33 @@ catalogue.
       stack. Needs a removal path: drop the Stripe subscription item for the
       one being left, then rewrite `addOnIds`. **Touches live billing — the
       part of this to be most careful with.**
-- [ ] Y4. Author the three as add-ons carrying the limits the tiers carried:
+- [x] Y4. Author the three as add-ons carrying the limits the tiers carried:
       Solo 600 calls / 40 renders / 5 reels / 1 seat, Studio 1,500 / 150 / 20 /
       3, Agency 5,000 / 600 / unlimited reels / 15. One record per buying
       audience, matching how `on-call` is already duplicated across three.
+      Written as code and a **dry-run route**, not applied. Eighteen records —
+      three rungs across the six audiences — from `contentAddOns.ts`, carrying
+      the tiers' prices and ceilings verbatim. `POST /plan-addons/seed-content`
+      reports what it would write and changes nothing; `{confirm:true}` applies.
+      Admin-gated on `trustedRole`, and the audience list is fixed in code
+      rather than taken from the body — which portals may buy this is a
+      decision, not a parameter, and a mistyped audience would create a
+      catalogue nobody can see.
+
+      It never overwrites a record carrying a Stripe price id. Re-running it
+      after the prices exist would wipe them and leave three rungs nobody can
+      buy — the exact state the content tiers were already in, and the reason
+      this work started.
+
+      **One thing the tiers got away with and an add-on cannot.** Agency
+      published no `reelsPerMonth` key and sold "unlimited reels" in its
+      features, which worked only because `withinLimit` reads an absent key as
+      unmetered. As a *delta* that reading inverts: a key the add-on does not
+      publish is one it says nothing about, so the buyer would fall back to
+      their own plan's ceiling. The add-on says `reelsPerMonth: 0` out loud.
+
+      Nothing seeded is sellable: `active: false` and no Stripe price, matching
+      how the tiers were authored. Prices and the Active box are Y6.
       **Which audiences may buy it is still Eric's to say** — vendor and
       customer at least; the on-call precedent is landlord, property_manager
       and condo_association.
