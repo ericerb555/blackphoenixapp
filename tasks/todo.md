@@ -1,3 +1,101 @@
+# PLAN — the scheduling assistant
+
+Eric: *"make sure we have a scheduling AI assistant that helps keep everything
+running smoothly. use what is built but tweak if you as a scheduling master see
+fit. we will set it up to know how many techs and linked to the portals for
+scheduled time off and call outs."*
+
+Decided with him: auto for the simple and ask for the hard; capacity from the
+employee records; time off requested by the tech and approved by an admin; a
+call-out reassigns automatically where it can.
+
+## The tweak I would make, as the scheduling part of this
+
+**Do not ask a language model to do the constraint solving.**
+
+Who can take a job on Tuesday is arithmetic: is this person on approved leave,
+have they called out, are they already booked, does the job fit their day, do
+they hold the trade. A model asked that question will be right most of the time
+and subtly wrong occasionally — and the failure is a crew sent to the wrong
+place, or a customer promised a slot nobody can work.
+
+So the feasible set is computed DETERMINISTICALLY and is testable. The model is
+used where it is actually better than code: explaining a proposal in a sentence,
+ranking equally valid options, and handling the messy human input ("Dave can do
+mornings this week"). That also makes the whole thing cheap — scheduling runs
+constantly, and a model call per decision is a bill.
+
+This is the same split that already works elsewhere here: `aiCeiling` decides,
+`aiSpend` fetches; `quoteMath` computes, the component renders.
+
+## What already exists and is reused
+
+    appointment:<id>        the booking store — routes exist, 0 records
+    time_employee:<id>      the roster, and therefore CAPACITY
+    wr:<id>                 the work needing a slot
+    measuredHours           HOW LONG a job actually takes, learned from
+                            finished jobs — the input a scheduler needs most,
+                            and already built
+    MasterScheduling.tsx    2,290 lines of calendar, shift and assign UI
+    on-call rota config     who covers emergencies
+
+## What is missing
+
+    unavailability          time off and call-outs — no store, no surface
+    the join                MasterScheduling's employees are a hardcoded mock
+                            array with no setter (line 145), the same pattern
+                            as the HR seeds just deleted
+    any assistant           nothing in scheduling calls a model today
+
+## The shape
+
+**One record for "this person cannot work then":**
+
+    unavailability:<id>  { employeeId, from, to, kind, status, reason,
+                           requestedBy, decidedBy, decidedAt }
+
+    kind    'time_off'  requested ahead, admin approves
+            'call_out'  same day, the tech declares it, no approval to wait for
+    status  'requested' | 'approved' | 'declined' | 'cancelled'
+
+One type rather than two stores, because the scheduler asks one question of it —
+is this person available — and two stores means two places to forget to check.
+
+**One function that answers availability**, pure and tested, taking the roster,
+the unavailability records and the existing appointments. Everything else reads
+it: the calendar, the assistant, the call-out handler.
+
+## Items
+
+- [ ] 1. `availability.ts` — the deterministic core, as a tested `.ts`: who can
+      work what, when. Includes the rule that UNKNOWN WORKING HOURS must not
+      mean unavailable, or an incomplete roster silently empties the schedule.
+- [ ] 2. `unavailability:` store and its admin-gated routes: request, approve,
+      decline, cancel. Only `approved` time off blocks a slot; a `call_out`
+      blocks immediately.
+- [ ] 3. Employee portal: request time off, see its status, declare a call-out.
+- [ ] 4. Admin surface: the pending requests, approve or decline.
+- [ ] 5. MasterScheduling reads the REAL roster and real availability, replacing
+      the mock array.
+- [ ] 6. The assistant: proposes a day or week, auto-commits only where exactly
+      one sensible answer exists, and explains each choice in a sentence.
+- [ ] 7. Call-out handling: reassign automatically where a single qualified tech
+      is free; flag the rest. Every automatic move recorded with its reason and
+      reversible.
+
+## Deliberately not in this pass
+
+**Telling the customer.** Moving a job between techs is not the same as telling
+the customer it moved. Automatic reassignment changes a promise already made,
+and the notification should stay a separate, deliberate step until Eric says
+otherwise.
+
+**Travel time and routing.** Genuinely valuable and a different problem —
+geography, drive times, clustering by area. It wants its own pass rather than
+being smuggled into this one.
+
+---
+
 # PLAN — one money spine: everything through cohorts
       Done. `group` says two add-ons are alternatives; `groupRank` says which
       way is up — **stated, not inferred from price**, because an annual rung
