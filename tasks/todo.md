@@ -12089,3 +12089,71 @@ already dead before this change — nothing has referenced `<SubscriptionCard />
 for some time — so removing them is tidying rather than fixing, and it is the
 kind of unasked-for edit that has broken a screen here before. Worth doing
 with V0f, when the remaining four mock tabs are dealt with properly.
+
+## Z — the owner actually gets his messages
+
+Eric, 29 Sep: *"yes i should have a message tab and i should get a pop up when
+i log in of any new messages it should generate an email as well."*
+
+### What is wrong today
+
+Four conversations exist. **Eric has never been able to see any of them**, and
+one is a real customer (Wanda Atherton, two threads, June, no reply).
+
+1. **The page 401s for everybody.** `Messaging.tsx` authenticates with
+   `publicAnonKey`. The global auth gate puts `/messaging` in the `user` tier,
+   which needs a real signed-in token. Verified live against the deployed
+   function: `{"success":false,"error":"Sign in required."}`.
+2. **The inbox looks for an id nothing writes.** It asks for conversations
+   whose participant is `blackphoenix-admin`. Of the four that exist, the
+   admin side is recorded as the literal `admin` (×2) or Eric's auth UUID
+   `1a9f3ae4…` (×2). None matches. So even with auth fixed it shows nothing.
+3. **No link to it.** The Owner's Dashboard has no messages tab; the page is
+   reachable only by typing `/messages`.
+4. **SECURITY — no ownership check at all.**
+   `GET /messaging/conversations/:convId/messages` takes a conversation id and
+   returns every message in it. The only gate is the blanket "are you signed
+   in". So any signed-in vendor, tenant or customer can read any other
+   account's conversation if they know or guess an id — and the ids are
+   `conv_{timestamp}`. This is the one item here that is not a feature
+   request, and it should go first.
+
+### What already exists and must be reused, not rebuilt
+
+- **`notifyStaff` / `notifyStaffInBackground`** in `staff-notifications.tsx` —
+  a working engine that emails the team on `signup`, `payment`,
+  `work_request`, `emergency` and `application`. It is **live**: 55 sends
+  logged, most recent a work request on 28 Sep. Recipients come from
+  `ADMIN_NOTIFICATION_EMAILS` (no stored recipient list yet), which is the
+  owner's safety net and cannot be switched off from the UI. A new message is
+  a sixth event, not a second mailer.
+- **`authedHeaders()`** — the fix for (1), the same one the cohort screen uses.
+- The Owner's Dashboard tab pattern in `OwnersDashboard.tsx`.
+
+### The work
+
+- [ ] Z1. **Close the read hole first.** `:convId/messages` and
+      `conversations/:userId` must check the caller: staff may read the staff
+      inbox, and everybody else may read only conversations they participate
+      in. Fail closed. Pure predicate, tested, so "who may read this thread"
+      is one function rather than a condition in two handlers.
+- [ ] Z2. **The staff inbox stops hunting for a magic id.** For a staff
+      caller, return conversations having any `admin`-role participant. That
+      catches all three historical spellings and anything future. Keep
+      `blackphoenix-admin` working so nothing that writes it breaks.
+- [ ] Z3. `Messaging.tsx` sends `authedHeaders()` instead of the anon key, and
+      stops hardcoding `ADMIN_ID` for the fetch.
+- [ ] Z4. **A Messages tab** on the Owner's Dashboard, with an unread count on
+      the label so it is visible without opening it.
+- [ ] Z5. **A pop-up on sign-in** when unread messages are waiting — count,
+      who from, and a way straight to the thread. Once per session, not on
+      every render.
+- [ ] Z6. **An email on a new inbound message**, through `notifyStaff` with a
+      sixth event `message`. Only for messages FROM a customer — emailing the
+      owner about his own replies is how somebody turns the alerts off.
+
+### Worth deciding before Z5
+
+A pop-up every login is welcome when there is one new message and tiresome
+when there are none. Proposal: show it only when the unread count is above
+zero, and never twice for the same messages in one session.
