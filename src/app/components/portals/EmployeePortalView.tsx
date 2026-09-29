@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner@2.0.3';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
+import TimeOffPanel from '../schedule/TimeOffPanel';
 
 const TIME_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking`;
 import {
@@ -753,6 +754,13 @@ export default function EmployeePortalView() {
         {/* Schedule Tab */}
         {activeTab === 'schedule' && (
           <div className="space-y-6">
+            {/*
+              Time off sits above the calendar rather than below it, because
+              the two moments a technician opens this tab are "when am I on"
+              and "I cannot come in" — and the second one is urgent.
+            */}
+            <TimeOffPanel />
+
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-white mb-1">My Schedule</h2>
