@@ -11583,3 +11583,71 @@ business questions that block it are in `tasks/plan-catalogue-unification.md`.
 
 **Waiting on Eric to verify the plan before anything is built.**
 
+
+## Y — selling the content centre as an add-on
+
+Eric's ruling, 28 Sep: the content centre is bought **on top of the portal an
+account already has**, not as a portal of its own. So Solo, Studio and Agency
+stop being `plan_tier:content:*` and become add-ons in each buying audience's
+catalogue.
+
+### Why they cannot be sold today — four blockers, found by the dry run
+
+1. **No Stripe prices.** All three are `active: false` with no `stripePriceId`
+   and no `stripePriceIdTest`. The vendor tiers have both.
+2. **Nobody can reach them.** The buying surface (`PortalTrialBanner`) fetches
+   `plan-tiers?audience={the account's own portalType}`, and `content` is
+   absent from `OWNER_PROVISION_PORTALS`, from the `allowedRoles` set in
+   `/auth/me`, and from `portalHomePages`. No account can be on that audience,
+   so nothing could ever list them. **The add-on route sidesteps this
+   entirely** — an add-on is read from the buyer's own audience catalogue.
+3. **`PlanAddOn.limits` is documented and unimplemented.** The type says the
+   ceilings are *"merged over the tier's own limits… as a delta"*. Nothing
+   merges them. `aiSpend` reads `tier.limits[key]` and `planLimits` reads
+   `tier.limits` — neither looks at a held add-on. So a content add-on would
+   be sold and grant no extra capacity at all. **This is the blocking one:
+   without it the add-on is a charge for nothing.**
+4. **They are a ladder, and add-ons are additive.** `addOnIds` is a flat list,
+   so nothing stops an account holding Solo *and* Studio *and* Agency, paying
+   for all three. There is also **no remove route** — only
+   `POST /plan-add-on` — so an upgrade from Solo to Studio cannot drop Solo,
+   in our records or in Stripe.
+
+### The work
+
+- [ ] Y1. `effectiveLimits(tier, heldAddOns)` — pure and tested. Merges each
+      held add-on's limits over the tier's as a delta, which is what the type
+      has always promised. Highest wins where both name a key, and a key only
+      the add-on names is granted. This is the piece that makes an add-on
+      worth buying.
+- [ ] Y2. `aiSpend.ceilingFor` and `planLimits` resolve through `Y1` instead of
+      reading the tier directly, so holding the content add-on actually raises
+      the AI-call, render and reel ceilings above the free backstop (300 calls,
+      10 renders).
+- [ ] Y3. A `group` on `PlanAddOn`, and mutual exclusion within it. Buying
+      `content-studio` while holding `content-solo` must replace rather than
+      stack. Needs a removal path: drop the Stripe subscription item for the
+      one being left, then rewrite `addOnIds`. **Touches live billing — the
+      part of this to be most careful with.**
+- [ ] Y4. Author the three as add-ons carrying the limits the tiers carried:
+      Solo 600 calls / 40 renders / 5 reels / 1 seat, Studio 1,500 / 150 / 20 /
+      3, Agency 5,000 / 600 / unlimited reels / 15. One record per buying
+      audience, matching how `on-call` is already duplicated across three.
+      **Which audiences may buy it is still Eric's to say** — vendor and
+      customer at least; the on-call precedent is landlord, property_manager
+      and condo_association.
+- [ ] Y5. Withdraw `plan_tier:content:{solo,studio,agency}` once the add-ons
+      carry their limits, so there is one place the content centre is sold
+      from rather than two that can disagree.
+- [ ] Y6. Eric creates the Stripe prices from the tier admin — test first,
+      rehearse a checkout, then live. Requires the Stripe keys, so it cannot
+      be done from here.
+
+### Worth saying plainly
+
+The content centre page itself (`EnterpriseContentCenter`, at `/content-center`)
+is **not gated by anything**. What the tiers actually sell is metered capacity
+— AI calls, renders, reels, seats — enforced by `aiSpend`, not access to the
+screen. That is a coherent product, but if the intent was that non-subscribers
+should not reach the content centre at all, that gate does not exist and is
+not in this plan.
