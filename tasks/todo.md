@@ -12405,3 +12405,31 @@ clicking, not after.
 caller says `live`, because the cost of an accidental test price is a second
 click and the cost of an accidental live one is a plan somebody can buy for
 real money before it has been rehearsed once.
+
+**Rate records fixed, 29 Sep — Eric: "yes we need the rate records we want it."**
+
+The `visible` field is now settled at all three points a rate passes through,
+and the backfill repaired the thirteen already stored. The loop that caused it
+is described in the commit: loading set the field to undefined, saving dropped
+the undefined key, loading found it missing again. Nothing in that circle would
+have broken it.
+
+Absent means visible, deliberately — a rate somebody set is one they mean to
+quote with, and the other default would silently drop a trade out of every
+quote. `normaliseLaborRates` is tested, including that a junk rate normalised
+to zero must not make the server think the company has set its rate card.
+
+Edge function deployed; the earlier 401 was transient.
+
+**Verified in the database, not through the API.** `/labor-rates/get` requires
+a signed-in session, so the check was against the stored record itself — the
+same value `resolveLaborRates` reads. Thirteen rates, every one carrying
+`visible: true`, power washing at 55.
+
+**Found on the way and NOT fixed:** `quote-from-blueprint.tsx` reads its rates
+from `labor_rates_config`, which does not exist in the store. Everything else
+reads `labor_rates:global`. So a quote generated from a blueprint falls back to
+that file's own hardcoded defaults and charges carpentry at 65 while Eric's
+rate is 70 — his rates reach every quoting path except that one. A one-key
+change, but it moves what a blueprint quote charges, so it needs his word
+first.
