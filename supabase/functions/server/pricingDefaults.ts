@@ -22,7 +22,19 @@
  * `your-rate`, and the summary reports the two separately.
  */
 
-export interface StandardRate { id: string; category: string; hourlyRate: number }
+export interface StandardRate {
+  id: string;
+  category: string;
+  hourlyRate: number;
+  /**
+   * Whether this trade is offered on a quote. Absent means YES.
+   *
+   * Stored explicitly rather than left off, because the screen's own toggle
+   * says "Hide from quotes" and a rate record that cannot say which it is
+   * leaves that toggle reading undefined — see `normaliseLaborRates`.
+   */
+  visible?: boolean;
+}
 
 /**
  * Trade rates for southern New Hampshire and northern Massachusetts.
@@ -87,6 +99,38 @@ export const STANDARD_PRICING = {
  * `usingStandards` is returned rather than inferred by the caller, because the
  * whole point is that a quote can say which it used.
  */
+/**
+ * Rate records as they should be STORED.
+ *
+ * The reason this exists is a loop that fed itself. The rates screen merged a
+ * saved record over its defaults with `visible: savedRate.visible`, the saved
+ * records carried no such key, so every rate came back `undefined` — and on
+ * the next save `JSON.stringify` dropped the undefined key again. Twelve of
+ * Eric's own rates sat in that state, rendered at half opacity under a header
+ * reading "1 active rates configured", and nothing would have broken the cycle
+ * on its own.
+ *
+ * So `visible` is settled here, on the way in, where a client that forgets to
+ * send it cannot recreate the state. Absent means VISIBLE: a rate somebody
+ * took the trouble to set is one they intend to quote with, and defaulting the
+ * other way would quietly drop a trade out of every quote.
+ */
+export function normaliseLaborRates(rates: unknown): StandardRate[] {
+  if (!Array.isArray(rates)) return [];
+  return rates
+    .filter((rate: any) => rate && typeof rate === 'object' && rate.id)
+    .map((rate: any) => ({
+      id: String(rate.id),
+      category: String(rate.category || rate.id),
+      hourlyRate: Number.isFinite(Number(rate.hourlyRate)) && Number(rate.hourlyRate) >= 0
+        ? Number(rate.hourlyRate)
+        : 0,
+      // Only an explicit false hides a trade. Anything else — true, absent,
+      // null, a string from an older client — means it is quoted with.
+      visible: rate.visible !== false,
+    }));
+}
+
 export function resolveLaborRates(saved: any): { rates: StandardRate[]; usingStandards: boolean } {
   const list = Array.isArray(saved?.laborRates) ? saved.laborRates : [];
   const usable = list.filter((r: any) => r && r.id && Number(r.hourlyRate) > 0);

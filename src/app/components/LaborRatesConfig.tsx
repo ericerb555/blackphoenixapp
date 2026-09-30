@@ -100,7 +100,12 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
           // Merge saved rates with defaults (in case new categories were added)
           const mergedRates = laborRates.map(defaultRate => {
             const savedRate = data.laborRates.find((r: any) => r.id === defaultRate.id);
-            return savedRate ? { ...defaultRate, hourlyRate: savedRate.hourlyRate, visible: savedRate.visible } : defaultRate;
+            // `visible` absent means shown. Reading it straight through set every
+            // saved rate to undefined, which the next save then dropped again —
+            // a loop that left twelve real rates reading as neither.
+            return savedRate
+              ? { ...defaultRate, hourlyRate: savedRate.hourlyRate, visible: savedRate.visible !== false }
+              : defaultRate;
           });
           setLaborRates(mergedRates);
         }
@@ -136,7 +141,10 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
               id,
               category,
               hourlyRate,
-              visible
+              // A boolean, never undefined: JSON.stringify drops an undefined
+              // key entirely, which is how the record lost this field to begin
+              // with.
+              visible: visible !== false
             })),
             profitSettings,
             lastSaved: new Date().toISOString()

@@ -258,7 +258,7 @@ import { safeFetch } from "./outboundGuard.ts";
 import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry, remindersDue } from "./compliance.ts";
 import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
-import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
+import { resolveLaborRates, resolvePricing, normaliseLaborRates } from './pricingDefaults.ts';
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
@@ -5272,7 +5272,9 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
       return c.json({ success: false, error: 'Administrator access is required to change labour rates.' }, 403);
     }
     const body = await c.req.json().catch(() => ({}));
-    const laborRates = Array.isArray(body.laborRates) ? body.laborRates : [];
+    // Settled here rather than trusted as posted, so a client that omits
+    // `visible` cannot store a rate that reads as neither shown nor hidden.
+    const laborRates = normaliseLaborRates(body.laborRates);
     const profitSettings = body.profitSettings || null;
     const lastSaved = String(body.lastSaved || new Date().toISOString());
     await kv.set('labor_rates:global', { laborRates, profitSettings, lastSaved, updatedAt: new Date().toISOString() });
