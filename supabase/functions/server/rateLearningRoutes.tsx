@@ -40,6 +40,7 @@ import {
   type CatalogueTask, type MeasuredRate,
 } from "./rateLearning.ts";
 import { tradeFactorsFrom } from "./measuredHours.ts";
+import { mergeServerCatalogue } from "./serverCatalogue.ts";
 
 export const rateLearningRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -71,44 +72,27 @@ function staffOnly(c: any): { email: string } | null {
  * claimed by a caller in either direction.
  */
 async function serverCatalogue(): Promise<CatalogueTask[]> {
-  const published = (await kv.get(CATALOGUE_KEY)) as any;
-  const edited = (await kv.get(EDITED_KEY)) as any;
-
-  const editedById = new Map<string, any>();
-  for (const t of (edited?.tasks || [])) {
-    if (t?.id) editedById.set(String(t.id), t);
-  }
-
-  const out: CatalogueTask[] = [];
-  const seen = new Set<string>();
-
-  for (const t of (published?.tasks || [])) {
-    const id = String(t?.id || "");
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const mine = editedById.get(id);
-    out.push({
-      id,
-      tradeId: String(mine?.tradeId ?? t?.tradeId ?? ""),
-      name: String(mine?.name ?? t?.name ?? id),
-      hoursPerUnit: Number(mine?.hoursPerUnit ?? t?.hoursPerUnit) || 0,
-      source: mine ? "yours" : "seed",
-    });
-  }
-
-  // Anything somebody added that was never in the published catalogue.
-  for (const [id, t] of editedById) {
-    if (seen.has(id)) continue;
-    out.push({
-      id,
-      tradeId: String(t?.tradeId || ""),
-      name: String(t?.name || id),
-      hoursPerUnit: Number(t?.hoursPerUnit) || 0,
-      source: "yours",
-    });
-  }
-
-  return out;
+  /*
+   * The merge rule itself lives in `serverCatalogue.ts`.
+   *
+   * The blueprint quoter needs the same merged catalogue — and needs the fields
+   * this loop discards, `unit`, `crewSize` and `minimumHours`, because it has
+   * to price the work as well as learn from it. Two implementations of "an edit
+   * wins, and a task is somebody's own if and only if it is in the editor's
+   * store" would eventually disagree about a customer's price, so there is one,
+   * and this narrows its result to what the loop cares about.
+   */
+  const merged = mergeServerCatalogue(
+    await kv.get(CATALOGUE_KEY),
+    await kv.get(EDITED_KEY),
+  );
+  return merged.map((t) => ({
+    id: t.id,
+    tradeId: t.tradeId,
+    name: t.name,
+    hoursPerUnit: t.hoursPerUnit,
+    source: t.source,
+  }));
 }
 
 async function readMeasured(): Promise<MeasuredRate[]> {
@@ -185,13 +169,28 @@ rateLearningRouter.post(`${PREFIX}/labor-tasks/catalogue`, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const incoming = Array.isArray(body?.tasks) ? body.tasks : [];
 
-    // Sanitised field by field: these numbers multiply into a customer's price.
+    /*
+     * Sanitised field by field: these numbers multiply into a customer's price.
+     *
+     * `minimumHours` and `crewSize` were NOT carried here until now, and the
+     * omission mattered more than it looks. The minimum is the floor that stops
+     * a 20 sq ft tile patch being priced as a quarter of an hour instead of the
+     * trip, setup, cut station and return to grout that it really is — it is
+     * where a renovation business loses money. Published without it, every
+     * server-side estimate priced small work at the bare per-unit figure.
+     *
+     * Crew size never touches the cost (see `laborMath.ts` on man-hours); it is
+     * carried because it says how many days the work occupies the calendar, and
+     * a zero would divide by nothing.
+     */
     const tasks = incoming.slice(0, 500).map((t: any) => ({
       id: String(t?.id ?? "").slice(0, 80),
       tradeId: String(t?.tradeId ?? "").slice(0, 60),
       name: String(t?.name ?? "").slice(0, 160),
       unit: String(t?.unit ?? "each").slice(0, 20),
       hoursPerUnit: Math.max(0, Math.min(1000, Number(t?.hoursPerUnit) || 0)),
+      minimumHours: Math.max(0, Math.min(2000, Number(t?.minimumHours) || 0)),
+      crewSize: Math.max(1, Math.min(50, Number(t?.crewSize) || 1)),
     })).filter((t: any) => t.id && t.tradeId);
 
     await kv.set(CATALOGUE_KEY, {

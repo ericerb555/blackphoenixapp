@@ -6,7 +6,11 @@
  */
 
 import { Hono } from 'npm:hono@4';
-import { rateForRole, blueprintPricing } from './blueprintRates.ts';
+import { rateForRole, rateForTrade, blueprintPricing } from './blueprintRates.ts';
+import { blueprintTakeoff } from './blueprintTakeoff.ts';
+import { mergeServerCatalogue, findTask } from './serverCatalogue.ts';
+import { resolveCatalogue } from './rateLearning.ts';
+import { estimateTaskLabor } from './laborMath.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
@@ -147,25 +151,36 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
      */
 
     /**
-     * READ THIS BEFORE TRUSTING THE HOURS BELOW.
+     * THE HOURS COME FROM THE CATALOGUE NOW.
      *
-     * `0.5 hours per square foot`, `squareFootage * 0.15` for carpentry, and the
-     * fallback hourly rates above are figures that were typed into this file.
-     * They are not Black Phoenix's measured production rates and not an
-     * industry table anybody can cite — which is exactly the problem
-     * `laborTasks.ts` was written to solve, with per-trade man-hours marked
-     * `source: 'seed'` or `source: 'yours'` so the difference is visible.
+     * This route used to multiply square footage by figures typed into this
+     * file — 0.5 hours per square foot overall, 0.15 for carpentry, 0.08 for
+     * painting — and said so in a comment explaining that they were neither
+     * measured nor citable.
      *
-     * This route predates that module and still does its own arithmetic. The
-     * quote it produces is therefore marked `binding: false` with
-     * `provenance: 'blueprint-analysis'`, it is a draft, and it goes to the
-     * office rather than to the customer. That is survivable for an internal
-     * first pass and is not survivable on a quote anybody sends.
+     * Every labour line below is now a TASK from the server's own catalogue,
+     * quantified by `blueprintTakeoff` from what was actually read off the
+     * drawing, and priced with `estimateTaskLabor` — the same arithmetic, the
+     * same minimum-hours floor, as the design centre. Where the learning loop
+     * has corrected a production rate from finished jobs, that correction is
+     * what prices this quote.
      *
-     * The correct fix is to price this through `laborTasks`, the same as every
-     * other estimate. Until that is done, treat these hours as a placeholder.
+     * IT IS STILL A DRAFT, AND STILL `binding: false`.
+     *
+     * Catalogue hours make it defensible; they do not make it checked. It
+     * remains a language model reading a drawing, and a misread room dimension
+     * is wrong however well the hours derive from it. What has changed is that
+     * a reviewer can now see WHICH number to doubt: every line names the field
+     * it came from and whether anything about it was assumed.
      */
-    const estimatedTotalHours = squareFootage * 0.5; // ~0.5 hours per sq ft
+    /*
+     * Project management is the one line that is NOT a catalogue task.
+     *
+     * There is no production rate for coordinating a job — it scales with the
+     * job's size and duration rather than with a quantity of anything. So it
+     * keeps the figure this route always used, and `rateForRole` reports it as
+     * `typed` rather than dressing it up as a rate somebody set.
+     */
     const projectManagementHours = Math.max(40, squareFootage / 50);
 
     // Project management
@@ -181,85 +196,67 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
       editable: true
     });
 
-    // Carpentry (if materials include framing/cabinets)
-    if (blueprintAnalysis.materials?.some((cat: any) => 
-      cat.category === 'Cabinetry' || cat.category === 'Framing' || cat.category === 'Doors & Windows'
-    )) {
-      const carpenterRate = rateForRole('Lead Carpenter', rateCard, usingStandards, 65).hourlyRate;
-      const carpentryHours = Math.round(squareFootage * 0.15);
+    /*
+     * Every other labour line, from the drawing through the catalogue.
+     *
+     * The takeoff decides WHAT and HOW MUCH; the catalogue decides how long a
+     * unit of it takes; the rate card decides what an hour of that trade costs.
+     * Three separate questions, each answered by the thing that owns it, which
+     * is what the typed multipliers were standing in for.
+     */
+    const takeoff = blueprintTakeoff(blueprintAnalysis);
+    const catalogue = resolveCatalogue(
+      mergeServerCatalogue(
+        await kv.get('labor_tasks:catalogue'),
+        await kv.get('labor_tasks:global'),
+      ),
+      ((await kv.get('labor_tasks:measured')) as any)?.rates || [],
+    );
+
+    const takeoffNotes: string[] = [...takeoff.notes];
+
+    for (const line of takeoff.lines) {
+      const task = findTask(catalogue as any, line.taskId);
+      if (!task) {
+        // A task the takeoff knows and the published catalogue does not. Said
+        // out loud rather than skipped silently: it means work nobody priced.
+        takeoffNotes.push(`${line.taskId} is not in the published catalogue, so `
+          + `${line.quantity} ${line.from} went unpriced. Re-publish the catalogue.`);
+        continue;
+      }
+      if (!(task.hoursPerUnit > 0)) {
+        takeoffNotes.push(`${task.name} has no production rate recorded, so it is not priced.`);
+        continue;
+      }
+
+      const rate = rateForTrade(task.tradeId, rateCard, usingStandards, 0);
+      const estimate = estimateTaskLabor(task, line.quantity, rate.hourlyRate);
+      if (!(estimate.hours > 0)) continue;
+
       quoteLaborItems.push({
         id: `l${laborIndex++}`,
-        role: 'Lead Carpenter',
-        description: 'Cabinet installation, trim work, and carpentry',
-        hours: carpentryHours,
-        hourlyRate: carpenterRate,
-        total: carpentryHours * carpenterRate,
+        role: task.name,
+        description: `${line.quantity} ${task.unit} — from ${line.from}`
+          + (line.assumed ? ' (assumed)' : '')
+          + (estimate.minimumApplied ? '. Minimum call-out applied.' : ''),
+        hours: estimate.hours,
+        hourlyRate: rate.hourlyRate,
+        total: estimate.cost,
         visible: true,
-        editable: true
+        editable: true,
+        /* Provenance, so whoever checks the draft can see what to doubt. */
+        taskId: task.id,
+        tradeId: task.tradeId,
+        quantity: line.quantity,
+        unit: task.unit,
+        derivedFrom: line.from,
+        assumed: line.assumed,
+        minimumApplied: estimate.minimumApplied,
+        rateSource: rate.source,
+        hoursSource: (task as any).resolvedFrom || task.source,
+        because: (task as any).because || undefined,
       });
     }
-
-    // Electrical (based on construction details)
-    if (blueprintAnalysis.constructionDetails?.electricalOutlets > 0) {
-      const electricianRate = rateForRole('Electrician', rateCard, usingStandards, 95).hourlyRate;
-      const electricalHours = Math.max(16, blueprintAnalysis.constructionDetails.electricalOutlets * 0.5);
-      quoteLaborItems.push({
-        id: `l${laborIndex++}`,
-        role: 'Licensed Electrician',
-        description: `Electrical work - ${blueprintAnalysis.constructionDetails.electricalOutlets} outlets/fixtures`,
-        hours: Math.round(electricalHours),
-        hourlyRate: electricianRate,
-        total: Math.round(electricalHours * electricianRate),
-        visible: true,
-        editable: true
-      });
-    }
-
-    // Plumbing (based on construction details)
-    if (blueprintAnalysis.constructionDetails?.plumbingFixtures > 0) {
-      const plumberRate = rateForRole('Plumber', rateCard, usingStandards, 105).hourlyRate;
-      const plumbingHours = Math.max(12, blueprintAnalysis.constructionDetails.plumbingFixtures * 2);
-      quoteLaborItems.push({
-        id: `l${laborIndex++}`,
-        role: 'Licensed Plumber',
-        description: `Plumbing work - ${blueprintAnalysis.constructionDetails.plumbingFixtures} fixtures`,
-        hours: Math.round(plumbingHours),
-        hourlyRate: plumberRate,
-        total: Math.round(plumbingHours * plumberRate),
-        visible: true,
-        editable: true
-      });
-    }
-
-    // Painting (almost always needed)
-    const painterRate = rateForRole('Painter', rateCard, usingStandards, 50).hourlyRate;
-    const paintingHours = Math.round(squareFootage * 0.08);
-    if (paintingHours > 0) {
-      quoteLaborItems.push({
-        id: `l${laborIndex++}`,
-        role: 'Professional Painter',
-        description: 'Interior painting and finishing',
-        hours: paintingHours,
-        hourlyRate: painterRate,
-        total: paintingHours * painterRate,
-        visible: true,
-        editable: true
-      });
-    }
-
-    // General labor for cleanup and support
-    const laborRate = rateForRole('General Labor', rateCard, usingStandards, 40).hourlyRate;
-    const generalLaborHours = Math.round(squareFootage * 0.05);
-    quoteLaborItems.push({
-      id: `l${laborIndex++}`,
-      role: 'General Labor',
-      description: 'Site cleanup, material handling, and support',
-      hours: generalLaborHours,
-      hourlyRate: laborRate,
-      total: generalLaborHours * laborRate,
-      visible: true,
-      editable: true
-    });
 
     // Calculate totals
     const laborTotal = quoteLaborItems.reduce((sum, item) => sum + item.total, 0);
@@ -289,6 +286,13 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
         subtotal,
         tax,
         total
+      },
+      /* What the takeoff measured and what it had to assume. On the quote
+         rather than only in the log, because the person checking the draft is
+         not the person who ran it. */
+      takeoff: {
+        measurements: takeoff.measurements,
+        notes: takeoffNotes,
       },
       blueprintAnalysis: {
         totalSquareFootage: blueprintAnalysis.totalSquareFootage,

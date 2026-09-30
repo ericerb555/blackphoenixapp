@@ -81,6 +81,28 @@ export function rateForRole(
     return { hourlyRate: fallback, source: 'typed', tradeId: null };
   }
 
+  return rateForTrade(tradeId, rates, usingStandards, fallback);
+}
+
+/**
+ * The hourly rate for a TRADE, which is what a catalogue task carries.
+ *
+ * The blueprint quoter prices tasks now rather than roles, and a task names its
+ * trade directly — so this is the lookup that actually does the work, and
+ * `rateForRole` is the thin shim over it for the one line that is a role and
+ * not a task.
+ */
+export function rateForTrade(
+  tradeId: string,
+  rates: StandardRate[],
+  usingStandards: boolean,
+  typedFallback: number,
+): RoleRate {
+  const fallback = Number.isFinite(Number(typedFallback)) && Number(typedFallback) > 0
+    ? Number(typedFallback)
+    : 0;
+  if (!tradeId) return { hourlyRate: fallback, source: 'typed', tradeId: null };
+
   const found = (rates || []).find((rate) => rate?.id === tradeId);
   const usable = found && found.visible !== false && Number(found.hourlyRate) > 0;
   if (!usable) return { hourlyRate: fallback, source: 'typed', tradeId };

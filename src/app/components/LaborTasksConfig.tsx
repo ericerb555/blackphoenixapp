@@ -66,8 +66,20 @@ export default function LaborTasksConfig() {
       void fetch(`${SERVER}/labor-tasks/catalogue`, {
         method: 'POST', headers,
         body: JSON.stringify({
+          /*
+           * minimumHours and crewSize go up too, and leaving them out was a
+           * quiet mispricing rather than an omission.
+           *
+           * The minimum is the floor that makes a 20 sq ft tile patch cost a
+           * trip rather than a quarter of an hour. Without it on the server,
+           * every server-side estimate — the blueprint quoter now among them —
+           * priced small work at the bare per-unit figure, which is precisely
+           * where a renovation business loses money.
+           */
           tasks: SEED_TASKS.map(t => ({
-            id: t.id, tradeId: t.tradeId, name: t.name, unit: t.unit, hoursPerUnit: t.hoursPerUnit,
+            id: t.id, tradeId: t.tradeId, name: t.name, unit: t.unit,
+            hoursPerUnit: t.hoursPerUnit,
+            minimumHours: t.minimumHours, crewSize: t.crewSize,
           })),
         }),
       }).catch(() => { /* the editor still works without the learning loop */ });
