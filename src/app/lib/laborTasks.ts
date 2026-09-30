@@ -50,6 +50,7 @@ export const TRADE_LABELS: Record<string, string> = {
   plumbing: 'Plumbing', laboring: 'General Labour', sheetrock: 'Drywall & Taping',
   siding: 'Siding', roofing: 'Roofing', tile: 'Tile', flooring: 'Flooring',
   masonry: 'Masonry', hvac: 'HVAC',
+  power_washing: 'Power Washing',
 };
 
 /** Every trade the estimator prices, in the order the labels above declare them. */
@@ -201,6 +202,31 @@ export const SEED_TASKS: LaborTask[] = [
   { id: 'hvac-minisplit', tradeId: 'hvac', name: 'Mini-split head and line set', unit: 'each', hoursPerUnit: 6.5, crewSize: 2, minimumHours: 8, source: 'seed' },
   { id: 'hvac-furnace', tradeId: 'hvac', name: 'Furnace or air handler replacement', unit: 'each', hoursPerUnit: 8, crewSize: 2, minimumHours: 8, source: 'seed' },
   { id: 'hvac-condenser', tradeId: 'hvac', name: 'Condenser set and charge', unit: 'each', hoursPerUnit: 6, crewSize: 2, minimumHours: 6, source: 'seed' },
+
+  /*
+   * ── Power washing ────────────────────────────────────────────────────────
+   *
+   * Eric: "power washing is going to be per job and size we can do it by the
+   * hour or the job in some cases." Three shapes, because all three of those
+   * are real: an AREA task for the usual case, an HOUR task for time and
+   * materials, and an EACH task for a flat quoted job.
+   *
+   * The minimum hours matter more here than in any other trade. Most of these
+   * jobs are small, and almost all of the work is setup — trailer, water,
+   * hoses, mixing, moving furniture and plants, protecting what must not get
+   * wet. A 500 sq ft driveway is not half an hour; it is a trip. Priced off
+   * hours-per-unit alone, every small wash loses money.
+   *
+   * Every figure rounded toward SLOWER where it fell between steps, which is
+   * the direction a quote should err.
+   */
+  { id: 'wash-house', tradeId: 'power_washing', name: 'House exterior, soft wash and rinse', unit: 'sq ft', hoursPerUnit: 0.001, crewSize: 1, minimumHours: 3, source: 'seed', notes: 'Per square foot of WALL area, not floor area. Detergent, dwell and rinse. Plant and fixture protection included.' },
+  { id: 'wash-concrete', tradeId: 'power_washing', name: 'Driveway, walkway or patio', unit: 'sq ft', hoursPerUnit: 0.001, crewSize: 1, minimumHours: 3, source: 'seed', notes: 'Surface cleaner on open concrete. Edging by wand, and set-in staining, are both slower than this.' },
+  { id: 'wash-deck', tradeId: 'power_washing', name: 'Deck or wood surface', unit: 'sq ft', hoursPerUnit: 0.003, crewSize: 1, minimumHours: 3, source: 'seed', notes: 'Lower pressure and far more care than concrete — wood furs up. Brightener, stain or sealer is separate work.' },
+  { id: 'wash-fence', tradeId: 'power_washing', name: 'Fence, both sides', unit: 'lin ft', hoursPerUnit: 0.013, crewSize: 1, minimumHours: 3, source: 'seed', notes: 'Per linear foot of fence, washing both faces.' },
+  { id: 'wash-roof', tradeId: 'power_washing', name: 'Roof soft wash', unit: 'square', hoursPerUnit: 0.35, crewSize: 2, minimumHours: 4, source: 'seed', notes: 'Chemical only. No pressure on shingles — pressure strips granules and voids the warranty. Staging and fall protection included.' },
+  { id: 'wash-hourly', tradeId: 'power_washing', name: 'Washing, by the hour', unit: 'hour', hoursPerUnit: 1, crewSize: 1, minimumHours: 2, source: 'seed', notes: 'For work billed as time and materials rather than by area. The minimum is the minimum call-out.' },
+  { id: 'wash-job', tradeId: 'power_washing', name: 'Whole-house wash, flat job price', unit: 'each', hoursPerUnit: 4, crewSize: 1, minimumHours: 4, source: 'seed', notes: 'The flat-price version: house, walkway and steps on an average single-family. Quote by area instead where the house is unusual.' },
 ];
 
 // ── the maths ────────────────────────────────────────────────────────────────

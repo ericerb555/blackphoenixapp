@@ -24,11 +24,16 @@
  * excluding. Guessing the other way would either exclude the whole roster from
  * a real job or claim somebody holds a trade nobody assessed them on.
  *
- * Several services map to nothing ON PURPOSE. Lawn care, pressure washing,
- * snow removal and pest control are things the company sells and the estimator
- * does not price as trades. Folding them into `laboring` so the map looks
- * complete would be inventing a qualification: it would let the scheduler tell
- * somebody they hold a trade for work nobody recorded them as doing.
+ * Several services map to nothing ON PURPOSE. Lawn care, snow removal, pest
+ * control and cleaning are things the company sells and the estimator does not
+ * price as trades. Folding them into `laboring` so the map looks complete
+ * would be inventing a qualification: it would let the scheduler tell somebody
+ * they hold a trade for work nobody recorded them as doing.
+ *
+ * Power washing was in that group for exactly one day. Eric settled it: it is
+ * priced per job and by SIZE, hourly in some cases, so it is now a real trade
+ * with area, hourly and flat-job tasks of its own. The line is whether the
+ * hours can be derived from a measurable quantity — not whether we sell it.
  */
 
 /**
@@ -40,6 +45,9 @@
  */
 const SERVICE_TO_TRADE: Record<string, string> = {
   // The work request form's own service list, where a trade genuinely applies.
+  'pressure washing': 'power_washing',
+  'power washing': 'power_washing',
+  'soft wash': 'power_washing',
   'trash removal / hauling': 'laboring',
   'trash removal': 'laboring',
   'trash & demo removal': 'laboring',
@@ -77,6 +85,7 @@ const SERVICE_TO_TRADE: Record<string, string> = {
 const KNOWN_TRADE_IDS = new Set([
   'carpentry', 'painting', 'electrical', 'plumbing', 'laboring', 'sheetrock',
   'siding', 'roofing', 'tile', 'flooring', 'masonry', 'hvac',
+  'power_washing',
 ]);
 
 const squash = (value: unknown): string =>
@@ -104,12 +113,11 @@ export function tradeFor(...candidates: unknown[]): string | undefined {
  * Whether a service is one we deliberately do not treat as a trade.
  *
  * Kept separate from "we have never seen this wording" so a proposal can say
- * which it is. "Pressure washing is not a trade the roster is assessed on" is
- * useful; "we could not classify pressure washing" sounds like a fault.
+ * which it is. "Snow removal is not a trade the roster is assessed on" is
+ * useful; "we could not classify snow removal" sounds like a fault.
  */
 const NOT_A_TRADE = new Set([
   'lawn care & landscaping', 'lawn care', 'landscaping',
-  'pressure washing', 'power washing',
   'general cleaning', 'deep clean', 'cleaning',
   'snow removal', 'pest control', 'property management',
   'handyman / repairs', 'construction / builds',

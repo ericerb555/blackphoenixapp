@@ -55,6 +55,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
     { id: 'flooring', category: 'Flooring', description: 'Hardwood, laminate, vinyl installation', hourlyRate: 55, icon: Wrench, color: 'pink', visible: true },
     { id: 'masonry', category: 'Masonry', description: 'Brick, stone, concrete work', hourlyRate: 75, icon: Hammer, color: 'stone', visible: true },
     { id: 'hvac', category: 'HVAC', description: 'Heating, ventilation, air conditioning', hourlyRate: 95, icon: Wrench, color: 'teal', visible: true },
+    { id: 'power_washing', category: 'Power Washing', description: 'House, deck, concrete and roof washing', hourlyRate: 55, icon: Droplets, color: 'sky', visible: true },
   ]);
 
   const [profitSettings, setProfitSettings] = useState<ProfitSettings>({
@@ -210,6 +211,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
         { id: 'flooring', category: 'Flooring', description: 'Hardwood, laminate, vinyl installation', hourlyRate: 55, icon: Wrench, color: 'pink', visible: true },
         { id: 'masonry', category: 'Masonry', description: 'Brick, stone, concrete work', hourlyRate: 75, icon: Hammer, color: 'stone', visible: true },
         { id: 'hvac', category: 'HVAC', description: 'Heating, ventilation, air conditioning', hourlyRate: 95, icon: Wrench, color: 'teal', visible: true },
+    { id: 'power_washing', category: 'Power Washing', description: 'House, deck, concrete and roof washing', hourlyRate: 55, icon: Droplets, color: 'sky', visible: true },
       ]);
       setProfitSettings({
         laborMarkup: 15,

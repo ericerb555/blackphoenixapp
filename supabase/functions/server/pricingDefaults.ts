@@ -43,6 +43,9 @@ export const STANDARD_LABOR_RATES: StandardRate[] = [
   { id: 'flooring', category: 'Flooring', hourlyRate: 55 },
   { id: 'masonry', category: 'Masonry', hourlyRate: 75 },
   { id: 'hvac', category: 'HVAC', hourlyRate: 95 },
+  // Between general labour and painting: less skill than a trade, more
+  // equipment than a labourer — a machine, a water supply and chemicals.
+  { id: 'power_washing', category: 'Power Washing', hourlyRate: 55 },
 ];
 
 /**
