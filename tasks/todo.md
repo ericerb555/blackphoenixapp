@@ -12455,3 +12455,85 @@ silently becomes free. Every figure is labelled `your-rate`, `standard` or
 `typed`, so whoever checks the draft can see which numbers are the company's.
 
 Deployed. 1122 tests pass, 316 typecheck findings unchanged, smoke clean.
+
+---
+
+## Plan — blueprint quotes priced from the catalogue, not from typed hours
+
+Eric: "fix the hours too." Not started; awaiting his word.
+
+### What is actually wrong
+
+`quote-from-blueprint.tsx` invents its hours: `squareFootage * 0.5` overall,
+`* 0.15` for carpentry, `* 0.08` for painting, `* 0.05` for labour, outlets
+`* 0.5`, fixtures `* 2`. Those numbers were typed into the file. The file's own
+comment says so and marks the quote non-binding because of it.
+
+### What already exists, which changes the shape of this
+
+The server is further along than the route suggests. It holds three task stores
+and merges them — `labor_tasks:catalogue` (66 book figures published by an
+admin), `labor_tasks:global` (hand edits), `labor_tasks:measured` (what the
+learning loop has corrected from finished jobs) — and `resolveCatalogue` in
+`rateLearning.ts` already resolves them into one list with provenance. So the
+production rates are on the server. Nothing needs inventing.
+
+What the server does NOT have is the labour ARITHMETIC: `estimateTaskLabor` —
+the minimum-hours floor and the condition multipliers — lives only in
+`src/app/lib/laborTasks.ts`.
+
+And the blueprint analysis is far richer than the quoter uses. It carries
+per-room square footage, perimeter linear feet, ceiling linear feet, wall,
+door, window, outlet, fixture and HVAC-vent counts. The quoter reads two of
+those fields and multiplies.
+
+### The items
+
+- [ ] 1. **Move the labour maths to `supabase/functions/server/laborMath.ts`
+      and have `laborTasks.ts` re-export it.** One implementation, so the
+      blueprint path and the design centre can never disagree about what a
+      minimum-hours floor means. RISK: Vite may object to importing a `.ts`
+      specifier from outside `src/`. Proven or disproven in minutes by
+      typecheck plus smoke. If it objects, fall back to a server copy plus a
+      test that asserts the two agree across a table of cases — two
+      implementations, but not two silently diverging ones.
+
+- [ ] 2. **`blueprintTakeoff.ts` — turn an analysis into task quantities.**
+      The real content of the change, and the part with judgement in it. Room
+      perimeter times ceiling height is wall area, which is what framing,
+      drywall and wall painting are measured in; floor area is what flooring
+      and ceiling painting take; perimeter is what trim takes; the counts map
+      onto the `each` tasks for devices, fixtures, registers and doors. Every
+      derived quantity states which field it came from, so a wrong number can
+      be traced to a wrong reading rather than to arithmetic.
+
+- [ ] 3. **Price through it, and keep the provenance.** Each labour line comes
+      back naming its task and whether the rate was `seed`, `yours` or
+      `measured` — the learning loop already produces that and it is currently
+      thrown away on this path.
+
+- [ ] 4. **Re-publish the catalogue.** The server holds 66 tasks; the file now
+      has 73. The seven power washing tasks are not on the server, so nothing
+      could price a wash today. Stale mirror, one publish.
+
+- [ ] 5. Tests on the takeoff, deploy, and confirm.
+
+### Two things I am NOT proposing, so they are decisions and not omissions
+
+**The quote stays `binding: false`.** Catalogue hours make it defensible; they
+do not make it checked. It is still a language model reading a drawing, and a
+wrong room dimension is wrong however well the hours are derived. Making it
+binding is a separate decision about who signs it off.
+
+**No condition multipliers.** `LABOR_CONDITIONS` has occupied-home, tight
+access, winter and the rest, worth 10-35% each. A blueprint cannot know any of
+them. Applying one would be inventing a fact about the site; defaulting to none
+means the hours are the clean-conditions figure, which is the honest floor and
+is what somebody reviewing the draft can then adjust.
+
+### The one thing I would ask
+
+Where the analysis gives no ceiling height, wall area cannot be derived. I
+would assume 8ft and mark the line as assumed rather than skip the trade — a
+missing framing line reads as "no framing needed", which is worse than a
+figure somebody can correct. Say if you would rather it skipped.
