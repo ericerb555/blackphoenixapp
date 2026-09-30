@@ -175,3 +175,70 @@ export function unreadForViewer(
   }
   return total;
 }
+
+/**
+ * The one thread between the company and a given account.
+ *
+ * WHY DEDUPLICATION KEYS ON THE CUSTOMER AND NOT ON BOTH SIDES
+ *
+ * The create route matched an existing conversation like this:
+ *
+ *     ids.includes(user1Id) && (ids.includes(user2Id) || convEmail === email)
+ *
+ * — where `user1Id` is the company. But the company side is written as the
+ * literal `admin` by one caller, as the owner's auth UUID by another, and as
+ * `blackphoenix-admin` by the messaging screen's constant. So the same
+ * customer writing in through two different paths failed the first clause and
+ * was given a SECOND thread. That is exactly what happened to one real
+ * customer: two conversations, created thirteen seconds apart.
+ *
+ * Which id we happen to use for ourselves is an implementation detail. It must
+ * never fragment somebody's conversation with us. So the question this asks is
+ * only "is the company in it, and is this account in it" — one portal account
+ * and the company means one thread, however either side is spelled.
+ */
+export interface ThreadParty {
+  userId?: string;
+  email?: string;
+}
+
+/** Is this account a party to the conversation? Staff status is not considered. */
+export function isParticipant(
+  conversation: ConversationLike | null | undefined,
+  party: ThreadParty | null | undefined,
+): boolean {
+  if (!conversation || !party) return false;
+  const viewer: ConversationViewer = {
+    email: String(party.email ?? ''),
+    userId: String(party.userId ?? ''),
+    isStaff: false,
+  };
+  if (!norm(viewer.email) && !norm(viewer.userId)) return false;
+
+  const participants = Array.isArray(conversation.participants) ? conversation.participants : [];
+  if (isViewer({ userEmail: conversation.metadata?.customerEmail }, viewer)) return true;
+  return participants.some((p) => isViewer(p, viewer));
+}
+
+/**
+ * The existing company thread for this account, or null.
+ *
+ * When more than one exists — which is the state the old matching left behind
+ * — the OLDEST is returned, so the thread with the history in it is the one
+ * that keeps being added to rather than whichever was created most recently.
+ */
+export function existingThreadFor<T extends ConversationLike & { id?: string; createdAt?: string }>(
+  all: Array<T | null | undefined>,
+  party: ThreadParty | null | undefined,
+): T | null {
+  const matches = (all || []).filter((c): c is T =>
+    Boolean(c)
+    && Array.isArray(c!.participants)
+    && c!.participants!.some(isStaffParticipant)
+    && isParticipant(c, party));
+
+  if (matches.length === 0) return null;
+
+  return matches.sort((a, b) =>
+    String(a.createdAt ?? a.id ?? '').localeCompare(String(b.createdAt ?? b.id ?? '')))[0];
+}

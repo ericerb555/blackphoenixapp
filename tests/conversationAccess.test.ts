@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mayReadConversation, visibleConversations, staffInbox, isStaffParticipant, unreadForViewer,
+  existingThreadFor, isParticipant,
 } from '../supabase/functions/server/conversationAccess.ts';
 
 const customer = { email: 'wanda@example.com', userId: 'uuid-wanda', isStaff: false };
@@ -207,4 +208,80 @@ test('missing, zero and nonsense counts are all zero rather than NaN', () => {
   assert.equal(unreadForViewer([], owner), 0);
   assert.equal(unreadForViewer([null, undefined] as any, owner), 0);
   assert.equal(unreadForViewer([withUnread([{ userId: 'admin', userRole: 'admin' }], { admin: 2 })], null), 0);
+});
+
+// ── One account, one thread ───────────────────────────────────────────────
+
+/**
+ * The create route matched on BOTH sides:
+ *
+ *     ids.includes(user1Id) && (ids.includes(user2Id) || convEmail === email)
+ *
+ * `user1Id` is the company, and the company is written three different ways
+ * depending on which code path calls. So the same customer writing in through
+ * two paths failed the first clause and got a SECOND thread — which is what
+ * happened to a real customer, twice, thirteen seconds apart.
+ */
+const thread = (adminId: string, customerId: string, createdAt: string, id = customerId + adminId) => ({
+  id,
+  createdAt,
+  participants: [
+    { userId: adminId, userRole: 'admin' },
+    { userId: customerId, userRole: 'customer' },
+  ],
+});
+
+const wanda = { email: 'wanda@example.com' };
+
+test('THE SAME CUSTOMER FINDS THEIR THREAD WHATEVER THE COMPANY SIDE IS CALLED', () => {
+  for (const adminId of ['admin', '1a9f3ae4', 'blackphoenix-admin']) {
+    const all = [thread(adminId, 'wanda@example.com', '2026-06-15T00:00:00Z')];
+    assert.notEqual(existingThreadFor(all, wanda), null, `company written as "${adminId}"`);
+  }
+});
+
+test('a different customer does not match somebody else\'s thread', () => {
+  const all = [thread('admin', 'wanda@example.com', '2026-06-15T00:00:00Z')];
+  assert.equal(existingThreadFor(all, { email: 'someone@else.com' }), null);
+});
+
+/**
+ * The state the old matching left behind. The oldest wins, so the thread with
+ * the history keeps being added to rather than whichever was made last.
+ */
+test('WHERE DUPLICATES ALREADY EXIST, THE OLDEST IS THE ONE USED', () => {
+  const all = [
+    thread('1a9f3ae4', 'wanda@example.com', '2026-06-15T16:52:00Z', 'newer'),
+    thread('admin', 'wanda@example.com', '2026-06-15T14:52:00Z', 'older'),
+  ];
+  assert.equal(existingThreadFor(all, wanda)?.id, 'older');
+});
+
+test('matching works by auth id as well as by email', () => {
+  const all = [thread('admin', 'uuid-wanda', '2026-06-15T00:00:00Z')];
+  assert.notEqual(existingThreadFor(all, { userId: 'uuid-wanda' }), null);
+});
+
+test('a thread with no company participant is not the company thread', () => {
+  assert.equal(existingThreadFor([betweenOthers as any], { email: 'someone@else.com' }), null);
+});
+
+test('no thread, no match, and nothing thrown', () => {
+  assert.equal(existingThreadFor([], wanda), null);
+  assert.equal(existingThreadFor([null, undefined] as any, wanda), null);
+  assert.equal(existingThreadFor([thread('admin', 'w@x.com', '2026-01-01')], null), null);
+  assert.equal(existingThreadFor([thread('admin', 'w@x.com', '2026-01-01')], { email: '' }), null);
+});
+
+/**
+ * `isParticipant` deliberately ignores staff status — it answers "is this
+ * account in the room", which is the question deduplication needs. Using the
+ * reader's predicate instead would match every company thread for any staff
+ * account and collapse the whole inbox into one.
+ */
+test('being staff does not make you a party to every thread', () => {
+  const all = [thread('admin', 'wanda@example.com', '2026-06-15T00:00:00Z')];
+  assert.equal(isParticipant(all[0], { email: 'eric@example.com' }), false);
+  assert.equal(existingThreadFor(all, { email: 'eric@example.com' }), null,
+    'the owner does not "already have a thread" with every customer');
 });

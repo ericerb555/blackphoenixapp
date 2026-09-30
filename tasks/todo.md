@@ -12184,3 +12184,34 @@ took the id from the path, so asking for somebody else's count was a matter of
 typing it; it is now `GET /messaging/unread`, from the token. `GET
 /messaging/waiting` is new and returns the threads with something waiting, so
 the pop-up can name them.
+
+## Z7 — one portal account, one thread
+
+Eric, 29 Sep: *"can we make sure that one portals message all stay together in
+one thread and dont show up seperate"*
+
+He was right, and the data shows it: **Wanda Atherton has two conversations,
+created thirteen seconds apart.** The cause was in the create route's
+deduplication, which required BOTH sides to match:
+
+    ids.includes(user1Id) && (ids.includes(user2Id) || convEmail === email)
+
+`user1Id` is the company — and the company is written as the literal `admin`
+by one caller, as the owner's auth UUID by another, and as
+`blackphoenix-admin` by the messaging screen's own constant. Her two threads
+carry `admin` and `1a9f3ae4…` respectively. The second path failed that first
+clause and was handed a new conversation.
+
+- [x] Z7. Deduplicate on the **customer alone**. Which id we use for ourselves
+      is our own implementation detail and must never split somebody's history
+      with us. Where duplicates already exist the **oldest** wins, so the
+      thread carrying the history is the one that keeps being added to.
+      `POST /messaging/conversations` had no deduplication at all and nothing
+      calls it — closed the same way rather than left as a back door, but only
+      for `direct` threads: several group conversations with the same people
+      is legitimate, several direct threads with one account is not.
+
+- [ ] Z7a. **The two existing Wanda threads are still separate.** Merging them
+      rewrites message history, so it is not something to do unasked. One
+      holds a single message from 15 Jun 14:52, the other a single message
+      from 16:52.

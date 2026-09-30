@@ -235,6 +235,7 @@ import { supersededIds, supersedesMessage } from "./addOnGroups.ts";
 import { contentAddOnPlan, wouldOverwriteEdits, CONTENT_AUDIENCES, CONTENT_RUNGS } from "./contentAddOns.ts";
 import {
   mayReadConversation, visibleConversations, staffInbox, unreadForViewer, isStaffParticipant,
+  existingThreadFor,
   type ConversationViewer,
 } from "./conversationAccess.ts";
 import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
@@ -10996,11 +10997,41 @@ app.get('/make-server-3eae23a6/messaging/conversations/:convId/messages', async 
 app.post('/make-server-3eae23a6/messaging/conversations', async (c) => {
   try {
     const body = await c.req.json();
+    const type = body.type || 'direct';
+    const participants = Array.isArray(body.participants) ? body.participants : [];
+
+    /**
+     * A direct thread with somebody we already have a thread with is that
+     * thread, not a new one.
+     *
+     * Nothing in the app calls this route today — the messaging screen uses
+     * `/conversations/direct` — but it created a conversation unconditionally,
+     * so any caller reaching it would have split a customer's history in two.
+     * That is the fault being fixed next door, and leaving the back door open
+     * would only mean fixing it twice.
+     *
+     * GROUPS ARE LEFT ALONE. Several distinct group conversations with the
+     * same people in them is a legitimate thing; several distinct direct
+     * threads with one account is not.
+     */
+    if (type === 'direct') {
+      const other = participants.find((p: any) => !isStaffParticipant(p));
+      const party = {
+        userId: String(other?.userId || ''),
+        email: String(other?.userEmail || body.metadata?.customerEmail || ''),
+      };
+      if (party.userId || party.email) {
+        const all = ((await kv.getByPrefix('conv:')) as any[] || []).filter(Boolean);
+        const existing = existingThreadFor(all, party);
+        if (existing) return c.json({ conversation: existing });
+      }
+    }
+
     const conv = {
       id: `conv_${Date.now()}`,
-      type: body.type || 'direct',
+      type,
       name: body.name || '',
-      participants: body.participants || [],
+      participants,
       metadata: body.metadata || {},
       lastMessage: '',
       lastMessageAt: new Date().toISOString(),
@@ -11018,13 +11049,28 @@ app.post('/make-server-3eae23a6/messaging/conversations/direct', async (c) => {
     const { user1Id, user1Name, user2Id, user2Name, name, metadata } = await c.req.json();
     const customerEmail = metadata?.customerEmail || user2Id;
 
-    // Look for existing conversation — match by userId OR email in metadata
-    const all = await kv.getByPrefix('conv:') as any[];
-    const existing = all.find((conv: any) => {
-      const ids = (conv.participants || []).map((p: any) => p.userId);
-      const convEmail = conv.metadata?.customerEmail;
-      return (ids.includes(user1Id) && (ids.includes(user2Id) || convEmail === customerEmail));
-    });
+    /**
+     * ONE PORTAL ACCOUNT AND THE COMPANY MEANS ONE THREAD.
+     *
+     * This used to require the COMPANY side to match as well:
+     *
+     *     ids.includes(user1Id) && (ids.includes(user2Id) || convEmail === email)
+     *
+     * and the company is written as the literal `admin` by one caller, as the
+     * owner's auth UUID by another, and as `blackphoenix-admin` by the
+     * messaging screen's own constant. So the same customer writing in through
+     * two different paths failed that first clause and was handed a SECOND
+     * conversation — which is exactly what happened to a real customer, twice,
+     * thirteen seconds apart, leaving her history split across two threads
+     * neither of which told the whole story.
+     *
+     * Which id we use for ourselves is our own implementation detail and must
+     * never fragment somebody's conversation with us. So the match is on the
+     * CUSTOMER alone, and where duplicates already exist the oldest wins, so
+     * the thread carrying the history is the one that keeps being added to.
+     */
+    const all = ((await kv.getByPrefix('conv:')) as any[] || []).filter(Boolean);
+    const existing = existingThreadFor(all, { userId: user2Id, email: customerEmail });
     if (existing) return c.json({ conversation: existing });
 
     const conv = {
