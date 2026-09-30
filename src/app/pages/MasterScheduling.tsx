@@ -18,6 +18,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import ScheduleAssistantPanel from '../components/schedule/ScheduleAssistantPanel';
 import {
   Calendar, ChevronLeft, ChevronRight, Users, Clock, Filter,
   Search, Plus, Settings, Download, Check, Eye, EyeOff, Bell,
@@ -157,6 +158,8 @@ export default function MasterScheduling() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  /** Bumped when a proposal is confirmed, so the diary below reloads. */
+  const [appointmentsVersion, setAppointmentsVersion] = useState(0);
   /** Approved time off and call-outs, so the calendar can show who is out. */
   const [unavailability, setUnavailability] = useState<any[]>([]);
 
@@ -276,7 +279,7 @@ export default function MasterScheduling() {
     };
     void loadSharedAppointments();
     return () => { active = false; };
-  }, [API_BASE, user]);
+  }, [API_BASE, user, appointmentsVersion]);
 
   const updateSharedAppointmentStatus = async (job: Job, status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled') => {
     if (!job.appointmentId) return;
@@ -988,6 +991,16 @@ export default function MasterScheduling() {
 
           {/* Schedule Content */}
           <div className="flex-1 overflow-auto bg-[#0A0A0A]">
+            {/*
+              Above the calendar, because the calendar shows what IS scheduled
+              and this shows what is not yet — which is the thing somebody
+              opening this screen can still do something about. Confirming one
+              reloads the appointments underneath it.
+            */}
+            <div className="p-4">
+              <ScheduleAssistantPanel onConfirmed={() => setAppointmentsVersion(v => v + 1)} />
+            </div>
+
             {viewMode === 'employees' && (
               <EmployeeScheduleView
                 weekDays={weekDays}
