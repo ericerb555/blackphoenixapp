@@ -12341,3 +12341,67 @@ merge reads `savedRate.visible` — so all twelve of his own rates come back
 `undefined` and the header reads "1 active rates configured" with every row at
 half opacity. Cosmetic, pre-existing, and it changes that screen's appearance
 to fix, so it is left alone pending a word from him.
+
+## Stripe pre-flight, 29 Sep
+
+Checked before Eric creates any prices, so the failures are known in advance
+rather than discovered mid-checkout.
+
+### Already proven to work — do not worry about these
+
+**The live subscription path works end to end.** The one paying grant carries
+`stripeSubscriptionId`, `stripeCustomerId` and `subscribedAt: 2026-09-22`, and
+**only the webhook's `checkout.session.completed` branch writes those three**.
+So: the endpoint is registered in Stripe, the live signing secret is right, the
+signature verified, and the grant was written. A real person bought Stocked and
+it worked.
+
+**The test secret key is set and valid.** All three vendor tiers carry a
+`stripePriceIdTest` created on 28 Sep, and that route refuses to fall back from
+a missing test key to the live one — so `STRIPE_SECRET_KEY_TEST` exists and is
+a real `sk_test_` key. Creating test prices for the content rungs will work.
+
+### The two that are NOT proven, and each fails quietly
+
+**1. `STRIPE_TEST_ACCOUNT_EMAIL`.** The webhook refuses test-mode events by
+default — fabricated data must not touch real records. There is exactly one
+exception, and it needs all three of: this secret set, the event carrying
+`bp_tier_id`, and the event's own `bp_email` matching that address.
+
+If it is unset, a test checkout will complete in Stripe, the webhook will
+verify the signature, and then **deliberately do nothing** — logging *"verified
+but deliberately not applied"* and returning 200. The rehearsal would look like
+it silently failed. Set it to an account nobody relies on: a payment that never
+happened can give that account a paid plan, which is the whole point.
+
+**2. `STRIPE_WEBHOOK_SECRET_TEST`, plus a test-mode endpoint registered in
+Stripe** pointing at the same `stripe-webhooks` URL. Without the endpoint no
+test event is ever delivered; without the secret every test event fails
+signature verification and returns 400. The live secrets being correct says
+nothing about the test one — they are different objects on different accounts.
+
+### The sequencing that is easy to get wrong
+
+The content rungs are **add-ons**, and `/plan-add-on` requires an existing paid
+subscription — it answers `needsPlan` to anybody on a trial or the free floor.
+So the rehearsal is four steps, not one:
+
+1. The nominated test account buys a **tier** in test mode (`/plan-checkout`).
+2. The webhook's rehearsal path grants it. **If nothing is granted, stop here**
+   — that is item 1 or 2 above, not a fault in the add-on work.
+3. That account buys **Solo**.
+4. It then buys **Studio**, which is what exercises the removal path: confirm in
+   the Stripe dashboard that exactly one line ended, the tier's own line is
+   untouched, and a proration credit appears.
+
+### Two standing hazards
+
+**Stripe prices are immutable.** A price created at the wrong amount cannot be
+edited — the route requires `?replace=1`, which creates a new price and leaves
+the old one for anybody already paying against it. Check the figure before
+clicking, not after.
+
+**Test defaults to on, and that is deliberate.** `mode` is `test` unless the
+caller says `live`, because the cost of an accidental test price is a second
+click and the cost of an accidental live one is a plan somebody can buy for
+real money before it has been rehearsed once.
