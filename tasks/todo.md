@@ -12433,3 +12433,25 @@ that file's own hardcoded defaults and charges carpentry at 65 while Eric's
 rate is 70 — his rates reach every quoting path except that one. A one-key
 change, but it moves what a blueprint quote charges, so it needs his word
 first.
+
+**Blueprint quotes now charge the real rates, 29 Sep — Eric: "yes bring it in."**
+
+Two dead keys, one fix. `labor_rates_config` and `profit_settings` have never
+existed in the store, so the blueprint quoter used the figures typed into its
+own file — carpentry at 65 against Eric's 70 — and, worse,
+`profitSettings?.materialsMarkup || 0` meant every blueprint quote marked
+materials up by **zero** while the saved setting is twenty per cent.
+
+**The key was not the change.** The route looks rates up by ROLE and the card is
+keyed by TRADE, so correcting the key alone would have left every lookup missing
+and falling through to the same typed numbers — fixed-looking and identical.
+`blueprintRates.ts` maps the roles onto trades, and that mapping is the change.
+
+Careful about three things: a role with no trade on the card (project
+management) keeps its typed figure rather than being filed under someone else's
+trade; a trade hidden from quotes is not used anyway, because otherwise the
+toggle is a lie; and a zero rate falls back, because a zero is how labour
+silently becomes free. Every figure is labelled `your-rate`, `standard` or
+`typed`, so whoever checks the draft can see which numbers are the company's.
+
+Deployed. 1122 tests pass, 316 typecheck findings unchanged, smoke clean.
