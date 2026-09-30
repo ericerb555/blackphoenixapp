@@ -346,9 +346,29 @@ export function candidatesFor(
  * A single candidate carrying an assumption is still a choice: somebody should
  * see that the schedule is resting on a guess before a customer is promised.
  */
-export function mayAutoAssign(candidates: Candidate[]): boolean {
+export function mayAutoAssign(candidates: Candidate[], rosterSize?: number): boolean {
   if (candidates.length !== 1) return false;
   const only = candidates[0];
+
+  /**
+   * ONE TECHNICIAN ON THE ROSTER MEANS THERE IS NO CHOICE TO MAKE.
+   *
+   * Eric: "we should make a rule that they all go to the one until multiple
+   * techs are added." It follows from the rule above rather than qualifying
+   * it — the test is whether a CHOICE was involved, and with a single
+   * technician the only alternative to booking them is booking nobody.
+   *
+   * So the caveats stop being gates and become information. They still travel
+   * with the proposal, because somebody should know the plan rests on an
+   * assumed working pattern or an unrecorded trade; they just no longer
+   * withhold a booking that could not have been made differently.
+   *
+   * `rosterSize` is passed rather than inferred from `candidates`, because one
+   * CANDIDATE out of six technicians is a genuine narrowing worth a glance,
+   * while one candidate out of one is arithmetic.
+   */
+  if (rosterSize === 1) return true;
+
   return !only.unverifiedTrade && !only.assumedPattern;
 }
 
@@ -366,7 +386,11 @@ export function mayAutoAssign(candidates: Candidate[]): boolean {
  *
  * So "auto-reassign where possible" means where nobody was promised.
  */
-export function mayAutoReassign(job: Job | null | undefined, candidates: Candidate[]): boolean {
+export function mayAutoReassign(
+  job: Job | null | undefined,
+  candidates: Candidate[],
+  rosterSize?: number,
+): boolean {
   if (hasRequestedTech(job)) return false;
-  return mayAutoAssign(candidates);
+  return mayAutoAssign(candidates, rosterSize);
 }

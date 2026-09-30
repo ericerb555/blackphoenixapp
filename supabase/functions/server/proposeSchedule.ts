@@ -106,6 +106,19 @@ export function proposeSchedule(
 ): Proposal[] {
   const provisional: Booking[] = [...bookings];
 
+  /**
+   * How many technicians there are at all, which decides whether a caveat is
+   * a reason to ask.
+   *
+   * Eric: "they all go to the one until multiple techs are added." With one
+   * technician there is no choice to make, so an unrecorded trade or an
+   * assumed working pattern stops being a gate and becomes information.
+   * Counted from the roster rather than from the candidates, because one
+   * candidate out of six is a real narrowing worth a glance while one out of
+   * one is arithmetic.
+   */
+  const rosterSize = (techs || []).filter((t) => t?.id && t.active !== false).length;
+
   const withWindows = (requests || [])
     .filter((r) => r && r.id)
     .map((request) => ({
@@ -122,7 +135,7 @@ export function proposeSchedule(
   const out: Proposal[] = [];
 
   for (const { request, window } of withWindows) {
-    out.push(proposeOne(request, window, techs, unavailability, provisional));
+    out.push(proposeOne(request, window, techs, unavailability, provisional, rosterSize));
   }
 
   return out;
@@ -134,6 +147,7 @@ function proposeOne(
   techs: Tech[],
   unavailability: Unavailability[],
   provisional: Booking[],
+  rosterSize: number,
 ): Proposal {
   const hours = Number(request.hours) > 0 ? Number(request.hours) : 0;
   const job = {
@@ -176,7 +190,7 @@ function proposeOne(
       };
     }
 
-    if (mayAutoAssign(candidates)) {
+    if (mayAutoAssign(candidates, rosterSize)) {
       const only = options[0];
       provisional.push({ employeeId: only.techId, date: day, hours: hours || 1, status: 'scheduled' });
       return {
@@ -185,8 +199,13 @@ function proposeOne(
         techId: only.techId,
         techName: only.techName,
         outcome: 'auto',
-        reason: `${only.techName || 'one technician'} is the only one free on ${day} with the trade`,
+        reason: rosterSize === 1
+          // Said differently when they are the whole roster, because "the only
+          // one free" implies others were considered and were not.
+          ? `${only.techName || 'your only technician'} takes it on ${day}`
+          : `${only.techName || 'one technician'} is the only one free on ${day} with the trade`,
         alternatives: [],
+        assumed: base.assumed || Boolean(only.caveat),
       };
     }
 

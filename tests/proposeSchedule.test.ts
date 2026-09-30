@@ -32,7 +32,9 @@ test('one job, one technician, booked on the first workable day', () => {
   assert.equal(p.outcome, 'auto');
   assert.equal(p.date, TODAY);
   assert.equal(p.techId, 'DAVE');
-  assert.match(p.reason, /only one free/i);
+  // Not "the only one free" — with a roster of one, nobody else was weighed,
+  // and saying so would imply a comparison that never happened.
+  assert.match(p.reason, /Dave takes it/i);
 });
 
 test('two technicians is a choice, not an automatic booking', () => {
@@ -152,4 +154,55 @@ test('the summary counts rather than asking a model to', () => {
 
 test('nothing waiting says so', () => {
   assert.match(summariseProposals([]), /nothing waiting/i);
+});
+
+/* ── one technician means there is no choice to make ─────────────────────── */
+
+/**
+ * Eric: "we should make a rule that they all go to the one until multiple
+ * techs are added."
+ *
+ * It follows from auto-for-simple rather than qualifying it: the test is
+ * whether a CHOICE was involved, and with one technician the only alternative
+ * to booking them is booking nobody. So the caveats stop being gates.
+ *
+ * The failure this prevents is pure friction — a screen asking somebody to
+ * choose between one option, every time, because a trade was never typed in.
+ */
+const bare = { id: 'SOLO', name: 'Solo' }; // no trades, no working pattern
+
+test('a sole technician is booked even with nothing recorded about them', () => {
+  const [p] = proposeSchedule([req({ trade: 'flooring' })], [bare], [], [], TODAY);
+  assert.equal(p.outcome, 'auto',
+    'asking somebody to choose between one option is friction, not care');
+  assert.equal(p.techId, 'SOLO');
+});
+
+test('and the caveat still travels with it', () => {
+  const [p] = proposeSchedule([req({ trade: 'flooring' })], [bare], [], [], TODAY);
+  assert.ok(p.assumed, 'somebody should still know the plan rests on an assumption');
+});
+
+test('the wording does not imply others were considered', () => {
+  const [p] = proposeSchedule([req({ trade: 'flooring' })], [bare], [], [], TODAY);
+  assert.doesNotMatch(p.reason, /only one free/i,
+    '"the only one free" implies a comparison that never happened');
+});
+
+test('add a second technician and the caveat becomes a question again', () => {
+  const second = { id: 'TWO', name: 'Two' };
+  const [p] = proposeSchedule([req({ trade: 'flooring' })], [bare, second], [], [], TODAY);
+  assert.equal(p.outcome, 'choice', 'now there genuinely is a choice');
+});
+
+test('a sole technician on leave is still a clash, not a booking', () => {
+  const off = [{ employeeId: 'SOLO', from: TODAY, to: '2027-12-31', kind: 'time_off' as const, status: 'approved' as const }];
+  const [p] = proposeSchedule([req({ timeline: 'asap' })], [bare], off, [], TODAY);
+  assert.equal(p.outcome, 'none', 'having nobody else does not make somebody available');
+});
+
+test('a promised technician still asks, even as the only one on the roster', () => {
+  const [p] = proposeSchedule([req({ requestedTechId: 'SOLO' })], [bare], [], [], TODAY);
+  assert.equal(p.outcome, 'choice',
+    'that is not a question of who, but whether to commit a job already promised');
 });
