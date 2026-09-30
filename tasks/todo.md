@@ -457,7 +457,7 @@ cohorts and they are not this task, but they are worth naming:
       Feature 3") while the grid below it renders the real `SubscriptionPlans`
       component. The header and the list disagree on the first screen anybody
       opening this page sees.
-- [ ] V0f. Vendor, advertiser, maintenance and construction plan tabs: same
+- [x] V0f. Vendor, advertiser, maintenance and construction plan tabs: same
       shape, all local, all inventing subscriber counts.
 ### W — every money surface reads the spine
 
@@ -12211,7 +12211,33 @@ clause and was handed a new conversation.
       for `direct` threads: several group conversations with the same people
       is legitimate, several direct threads with one account is not.
 
-- [ ] Z7a. **The two existing Wanda threads are still separate.** Merging them
+- [x] Z7a. **Merged, 29 Sep.** Merging them
       rewrites message history, so it is not something to do unasked. One
       holds a single message from 15 Jun 14:52, the other a single message
       from 16:52.
+
+**Z7a done, 29 Sep — the two threads are one.** Merged into the older
+(`conv_1781535173804`), which is the one `existingThreadFor` now returns.
+Both messages carried across in time order and re-pointed at the surviving
+thread, the unread counts added (1 + 2 = 3, both hers and she has read
+neither), `mergedFrom` recording where the second came from, and the
+`customer_convs:` index repointed so it cannot name a thread that no longer
+exists. No messages lost: 5 + 2 is the 7 that existed before.
+
+**V0f done, 29 Sep — the last invented figures are gone.** The vendor,
+advertiser, maintenance and construction tabs were local arrays reporting
+roughly **296 subscribing accounts** between them — "Basic Vendor, 89
+vendors", "Standard Advertising, 45 advertisers", "Basic Build, 42
+subscribers" — with prices to match, none of it real. Production holds plan
+records for two audiences only, content and vendor, both sold through Portal
+Plans.
+
+Emptied rather than wired up, because there is nothing to wire them to yet.
+They now say so and point at Portal Plans, so an empty tab is not mistaken
+for a loading failure. Create is hidden on them for the same reason it is
+hidden on Subscriptions: it writes to local state, so anything added vanishes
+on refresh.
+
+**Nothing on that screen is invented any more.** Cohorts come from the server,
+Subscriptions from its own component, and the other four say honestly that
+they hold nothing.

@@ -242,133 +242,31 @@ export function AdvancedCohortManagement() {
    * second definition of the same thing is what let the two disagree.
    */
 
-  const [vendorPlans, setVendorPlans] = useState<VendorPlan[]>([
-    {
-      id: '1',
-      name: 'Basic Vendor',
-      description: 'Entry-level vendor partnership',
-      monthlyFee: 49,
-      commissionRate: 15,
-      features: ['Storefront', 'Basic Analytics', 'Email Support'],
-      vendorCount: 89,
-      status: 'active',
-      createdAt: '2024-01-20'
-    },
-    {
-      id: '2',
-      name: 'Premium Vendor',
-      description: 'Full-featured vendor access',
-      monthlyFee: 199,
-      commissionRate: 10,
-      features: ['Premium Storefront', 'Advanced Analytics', 'Dedicated Support', 'Featured Placement'],
-      vendorCount: 34,
-      status: 'active',
-      createdAt: '2024-01-20'
-    }
-  ]);
+  /**
+   * THESE FOUR TABS HAD NO RECORDS BEHIND THEM, ONLY INVENTED ONES.
+   *
+   * Between them they reported roughly 296 subscribing accounts — "Basic
+   * Vendor, 89 vendors", "Standard Advertising, 45 advertisers", "Basic
+   * Build, 42 subscribers" — with prices to match. None of it existed.
+   * Production holds plan records for two audiences only, content and
+   * vendor, and both are sold through the Portal Plans screen.
+   *
+   * Emptied rather than wired up, because there is nothing to wire them to
+   * yet. An empty tab that says so is worth more than a full one that is
+   * making it up: the invented figures sat on the same screen as the real
+   * cohort revenue, where somebody could reasonably have added them together.
+   *
+   * The Create button is hidden on these tabs for the same reason it is
+   * hidden on Subscriptions — it writes to local state, so anything added
+   * vanishes on the next refresh.
+   */
+  const [vendorPlans, setVendorPlans] = useState<VendorPlan[]>([]);
 
-  const [advertiserPlans, setAdvertiserPlans] = useState<AdvertiserPlan[]>([
-    {
-      id: '1',
-      name: 'Standard Advertising',
-      description: 'Basic advertising package',
-      costPerImpression: 0.05,
-      impressionsPerMonth: 100000,
-      features: ['Display Ads', 'Basic Targeting', 'Monthly Reports'],
-      advertiserCount: 45,
-      status: 'active',
-      createdAt: '2024-02-05'
-    },
-    {
-      id: '2',
-      name: 'Premium Advertising',
-      description: 'Advanced advertising with premium placement',
-      costPerImpression: 0.10,
-      impressionsPerMonth: 500000,
-      features: ['Premium Placement', 'Advanced Targeting', 'Real-time Analytics', 'A/B Testing'],
-      advertiserCount: 18,
-      status: 'active',
-      createdAt: '2024-02-05'
-    }
-  ]);
+  const [advertiserPlans, setAdvertiserPlans] = useState<AdvertiserPlan[]>([]);
 
-  const [maintenancePlans, setMaintenancePlans] = useState<MaintenancePlan[]>([
-    {
-      id: '1',
-      name: 'Residential Basic',
-      description: 'Essential maintenance for homeowners',
-      price: 149,
-      monthlyHours: 4,
-      propertyType: 'residential',
-      features: ['4 hours/month service', 'Priority scheduling', 'Email & phone support', 'Service history tracking'],
-      clientCount: 87,
-      status: 'active',
-      createdAt: '2024-01-15'
-    },
-    {
-      id: '2',
-      name: 'Multi-Family Standard',
-      description: 'Comprehensive maintenance for apartment buildings',
-      price: 599,
-      monthlyHours: 20,
-      propertyType: 'multi-family',
-      features: ['20 hours/month service', 'Multi-unit coordination', 'Dedicated property manager', '24/7 emergency support'],
-      clientCount: 23,
-      status: 'active',
-      createdAt: '2024-01-20'
-    },
-    {
-      id: '3',
-      name: 'Commercial Premium',
-      description: 'Enterprise-grade maintenance for commercial properties',
-      price: 1299,
-      monthlyHours: 40,
-      propertyType: 'commercial',
-      features: ['40 hours/month service', 'Preventive maintenance program', 'Dedicated facility manager', 'Compliance reporting', 'After-hours service'],
-      clientCount: 15,
-      status: 'active',
-      createdAt: '2024-02-01'
-    }
-  ]);
+  const [maintenancePlans, setMaintenancePlans] = useState<MaintenancePlan[]>([]);
 
-  const [constructionPlans, setConstructionPlans] = useState<ConstructionPlan[]>([
-    {
-      id: '1',
-      name: 'Basic Build',
-      description: 'Perfect for small construction projects and renovations',
-      price: 999,
-      monthlyHours: 10,
-      features: ['10 Build Hours/Month', 'Project Management', 'Material Sourcing', 'Progress Reports'],
-      subscriberCount: 42,
-      status: 'active',
-      createdAt: '2024-01-15',
-      popular: false
-    },
-    {
-      id: '2',
-      name: 'Pro Build',
-      description: 'Ideal for medium-sized construction and renovation projects',
-      price: 2199,
-      monthlyHours: 25,
-      features: ['25 Build Hours/Month', 'Priority Scheduling', 'Dedicated PM', 'Design Consultation', 'Material Discounts'],
-      subscriberCount: 68,
-      status: 'active',
-      createdAt: '2024-01-15',
-      popular: true
-    },
-    {
-      id: '3',
-      name: 'Enterprise Build',
-      description: 'Full-scale construction services for large commercial projects',
-      price: 3999,
-      monthlyHours: 50,
-      features: ['50 Build Hours/Month', 'Fastest Response', 'Senior PM Team', 'Custom Design Services', 'Premium Materials', 'Warranty Extension'],
-      subscriberCount: 29,
-      status: 'active',
-      createdAt: '2024-02-01',
-      popular: false
-    }
-  ]);
+  const [constructionPlans, setConstructionPlans] = useState<ConstructionPlan[]>([]);
 
   const getCurrentData = () => {
     switch (viewMode) {
@@ -624,7 +522,7 @@ export function AdvancedCohortManagement() {
               {/* The subscriptions tab has its own editor inside
                   <SubscriptionPlans />. This button wrote into an array that
                   tab does not render, so a plan created here vanished. */}
-              {viewMode !== 'subscriptions' && (
+              {viewMode === 'cohorts' && (
                 <button
                   onClick={() => {
                     setEditingItem(null);
@@ -789,6 +687,21 @@ export function AdvancedCohortManagement() {
                 it finishes and the account chooses one.
               </p>
             )}
+          </div>
+        )}
+
+        {/*
+          The four tabs with no store behind them. They say so rather than
+          showing nothing at all, and point at the screen where plans really
+          are, so the tab is not mistaken for a loading failure.
+        */}
+        {viewMode !== 'cohorts' && viewMode !== 'subscriptions' && filteredData.length === 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center">
+            <p className="text-white font-medium mb-2">No {viewMode} plans yet.</p>
+            <p className="text-sm text-zinc-400">
+              Plans are published from Owner's Dashboard → Portal Plans, for one
+              audience at a time. Nothing is published for this one.
+            </p>
           </div>
         )}
 
