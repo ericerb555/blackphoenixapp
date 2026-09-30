@@ -6,6 +6,7 @@
  */
 
 import { Hono } from 'npm:hono@4';
+import { rateForRole, blueprintPricing } from './blueprintRates.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 
@@ -77,11 +78,24 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     console.log(`- Square Footage: ${blueprintAnalysis.totalSquareFootage}`);
     console.log(`- Materials: ${blueprintAnalysis.materials?.length || 0} categories`);
 
-    // Load configured labor rates
-    const laborRatesData = await kv.get('labor_rates_config');
-    const profitSettings = await kv.get('profit_settings');
+    /*
+     * The company's own rates and markups.
+     *
+     * This read `labor_rates_config` and `profit_settings` — two keys that
+     * have never existed in the store. Every other quoting path reads
+     * `labor_rates:global`, which is where the rates screen saves, so this
+     * route silently used the figures typed into this file and marked
+     * materials up by ZERO while the saved setting was twenty per cent.
+     *
+     * One read, because the rates and the markups are two halves of the same
+     * saved record and reading them from separate keys is how they came to
+     * disagree in the first place.
+     */
+    const savedPricing = await kv.get('labor_rates:global');
+    const { rates: rateCard, usingStandards, profitSettings } = blueprintPricing(savedPricing);
 
-    console.log('[Quote from Blueprint] Labor rates loaded:', !!laborRatesData);
+    console.log('[Quote from Blueprint] Rate card:', rateCard.length, 'trades,',
+      usingStandards ? 'STANDARD figures' : "the company's own");
     console.log('[Quote from Blueprint] Profit settings loaded:', !!profitSettings);
 
     // Generate quote number
@@ -118,16 +132,19 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     const squareFootage = blueprintAnalysis.totalSquareFootage || 0;
     const roomCount = blueprintAnalysis.rooms?.length || 1;
     
-    // Get labor rates from config or use defaults
-    const defaultRates = laborRatesData?.laborRates || [
-      { name: 'Project Manager', hourlyRate: 85 },
-      { name: 'Lead Carpenter', hourlyRate: 65 },
-      { name: 'Carpenter', hourlyRate: 45 },
-      { name: 'Electrician', hourlyRate: 95 },
-      { name: 'Plumber', hourlyRate: 105 },
-      { name: 'Painter', hourlyRate: 50 },
-      { name: 'General Labor', hourlyRate: 40 }
-    ];
+    /*
+     * The private rate list that used to live here is gone.
+     *
+     * It was keyed by ROLE — "Lead Carpenter", "Electrician" — while the rate
+     * card is keyed by TRADE. That mismatch is why pointing this route at the
+     * right key would not have been enough on its own: every lookup would have
+     * missed and fallen through to these numbers anyway, and the bug would have
+     * looked fixed. `rateForRole` maps the two.
+     *
+     * The figures survive only as the last-resort fallback passed to each
+     * call, used when the card has no rate for that trade — and `rateForRole`
+     * reports that as `typed` so a quote can say which it used.
+     */
 
     /**
      * READ THIS BEFORE TRUSTING THE HOURS BELOW.
@@ -152,7 +169,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     const projectManagementHours = Math.max(40, squareFootage / 50);
 
     // Project management
-    const pmRate = defaultRates.find(r => r.name === 'Project Manager')?.hourlyRate || 85;
+    const pmRate = rateForRole('Project Manager', rateCard, usingStandards, 85).hourlyRate;
     quoteLaborItems.push({
       id: `l${laborIndex++}`,
       role: 'Project Manager',
@@ -168,7 +185,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     if (blueprintAnalysis.materials?.some((cat: any) => 
       cat.category === 'Cabinetry' || cat.category === 'Framing' || cat.category === 'Doors & Windows'
     )) {
-      const carpenterRate = defaultRates.find(r => r.name === 'Lead Carpenter')?.hourlyRate || 65;
+      const carpenterRate = rateForRole('Lead Carpenter', rateCard, usingStandards, 65).hourlyRate;
       const carpentryHours = Math.round(squareFootage * 0.15);
       quoteLaborItems.push({
         id: `l${laborIndex++}`,
@@ -184,7 +201,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
 
     // Electrical (based on construction details)
     if (blueprintAnalysis.constructionDetails?.electricalOutlets > 0) {
-      const electricianRate = defaultRates.find(r => r.name === 'Electrician')?.hourlyRate || 95;
+      const electricianRate = rateForRole('Electrician', rateCard, usingStandards, 95).hourlyRate;
       const electricalHours = Math.max(16, blueprintAnalysis.constructionDetails.electricalOutlets * 0.5);
       quoteLaborItems.push({
         id: `l${laborIndex++}`,
@@ -200,7 +217,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
 
     // Plumbing (based on construction details)
     if (blueprintAnalysis.constructionDetails?.plumbingFixtures > 0) {
-      const plumberRate = defaultRates.find(r => r.name === 'Plumber')?.hourlyRate || 105;
+      const plumberRate = rateForRole('Plumber', rateCard, usingStandards, 105).hourlyRate;
       const plumbingHours = Math.max(12, blueprintAnalysis.constructionDetails.plumbingFixtures * 2);
       quoteLaborItems.push({
         id: `l${laborIndex++}`,
@@ -215,7 +232,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     }
 
     // Painting (almost always needed)
-    const painterRate = defaultRates.find(r => r.name === 'Painter')?.hourlyRate || 50;
+    const painterRate = rateForRole('Painter', rateCard, usingStandards, 50).hourlyRate;
     const paintingHours = Math.round(squareFootage * 0.08);
     if (paintingHours > 0) {
       quoteLaborItems.push({
@@ -231,7 +248,7 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
     }
 
     // General labor for cleanup and support
-    const laborRate = defaultRates.find(r => r.name === 'General Labor')?.hourlyRate || 40;
+    const laborRate = rateForRole('General Labor', rateCard, usingStandards, 40).hourlyRate;
     const generalLaborHours = Math.round(squareFootage * 0.05);
     quoteLaborItems.push({
       id: `l${laborIndex++}`,
