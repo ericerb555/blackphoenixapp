@@ -6,6 +6,7 @@ import { projectId } from '../utils/supabase/info';
 import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, ChevronUp, CheckCircle, Download, Save, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import TimeOffApprovals from '../components/schedule/TimeOffApprovals';
+import { TRADE_IDS, TRADE_LABELS } from '../lib/laborTasks';
 
 type PayType = 'hourly' | 'salary' | 'contract';
 type Status = 'active' | 'inactive' | 'onleave';
@@ -25,6 +26,14 @@ interface Employee {
   billRate?: number;
   status: Status; startDate: string; hoursThisWeek: number; hoursThisPeriod: number;
   certifications: string[]; notes: string;
+  /**
+   * The trades the scheduler will offer them, as trade ids from `laborTasks`.
+   *
+   * EMPTY IS UNRECORDED, NOT "NONE". `availability.ts` offers somebody with no
+   * trades for any work and flags the proposal, because the alternative —
+   * excluding them — empties the schedule for a roster nobody has filled in.
+   */
+  trades?: string[];
 }
 
 /**
@@ -184,6 +193,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           hoursThisPeriod: Number(r.hoursWeek) || 0,
           certifications: [],
           notes: '',
+          trades: Array.isArray(r.trades) ? r.trades.map(String) : [],
         };
       });
     } catch {
@@ -366,6 +376,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           payType: emp.payType || 'hourly',
           payRate: Number(emp.payRate) || 0,
           billRate: Number(emp.billRate) || 0,
+          trades: Array.isArray(emp.trades) ? emp.trades : [],
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -479,6 +490,48 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                   style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }} />
               </div>
             </div>
+
+            {/*
+              Trades, which had no field anywhere until now.
+
+              The scheduler matches a job's trade against these, and it treats
+              an EMPTY list as unrecorded rather than as "none" — somebody with
+              no trades is offered for any work and flagged, because excluding
+              them would empty the schedule for a roster nobody has filled in.
+              So leaving this blank is safe; filling it in is what makes a
+              proposal sharp instead of caveated.
+            */}
+            <div className="px-5 pb-5">
+              <p className="text-xs text-gray-500 mb-2">
+                Trades — what the scheduler will offer them
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {TRADE_IDS.map(id => {
+                  const held: string[] = Array.isArray(editing.trades) ? editing.trades : [];
+                  const on = held.includes(id);
+                  return (
+                    <button key={id} type="button"
+                      onClick={() => setEditing(p => {
+                        const current: string[] = Array.isArray(p?.trades) ? p!.trades : [];
+                        return { ...p, trades: on ? current.filter(t => t !== id) : [...current, id] };
+                      })}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                        on
+                          ? 'border-orange-500/50 bg-orange-500/15 text-orange-300'
+                          : 'border-[#2A2A2A] text-gray-500 hover:border-gray-600'
+                      }`}>
+                      {TRADE_LABELS[id] || id}
+                    </button>
+                  );
+                })}
+              </div>
+              {(!editing.trades || editing.trades.length === 0) && (
+                <p className="mt-2 text-[11px] text-amber-400">
+                  None recorded — they will be offered for any trade and every proposal about them will carry a caveat.
+                </p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-3 p-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
               <button onClick={() => setEditing(null)} className="px-5 py-2 rounded-xl text-sm text-gray-500">Cancel</button>
               <button onClick={() => saveEmp(editing)} className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-black text-white"

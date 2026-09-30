@@ -4,6 +4,7 @@
  */
 
 import { Hono } from "npm:hono@4";
+import { normaliseTrades, sanitiseTrades } from "./employeeTrades.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { shiftStatus, autoClosePunchOut, blockedFromPayroll, reviewReason, AUTO_CLOSE_AFTER_HOURS } from "./shiftLimits.ts";
@@ -374,7 +375,7 @@ timeTrackingRouter.get("/employees/:id", async (c) => {
 timeTrackingRouter.post("/employees", async (c) => {
   try {
     const body = await c.req.json();
-    const { id, name, role, department, phoneNumber, payRate, payType, billRate, assignedProject } = body;
+    const { id, name, role, department, phoneNumber, payRate, payType, billRate, assignedProject, trades } = body;
     const denial = requireEmployeeAccess(c, id);
     if (denial) return denial;
     
@@ -411,6 +412,21 @@ timeTrackingRouter.post("/employees", async (c) => {
        */
       billRate: isAdmin ? Number(billRate ?? existing?.billRate ?? 0) : Number(existing?.billRate || 0),
       assignedProject: isAdmin ? (assignedProject ?? existing?.assignedProject ?? null) : (existing?.assignedProject ?? null),
+      /**
+       * The trades the scheduler will offer them.
+       *
+       * Admin-only, for the same reason as the rates: this decides what work
+       * lands on somebody. And because an EMPTY list means "offer them
+       * anything", a field user who could clear it would be volunteering for
+       * every trade on the board — so a non-admin save carries the stored list
+       * forward untouched rather than posting an empty one over it.
+       *
+       * Sanitised to slugs rather than checked against a list of the twelve we
+       * sell: the catalogue lives in the front end, and a copy of it here would
+       * drift the first time a trade is added. A slug that matches nothing is
+       * inert — `candidatesFor` simply never matches it.
+       */
+      trades: isAdmin ? sanitiseTrades(trades, existing?.trades) : normaliseTrades(existing?.trades),
       status: existing?.status || 'clocked-out',
       hoursToday: Number(existing?.hoursToday || 0),
       hoursWeek: Number(existing?.hoursWeek || 0),
