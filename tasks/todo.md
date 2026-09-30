@@ -12308,3 +12308,36 @@ sale that never happened.
 Revenue is unaffected — `membershipFromGrant` resolves an owing account to
 `past_due`: a member of its cohort, never counted as money. That branch was
 built and tested in V1 and could not be reached from real data until now.
+
+**Power washing is a trade now, 29 Sep.** Eric settled the open question: it is
+priced per job and by size, hourly or flat in some cases. Size is the part
+that decides it — hours derived from a measurable quantity are what the labour
+engine is for, so it belongs in the catalogue rather than outside it. Snow
+removal, lawn care and pest control are the contrast: sold, not quoted by
+area, and still resolving to no trade at all.
+
+Seven tasks covering all three of his billing shapes — five by area (house,
+concrete, deck, fence, roof), one by the hour, one flat per job. Four lists
+learned about it: the labels, the seed tasks, the server's rate card and the
+rates screen, which holds its defaults twice.
+
+**The rate had to be written to the live record, not just seeded.** Eric has
+saved his own rates (carpentry 70, not the 65 default), and `resolveLaborRates`
+returns the saved list whenever it has anything usable — so the server's
+standard list is never consulted, and adding power washing there would have
+done nothing. `estimateTaskLabor` treats a missing rate as **zero**, silently,
+so a power washing quote would have priced labour at nothing. Written into
+`labor_rates:global` at 55/hr, between his laboring at 45 and siding at 60.
+That figure is a guess at his number and the rates screen is where to change it.
+
+**Two things left over, neither introduced here.** The edge function would not
+deploy — 401 from the deploy API on a cached CLI login that worked twice
+earlier in the session, so it needs `npx supabase login` again. Nothing is
+broken by the delay: the live server still resolves "Pressure Washing" to no
+trade, which means anybody may take it, which is the safe direction.
+
+And on the rates screen, saved rate records carry no `visible` field while the
+merge reads `savedRate.visible` — so all twelve of his own rates come back
+`undefined` and the header reads "1 active rates configured" with every row at
+half opacity. Cosmetic, pre-existing, and it changes that screen's appearance
+to fix, so it is left alone pending a word from him.
