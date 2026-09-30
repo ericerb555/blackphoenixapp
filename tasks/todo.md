@@ -12241,3 +12241,40 @@ on refresh.
 **Nothing on that screen is invented any more.** Cohorts come from the server,
 Subscriptions from its own component, and the other four say honestly that
 they hold nothing.
+
+---
+
+**Trades done, 29 Sep — and it surfaced a live break in the scheduler.**
+
+The twelve trades Eric holds are recorded against his employee record, and
+the HR hub's employee editor now has the field that should have existed
+before any of them were written by hand. The employee route accepts `trades`
+admin-only, sanitised to slugs, and treats an **absent** key as "keep what is
+stored" rather than as "clear them" — several screens post an employee record
+without one, and clearing trades does not narrow what somebody is offered, it
+widens it to everything.
+
+Then recording them broke the schedule, which is worth writing down properly.
+
+`availability.ts` has three trade states, and the third was carrying us: an
+**unrecorded** technician is eligible for any work, flagged. Nobody had trades
+recorded, so the fact that `scheduleAssistant` was passing the customer's
+chosen SERVICE straight through as a trade id never mattered — nothing was
+ever compared. Fill the trades in and the second state takes over: a recorded
+technician must hold the trade named. No human being holds the trade
+"pressure washing". With one technician on the roster that is every customer
+request proposing nothing, for a completely clear diary.
+
+Fixed by resolving the trade through `tradeFor()` first, which returns
+**nothing** for the services the company sells but the estimator does not
+price as trades — lawn care, pressure washing, snow removal, pest control,
+general cleaning — because an absent trade means anybody may take it. The
+regression is asserted in `tests/tradeFor.test.ts` alongside the fix.
+
+**Still open, and it needs Eric:** the work request form offers Pressure
+Washing and Trash Removal as services, Eric works both, and neither is a
+trade in `laborTasks.ts`. Adding a trade is three places — `TRADE_LABELS`,
+`STANDARD_LABOR_RATES` (an hourly rate) and `SEED_TASKS` (production rates
+per unit) — and a trade with no tasks appears in the estimator and prices
+nothing, which is worse than its absence. So this is a pricing decision, not
+a list edit.
