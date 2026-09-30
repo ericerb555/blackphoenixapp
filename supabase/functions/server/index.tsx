@@ -40,6 +40,7 @@ import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPubl
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
 import unavailabilityRouter from "./unavailability.tsx";
+import scheduleAssistantRouter from "./scheduleAssistant.tsx";
 import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
 import projectVisionRouter from "./project-vision.tsx";
@@ -233,7 +234,7 @@ import {
 import { supersededIds, supersedesMessage } from "./addOnGroups.ts";
 import { contentAddOnPlan, wouldOverwriteEdits, CONTENT_AUDIENCES, CONTENT_RUNGS } from "./contentAddOns.ts";
 import {
-  mayReadConversation, visibleConversations, staffInbox,
+  mayReadConversation, visibleConversations, staffInbox, unreadForViewer, isStaffParticipant,
   type ConversationViewer,
 } from "./conversationAccess.ts";
 import { cohortIdForTier, monthlyRecurringCents } from "./cohortMembership.ts";
@@ -922,6 +923,8 @@ app.route("/", quotesRouter);
 // Time off and call-outs. See unavailability.tsx — one record type, because the
 // scheduler asks it one question and two stores means two places to forget.
 app.route("/", unavailabilityRouter);
+// What the scheduler would do, and confirming one of its proposals.
+app.route("/", scheduleAssistantRouter);
 app.route("/", deliverablesRouter);
 // Existing design/vision modules were present but unreachable from the deployed function.
 app.route("/", designProjectsRouter);
@@ -11178,6 +11181,45 @@ app.post('/make-server-3eae23a6/messaging/messages', async (c) => {
           sms: `${senderName}: "${preview}" — reply in your portal.`,
         }).catch(() => {});
       }
+
+      /**
+       * And tell the company, which the loop above cannot.
+       *
+       * It emails PARTICIPANTS who have an address, and the company side of a
+       * conversation is recorded as the literal `admin` or as a bare UUID —
+       * neither is an email, so the owner was never in that set. Four real
+       * conversations have been sitting unanswered partly because of it.
+       *
+       * `notifyStaff` is the engine that already mails the team on sign-ups,
+       * payments and work requests, so this is a sixth event rather than a
+       * second mailer: same recipients, same log, same
+       * ADMIN_NOTIFICATION_EMAILS safety net that cannot be switched off from
+       * the UI.
+       *
+       * ONLY FOR MESSAGES FROM OUTSIDE THE COMPANY. Emailing the owner about
+       * his own replies is how somebody ends up muting the alerts, and then
+       * missing the one that mattered.
+       */
+      const fromCompany = isStaffParticipant({ userRole: senderRole })
+        || (conv.participants || []).some((p: any) =>
+          String(p?.userId || '') === String(senderId || '') && isStaffParticipant(p));
+
+      if (!fromCompany) {
+        notifyStaffInBackground('message', {
+          subject: `${senderName} sent a message`,
+          heading: 'New message from a customer',
+          rows: [
+            ['From', senderName],
+            ['Role', String(senderRole || 'customer')],
+            ['Message', preview],
+            ['Conversation', String(conversationId)],
+          ],
+          ctaLabel: 'Open the message',
+          ctaPath: '/messages',
+          // One email per message, not per delivery attempt.
+          dedupeKey: `message:${msg.id}`,
+        });
+      }
     }
     return c.json({ message: msg }, 201);
   } catch (e: any) { return c.json({ error: e.message }, 500); }
@@ -11197,16 +11239,63 @@ app.post('/make-server-3eae23a6/messaging/conversations/:convId/read', async (c)
   } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
 
-app.get('/make-server-3eae23a6/messaging/unread/:userId', async (c) => {
+/**
+ * How many messages are waiting for the signed-in account.
+ *
+ * No `:userId` — it used to take one from the path, which meant asking for
+ * somebody else's unread count was a matter of typing their id. The badge
+ * counts what the token says is yours.
+ *
+ * For staff this is the company inbox, counted under whichever id the company
+ * participant carries on each conversation. There are three spellings of it in
+ * the real data, so counting under any single one of them would undercount —
+ * and an undercounted badge is a message nobody ever notices.
+ */
+app.get('/make-server-3eae23a6/messaging/unread', async (c) => {
   try {
-    const userId = c.req.param('userId');
-    const all = await kv.getByPrefix('conv:') as any[];
-    let total = 0;
-    all.forEach((conv: any) => {
-      total += conv?.unreadCount?.[userId] || 0;
-    });
-    return c.json({ unreadCount: total });
+    const viewer = conversationViewer(c);
+    if (!viewer.email && !viewer.userId) return c.json({ unreadCount: 0 }, 401);
+
+    const all = ((await kv.getByPrefix('conv:')) as any[] || []).filter(Boolean);
+    return c.json({ unreadCount: unreadForViewer(all, viewer) });
   } catch (e: any) { return c.json({ unreadCount: 0 }); }
+});
+
+/**
+ * The unread badge, plus enough to say WHO is waiting.
+ *
+ * Eric asked for a pop-up on sign-in naming any new messages, and a bare count
+ * cannot do that — "3 unread" says nothing about whether it is a customer or a
+ * test account. This returns the threads with something waiting, newest first.
+ */
+app.get('/make-server-3eae23a6/messaging/waiting', async (c) => {
+  try {
+    const viewer = conversationViewer(c);
+    if (!viewer.email && !viewer.userId) return c.json({ unreadCount: 0, threads: [] }, 401);
+
+    const all = ((await kv.getByPrefix('conv:')) as any[] || []).filter(Boolean);
+    const mine = viewer.isStaff ? staffInbox(all) : visibleConversations(all, viewer);
+
+    const threads = mine
+      .map((conv: any) => ({
+        id: String(conv?.id || ''),
+        unread: unreadForViewer([conv], viewer),
+        // The other side of the conversation, which is who the owner wants named.
+        from: String(
+          (conv?.participants || []).find((p: any) => !isStaffParticipant(p))?.userName
+          || conv?.name || 'Someone',
+        ),
+        lastMessage: String(conv?.lastMessage || ''),
+        lastMessageAt: String(conv?.lastMessageAt || ''),
+      }))
+      .filter((t) => t.unread > 0)
+      .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+
+    return c.json({
+      unreadCount: threads.reduce((n, t) => n + t.unread, 0),
+      threads,
+    });
+  } catch (e: any) { return c.json({ unreadCount: 0, threads: [], error: e.message }); }
 });
 
 // ── AI EMAIL LEAD GENERATION ─────────────────────────────────────────────────
