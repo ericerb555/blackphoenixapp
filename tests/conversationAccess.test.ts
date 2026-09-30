@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mayReadConversation, visibleConversations, staffInbox, isStaffParticipant,
+  mayReadConversation, visibleConversations, staffInbox, isStaffParticipant, unreadForViewer,
 } from '../supabase/functions/server/conversationAccess.ts';
 
 const customer = { email: 'wanda@example.com', userId: 'uuid-wanda', isStaff: false };
@@ -153,4 +153,58 @@ test('the inbox is empty rather than broken when there is nothing in it', () => 
   assert.deepEqual(staffInbox([]), []);
   assert.deepEqual(staffInbox([null, undefined] as any), []);
   assert.deepEqual(staffInbox([betweenOthers]), []);
+});
+
+// ── The unread badge ──────────────────────────────────────────────────────
+
+/**
+ * `unreadCount` is keyed by participant id, and the company side is written
+ * under three different ids across the real conversations. Counting under any
+ * single one of them undercounts — and for a badge, an undercount is a message
+ * nobody ever notices.
+ */
+const withUnread = (participants: any[], unreadCount: Record<string, number>) => ({ participants, unreadCount });
+
+test('THE STAFF BADGE COUNTS EVERY SPELLING OF THE COMPANY SIDE', () => {
+  const all = [
+    withUnread([{ userId: 'admin', userRole: 'admin' }, { userId: 'a@x.com', userRole: 'customer' }], { admin: 2 }),
+    withUnread([{ userId: '1a9f3ae4', userRole: 'admin' }, { userId: 'b@x.com', userRole: 'customer' }], { '1a9f3ae4': 3 }),
+    withUnread([{ userId: 'blackphoenix-admin', userRole: 'admin' }, { userId: 'c@x.com', userRole: 'customer' }], { 'blackphoenix-admin': 1 }),
+  ];
+  assert.equal(unreadForViewer(all, owner), 6, 'all three, not just the one that happens to match');
+});
+
+test('a customer counts only their own unread', () => {
+  const all = [
+    withUnread([{ userId: 'admin', userRole: 'admin' }, { userId: 'wanda@example.com', userRole: 'customer' }],
+      { admin: 5, 'wanda@example.com': 2 }),
+  ];
+  assert.equal(unreadForViewer(all, customer), 2, 'hers, not the company\'s');
+  assert.equal(unreadForViewer(all, owner), 5);
+});
+
+test('a thread the viewer cannot read contributes nothing', () => {
+  const all = [withUnread([{ userId: 'x@x.com' }, { userId: 'y@y.com' }], { 'x@x.com': 9 })];
+  assert.equal(unreadForViewer(all, other), 0);
+  assert.equal(unreadForViewer(all, owner), 0, 'no company participant, so not the company\'s thread');
+});
+
+/**
+ * A thread with two company-side participants must contribute once, not twice.
+ */
+test('a conversation counts once even with two staff on it', () => {
+  const all = [withUnread(
+    [{ userId: 'admin', userRole: 'admin' }, { userId: 'emp', userRole: 'employee' }, { userId: 'c@x.com', userRole: 'customer' }],
+    { admin: 4, emp: 4 },
+  )];
+  assert.equal(unreadForViewer(all, owner), 4, 'not 8');
+});
+
+test('missing, zero and nonsense counts are all zero rather than NaN', () => {
+  assert.equal(unreadForViewer([withUnread([{ userId: 'admin', userRole: 'admin' }], {})], owner), 0);
+  assert.equal(unreadForViewer([withUnread([{ userId: 'admin', userRole: 'admin' }], { admin: 0 })], owner), 0);
+  assert.equal(unreadForViewer([withUnread([{ userId: 'admin', userRole: 'admin' }], { admin: NaN as any })], owner), 0);
+  assert.equal(unreadForViewer([], owner), 0);
+  assert.equal(unreadForViewer([null, undefined] as any, owner), 0);
+  assert.equal(unreadForViewer([withUnread([{ userId: 'admin', userRole: 'admin' }], { admin: 2 })], null), 0);
 });

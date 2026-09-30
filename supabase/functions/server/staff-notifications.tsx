@@ -25,7 +25,7 @@ import * as kv from './kv_store.tsx';
 const RECIPIENTS_KEY = 'staff_notification_recipients';
 const LOG_PREFIX = 'staff_notification_log:';
 
-export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency', 'application'] as const;
+export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency', 'application', 'message'] as const;
 export type StaffNotificationEvent = typeof STAFF_NOTIFICATION_EVENTS[number];
 
 export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, string> = {
@@ -34,6 +34,7 @@ export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, str
   work_request: 'New work requests',
   emergency: 'Emergency on-call calls',
   application: 'New portal applications',
+  message: 'New messages from customers',
 };
 
 export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEvent, string> = {
@@ -47,6 +48,12 @@ export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEven
    * different urgency, and folding them together would mean whoever wants one
    * has to receive the other.
    */
+  /**
+   * Only messages from OUTSIDE the company. Emailing the owner about his own
+   * replies is how somebody mutes the alerts and then misses the one that
+   * mattered.
+   */
+  message: 'Emailed whenever a customer, vendor or tenant sends a message through the portal.',
   application: 'Emailed whenever anybody applies to any portal — vendor, subcontractor, investor, advertiser, tenant, territory or property manager.',
 };
 

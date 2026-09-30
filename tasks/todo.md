@@ -12143,12 +12143,12 @@ one is a real customer (Wanda Atherton, two threads, June, no reply).
       `blackphoenix-admin` working so nothing that writes it breaks.
 - [x] Z3. `Messaging.tsx` sends `authedHeaders()` instead of the anon key, and
       stops hardcoding `ADMIN_ID` for the fetch.
-- [ ] Z4. **A Messages tab** on the Owner's Dashboard, with an unread count on
+- [x] Z4. **A Messages tab** on the Owner's Dashboard, with an unread count on
       the label so it is visible without opening it.
-- [ ] Z5. **A pop-up on sign-in** when unread messages are waiting — count,
+- [x] Z5. **A pop-up on sign-in** when unread messages are waiting — count,
       who from, and a way straight to the thread. Once per session, not on
       every render.
-- [ ] Z6. **An email on a new inbound message**, through `notifyStaff` with a
+- [x] Z6. **An email on a new inbound message**, through `notifyStaff` with a
       sixth event `message`. Only for messages FROM a customer — emailing the
       owner about his own replies is how somebody turns the alerts off.
 
@@ -12157,3 +12157,30 @@ one is a real customer (Wanda Atherton, two threads, June, no reply).
 A pop-up every login is welcome when there is one new message and tiresome
 when there are none. Proposal: show it only when the unread count is above
 zero, and never twice for the same messages in one session.
+
+**Z4–Z6 done, 29 Sep.**
+
+- **Tab.** "Messages" on the Owner's Dashboard, above Portal Plans, with the
+  unread count on the label so it is visible without opening it.
+- **Pop-up.** Once per sign-in and only when something is waiting, keyed on
+  `sessionStorage`. It **names who is waiting** rather than showing a bare
+  count — "3 unread" does not say whether it is a customer or a test account,
+  and a real customer going unanswered is the whole reason this exists. Two
+  buttons: read them, or later.
+- **Email.** A sixth event on the existing `notifyStaff` engine, so it reuses
+  the recipients, the delivery log and the `ADMIN_NOTIFICATION_EMAILS` safety
+  net that cannot be switched off from the UI. **Only for messages from
+  outside the company** — mailing the owner about his own replies is how
+  somebody mutes the alerts and then misses the one that mattered.
+  Deduplicated per message id.
+
+There was already a per-participant mailer on that route, and it could never
+reach the owner: it emails participants who have an address, and the company
+side of a conversation is the literal `admin` or a bare UUID. That is part of
+why four conversations sat unanswered.
+
+Two routes were replaced rather than added to. `GET /messaging/unread/:userId`
+took the id from the path, so asking for somebody else's count was a matter of
+typing it; it is now `GET /messaging/unread`, from the token. `GET
+/messaging/waiting` is new and returns the threads with something waiting, so
+the pop-up can name them.

@@ -130,3 +130,48 @@ export function staffInbox<T extends ConversationLike>(all: Array<T | null | und
       && c!.participants!.some(isStaffParticipant),
   );
 }
+
+/**
+ * How many unread messages this viewer has waiting.
+ *
+ * `unreadCount` is a map keyed by participant id, and the company side is
+ * written under three different ids across the real conversations — the
+ * literal `admin`, the owner's auth UUID, and `blackphoenix-admin` where
+ * something used the screen's constant. Summing under any one of them
+ * undercounts, which for a badge means messages that are never noticed.
+ *
+ * So for staff the count is taken under whichever id the STAFF PARTICIPANT of
+ * that particular conversation carries, conversation by conversation. For
+ * everybody else it is taken under their own identifiers.
+ */
+export function unreadForViewer(
+  conversations: Array<(ConversationLike & { unreadCount?: Record<string, number> }) | null | undefined>,
+  viewer: ConversationViewer | null | undefined,
+): number {
+  if (!viewer) return 0;
+
+  let total = 0;
+  for (const conversation of conversations || []) {
+    if (!mayReadConversation(conversation, viewer)) continue;
+
+    const counts = conversation!.unreadCount || {};
+    const participants = Array.isArray(conversation!.participants) ? conversation!.participants! : [];
+
+    const keys = viewer.isStaff
+      ? participants.filter(isStaffParticipant).map((p) => String(p?.userId ?? ''))
+      : participants.filter((p) => isViewer(p, viewer)).map((p) => String(p?.userId ?? ''));
+
+    /**
+     * Each conversation contributes once. A thread with two company-side
+     * participants must not be counted twice, so the largest of the matching
+     * keys is taken rather than their sum.
+     */
+    let most = 0;
+    for (const key of keys) {
+      const n = Number(counts[key]);
+      if (Number.isFinite(n) && n > most) most = n;
+    }
+    total += most;
+  }
+  return total;
+}

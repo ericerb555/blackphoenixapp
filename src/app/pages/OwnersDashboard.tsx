@@ -63,6 +63,8 @@ import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
 import { useAuth } from '../contexts/AuthContext';
+import Messaging from './Messaging';
+import { authedHeaders } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
@@ -71,10 +73,58 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing' | 'messages';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
+
+  /**
+   * Messages waiting for the company, and the sign-in pop-up.
+   *
+   * Eric asked for a tab, a pop-up when he logs in, and an email. This is the
+   * first two. It matters more than it sounds: four conversations had been
+   * sitting unread for months — one of them a customer who wrote twice — and
+   * there was no tab, no badge and no notice of any kind.
+   *
+   * The count comes from /messaging/waiting, which resolves the inbox from the
+   * signed-in account rather than from an id in the URL.
+   */
+  const [waiting, setWaiting] = useState<{ unreadCount: number; threads: any[] }>({ unreadCount: 0, threads: [] });
+  const [showWaiting, setShowWaiting] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/messaging/waiting`,
+          { headers: await authedHeaders() },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!live) return;
+
+        const count = Number(data?.unreadCount || 0);
+        setWaiting({ unreadCount: count, threads: Array.isArray(data?.threads) ? data.threads : [] });
+
+        /**
+         * Once per sign-in, and only when something is actually waiting.
+         *
+         * A pop-up that appears on every visit with nothing to say is one
+         * people learn to dismiss without reading, which defeats the point of
+         * having it. Keyed on sessionStorage so it follows the session rather
+         * than the page.
+         */
+        if (count > 0 && sessionStorage.getItem('bp_messages_prompted') !== '1') {
+          sessionStorage.setItem('bp_messages_prompted', '1');
+          setShowWaiting(true);
+        }
+      } catch {
+        // No session, or the inbox is unreachable. A dashboard must still load.
+      }
+    })();
+    return () => { live = false; };
+  }, []);
 
   // CRITICAL: Redirect unauthenticated users to login
   useEffect(() => {
@@ -441,6 +491,12 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
      * would think to open User Management, and being told "go to Portal plans"
      * three times is no help when the tab it is under is never named.
      */
+    {
+      id: 'messages' as MainTab,
+      // The count is on the label so it is visible without opening the tab.
+      label: waiting.unreadCount > 0 ? `Messages (${waiting.unreadCount})` : 'Messages',
+      icon: MessageSquare,
+    },
     { id: 'plans' as MainTab, label: 'Portal Plans', icon: CreditCard },
     { id: 'on-call-pricing' as MainTab, label: 'On-Call Pricing', icon: PhoneCall },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
@@ -710,6 +766,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             Stripe webhook events without which a cancellation never reaches
             us. One screen, because those three questions are always asked
             together and answering one without the others is misleading. */}
+        {activeTab === 'messages' && <Messaging />}
         {activeTab === 'plans' && <PlanTierAdmin />}
         {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
 
@@ -1284,6 +1341,63 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         <OwnerGiftManagement
           onClose={() => setShowGiftManagement(false)}
         />
+      )}
+
+      {/*
+        Messages waiting, shown once per sign-in.
+        Named rather than counted: "3 unread" does not tell you whether it is
+        a customer or a test account, and the whole reason this exists is that
+        a real customer went unanswered for months.
+      */}
+      {showWaiting && waiting.unreadCount > 0 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="rounded-lg bg-[#ea580c]/20 p-2">
+                <MessageSquare className="h-5 w-5 text-[#ea580c]" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-white">
+                  {waiting.unreadCount} message{waiting.unreadCount === 1 ? '' : 's'} waiting
+                </h3>
+                <p className="text-sm text-zinc-400">
+                  {waiting.threads.length} conversation{waiting.threads.length === 1 ? '' : 's'} need a reply.
+                </p>
+              </div>
+            </div>
+
+            <ul className="mb-5 max-h-56 space-y-2 overflow-y-auto">
+              {waiting.threads.slice(0, 6).map((t: any) => (
+                <li key={t.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+                  <p className="flex items-center justify-between gap-2 text-sm font-medium text-white">
+                    <span className="truncate">{t.from}</span>
+                    <span className="shrink-0 rounded bg-[#ea580c]/20 px-1.5 py-0.5 text-[10px] font-bold text-orange-400">
+                      {t.unread}
+                    </span>
+                  </p>
+                  {t.lastMessage && (
+                    <p className="mt-0.5 truncate text-xs text-zinc-500">{t.lastMessage}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowWaiting(false); setActiveTab('messages'); }}
+                className="flex-1 rounded-lg bg-[#ea580c] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#c2410c]"
+              >
+                Read them
+              </button>
+              <button
+                onClick={() => setShowWaiting(false)}
+                className="rounded-lg border border-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
