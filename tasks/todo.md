@@ -12537,3 +12537,43 @@ Where the analysis gives no ceiling height, wall area cannot be derived. I
 would assume 8ft and mark the line as assumed rather than skip the trade — a
 missing framing line reads as "no framing needed", which is worse than a
 figure somebody can correct. Say if you would rather it skipped.
+
+### Done, 30 Sep — all five items
+
+- [x] 1. `laborMath.ts` on the server, re-exported from `laborTasks.ts`. The
+      Vite risk did not materialise: typecheck, smoke and a full production
+      build all pass, so there is one minimum-hours floor rather than two.
+- [x] 2. `blueprintTakeoff.ts`, 21 tests. Wall area is perimeter times height;
+      two houses of equal floor area have different wall areas and a multiplier
+      cannot see that. Tasks are emitted only on evidence, and the flooring
+      product is read rather than defaulted, since hardwood is three times the
+      labour of a floating floor.
+- [x] 3. The route prices through it. Every line carries the field it came
+      from, whether anything was assumed, whether the minimum decided the
+      number, and whether the rate and the hours were seeded, measured or
+      somebody's own.
+- [x] 4. See below — this turned out to be the expensive one.
+- [x] 5. 1154 tests, 316 typecheck findings unchanged, smoke clean, build
+      clean, deployed, health confirmed.
+
+**Item 4 was worse than a stale mirror.** Both the publish route AND the screen
+that calls it dropped `minimumHours` and `crewSize`. So the server's catalogue
+never had any floors at all, and every server-side estimate priced a 20 sq ft
+tile patch as a quarter of an hour instead of the trip, setup, cut station and
+return to grout it really is. Both ends now carry them.
+
+**One thing still needs Eric.** The catalogue is published automatically when an
+administrator opens the labour tasks screen — there is no button. So the record
+on the server holds 66 tasks with no floors until he opens that screen once
+after Vercel deploys, at which point all 73 go up with their minimums and power
+washing among them. Writing it by hand first would have been pointless: a stale
+browser tab opening that screen would overwrite it back.
+
+**Also merged the catalogue merge rule.** `serverCatalogue.ts` now owns "an edit
+wins, and a task is somebody's own if and only if it is in the editor's store",
+and the learning loop narrows its result instead of implementing it again. That
+second half is a security property, not a preference — it is why a caller cannot
+protect a rate from correction by asking nicely, and it now has tests saying so.
+
+**Not done, deliberately:** the quote stays `binding: false`, and no condition
+multipliers are applied. Both were called out in the plan and neither changed.
