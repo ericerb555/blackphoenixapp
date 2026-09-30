@@ -26,6 +26,7 @@ import * as kv from "./kv_store.tsx";
 import { readWorkRequests } from "./workRequestStore.ts";
 import { proposeSchedule, summariseProposals, type WorkRequestLike } from "./proposeSchedule.ts";
 import type { Tech, Unavailability, Booking } from "./availability.ts";
+import { tradeFor } from "./tradeFor.ts";
 
 export const scheduleAssistantRouter = new Hono();
 
@@ -58,7 +59,22 @@ function asPlannable(record: any): WorkRequestLike {
   return {
     id: String(record?.id || ""),
     title: String(record?.title || record?.project_name || record?.serviceType || "Work request"),
-    trade: String(record?.trade || record?.serviceType || record?.project_type || "").trim() || undefined,
+    /**
+     * The TRADE, resolved from whatever the record calls the work.
+     *
+     * Never the raw service label. The customer picks from a list of services
+     * — "Pressure Washing", "Trash Removal / Hauling" — and handing one of
+     * those to `availability` as a trade id is a trade nobody holds. While the
+     * roster had no trades recorded that was invisible, because an unrecorded
+     * technician is eligible for anything; the moment somebody's trades were
+     * filled in, every request became unschedulable. Filling in the roster
+     * emptied the schedule.
+     *
+     * `tradeFor` returns undefined for a service we do not price as a trade,
+     * and undefined is passed through as an ABSENT trade, which means anybody
+     * may take it.
+     */
+    trade: tradeFor(record?.trade, record?.serviceType, record?.service, record?.project_type),
     // Hours come from the record where the estimator has put them. Absent is
     // left absent: `availability` offers an unmeasured job rather than hiding
     // it, because an unknown length is a gap in what we measured.
