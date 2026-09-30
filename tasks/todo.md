@@ -501,7 +501,7 @@ cohorts and they are not this task, but they are worth naming:
       backing up, and running it against a non-production project first.
       **Needs Eric's go-ahead; a dropped table does not come back.**
 
-- [ ] W5. **A past-due account leaves its cohort entirely.** Noticed while
+- [x] W5. **A past-due account leaves its cohort entirely.** — decided and fixed. Noticed while
       checking W1. On `customer.subscription.updated` with a non-live status
       the webhook sets `tierId: undefined`, so the grant no longer names a
       cohort and the account vanishes from the member count — even though it
@@ -12278,3 +12278,33 @@ trade in `laborTasks.ts`. Adding a trade is three places — `TRADE_LABELS`,
 per unit) — and a trade with no tasks appears in the estimator and prices
 nothing, which is worse than its absence. So this is a pricing decision, not
 a list edit.
+
+**W5 decided and done, 29 Sep.** Eric chose: **keep everything until day 15.**
+
+Checking it first turned up worse than the plan had recorded. The webhook
+cleared `tierId` the moment Stripe said `past_due`, and two mechanisms then
+disagreed:
+
+| | driven by | on `past_due` |
+|---|---|---|
+| Portal freeze | `pastDueSince`, 15-day grace | login kept for 15 days |
+| Entitlement | `tierId` + subscription id | **cleared at once** |
+
+So a customer whose card bounced dropped to the free floor instantly —
+limits to the 300-call/10-render backstop — and **on-call stopped the same
+second**, because `holdsOnCallFeature` needs a live subscription. The grace
+period granted a door with nothing behind it, which is the opposite of the
+freeze policy's stated purpose. The codebase already makes this exact
+argument about trials: somebody would *"find out it had lapsed at the worst
+imaginable moment — the burst pipe, the call that does not connect."*
+
+A subscription in arrears now keeps its tier and its extras. The freeze ends
+access on day fifteen and is enforced by default (`FREEZE_ENFORCE` defaults
+true — *"a freeze nobody enforces is not a freeze"*), so this does not become
+indefinite free access. Terminal states still clear: `incomplete_expired`
+means the first payment never completed, which is not a grace period but a
+sale that never happened.
+
+Revenue is unaffected — `membershipFromGrant` resolves an owing account to
+`past_due`: a member of its cohort, never counted as money. That branch was
+built and tested in V1 and could not be reached from real data until now.

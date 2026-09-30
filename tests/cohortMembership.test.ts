@@ -341,3 +341,48 @@ test('empty and broken lists are zero, not a crash', () => {
   assert.equal(unattachedTrials([], NOW), 0);
   assert.equal(unattachedTrials([null, undefined], NOW), 0);
 });
+
+// ── Arrears, now that the webhook produces this state ─────────────────────
+
+/**
+ * Until 29 Sep this state could not arise from real data: the Stripe webhook
+ * cleared `tierId` the moment a subscription went `past_due`, so an account in
+ * arrears had no tier and belonged to no cohort. That also dropped its limits
+ * to the free backstop and stopped its on-call the same second, while the
+ * fifteen-day grace period still let it log in — a door with nothing behind it.
+ *
+ * Eric's decision was to keep everything until day 15, so the webhook now
+ * keeps the tier through arrears and the freeze is what ends access. These pin
+ * the two halves that have to stay true together: still a member, never money.
+ */
+test('AN ACCOUNT IN ARREARS KEEPS ITS COHORT BUT EARNS NOTHING', () => {
+  const cohort = cohortFromTier({ id: 'studio', name: 'Studio', priceCents: 14900, active: true });
+  const owing = paying({ email: 'behind@x.com', lastSubscriptionStatus: 'past_due' });
+
+  const m = membershipFromGrant(owing, NOW);
+  assert.equal(m.cohortId, 'cohort-tier-studio', 'still in the cohort — they are still being served');
+  assert.equal(m.status, 'past_due');
+
+  assert.equal(monthlyRevenueOf(cohort, [m]), 0, 'and contributes nothing to revenue');
+});
+
+test('the member count includes them, the paying count does not', () => {
+  const grants = [
+    paying({ email: 'pays@x.com' }),
+    paying({ email: 'behind@x.com', lastSubscriptionStatus: 'past_due' }),
+  ];
+  const memberships = membershipsFromGrants(grants, NOW);
+  assert.equal(memberships.length, 2, 'both are members');
+  assert.equal(memberships.filter((m) => m.status === 'active').length, 1, 'one is paying');
+  assert.equal(monthlyRecurringCents(grants, () => ({ basePrice: 149 })), 14900, 'MRR counts one');
+});
+
+/**
+ * A cancellation is not arrears. The webhook still clears the tier for
+ * terminal states, and this is the assertion that keeps the two apart.
+ */
+test('a cancelled subscription still leaves the cohort', () => {
+  const m = membershipFromGrant(paying({ lastSubscriptionStatus: 'canceled' }), NOW);
+  assert.equal(m.status, 'inactive');
+  assert.equal(monthlyRecurringCents([paying({ lastSubscriptionStatus: 'canceled' })], () => ({ basePrice: 149 })), 0);
+});

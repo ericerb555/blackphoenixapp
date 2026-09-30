@@ -323,15 +323,43 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
     }
 
     case 'customer.subscription.updated': {
+      const status = String(object?.status || '');
+      const live = status === 'active' || status === 'trialing';
+
       /**
-       * Stripe's own view of whether this is paying.
+       * ARREARS ARE NOT CANCELLATION, AND THE GRACE PERIOD HAS TO MEAN
+       * SOMETHING.
        *
-       * `trialing` counts as active: a Stripe-side trial is a subscription that
-       * exists and will bill. `past_due` deliberately does not — an unpaid
-       * renewal should stop access, and Stripe moves it back to `active` the
-       * moment payment succeeds, which fires this event again.
+       * This used to clear `tierId` the moment Stripe said `past_due`, which
+       * dropped the account to the free floor instantly: limits fell to the
+       * backstop of 300 model calls and 10 renders, and — because
+       * `holdsOnCallFeature` needs a live subscription — ON-CALL STOPPED THE
+       * SAME SECOND. The fifteen-day grace period still let them log in, so
+       * what it actually granted was a door with nothing behind it.
+       *
+       * That contradicted the freeze policy, which exists precisely so that a
+       * failed card does not cut somebody off mid-emergency. The code already
+       * makes this argument about trials: somebody would "find out it had
+       * lapsed at the worst imaginable moment — the burst pipe, the call that
+       * does not connect." A bounced card did exactly that.
+       *
+       * So a subscription in arrears KEEPS its tier and its extras. The
+       * freeze is what ends access, on day fifteen, and it is enforced by
+       * default. Revenue is unaffected: `membershipFromGrant` reads
+       * `lastSubscriptionStatus` and resolves an owing account to `past_due`
+       * — a member of its cohort, never counted as money.
+       *
+       * Eric's decision, 29 Sep: keep everything until day 15.
        */
-      const live = object?.status === 'active' || object?.status === 'trialing';
+      const inGrace = status === 'past_due' || status === 'unpaid';
+
+      /**
+       * Terminal states still clear. `incomplete_expired` means the very
+       * first payment never completed, so there is no subscription to be in
+       * arrears ON — that is not a grace period, it is a sale that never
+       * happened.
+       */
+      const keepEntitlement = live || inGrace;
 
       /**
        * When the arrears started, stamped once.
@@ -341,25 +369,25 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
        * the freeze would never arrive; clearing it the moment the subscription
        * is live again is what lets the account out.
        */
-      const owing = ['past_due', 'unpaid', 'incomplete_expired'].includes(String(object?.status || ''));
-      const pastDueSince = live ? undefined : (grant.pastDueSince || (owing ? now : undefined));
+      const pastDueSince = live ? undefined : (grant.pastDueSince || (inGrace ? now : undefined));
 
       await kvSet(key, {
         ...grant,
         email,
         status: 'active',
         pastDueSince,
-        tierId: live ? tierId : undefined,
-        // Dropped with the tier, and for the same reason: an extra that
-        // outlives the subscription paying for it is access nobody is
-        // billed for.
-        addOnIds: live ? addOnIds : undefined,
-        stripeSubscriptionId: live ? String(object?.id || '') : undefined,
-        lastSubscriptionStatus: String(object?.status || ''),
+        tierId: keepEntitlement ? tierId : undefined,
+        // Kept alongside the tier through the grace period. An extra that
+        // outlives the subscription paying for it is access nobody is billed
+        // for — but arrears are not the end of the subscription, and on-call
+        // is the last thing to withdraw from somebody whose card just failed.
+        addOnIds: keepEntitlement ? addOnIds : undefined,
+        stripeSubscriptionId: keepEntitlement ? String(object?.id || '') : undefined,
+        lastSubscriptionStatus: status,
         updatedAt: now,
       });
-      console.log(`[stripe-webhooks/plan] ${email} subscription ${object?.status} — access ${live ? 'kept' : 'dropped'}`);
-      return { portalPlan: email, tierId, active: live, status: object?.status };
+      console.log(`[stripe-webhooks/plan] ${email} subscription ${status} — access ${live ? 'kept' : inGrace ? 'kept (in grace)' : 'dropped'}`);
+      return { portalPlan: email, tierId: keepEntitlement ? tierId : undefined, active: live, inGrace, status };
     }
 
     case 'customer.subscription.deleted': {
