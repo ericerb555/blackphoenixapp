@@ -15,7 +15,7 @@ and, on where the costs come from:
 
 > "they should be able to send me the report and i will put a cost to it"
 
-**Nothing is built. This is the plan, awaiting his word.**
+**C1 and C2 are built and tested. C3 onward is not started.**
 
 ---
 
@@ -135,12 +135,12 @@ else asks the landlord to confirm the figure.
 
 ## 5. Order of work
 
-- [ ] **C1. `conditionDiff.ts` — the comparison and the classification.** Pure,
+- [x] **C1. `conditionDiff.ts` — the comparison and the classification.** Pure,
       on the server, tested hard: the scale ordering, wear against damage, the
       landlord override, and the case where the two sides disagree. This is the
       file that decides what a tenant is charged, so it is the one with the
       tests.
-- [ ] **C2. `depositMath.ts` — parsing a deposit and the arithmetic.** Deposit
+- [x] **C2. `depositMath.ts` — parsing a deposit and the arithmetic.** Deposit
       less deductions, what is returned, what is still owed, the refusal to guess
       at an unreadable figure, and the refusal to total anything while pricing is
       outstanding.
@@ -202,3 +202,52 @@ document itself should be the one that holds up.
   and a typed figure would undercut the only reason the number is worth having.
 - It does not share an unpriced report. The claim and the number travel together
   or not at all.
+
+---
+
+## 8. C1 and C2, as built — 2 Oct
+
+`conditionDiff.ts` (29 tests) and `depositMath.ts` (23 tests). Both pure, both on
+the server, neither touching a store or a screen. Four things settled while
+writing them that the plan had left implicit.
+
+**The signed record governs.** The comparison runs on `tenantResponses.areas` —
+what the tenant put their name to — and the landlord's own reading is carried
+onto the line only where it DIFFERS. A landlord recording Fair-to-Damaged while
+the tenant signed Poor-to-Poor produces an unchanged line with the disagreement
+stated, not a two-step drop. Preferring the landlord's figure silently would
+have made the document worthless as evidence at exactly the moment it is needed.
+
+**An override moves a line between wear and damage and nothing else.** It cannot
+charge for an area that is unchanged or better than on arrival, and it cannot
+manufacture a baseline. Those are not judgement calls, they are the absence of
+anything to judge — and an override that could reach them would be a way to
+charge for anything at all.
+
+**Evidence from both accounts travels onto the line, deduplicated.** A photograph
+the landlord took and one the tenant took are both evidence and neither
+supersedes the other.
+
+**Tenancy length is reported and not applied.** A one-step drop is wear at three
+months and at four years. One rule plus a stated fact is easier to defend than
+two rules interacting, and the override is there for the case that needs it.
+
+### The bug the tests caught, which is worth recording
+
+`settleDeposit` read a line with `cost: null` as costing ZERO, because
+`Number(null)` is 0 and 0 is finite and not negative. An unpriced damaged area
+would have become a priced area costing nothing, the settlement would have read
+as `ready`, and the report would have gone out stating a damaged floor was
+quoted at zero — the precise failure the module was written to prevent, inside
+the module written to prevent it. Absent is not zero; it is now explicit.
+
+### Still true, and still needing a decision later
+
+The deposit field is free text and `parseDeposit` refuses "one month" and "1
+month rent" rather than reading the latter as one dollar. That refusal is
+correct, but it means a real lease can block a real report, so C4 should let the
+landlord enter the figure rather than only reporting that it could not be read.
+
+Deposit INTEREST is deliberately absent. Massachusetts requires it, and getting
+it right needs the state, the account and the dates, none of which are on these
+records. A wrong interest figure on a statutory statement is worse than none.
