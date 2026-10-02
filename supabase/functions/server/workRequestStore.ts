@@ -22,6 +22,7 @@
  */
 
 import * as kv from "./kv_store.tsx";
+import { signWorkRequestsMedia } from "./mediaSigning.ts";
 
 /**
  * Every work request, newest first where the index preserves that order.
@@ -81,7 +82,28 @@ export async function readWorkRequests(sb?: any): Promise<any[]> {
     }
   }
 
-  return [...byId.values()];
+  const records = [...byId.values()];
+
+  /**
+   * MEDIA IS SIGNED HERE, AND HERE ONLY.
+   *
+   * The job photographs, blueprints and walkthrough video on these records are
+   * stored as whatever link was minted when they were uploaded — originally a
+   * permanent public URL, because the buckets were public. Those buckets are
+   * private now, so a stored link does not work and must not be handed to a
+   * browser as though it did.
+   *
+   * Doing it at the single reader rather than at each of the four screens that
+   * render media is the reason this is a small change: `WorkRequestFullView`,
+   * `ProjectDetailsModal`, `UnifiedProjectPipeline` and `WorkOrderManager` all
+   * keep taking a plain URL string and are untouched. It also means a fifth
+   * screen added later is covered without anybody remembering to cover it,
+   * which is the failure this kind of fix usually has.
+   *
+   * Only works when a client was passed. Callers without one — there are a few
+   * analytical ones — get the stored values and do not render them.
+   */
+  return sb ? await signWorkRequestsMedia(sb, records) : records;
 }
 
 /**

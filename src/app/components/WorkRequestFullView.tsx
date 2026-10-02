@@ -24,19 +24,46 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
   const [expandedSection, setExpandedSection] = useState<string | null>('photos');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Two lists per kind, because a private bucket means the thing shown and the
+  // thing stored are no longer the same string. `local*` holds blob URLs for
+  // what was just uploaded so it appears immediately; `local*Refs` holds the
+  // `storage://` references that get written to the record. Keeping the refs
+  // in state matters: uploading a second photo must not drop the first one
+  // from what is saved.
   const [localPhotos, setLocalPhotos] = useState<string[]>([]);
   const [localVideos, setLocalVideos] = useState<string[]>([]);
+  const [localPhotoRefs, setLocalPhotoRefs] = useState<string[]>([]);
+  const [localVideoRefs, setLocalVideoRefs] = useState<string[]>([]);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  const uploadFile = async (file: File, bucket: string): Promise<string | null> => {
+  /**
+   * Upload one file and return two different strings for two different jobs.
+   *
+   * `ref` is what gets STORED on the work request — `storage://bucket/path`.
+   * These buckets are private, so there is no durable URL to keep: the server
+   * mints a short-lived signed link each time the record is read.
+   *
+   * `preview` is what gets RENDERED right now, and it is a local blob of the
+   * file already in hand. The browser cannot read back out of a private
+   * bucket — by design, so that a signed-in subcontractor cannot mint links to
+   * a customer's photographs — and the file is sitting here anyway, so the
+   * preview is both free and instant.
+   *
+   * No `upsert`: the filename already carries a timestamp and a random
+   * suffix, and allowing overwrite would mean granting an update policy that
+   * lets one upload replace somebody else's file.
+   */
+  const uploadFile = async (
+    file: File,
+    bucket: string,
+  ): Promise<{ ref: string; preview: string } | null> => {
     try {
       const ext = file.name.split('.').pop() || 'bin';
-      const fileName = `admin-upload/${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
-      const { error } = await supabase.storage.from(bucket).upload(fileName, file, { upsert: true });
+      const path = `admin-upload/${Date.now()}_${Math.random().toString(36).substring(2)}.${ext}`;
+      const { error } = await supabase.storage.from(bucket).upload(path, file);
       if (error) { console.error('Upload error:', error.message); return null; }
-      const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(fileName);
-      return publicUrl;
+      return { ref: `storage://${bucket}/${path}`, preview: URL.createObjectURL(file) };
     } catch (e) { return null; }
   };
 
@@ -45,16 +72,24 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
     if (!files.length) return;
     setUploading(true);
     toast.loading(`Uploading ${files.length} photo(s)...`, { id: 'upload' });
-    const urls: string[] = [];
+    // Refs are stored; previews are shown. See uploadFile for why they differ.
+    const refs: string[] = [];
+    const previews: string[] = [];
     for (const f of files) {
-      const url = await uploadFile(f, 'project-photos');
-      if (url) urls.push(url);
+      const up = await uploadFile(f, 'project-photos');
+      if (up) { refs.push(up.ref); previews.push(up.preview); }
     }
-    if (urls.length) {
-      setLocalPhotos(prev => [...prev, ...urls]);
+    if (refs.length) {
+      const nextRefs = [...localPhotoRefs, ...refs];
+      setLocalPhotos(prev => [...prev, ...previews]);
+      setLocalPhotoRefs(nextRefs);
       // Also save back to the work request on the server
-      await saveMediaToWorkRequest(wr.id, [...allPhotos, ...urls], allVideos);
-      toast.success(`${urls.length} photo(s) added!`, { id: 'upload' });
+      await saveMediaToWorkRequest(
+        wr.id,
+        [...storedPhotos, ...nextRefs],
+        [...storedVideos, ...localVideoRefs],
+      );
+      toast.success(`${refs.length} photo(s) added!`, { id: 'upload' });
     } else {
       toast.error('Upload failed — check storage bucket permissions', { id: 'upload' });
     }
@@ -67,14 +102,21 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
     if (!files.length) return;
     setUploading(true);
     toast.loading(`Uploading video...`, { id: 'upload' });
-    const urls: string[] = [];
+    const refs: string[] = [];
+    const previews: string[] = [];
     for (const f of files) {
-      const url = await uploadFile(f, 'project-videos');
-      if (url) urls.push(url);
+      const up = await uploadFile(f, 'project-videos');
+      if (up) { refs.push(up.ref); previews.push(up.preview); }
     }
-    if (urls.length) {
-      setLocalVideos(prev => [...prev, ...urls]);
-      await saveMediaToWorkRequest(wr.id, allPhotos, [...allVideos, ...urls]);
+    if (refs.length) {
+      const nextRefs = [...localVideoRefs, ...refs];
+      setLocalVideos(prev => [...prev, ...previews]);
+      setLocalVideoRefs(nextRefs);
+      await saveMediaToWorkRequest(
+        wr.id,
+        [...storedPhotos, ...localPhotoRefs],
+        [...storedVideos, ...nextRefs],
+      );
       toast.success(`Video added!`, { id: 'upload' });
     } else {
       toast.error('Upload failed', { id: 'upload' });

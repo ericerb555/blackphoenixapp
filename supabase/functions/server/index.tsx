@@ -7236,15 +7236,83 @@ app.post('/make-server-3eae23a6/video/ai-edit', async (c) => {
 });
 
 // ── WORK REQUESTS (top-level, used by the client work request form) ───────────
-// Ensure storage buckets exist and are public (called once on first work request)
+
+/**
+ * The buckets holding customer job media, and the shape they must be in.
+ *
+ * THESE WERE PUBLIC, AND THAT WAS THE BUG.
+ *
+ * All three were created with `{ public: true }` and no limits, and the upload
+ * helpers handed out `getPublicUrl` links. Anyone holding a URL could open a
+ * customer's job-site photographs and their blueprints — invited to bid or
+ * not — and anything of any size and any type could be put in them.
+ *
+ * Phoenix Exchange broadcasts work to a marketplace and asks customers for
+ * video walkthroughs of the inside of their houses, so they are private now,
+ * capped, and restricted to the types they are actually for. Reads go through
+ * short-lived signed URLs minted in `mediaSigning.ts` at the moment a record
+ * is read.
+ *
+ * Existing records still hold the old public URLs. Nothing migrates them: the
+ * signer parses the bucket and path back out of whatever shape the stored
+ * value is in, so old records keep working and the public links stop working
+ * — which is the whole point of the change.
+ */
+const JOB_MEDIA_BUCKETS: { name: string; fileSizeLimit: number; allowedMimeTypes: string[] }[] = [
+  {
+    name: 'project-photos',
+    fileSizeLimit: 15 * 1024 * 1024,
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'],
+  },
+  {
+    // Walkthrough video is the largest thing a customer uploads, and a phone
+    // shoots big files. Generous, but not unbounded — unbounded is how a free
+    // consumer side becomes an unbounded bill.
+    name: 'project-videos',
+    fileSizeLimit: 200 * 1024 * 1024,
+    allowedMimeTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'],
+  },
+  {
+    name: 'project-blueprints',
+    fileSizeLimit: 50 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/tiff'],
+  },
+];
+
+/**
+ * Make sure the job media buckets exist and are private.
+ *
+ * Idempotent, and it repairs as well as creates: a bucket that already exists
+ * as public is flipped. That matters because the public ones are already out
+ * there in every environment this has ever run in, and creating-if-absent
+ * would leave every one of them exactly as it was.
+ */
 async function ensureStorageBuckets() {
-  const buckets = ['project-photos', 'project-videos', 'project-blueprints'];
   const { data: existing } = await supabase.storage.listBuckets();
-  const existingNames = new Set((existing || []).map((b: any) => b.name));
-  for (const name of buckets) {
-    if (!existingNames.has(name)) {
-      await supabase.storage.createBucket(name, { public: true });
-      console.log(`✅ Created public storage bucket: ${name}`);
+  const byName = new Map((existing || []).map((b: any) => [b.name, b]));
+
+  for (const spec of JOB_MEDIA_BUCKETS) {
+    const current: any = byName.get(spec.name);
+    const options = {
+      public: false,
+      fileSizeLimit: spec.fileSizeLimit,
+      allowedMimeTypes: spec.allowedMimeTypes,
+    };
+
+    if (!current) {
+      const { error } = await supabase.storage.createBucket(spec.name, options);
+      if (error) console.error(`❌ Could not create private bucket ${spec.name}:`, error.message);
+      else console.log(`✅ Created private storage bucket: ${spec.name}`);
+      continue;
+    }
+
+    if (current.public) {
+      const { error } = await supabase.storage.updateBucket(spec.name, options);
+      if (error) {
+        console.error(`❌ Could not make ${spec.name} private:`, error.message);
+      } else {
+        console.log(`🔒 Bucket ${spec.name} was public and is now private`);
+      }
     }
   }
 }

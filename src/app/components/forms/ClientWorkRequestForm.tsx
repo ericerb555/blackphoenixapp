@@ -1047,14 +1047,15 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         const fileName = `${user?.id || 'guest'}/${Date.now()}_${Math.random().toString(36).substring(7)}.webm`;
         const { error: uploadError } = await supabase.storage
           .from('project-videos')
-          .upload(fileName, video.blob, { upsert: true });
+          .upload(fileName, video.blob);
 
         if (!uploadError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('project-videos')
-            .getPublicUrl(fileName);
-          uploadedVideoUrls.push(publicUrl);
-          console.log('✅ Video uploaded:', publicUrl);
+          // These buckets are private, so there is no durable link to keep.
+          // Store a reference; the server mints a short-lived signed URL when
+          // the record is read. See `mediaSigning.ts`.
+          const ref = `storage://project-videos/${fileName}`;
+          uploadedVideoUrls.push(ref);
+          console.log('✅ Video uploaded:', ref);
         } else {
           console.error('❌ Video upload failed:', uploadError.message);
           uploadFailures.push(`video: ${uploadError.message}`);
@@ -1067,14 +1068,12 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         const fileName = `${user?.id || 'guest'}/${Date.now()}_${photo.name}`;
         const { error: uploadError } = await supabase.storage
           .from('project-photos')
-          .upload(fileName, photo, { upsert: true });
+          .upload(fileName, photo);
 
         if (!uploadError) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('project-photos')
-            .getPublicUrl(fileName);
-          uploadedPhotoUrls.push(publicUrl);
-          console.log('✅ Photo uploaded:', publicUrl);
+          const ref = `storage://project-photos/${fileName}`;
+          uploadedPhotoUrls.push(ref);
+          console.log('✅ Photo uploaded:', ref);
         } else {
           console.error('❌ Photo upload failed:', uploadError.message);
           uploadFailures.push(`photo: ${uploadError.message}`);
@@ -1100,10 +1099,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
             .upload(fileName, blueprint);
           
           if (!uploadError) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('project-photos')
-              .getPublicUrl(fileName);
-            uploadedBlueprintUrls.push(publicUrl);
+            uploadedBlueprintUrls.push(`storage://project-photos/${fileName}`);
 
             // Convert to base64 for AI analysis
             const base64 = await fileToBase64(blueprint);
