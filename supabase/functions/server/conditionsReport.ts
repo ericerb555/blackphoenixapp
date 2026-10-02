@@ -348,6 +348,79 @@ export function isFullyPriced(view: ReportView): boolean {
 }
 
 /**
+ * The work request this report becomes when it is sent to be priced.
+ *
+ * ONE REQUEST FOR THE WHOLE REPORT, NOT ONE PER AREA
+ *
+ * Eric's words were "send me the report", and that is also the right shape: a
+ * turnover is one job. Three damaged areas in one flat is one visit, one crew
+ * and one quote, and raising three work requests would put three jobs on the
+ * pipeline for a single departure — then ask somebody to reconcile them back
+ * into one deposit statement.
+ *
+ * WHY THE DESCRIPTION IS LONG
+ *
+ * Whoever prices this has not been in the flat. "Flooring — Damaged" tells them
+ * nothing they can quote from. The arrival condition, the departure condition,
+ * what each side wrote and how much evidence is on file are what make a price
+ * possible without a second visit — and where the two accounts disagree, that
+ * belongs in front of whoever is pricing it rather than buried.
+ */
+export function workRequestScope(view: ReportView): {
+  title: string; description: string; priority: string;
+} {
+  const r = view.record;
+  const damage = view.diff.lines.filter((l) => l.chargeable);
+  const where = [r.propertyAddress, r.unit].filter(Boolean).join(', ') || 'the property';
+
+  const lines = damage.map((line) => {
+    const bits = [`${line.area}: ${line.moveIn?.condition || 'unrecorded'} on arrival, `
+      + `${line.moveOut?.condition || 'unrecorded'} on departure.`];
+    if (line.moveOut?.notes) bits.push(`  Note on departure: ${line.moveOut.notes}`);
+    if (line.moveIn?.notes) bits.push(`  Note on arrival: ${line.moveIn.notes}`);
+    if (line.disputed) {
+      bits.push('  The landlord and the tenant recorded different conditions for this area.');
+    }
+    const photos = (line.moveIn?.media?.length || 0) + (line.moveOut?.media?.length || 0);
+    if (photos) bits.push(`  ${photos} photo/video on file across the two inspections.`);
+    if (line.override) bits.push('  Classed as damage by the landlord rather than automatically.');
+    return bits.join('\n');
+  });
+
+  const wear = view.diff.lines.filter((l) => l.classification === 'wear').map((l) => l.area);
+
+  const description = [
+    `Make good after a tenancy ended at ${where}.`,
+    '',
+    `${damage.length} area${damage.length === 1 ? '' : 's'} recorded as damage:`,
+    '',
+    ...lines,
+    '',
+    wear.length
+      // Said explicitly so nobody quotes it. These areas deteriorated and are
+      // NOT chargeable to the tenant, so pricing them would put work on a
+      // deposit statement that has no business being there.
+      ? `Not chargeable, and not to be quoted: ${wear.join(', ')} — recorded as fair `
+        + 'wear and tear.'
+      : 'No areas were classed as wear and tear.',
+    '',
+    view.diff.tenancyMonths !== null
+      ? `The tenancy ran ${view.diff.tenancyMonths} months.`
+      : 'The length of the tenancy is not recorded.',
+    'These figures go onto a security deposit statement given to the former '
+      + 'tenant, so each area needs its own price rather than one total.',
+  ].filter((part) => part !== undefined).join('\n');
+
+  return {
+    title: `Make good after tenancy — ${where}`.slice(0, 160),
+    description,
+    // A unit that cannot be re-let is losing rent every day, so a turnover is
+    // commercially urgent even when nothing about it is an emergency.
+    priority: 'high',
+  };
+}
+
+/**
  * What a tenant is allowed to see.
  *
  * Everything the landlord sees, minus nothing. A partial copy would defeat the

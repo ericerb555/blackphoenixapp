@@ -261,7 +261,8 @@ import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing, normaliseLaborRates } from './pricingDefaults.ts';
 import {
   buildReport, reportRefusal, reportView, transitionRefusal, applyTransition,
-  isFullyPriced, tenantCopy, type ConditionsReportRecord, type ReportStatus,
+  isFullyPriced, tenantCopy, workRequestScope,
+  type ConditionsReportRecord, type ReportStatus,
 } from './conditionsReport.ts';
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
@@ -10167,6 +10168,93 @@ app.patch('/make-server-3eae23a6/landlord/conditions-reports/:id', async (c) => 
       const refusal = transitionRefusal(next, to, view);
       if (refusal) return c.json({ success: false, error: refusal }, 409);
       next = applyTransition(next, to, view, now);
+
+      /*
+       * Sending it to be priced puts it on the pipeline as a work request.
+       *
+       * ONE request for the whole report: a turnover is one visit, one crew and
+       * one quote, and three work requests for three damaged areas would put
+       * three jobs on the pipeline for a single departure.
+       *
+       * `persistWorkRequest` is the only way a work request is written — it
+       * maintains the index, the legacy list, and resolves the job the request
+       * belongs to, so this lands on the same job as everything else about this
+       * address. Reaching for the store directly would be a second way to create
+       * one, and the second way is always the one that forgets something.
+       *
+       * Guarded on `workRequestId` rather than on the status, because a reopened
+       * and re-sent report must not raise a second job for the same damage —
+       * which is two crews turning up to one flat.
+       */
+      if (to === 'sent') {
+        const scope = workRequestScope(view);
+        const wr: any = {
+          id: `wr_${Date.now()}_${crypto.randomUUID().slice(0, 6)}`,
+          title: scope.title, project_name: scope.title,
+          description: scope.description,
+          priority: scope.priority,
+          category: 'maintenance',
+          serviceType: 'Make good after tenancy',
+          unit: next.unit || '',
+          address: next.propertyAddress || '',
+          client_email: next.landlordEmail, clientEmail: next.landlordEmail,
+          client_name: next.landlordEmail,
+          user_id: next.landlordUserId || actor.user?.id || null,
+          landlordEmail: next.landlordEmail,
+          type: 'landlord',
+          source: 'conditions-report',
+          // Traceable both ways: a question about this job reaches the report and
+          // the two checklists with the photographs on them.
+          conditionsReportId: next.id,
+          moveInFormId: next.moveInFormId,
+          moveOutFormId: next.moveOutFormId,
+          status: 'pending',
+          attachments: [],
+          created_at: now, updated_at: now,
+        };
+        if (next.workRequestId) {
+          /*
+           * Re-sent after being reopened: the SAME job, with its scope brought
+           * up to date.
+           *
+           * Raising a second request would be two crews at one flat. Leaving the
+           * first one alone would be worse in a quieter way — somebody would
+           * quote against findings the landlord has since corrected, and the
+           * figure would land on a deposit statement that no longer matches it.
+           */
+          const existing = await kv.get(`wr:${next.workRequestId}`) as any;
+          if (existing) {
+            await persistWorkRequest({
+              ...existing,
+              title: scope.title, project_name: scope.title,
+              description: scope.description,
+              updated_at: now,
+              rescopedAt: now,
+            });
+          } else {
+            // The request was deleted out from under the report. Raise a fresh
+            // one rather than leaving the report pointing at nothing.
+            await persistWorkRequest(wr);
+            next.workRequestId = wr.id;
+            next.jobId = wr.jobId || undefined;
+          }
+        } else {
+          await persistWorkRequest(wr);
+          next.workRequestId = wr.id;
+          next.jobId = wr.jobId || undefined;
+        }
+
+        notifyRecipient(Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me', 'conditions_report_sent', {
+          subject: `🧾 Conditions report to price — ${next.propertyAddress || 'a tenancy'}`,
+          text: `${next.landlordEmail} has sent a conditions report for pricing.
+
+`
+            + `${scope.title}
+
+${scope.description}`,
+          sms: `Conditions report to price: ${next.propertyAddress || 'a tenancy'}.`,
+        }).catch(() => {});
+      }
 
       if (to === 'shared' && next.tenantEmail) {
         const index = (await kv.get(tenantReportsKey(next.tenantEmail)) as string[]) || [];

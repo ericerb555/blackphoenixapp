@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildReport, reportRefusal, reportView, deductionsFor, transitionRefusal,
-  applyTransition, isFullyPriced, tenantCopy,
+  applyTransition, isFullyPriced, tenantCopy, workRequestScope,
 } from '../supabase/functions/server/conditionsReport.ts';
 
 const area = (name: string, condition: string) => ({ name, condition, notes: '', media: [] });
@@ -313,4 +313,87 @@ test('but not the landlord account identifiers', () => {
   assert.equal((copy.record as any).landlordEmail, undefined);
   assert.equal((copy.record as any).landlordUserId, undefined);
   assert.equal(copy.record.propertyAddress, '12 Mill St', 'the statement itself is intact');
+});
+
+/* ── what gets sent to be priced ─────────────────────────────────────────── */
+
+test('the scope names the place and the number of damaged areas', () => {
+  const view = reportView(make(), moveInForm(), moveOutForm());
+  const scope = workRequestScope(view);
+  assert.match(scope.title, /12 Mill St/);
+  assert.match(scope.title, /2B/);
+  assert.match(scope.description, /1 area recorded as damage/);
+});
+
+test('each damaged area carries both conditions, so it can be priced unseen', () => {
+  const view = reportView(make(), moveInForm(), moveOutForm());
+  const { description } = workRequestScope(view);
+  assert.match(description, /Flooring: Good on arrival, Damaged on departure/);
+});
+
+test('the notes from both inspections travel with it', () => {
+  const withNotes = {
+    ...moveOutForm(),
+    data: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: 'Burn mark by the door', media: [] }] },
+    tenantResponses: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: 'Burn mark by the door', media: [] }] },
+  };
+  const { description } = workRequestScope(reportView(make('$1,800', withNotes), moveInForm(), withNotes));
+  assert.match(description, /Burn mark by the door/);
+});
+
+test('wear is named as NOT to be quoted', () => {
+  // Pricing a wear line would put work on a deposit statement that has no
+  // business being there.
+  const out = {
+    ...moveOutForm(),
+    data: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: '', media: [] }, { name: 'Kitchen', condition: 'Fair', notes: '', media: [] }] },
+    tenantResponses: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: '', media: [] }, { name: 'Kitchen', condition: 'Fair', notes: '', media: [] }] },
+  };
+  const { description } = workRequestScope(reportView(make('$1,800', out), moveInForm(), out));
+  assert.match(description, /Not chargeable, and not to be quoted: Kitchen/);
+});
+
+test('a disagreement between the two accounts is put in front of whoever prices it', () => {
+  const out = {
+    ...moveOutForm(),
+    data: { areas: [{ name: 'Flooring', condition: 'Poor', notes: '', media: [] }] },
+    tenantResponses: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: '', media: [] }] },
+  };
+  const { description } = workRequestScope(reportView(make('$1,800', out), moveInForm(), out));
+  assert.match(description, /recorded different conditions/i);
+});
+
+test('the photo count is stated, because evidence is what makes a price possible', () => {
+  const withMedia = {
+    ...moveOutForm(),
+    data: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: '', media: [{ id: 'A', name: 'a.jpg', type: 'image' }] }] },
+    tenantResponses: { areas: [{ name: 'Flooring', condition: 'Damaged', notes: '', media: [{ id: 'A', name: 'a.jpg', type: 'image' }] }] },
+  };
+  const { description } = workRequestScope(reportView(make('$1,800', withMedia), moveInForm(), withMedia));
+  assert.match(description, /1 photo\/video on file/);
+});
+
+test('it asks for a price per area, not one total', () => {
+  const { description } = workRequestScope(reportView(make(), moveInForm(), moveOutForm()));
+  assert.match(description, /each area needs its own price rather than one total/i);
+});
+
+test('a line the landlord escalated says so, so it is not taken as automatic', () => {
+  const r = { ...make(), overrides: [{ area: 'Kitchen', classification: 'damage' as const, by: 'll@x.com', at: 'x' }] };
+  const out = {
+    ...moveOutForm(),
+    data: { areas: [{ name: 'Kitchen', condition: 'Fair', notes: '', media: [] }] },
+    tenantResponses: { areas: [{ name: 'Kitchen', condition: 'Fair', notes: '', media: [] }] },
+  };
+  const { description } = workRequestScope(reportView({ ...r, moveOutFormId: out.id }, moveInForm(), out));
+  assert.match(description, /Classed as damage by the landlord/);
+});
+
+test('a turnover is high priority, because the unit cannot be re-let', () => {
+  assert.equal(workRequestScope(reportView(make(), moveInForm(), moveOutForm())).priority, 'high');
+});
+
+test('the tenancy length is stated where it is known', () => {
+  const { description } = workRequestScope(reportView(make(), moveInForm(), moveOutForm()));
+  assert.match(description, /tenancy ran 18 months/);
 });
