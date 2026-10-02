@@ -22,6 +22,7 @@ import investmentsRouter from "./investments-kv.tsx";
 import variancesRouter from "./variances-kv.tsx";
 import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
+import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
@@ -264,6 +265,7 @@ import {
   isFullyPriced, tenantCopy, workRequestScope,
   type ConditionsReportRecord, type ReportStatus,
 } from './conditionsReport.ts';
+import { areasFromQuote, pricingRefusal } from './reportPricing.ts';
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
@@ -895,6 +897,9 @@ app.route("/", pagePilotRouter);
 // Routes carry the full path prefix themselves, so this mounts at the root
 // rather than at /make-server-3eae23a6 like the bare-path routers do.
 app.route("/", mediaRouter);
+// Phoenix Exchange — the only routes meant to be read without a session, and
+// by a search engine. See the file header for what is public and what is not.
+app.route("/", exchangeDirectory);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);
@@ -10342,6 +10347,89 @@ app.patch('/make-server-3eae23a6/landlord/conditions-reports/:id/costs', async (
     await kv.set(reportKey(next.landlordEmail, next.id), next);
     return c.json({ success: true, report: await readReportView(next) });
   } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to price the report.' }, 500);
+  }
+});
+
+/**
+ * Price a conditions report from a quote.
+ *
+ * The figure on a deposit statement should be one Black Phoenix quoted, not one
+ * somebody typed — that is the whole reason the report goes out for pricing. This
+ * reads the quote, groups its lines onto the report's damaged areas and writes
+ * the result, so each deduction can name the quote behind it.
+ *
+ * Staff only, and the quote must be the one raised against THIS report's job. A
+ * quote from another job pricing this report would be a figure from one person's
+ * work taking money off another person's deposit.
+ */
+app.post('/make-server-3eae23a6/landlord/conditions-reports/:id/price-from-quote', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to price a report.' }, 401);
+    if (!await intakeIsAdmin(user)) {
+      return c.json({ success: false, error: 'Only Black Phoenix staff can price a conditions report.' }, 403);
+    }
+
+    const id = c.req.param('id');
+    const all = (await kv.getByPrefix('conditions_report:')) as ConditionsReportRecord[];
+    const record = (all || []).find((r) => r?.id === id);
+    if (!record) return c.json({ success: false, error: 'Report not found.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const quoteId = String(body?.quoteId || '').trim();
+    if (!quoteId) return c.json({ success: false, error: 'Which quote?' }, 400);
+
+    const quote = await kv.get(`quote:${quoteId}`) as any;
+    const refusal = pricingRefusal(quote, record);
+    if (refusal) return c.json({ success: false, error: refusal }, quote ? 409 : 404);
+
+    /*
+     * The chargeable areas come from the report's OWN findings, never from the
+     * request. That is what stops a quote introducing a deduction for an area
+     * the comparison never found damage in.
+     */
+    const forms = await reportForms(record);
+    const before = reportView(record, forms.moveIn, forms.moveOut);
+    const chargeable = before.diff.lines.filter((l) => l.chargeable).map((l) => l.area);
+
+    const assignment: Record<string, string> = {};
+    if (body?.assignment && typeof body.assignment === 'object') {
+      for (const [lineId, area] of Object.entries(body.assignment)) {
+        assignment[String(lineId).slice(0, 80)] = String(area).slice(0, 160);
+      }
+    }
+
+    const priced = areasFromQuote(quote, chargeable, assignment);
+
+    const now = new Date().toISOString();
+    let next: ConditionsReportRecord = { ...record, costs: priced.costs, updatedAt: now };
+
+    const after = reportView(next, forms.moveIn, forms.moveOut);
+    if (next.status === 'sent' && isFullyPriced(after)) {
+      next = applyTransition(next, 'priced', after, now);
+      notifyRecipient(next.landlordEmail, 'conditions_report_priced', {
+        subject: '💵 Your conditions report has been priced',
+        text: `The damage on the conditions report for ${next.propertyAddress || 'your property'}`
+          + ` has been priced against quote ${priced.quoteId}. Open your Landlord portal to `
+          + 'review it and, when you are ready, give it to your tenant.',
+        sms: 'Your conditions report has been priced. Review it in your Landlord portal.',
+      }).catch(() => {});
+    }
+
+    await kv.set(reportKey(next.landlordEmail, next.id), next);
+
+    return c.json({
+      success: true,
+      report: await readReportView(next),
+      // Said out loud rather than swallowed: a line nobody assigned is a figure
+      // that did not reach the statement, and an area still unpriced is why the
+      // arithmetic is refusing to total.
+      unassigned: priced.unassigned,
+      stillUnpriced: priced.stillUnpriced,
+    });
+  } catch (error: any) {
+    console.log('Conditions report pricing error:', error);
     return c.json({ success: false, error: error.message || 'Unable to price the report.' }, 500);
   }
 });

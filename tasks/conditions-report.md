@@ -15,7 +15,7 @@ and, on where the costs come from:
 
 > "they should be able to send me the report and i will put a cost to it"
 
-**C1 to C5 are built. C6 onward is not started.**
+**C1 to C6 are built. C7 onward is not started.**
 
 ---
 
@@ -156,7 +156,7 @@ else asks the landlord to confirm the figure.
       `persistWorkRequest` onto that property's job, carrying the damage lines as
       its scope. This is the step that makes the report a job rather than a
       document.
-- [ ] **C6. The quote's numbers back onto the report.** Per-area totals from the
+- [x] **C6. The quote's numbers back onto the report.** Per-area totals from the
       quote, so the deposit arithmetic is backed by a real priced job and the
       report can say which quote each figure came from.
 - [ ] **C7. View and print.** Itemised per area with both sides' evidence, dated,
