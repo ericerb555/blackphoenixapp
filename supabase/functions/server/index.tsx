@@ -23,6 +23,7 @@ import variancesRouter from "./variances-kv.tsx";
 import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
+import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
@@ -391,6 +392,29 @@ const PUBLIC_PREFIXES = [
    * GET here, so a checkout id in somebody's hands reveals nothing.
    */
   '/store/checkouts/',
+
+  /**
+   * The Phoenix Exchange public directory.
+   *
+   * A resident looking up a local plumber has no account and will not make one
+   * to read a phone number, and the Exchange launches on a domain with no
+   * search authority — so these pages have to be readable by a crawler or the
+   * whole free-traffic plan fails. A paywalled directory cannot be found.
+   *
+   * LISTED ONE PATH AT A TIME, NOT AS `/exchange/`. The claim routes live
+   * under the same prefix and decide who gets control of a business's public
+   * identity; a blanket exemption would have taken the global auth gate off
+   * them. Anything new added under `/exchange/` is therefore private until
+   * somebody puts it here deliberately, which is the right direction to fail.
+   *
+   * Nothing private is served by these four: the directory decides its own
+   * column list, and the licence number, the lead ledger and the demand ledger
+   * are not in it.
+   */
+  '/exchange/taxonomy',
+  '/exchange/listing/',   // one listing, and the contact event on it
+  '/exchange/category/',
+  '/exchange/missing',    // "we could not find anyone" — a demand row
 
   // An architect reviewing a framing submittal has no account here, by
   // design — see architect-review.tsx. Only the /review/ half is exempt:
@@ -897,9 +921,21 @@ app.route("/", pagePilotRouter);
 // Routes carry the full path prefix themselves, so this mounts at the root
 // rather than at /make-server-3eae23a6 like the bare-path routers do.
 app.route("/", mediaRouter);
-// Phoenix Exchange — the only routes meant to be read without a session, and
-// by a search engine. See the file header for what is public and what is not.
-app.route("/", exchangeDirectory);
+/**
+ * Phoenix Exchange.
+ *
+ * Mounted UNDER the API prefix, because these routers define bare paths
+ * (`/exchange/taxonomy`) rather than carrying the prefix themselves. Mounted
+ * at the root instead, every Exchange route answered 404 at the only URL the
+ * app ever calls — the pages mounted fine and simply never found anything,
+ * which is why neither the type checker nor the smoke harness noticed.
+ *
+ * The directory is the only part meant to be read without a session and by a
+ * search engine; which of its paths are public is listed in PUBLIC_PREFIXES,
+ * and the claim routes are deliberately not among them.
+ */
+app.route("/make-server-3eae23a6", exchangeDirectory);
+app.route("/make-server-3eae23a6", exchangeClaimRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);

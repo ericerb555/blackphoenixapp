@@ -553,3 +553,289 @@ should be run against this page before it ships.
 
 Domain registration and name, terms and privacy policy, the Google Maps
 account and key, and confirming the trial clock.
+
+---
+
+## DEFERRED — Phase 2, part three: the browse surface (proposed 2026-10-02)
+
+**Not started.** Offered to Eric on 2026-10-02 and he chose the claim flow
+instead, which is the right call: a browse surface over a directory nobody has
+claimed shows the same compiled rows more conveniently, while the claim is what
+turns one of those rows into an account that pays. This plan stands as written
+and is the step to come back to.
+
+### Why this one next
+
+The listing page is built and indexable, and **nothing links to it**. A
+listing is reachable today only by typing its slug into the address bar. The
+server already serves the three things needed to fix that and they have no
+caller at all:
+
+    GET  /exchange/taxonomy          four sections, categories, services
+    GET  /exchange/category/:slug    the businesses in a category
+    POST /exchange/missing           "we could not find anyone"
+
+So this step is mostly front end against routes that exist and are tested,
+which is why it is small.
+
+It also turns on the demand ledger for real. Every category page view already
+writes a demand row server-side, and a result count of zero is the row that
+becomes a recruitment call — but only once somebody can actually open a
+category page.
+
+### Items
+
+- [ ] 1. `ExchangeDirectory.tsx` — the front door. The four sections, each
+      with its categories, from `/exchange/taxonomy`. Plain browse only: no
+      search box, no map, no counts. Search and the real main page are Phase
+      4, and building half of them here is exactly the "build on the whim"
+      failure.
+- [ ] 2. `ExchangeCategory.tsx` — the businesses in one category, each
+      linking to its listing page. Listed and claimed states visibly
+      distinct, the same way the listing page distinguishes them, so a
+      resident can tell who stands behind their own details.
+- [ ] 3. The empty state carries the "tell us who you were looking for" form,
+      posting to `/exchange/missing`. The most damaging moment in a directory
+      becomes the most useful row in the database — and that route currently
+      has no caller, so the gap is invisible to us.
+- [ ] 4. Wire both into `routes.tsx` and the public route list in `App.tsx`,
+      with the reasoning written where the listing page's is.
+
+### Deliberately NOT in this step
+
+**The sitemap and prerendering.** `api/sitemap.js` and `api/render.js` already
+exist and generate from live data for `/work` and `/blog`, so extending them
+to the Exchange is a known, cheap job — but its origin is
+`theblackphoenixcompany.com`, and the Exchange is standalone on a domain that
+is not registered yet (Phase 0, Eric's). Doing it now means writing the wrong
+origin into two files. **It should be the step straight after the domain is
+settled**, and it matters: these pages are client-rendered, so being in the
+public route list makes them readable by a person, not reliably indexable by a
+crawler. Being found is the whole free-traffic plan.
+
+**The map, search, counts per category, and the main page.** Phase 2's map
+items are blocked on the Google key; the rest is Phase 4.
+
+### Risk
+
+Low. Two new page files, two wiring edits, no schema, no server change,
+nothing existing restyled. Per `dont-restyle-portals-or-landing-page`, both
+pages name their own classes under `EXCHANGE_CSS` as `ExchangeListing` does —
+`p-*` and `m-*` compute to 0px application-wide, so they cannot be used.
+
+---
+
+## NEXT STEP — Phase 3, part one: proving you own the listing (proposed 2026-10-02)
+
+**Not started. Awaiting Eric's approval.**
+
+Eric chose this over the browse surface. The claim is the hinge of the whole
+Exchange: the directory is compiled from public records, so every row in it
+describes a real business that never asked to be there. Claiming is how that
+row becomes theirs, and it is the only moment where getting it wrong hands a
+stranger control of somebody's business identity, their leads and their
+reputation.
+
+### The thing this has to be right about
+
+**A claim is an authorisation decision, not a sign-up form.** The failure is
+not an error message — it is a competitor, or anybody who read the directory,
+taking over a roofer's page, changing the phone number to their own, and
+collecting his calls. The public record is public, so everything an attacker
+needs to *fill in a form* is already on the page they are attacking. Knowing
+the business's name, address and phone proves nothing at all.
+
+So the test cannot be "do you know things about this business". It has to be
+"do you **control** something only the business controls".
+
+### Two factors, from two different categories
+
+The plan says "at least two from different categories", and the categories are
+the point. Two codes to the same phone is one fact proven twice.
+
+    contact      a code to the phone or email already in the public record
+    web          DNS TXT record, a file at the business's domain, or an email
+                 address at that domain
+    premises     a code posted by mail to the public-record address
+    credential   licence number and state matching the licence board, or
+                 documents read by a person
+
+Proving two things in the **same** category does not count — a domain-matched
+email and a DNS record both prove "controls the domain", and stacking them
+would let somebody who registered a lookalike domain in front of everything.
+
+**Fails closed, in every direction.** An unrecognised factor counts for
+nothing. An expired or already-spent challenge counts for nothing. A listing
+with no public phone and no website simply cannot reach two categories, and
+that case goes to **human review** — not auto-granted because the business is
+unlucky, and not auto-denied because then those businesses can never join.
+
+### Items
+
+- [ ] 1. `20261002140000_exchange_claim.sql` — `exchange_claim` and
+      `exchange_claim_challenge`. RLS on with no policies, like the ledgers:
+      a claim in progress is reached only by the service role. Challenge
+      **codes and tokens are stored hashed**, never in plaintext, so a leak of
+      the table is not a pile of live claim codes.
+- [ ] 2. `exchangeClaim.ts` — the pure rules, with tests and no database:
+      which factors are satisfied, whether they span two categories, what is
+      still outstanding, whether a challenge is usable (expiry, attempts
+      spent, already used), and the decision — granted, needs review, or
+      refused — with the reason recorded either way.
+- [ ] 3. Codes and tokens, reusing what exists: `mintShareToken` and
+      `hashToken` from `shareToken.ts`. Six digits for a phone, a link for an
+      email. Ten-minute expiry, **five attempts then the challenge is burned**,
+      and a cap on how many can be issued per listing per day — otherwise the
+      code route is a way to make us text a stranger thirty times.
+- [ ] 4. The routes: start a claim, request a factor, answer a factor, and
+      read the state of my own claim. Every decision in the handler, never in
+      which button renders.
+- [ ] 5. **Notify the public-record contact on every successful claim**,
+      whether or not that contact was one of the factors used. This is the
+      backstop that makes the whole thing recoverable: if a claim is ever
+      wrongly granted, the real owner hears about it.
+- [ ] 6. A second claim on a claimed listing opens a **dispute** and changes
+      nothing. The incumbent is told, there is a waiting period, and a person
+      decides. Never silent, and never first-come.
+- [ ] 7. Granting a claim sets `claim_state = 'claimed'`, links the owner, and
+      starts the six-month trial through `exchangeTrials.ts` — one action, so
+      a claimed listing without a trial cannot exist.
+
+### Deliberately NOT in this step
+
+**The business portal.** It is the largest single item in the whole build plan
+and it is a separate step. This one ends with a claim granted and a trial
+running; what the owner then edits comes next.
+
+**Re-verification on contact change**, and the licence-board lookup as a live
+integration — the `credential` factor is reviewed documents plus a stored
+licence number for now, because there is no licence API wired up and
+pretending otherwise would make the strongest-sounding factor the weakest.
+
+**Mailing anything.** The `premises` factor is defined in the engine and
+switched off until Eric says a postcard can actually be sent, because a
+factor that nobody posts is a factor that silently never completes.
+
+### Risk, honestly
+
+This is the highest-risk step so far, and the risk is not a crash. A claim
+wrongly granted is somebody's livelihood handed to a stranger; a claim too
+hard to complete means an empty directory. Item 5 exists because the first
+failure has to be survivable, and the review path exists because the second
+one has to be.
+
+Schema change, so it is tested against a branch database before production per
+`test-before-production`.
+
+### Decided with Eric, 2026-10-02
+
+**A listing that can only reach one factor category goes to human review.** Not
+auto-granted on a single fact, and not refused for being unlucky. This is a
+commitment to a queue somebody actually works: a review nobody reads is the
+same as auto-granting, except slower and with a record that says a person
+looked.
+
+**A disputed claim gives the incumbent seven days.** Long enough that an owner
+on holiday still answers; short enough that a genuine new owner after a sale
+is not stuck for a month. The clock is stored on the dispute rather than
+computed at read time, so changing the policy later cannot retroactively
+decide a dispute already running.
+
+### Phase 3, part one — the claim (2026-10-02)
+
+One migration, one pure module, one route module, 48 tests, and two bug fixes
+in work that was already committed. No UI: this step ends with a claim that can
+be granted and a trial that starts. What the owner then edits is the next step.
+
+**Two bugs found in the Phase 2 work, both invisible to every check we run.**
+
+*Every Exchange route was unreachable.* `exchangeDirectory` was mounted with
+`app.route("/", …)` while its routes define bare paths like
+`/exchange/taxonomy`. Routers mounted at the root have to carry the
+`/make-server-3eae23a6` prefix themselves — the rest of the file does this one
+of two ways and this was neither — so the only URL the app ever calls answered
+404. `ExchangeListing.tsx` mounted perfectly and simply never found a business,
+which is exactly why typecheck and smoke both passed: the page renders, it just
+renders "we could not find that business" for ever.
+
+*And the public pages were not public.* `/exchange/` was not in
+`PUBLIC_PREFIXES`, so once reachable, the routes built specifically to be read
+with no account and by a crawler would have demanded a session. The four public
+paths are now listed **one at a time** rather than as `/exchange/`, because the
+claim routes live under the same prefix and a blanket exemption would have
+taken the global auth gate off the thing that decides who controls a business's
+identity. Anything new under `/exchange/` is private until somebody adds it
+deliberately.
+
+**The design, in one line:** the test cannot be *do you know things about this
+business*, because the directory is compiled from public records and everything
+a form could ask is printed on the page being attacked. It has to be *do you
+control something only the business controls*.
+
+So: two factors from two different **categories** — `contact`, `web`,
+`premises`, `credential`. Two proofs in the same category are not two factors,
+and the test suite pins this from four directions, because a domain-matched
+email plus a DNS record both prove only "controls the domain" and counting them
+as two would admit anyone who registered a lookalike.
+
+**Decisions worth not undoing.**
+
+*The listing row is the arbiter of a race, and it is taken first.*
+`update organizations … where claim_state = 'listed'` is the lock: the first
+request flips it, the second comes back with no rows and becomes a dispute.
+Writing the claim first would let two claimants both believe they had been
+granted the same business. There is a unique index behind it as well.
+
+*Attempts are spent before the code is compared.* The other order makes a crash
+between the two a free guess.
+
+*The issue cap is per LISTING, not per claimant* — six codes a day across
+everybody. The abuse is not somebody fumbling their own code, it is using our
+server to text a stranger thirty times, and the business whose number it is
+never asked to be in the directory.
+
+*The public-record contact is told on every grant*, whether or not it was one of
+the factors used. This is what makes a wrong grant recoverable instead of
+permanent, and it is the reason the one-factor review path is safe enough to
+exist.
+
+*An unparseable expiry counts as expired, and an unrecognised category proves
+nothing.* Both fail toward refusing, which is the only acceptable direction
+here — a corrupt date must not become an unlimited credential, and inserting a
+row that says `category: 'trust_me'` must not be a claim.
+
+*`premises` is designed and switched off.* A factor nobody posts is a factor
+that silently never completes, leaving the claimant waiting for a letter that
+is not coming. Turning it on is an operational commitment, not a code change.
+
+*The trial is NOT written as a `feature_grant`.* Those feed entitlement
+resolution across the whole platform, and what a claimed Exchange listing may
+reach is a decision about portal access that must not ride in on the back of a
+verification. It is stored as `exchange_trial:{orgId}` in the shape
+`exchangeTrials.ts` already defines, and the portal step is where access is
+decided.
+
+**Verified.** 48 new tests, full suite **1,437 passing, 0 failing**. App
+typecheck 316, the known baseline, none in these files. Smoke 6 modals, 0
+threw — no page is affected, because there is no UI in this step.
+
+**A real gap in how we have been checking.** `npm run typecheck` is
+`tsc -p tsconfig.json && tsc -p tsconfig.server.json`, and the app config has
+316 standing findings — so the `&&` means **the server half has never run** in
+any of these sessions. Run directly, `npm run typecheck:server` reports 89
+pre-existing findings, none in the new files. Every "typecheck holds at 316"
+note in this document was only ever checking the front end. Worth fixing
+properly, and it is a change to how the checks run, so it is Eric's to approve.
+
+**Still owed on this step.**
+
+*The migration has not been applied anywhere.* It adds two tables and should be
+run against a branch database first per `test-before-production`.
+
+*The review queue has no screen.* `needs_review` and `disputed` claims are
+written correctly and indexed for exactly this query, but nobody can work them
+yet. Eric committed to that queue being worked when he chose the review path,
+so the screen is owed before any of this is switched on for real.
+
+*Nothing has been verified in a running app*, because there is no UI and no
+applied schema. The routes are reasoned about and unit-tested, not observed.
