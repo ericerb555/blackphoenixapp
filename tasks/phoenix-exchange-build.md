@@ -860,3 +860,117 @@ decision about the standing check rather than a repair to a broken one.
 
 **Read two numbers from now on, not one.** Every earlier note in this file
 saying "typecheck holds at 316" was only ever checking the front end.
+
+---
+
+## NEXT STEP — Phase 3, part two: the review queue (proposed 2026-10-02)
+
+Eric: *"build the review queue screen."*
+
+This is the thing the one-factor decision promised. When he chose "a person
+decides" over granting on a single fact, that became a commitment to a queue
+somebody actually works — and a review queue nobody can open is the same as
+auto-granting, except slower and with a record that says somebody looked.
+
+### Decided with Eric
+
+**Suspend, then transfer — never a one-click handover.** A reviewer may take a
+listing back to unclaimed, and the challenger then proves ownership normally.
+Two steps rather than one, because a single action that moves a business from
+one owner to another is a mis-click away from handing somebody's phone calls to
+the wrong person. It also makes the backstop email honest: it promises to
+suspend a wrongly granted claim, and now there is a control that does that.
+
+### Items
+
+- [ ] 1. Three staff-only routes, **gated inside each handler** rather than by
+      router middleware. `requireStaffOn` exists for this, but these routers
+      mount at a prefix and a `use("*")` on one runs on every request under it
+      — which once took the whole API staff-only for a deploy. Four handlers
+      do not need a mechanism.
+          GET  /exchange/review/claims              the queue, with context
+          POST /exchange/review/claims/:id/decide   grant or refuse, with a note
+          POST /exchange/review/listing/:id/suspend  back to unclaimed
+- [ ] 2. The queue route returns what a decision actually needs: the business,
+      what was proven and by which category, who is asking, how old the claim
+      is, and for a dispute the seven-day clock and who holds it now.
+- [ ] 3. Granting from review goes through **the same `grantClaim` path** as an
+      automatic grant, so a reviewed claim cannot end up with a claimed listing
+      and no trial. The decision is recorded against the reviewer.
+- [ ] 4. Suspending un-claims the listing, revokes the trial, and moves any
+      dispute on it back to `open` so the challenger can finish proving it the
+      ordinary way. The incumbent is told.
+- [ ] 5. `ExchangeClaimReview.tsx` — the screen. Oldest first, because the
+      promise being kept is that somebody looks, and the one waiting longest is
+      the one being let down. Dispute clocks shown as time remaining.
+- [ ] 6. Routed, and **not** in the public route list.
+
+### What this deliberately leaves alone
+
+**Document upload.** The `documents` factor still means a reviewer makes
+contact. An upload box is its own piece of work under the Phase 0 private
+storage rules, and offering one that goes nowhere is worse than saying plainly
+that somebody will be in touch.
+
+**Automatic expiry of the dispute clock.** Seven days passing does not decide
+anything by itself; it only means the queue shows it as ready. Nothing in this
+system takes a business off its owner without a person.
+
+### Phase 3, part two — the review queue (2026-10-02)
+
+Three staff-only routes and one screen. The queue exists because of a decision
+rather than a feature request: when Eric chose "a person decides" over granting
+a one-factor claim, that became a commitment to a queue somebody works, and a
+queue nobody can open is auto-refusing with a record that says a person looked.
+
+**Decided with Eric: suspend, then transfer.** A reviewer may take a listing
+back to unclaimed; the challenger then proves ownership the ordinary way.
+Never one action. It also makes the grant notification honest — that email
+promises to suspend a claim that was not the owner's, and until now there was
+no control that could do it.
+
+**What the reviewer is shown, and why.** The failures as much as the passes.
+Five burned attempts on a phone code and one clean pass on a domain are
+different stories, and a queue reporting "1 factor proven" would flatten them
+into the same row. Contact details stay **masked**, exactly as they are to the
+claimant: a reviewer needs to know which number received a code, not what the
+number is. Oldest first, with the longest wait on the masthead, because that is
+the number which says whether the queue is being worked or merely exists.
+
+**Grant is disabled rather than hidden** when a listing is still held, with the
+two-step rule written underneath it. A control that vanishes reads as a bug,
+and the server answers 409 for the same case — the screen mirrors the rule
+rather than being the only thing enforcing it.
+
+**Three decisions worth knowing about.**
+
+*Gated inside each handler, not by router middleware.* `requireStaffOn` exists,
+but these routers mount at a prefix and a `use("*")` on one runs on every
+request that prefix receives — doing exactly that once took the whole API
+staff-only for a deploy, per the warning in `requireStaff.ts`. Three handlers
+need three visible checks, not a mechanism.
+
+*Granting from review goes through the same `grantClaim` path* as an automatic
+grant, by moving the claim back to `open` first. So a reviewed claim cannot
+produce a claimed listing with no trial behind it, and there is one place where
+a listing changes hands.
+
+*Suspending revokes the trial rather than deleting it.* A business that held a
+listing for two months and lost it is a fact worth keeping; deleting the record
+would make the roster say it never happened.
+
+**Verified.** App typecheck 316 and server 89 — both baselines, nothing in the
+new files, and this is the first step checked with both halves actually
+running. Full suite 1,437 passing. Smoke ran the **whole sweep** because
+`routes.tsx` is a shared entry point: **347 pages rendered, 0 threw**, with
+`exchange-claim-review` reporting `ok` in `last-run.json`.
+
+**Still not verified in a running app.** The page mounts and the routes
+typecheck, but no claim has been through this against a real database, because
+the migration has not been applied anywhere. That is the next thing owed.
+
+**Not in this step.** Document upload — the `documents` factor still means a
+reviewer makes contact, and an upload box that goes nowhere is worse than
+saying so. And nothing decides a dispute when the seven days run out: the clock
+only marks it ready, because nothing here takes a business off its owner
+without a person.

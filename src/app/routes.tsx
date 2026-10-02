@@ -172,6 +172,7 @@ const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
 const BidRoom = lazy(() => import("./pages/BidRoom"));
 const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
+const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
 const StairCalculator = lazy(() => import("./pages/StairCalculator"));
@@ -602,6 +603,15 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // search authority, and this is how it is earned.
 
   "exchange-listing":        ExchangeListing,
+  /**
+   * Staff only, and deliberately NOT in App's public route list.
+   *
+   * This queue decides who controls a business's public listing. The server
+   * refuses every one of its routes to a non-staff caller, and the screen
+   * shows a "company access is required" panel rather than an empty page, so
+   * a colleague who opens it by accident learns why instead of filing a bug.
+   */
+  "exchange-claim-review":   ExchangeClaimReview,
   // Public: an architect reviewing a framing submittal has no account here by
   // design. The token in the path is the only thing that opens it, and it is
   // checked on the server against a stored hash.

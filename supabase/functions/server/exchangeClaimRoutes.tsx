@@ -38,6 +38,7 @@ import { Hono } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { mintShareToken, hashToken } from "./shareToken.ts";
+import { isStaffRequest } from "./requireStaff.ts";
 import { trialEndFor, TRIAL_MONTHS } from "./exchangeTrials.ts";
 import { safeFetch } from "./outboundGuard.ts";
 import {
@@ -739,3 +740,325 @@ function escapeHtml(value: unknown): string {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+
+// ── the review queue ─────────────────────────────────────────────────────────
+
+/**
+ * The queue a person actually works.
+ *
+ * It exists because of a decision rather than a feature request: a listing
+ * that can only reach one factor category is neither granted nor refused, so
+ * somebody has to look. A queue nobody can open would make that decision a
+ * polite way of saying no.
+ *
+ * GATED IN EACH HANDLER, NOT BY MIDDLEWARE. `requireStaffOn` exists and would
+ * work, but these routers mount at a prefix, and a `use("*")` on a router
+ * mounted that way runs on every request the prefix receives — doing exactly
+ * that once took the entire API staff-only for a deploy. Three handlers do not
+ * need a mechanism; they need three checks that are visible where they apply.
+ */
+exchangeClaimRoutes.get("/exchange/review/claims", async (c) => {
+  try {
+    if (!await isStaffRequest(c)) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
+    const sb = service();
+    const { data: claims } = await sb
+      .from("exchange_claim")
+      .select("*")
+      .in("state", ["needs_review", "disputed"])
+      // Oldest first. The promise being kept is that somebody looks, so the
+      // claim waiting longest is the one being let down.
+      .order("created_at", { ascending: true })
+      .limit(200);
+
+    const rows = claims ?? [];
+    if (rows.length === 0) return c.json({ success: true, claims: [] });
+
+    // Two queries rather than one per claim: a queue of two hundred would
+    // otherwise be four hundred round trips.
+    const orgIds = [...new Set(rows.map((r: any) => r.org_id))];
+    const claimIds = rows.map((r: any) => r.id);
+
+    const [listingResult, challengeResult] = await Promise.all([
+      sb.from("organizations").select(CLAIM_LISTING_COLUMNS).in("id", orgIds),
+      sb.from("exchange_claim_challenge")
+        .select("claim_id, factor, category, satisfied_at, burned_at, attempts, target_masked")
+        .in("claim_id", claimIds),
+    ]);
+
+    const challenges = challengeResult.data ?? [];
+    const byId = new Map<string, any>((listingResult.data ?? []).map((l: any) => [l.id, l]));
+    const now = Date.now();
+
+    const queue = rows.map((claim: any) => {
+      const listing = byId.get(claim.org_id);
+      const mine = challenges.filter((ch: any) => ch.claim_id === claim.id);
+      const assessment = assess(claim, mine, listing);
+
+      return {
+        id: claim.id,
+        state: claim.state,
+        isDispute: Boolean(claim.is_dispute),
+        openedAt: claim.created_at,
+        reason: claim.outcome_reason || assessment.reason,
+        business: {
+          id: listing?.id ?? null,
+          slug: listing?.slug ?? null,
+          name: listing?.name ?? "(listing not found)",
+          phone: listing?.phone ?? null,
+          website: listing?.website ?? null,
+          claimState: listing?.claim_state ?? null,
+          listingSource: listing?.listing_source ?? null,
+          licenceState: listing?.license_state ?? null,
+        },
+        // Who is asking. The email was recorded on the claim when it started,
+        // so reading it here does not need a second trip to the auth service.
+        claimant: { email: claim.meta?.claimantEmail ?? null },
+        proven: assessment.proven,
+        /**
+         * What was attempted, and how it went. A reviewer needs the failures
+         * as much as the passes: five burned attempts on a phone code is a
+         * different story from one clean pass on a domain.
+         */
+        attempts: mine.map((ch: any) => ({
+          factor: ch.factor,
+          category: ch.category,
+          satisfied: Boolean(ch.satisfied_at),
+          burned: Boolean(ch.burned_at),
+          tries: Number(ch.attempts ?? 0),
+          target: ch.target_masked ?? null,
+        })),
+        dispute: claim.is_dispute
+          ? {
+              decidesAfter: claim.dispute_decides_after ?? null,
+              // Ready only means the incumbent has had their seven days.
+              // Nothing is decided by the clock running out.
+              ready: Boolean(
+                claim.dispute_decides_after
+                && Date.parse(claim.dispute_decides_after) <= now,
+              ),
+            }
+          : null,
+      };
+    });
+
+    return c.json({ success: true, claims: queue });
+  } catch (error: any) {
+    console.error("[exchange] review queue failed:", error?.message || error);
+    return c.json({ success: false, error: "Unable to load the queue." }, 500);
+  }
+});
+
+/**
+ * A person's decision on one claim.
+ *
+ * Granting goes through the SAME `grantClaim` path as an automatic grant, so a
+ * reviewed claim cannot produce a claimed listing with no trial behind it.
+ */
+exchangeClaimRoutes.post("/exchange/review/claims/:id/decide", async (c) => {
+  try {
+    if (!await isStaffRequest(c)) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
+    const reviewer = await claimant(c);
+    if (!reviewer) return c.json({ success: false, error: "Sign in first." }, 401);
+
+    const sb = service();
+    const body = await c.req.json().catch(() => ({}));
+    const action = String(body?.action ?? "");
+    const note = String(body?.note ?? "").slice(0, 1000).trim();
+
+    if (action !== "grant" && action !== "refuse") {
+      return c.json({ success: false, error: "Decide either grant or refuse." }, 400);
+    }
+    // A refusal without a reason is unanswerable by the person refused, and
+    // unreadable by whoever picks it up next year.
+    if (action === "refuse" && !note) {
+      return c.json({ success: false, error: "Say why it was refused." }, 400);
+    }
+
+    const { data: claim } = await sb
+      .from("exchange_claim")
+      .select("*")
+      .eq("id", c.req.param("id"))
+      .maybeSingle();
+
+    if (!claim) return c.json({ success: false, error: "No such claim." }, 404);
+    if (!["needs_review", "disputed"].includes(String(claim.state))) {
+      return c.json({ success: false, error: "That claim is not waiting on a review." }, 409);
+    }
+
+    const { data: listing } = await sb
+      .from("organizations")
+      .select(CLAIM_LISTING_COLUMNS)
+      .eq("id", claim.org_id)
+      .maybeSingle();
+
+    if (!listing) return c.json({ success: false, error: "That listing no longer exists." }, 404);
+
+    const now = new Date().toISOString();
+
+    if (action === "refuse") {
+      await sb.from("exchange_claim")
+        .update({
+          state: "refused",
+          outcome_reason: note,
+          decided_at: now,
+          decided_by: reviewer.id,
+          updated_at: now,
+        })
+        .eq("id", claim.id)
+        .in("state", ["needs_review", "disputed"]);
+
+      return c.json({ success: true, state: "refused" });
+    }
+
+    /**
+     * A grant on a listing somebody still holds is refused here rather than
+     * silently reassigning it. Eric's rule: suspend first, then the challenger
+     * proves it the ordinary way. One action must never move a business from
+     * one owner to another.
+     */
+    if (String(listing.claim_state) === "claimed") {
+      return c.json({
+        success: false,
+        error: "This listing is still held by its current owner. Suspend it first.",
+      }, 409);
+    }
+
+    // `grantClaim` only promotes a claim in state 'open', so the review
+    // decision is recorded first and the shared path finishes the job.
+    await sb.from("exchange_claim")
+      .update({ state: "open", decided_by: reviewer.id, updated_at: now })
+      .eq("id", claim.id)
+      .in("state", ["needs_review", "disputed"]);
+
+    const { data: reopened } = await sb
+      .from("exchange_claim").select("*").eq("id", claim.id).maybeSingle();
+
+    await grantClaim(
+      sb,
+      reopened,
+      listing,
+      { id: String(claim.claimant_user_id), email: String(claim.meta?.claimantEmail ?? "") },
+      note || `Granted by review (${reviewer.email}).`,
+    );
+
+    const { data: after } = await sb
+      .from("exchange_claim").select("state").eq("id", claim.id).maybeSingle();
+
+    return c.json({ success: true, state: after?.state ?? "granted" });
+  } catch (error: any) {
+    console.error("[exchange] review decision failed:", error?.message || error);
+    return c.json({ success: false, error: "Unable to record that decision." }, 500);
+  }
+});
+
+/**
+ * Take a listing back to unclaimed.
+ *
+ * This is the control that makes the grant notification an honest promise. The
+ * email tells the public-record contact that if the claim was not theirs we
+ * will suspend it; without this route that sentence was only a sentence.
+ *
+ * It does not award the listing to anybody. Any dispute on it returns to
+ * `open` so the challenger finishes proving ownership the ordinary way — which
+ * is the whole of Eric's suspend-then-transfer rule.
+ */
+exchangeClaimRoutes.post("/exchange/review/listing/:id/suspend", async (c) => {
+  try {
+    if (!await isStaffRequest(c)) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
+    const reviewer = await claimant(c);
+    if (!reviewer) return c.json({ success: false, error: "Sign in first." }, 401);
+
+    const sb = service();
+    const body = await c.req.json().catch(() => ({}));
+    const note = String(body?.note ?? "").slice(0, 1000).trim();
+    if (!note) return c.json({ success: false, error: "Say why it is being suspended." }, 400);
+
+    const orgId = c.req.param("id");
+    const { data: listing } = await sb
+      .from("organizations")
+      .select(CLAIM_LISTING_COLUMNS)
+      .eq("id", orgId)
+      .maybeSingle();
+
+    if (!listing) return c.json({ success: false, error: "No such listing." }, 404);
+    if (String(listing.claim_state) !== "claimed") {
+      return c.json({ success: false, error: "That listing is not claimed." }, 409);
+    }
+
+    const now = new Date().toISOString();
+
+    await sb.from("organizations")
+      .update({ claim_state: "listed", updated_at: now })
+      .eq("id", orgId)
+      .eq("claim_state", "claimed");
+
+    // The granted claim is withdrawn, naming the reviewer who did it. The
+    // unique index on granted claims per listing is what would otherwise stop
+    // the listing ever being claimed again.
+    await sb.from("exchange_claim")
+      .update({
+        state: "withdrawn",
+        outcome_reason: `Suspended by review: ${note}`,
+        decided_at: now,
+        decided_by: reviewer.id,
+        updated_at: now,
+      })
+      .eq("org_id", orgId)
+      .eq("state", "granted");
+
+    /**
+     * The trial is revoked rather than deleted. A business that held a listing
+     * for two months and lost it is a fact worth keeping — deleting the record
+     * would make the roster say it never happened.
+     */
+    const trial = await kv.get(`exchange_trial:${orgId}`);
+    if (trial) {
+      await kv.set(`exchange_trial:${orgId}`, {
+        ...trial,
+        status: "revoked",
+        revokedAt: now,
+        revokedBy: reviewer.email,
+        revokedReason: note,
+      });
+    }
+
+    // Any dispute goes back to open: the challenger proves it the ordinary
+    // way. Nothing here awards the listing to them.
+    await sb.from("exchange_claim")
+      .update({
+        state: "open",
+        is_dispute: false,
+        dispute_decides_after: null,
+        outcome_reason: "The listing was suspended; finish verifying it normally.",
+        updated_at: now,
+      })
+      .eq("org_id", orgId)
+      .eq("state", "disputed");
+
+    const contact = String(listing.email ?? "").trim();
+    if (contact) {
+      await sendEmail(
+        contact,
+        `Your ${COMPANY} listing has been set back to unclaimed`,
+        `<p>The listing for <strong>${escapeHtml(listing.name)}</strong> is no longer claimed`
+        + ` by any account.</p><p>Reason given: ${escapeHtml(note)}</p>`
+        + `<p>The listing itself is still there and still public. If this is wrong,`
+        + ` reply to this message.</p>`,
+      );
+    }
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("[exchange] suspend failed:", error?.message || error);
+    return c.json({ success: false, error: "Unable to suspend that listing." }, 500);
+  }
+});
