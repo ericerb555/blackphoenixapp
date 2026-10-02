@@ -484,6 +484,22 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'investment-opportunities',
     'investment-calculator',
 
+    /**
+     * Phoenix Exchange listings.
+     *
+     * A resident looking up a local plumber has no account and is not going
+     * to make one to read a phone number — and hiding one behind a sign-up
+     * is the most resented thing the lead-resale sites do.
+     *
+     * It is also the whole free-traffic plan. The Exchange launches on a new
+     * domain with no search authority, and the only way to earn it is for
+     * listing pages to be indexable. A paywalled directory cannot be found.
+     *
+     * Nothing private is here: the server decides the column list, and the
+     * licence number, the lead ledger and the demand ledger are not in it.
+     */
+    'exchange-listing',
+
     // Store and tracking (public - anyone can browse and track)
     'public-store',
     // Past work — public marketing, and the destination for shared links.

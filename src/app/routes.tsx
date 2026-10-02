@@ -171,6 +171,7 @@ const DocumentViewer = lazy(() => import("./pages/DocumentViewer"));
 const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
 const BidRoom = lazy(() => import("./pages/BidRoom"));
+const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
 const StairCalculator = lazy(() => import("./pages/StairCalculator"));
@@ -593,6 +594,14 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "enterprise-hr":            HREmployeeHub,
   "subcontractor-enterprise": SubcontractorEnterprise,
   "bid-room":                BidRoom,
+
+  // Public: a resident looking up a local business has no account by design,
+
+  // and these pages are what a search engine indexes. A new domain has no
+
+  // search authority, and this is how it is earned.
+
+  "exchange-listing":        ExchangeListing,
   // Public: an architect reviewing a framing submittal has no account here by
   // design. The token in the path is the only thing that opens it, and it is
   // checked on the server against a stored hash.
