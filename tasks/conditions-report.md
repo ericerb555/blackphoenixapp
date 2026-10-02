@@ -15,7 +15,7 @@ and, on where the costs come from:
 
 > "they should be able to send me the report and i will put a cost to it"
 
-**C1 and C2 are built and tested. C3 onward is not started.**
+**C1, C2 and C3 are built and tested. C4 onward is not started.**
 
 ---
 
@@ -144,7 +144,7 @@ else asks the landlord to confirm the figure.
       less deductions, what is returned, what is still owed, the refusal to guess
       at an unreadable figure, and the refusal to total anything while pricing is
       outstanding.
-- [ ] **C3. The report record and its routes.** Generate from a move-in and a
+- [x] **C3. The report record and its routes.** Generate from a move-in and a
       move-out form the landlord owns, keyed by landlord email so tenant
       isolation is structural rather than a filter somebody remembers. Status
       through the four states above; totals recomputed server-side on every
@@ -251,3 +251,54 @@ landlord enter the figure rather than only reporting that it could not be read.
 Deposit INTEREST is deliberately absent. Massachusetts requires it, and getting
 it right needs the state, the account and the dates, none of which are on these
 records. A wrong interest figure on a statutory statement is worse than none.
+
+---
+
+## 9. C3, as built — 2 Oct
+
+`conditionsReport.ts` (35 tests) holds the record and its life; the routes are in
+`index.tsx` beside the landlord forms, because they read those forms and share
+their auth. Three decisions worth recording.
+
+**Half of it freezes.** A report that has been sent out must not change
+underneath the people holding it, so the FINDINGS freeze the moment it leaves the
+landlord's hands — edit a move-out checklist afterwards and the issued statement
+is unaffected. The MONEY does not freeze, because it does not exist at that
+moment: Black Phoenix prices the damage after the report is sent, so the
+settlement is always derived from the frozen findings plus whatever has since
+been priced. Freezing both would have meant freezing a report with no figures on
+it.
+
+**No total is ever stored.** Not the deductions, not what is returned, not what
+is owed. All of it is derived on read from the findings, the costs and the
+deposit, because a stored total is a number that can disagree with the lines
+above it.
+
+**Each timestamp is written once.** A retried request must not restamp "sent on
+the 2nd" as the 9th, or redo the freeze. Caught by a test that originally
+asserted the wrong thing — the right behaviour is an idempotent no-op, not an
+error.
+
+### The security shape
+
+Reports are keyed `conditions_report:{landlordEmail}:{id}`, so one prefix read
+returns everything a landlord owns and no request can reach another landlord's
+tenancy. Ownership of BOTH checklists is checked before either is read, so naming
+a form id is not enough to compare two of them. A tenant's index is written only
+when a report is SHARED, and the read checks the status as well as the index —
+two gates, because this is somebody else's money being accounted for.
+
+Only staff may post costs. A landlord may post the wear-or-damage override and a
+deposit figure, and the override records WHO from the session rather than from
+the body: the report says a person made that call and it has to be the real one.
+
+A report cannot be deleted or reopened once shared, and there is one report per
+move-out checklist — a second would be a second statement about the same deposit
+with nothing to say which was real.
+
+### What C6 still has to do
+
+The costs route exists and is staff-only, so a report can be priced today by
+posting figures to it. What it does NOT yet do is take those figures FROM a
+quote. That is C6, and until then a `quoteId` on a line is a label rather than a
+link.

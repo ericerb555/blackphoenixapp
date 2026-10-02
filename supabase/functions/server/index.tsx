@@ -259,6 +259,10 @@ import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry
 import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
 import { resolveLaborRates, resolvePricing, normaliseLaborRates } from './pricingDefaults.ts';
+import {
+  buildReport, reportRefusal, reportView, transitionRefusal, applyTransition,
+  isFullyPriced, tenantCopy, type ConditionsReportRecord, type ReportStatus,
+} from './conditionsReport.ts';
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { vendorBillingRouter } from "./vendor-billing.tsx";
 import { createCondoRouter } from "./condo-associations.tsx";
@@ -9942,6 +9946,366 @@ app.delete('/make-server-3eae23a6/landlord/forms/:id', async (c) => {
     if (form.tenantEmail) await kv.set(tenantFormsKey(form.tenantEmail), ((await kv.get(tenantFormsKey(form.tenantEmail)) as string[]) || []).filter(x => x !== id));
     return c.json({ success: true });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to delete the form.' }, 500); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONDITIONS REPORTS — what changed between a tenant moving in and moving out,
+// what of it is chargeable, and what that does to the deposit.
+//
+// KEYED BY LANDLORD, WHICH IS THE ISOLATION
+//
+// `conditions_report:{landlordEmail}:{id}` means one prefix read returns
+// everything a landlord owns and no request can reach across to somebody else's
+// tenancy. Isolation by construction rather than by a filter somebody has to
+// remember — the same choice `property-inspections.tsx` made, for the same
+// reason.
+//
+// A TENANT'S INDEX ONLY EVER HOLDS SHARED REPORTS
+//
+// Tenants cannot be served by that prefix, so they have an index of their own.
+// It is written when a report is SHARED and never at any other point, so there
+// is no moment at which a tenant's index names a report they are not entitled
+// to read. The read still checks the status, but the index is not the thing
+// standing between them and it.
+//
+// NOTHING ABOUT MONEY IS ACCEPTED FROM A CLIENT
+//
+// Not the deductions, not the total, not what is returned. Those are derived on
+// every read by `reportView`. A landlord may post overrides and a deposit
+// figure; only staff may post costs, because the cost is our quote.
+// ─────────────────────────────────────────────────────────────────────────────
+function reportKey(landlordEmail: string, id: string) {
+  return `conditions_report:${String(landlordEmail).toLowerCase()}:${id}`;
+}
+function reportPrefix(landlordEmail: string) {
+  return `conditions_report:${String(landlordEmail).toLowerCase()}:`;
+}
+function tenantReportsKey(tenantEmail: string) {
+  return `tenant_conditions_reports:${String(tenantEmail).toLowerCase()}`;
+}
+
+/** The two checklists a report was built from. Absent move-in is legitimate. */
+async function reportForms(record: ConditionsReportRecord) {
+  const [moveIn, moveOut] = await Promise.all([
+    record.moveInFormId ? kv.get(formKey(record.moveInFormId)) : Promise.resolve(null),
+    record.moveOutFormId ? kv.get(formKey(record.moveOutFormId)) : Promise.resolve(null),
+  ]);
+  return { moveIn: (moveIn as any) || null, moveOut: (moveOut as any) || null };
+}
+
+/** A report plus its derived findings and arithmetic, ready to serve. */
+async function readReportView(record: ConditionsReportRecord) {
+  const { moveIn, moveOut } = await reportForms(record);
+  return reportView(record, moveIn, moveOut);
+}
+
+/**
+ * The report a landlord is asking about, or a reason they cannot have it.
+ *
+ * Staff may read any report, because they are the ones pricing it. Everybody
+ * else gets their own or a 403 — never a filtered answer.
+ */
+async function reportFor(c: any, id: string): Promise<
+  { record: ConditionsReportRecord } | { error: string; code: 401 | 403 | 404 }
+> {
+  const actor = await landlordActor(c);
+  if (!actor.user?.email) return { error: 'Sign in to view this report.', code: 401 };
+  const email = String(actor.user.email).toLowerCase();
+
+  const own = await kv.get(reportKey(email, id)) as ConditionsReportRecord | null;
+  if (own) return { record: own };
+
+  if (actor.admin) {
+    // Staff price these, so they can reach one without owning it. Found by
+    // scanning rather than guessing the owner, and still only by exact id.
+    const all = (await kv.getByPrefix('conditions_report:')) as ConditionsReportRecord[];
+    const found = (all || []).find((r) => r?.id === id);
+    if (found) return { record: found };
+    return { error: 'Report not found.', code: 404 };
+  }
+  return { error: 'That report is not on your account.', code: 403 };
+}
+
+app.get('/make-server-3eae23a6/landlord/conditions-reports', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view your reports.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const records = (await kv.getByPrefix(reportPrefix(email))) as ConditionsReportRecord[];
+    const views = await Promise.all((records || []).filter(Boolean).map(readReportView));
+    views.sort((a, b) => String(b.record.createdAt).localeCompare(String(a.record.createdAt)));
+    return c.json({ success: true, reports: views });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load your reports.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/landlord/conditions-reports', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to create a report.' }, 401);
+    if (!actor.landlord && !actor.admin) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+
+    const body = await c.req.json().catch(() => ({}));
+    const moveOutId = String(body.moveOutFormId || '').trim();
+    const moveInId = String(body.moveInFormId || '').trim();
+    if (!moveOutId) return c.json({ success: false, error: 'A completed move-out checklist is required.' }, 400);
+
+    const [moveOut, moveIn] = await Promise.all([
+      kv.get(formKey(moveOutId)),
+      moveInId ? kv.get(formKey(moveInId)) : Promise.resolve(null),
+    ]) as any[];
+
+    /*
+     * Ownership of BOTH checklists is checked before anything is read off them.
+     * A report is built from somebody's tenancy records, so being able to name
+     * a form id must not be enough to compare two of them.
+     */
+    for (const [form, what] of [[moveOut, 'move-out'], [moveIn, 'move-in']] as const) {
+      if (!form) continue;
+      if (!actor.admin && String(form.landlordEmail || '').toLowerCase() !== email) {
+        return c.json({ success: false, error: `That ${what} checklist is not on your account.` }, 403);
+      }
+    }
+    if (!moveOut) return c.json({ success: false, error: 'Move-out checklist not found.' }, 404);
+
+    const refusal = reportRefusal(moveIn, moveOut);
+    if (refusal) return c.json({ success: false, error: refusal }, 400);
+
+    const ownerEmail = String(moveOut.landlordEmail || email).toLowerCase();
+    const existing = (await kv.getByPrefix(reportPrefix(ownerEmail))) as ConditionsReportRecord[];
+    const already = (existing || []).find((r) => r?.moveOutFormId === moveOutId);
+    if (already) {
+      // One report per departure. A second one would be a second statement about
+      // the same deposit, and nobody could say which was the real one.
+      return c.json({
+        success: false,
+        error: 'There is already a conditions report for that move-out checklist.',
+        reportId: already.id,
+      }, 409);
+    }
+
+    const record = buildReport({
+      id: `CR-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+      landlordEmail: ownerEmail,
+      landlordUserId: actor.user.id,
+      moveInForm: moveIn,
+      moveOutForm: moveOut,
+      depositRaw: body.depositRaw,
+    });
+
+    await kv.set(reportKey(ownerEmail, record.id), record);
+    return c.json({ success: true, report: await readReportView(record) }, 201);
+  } catch (error: any) {
+    console.log('Conditions report create error:', error);
+    return c.json({ success: false, error: error.message || 'Unable to create the report.' }, 500);
+  }
+});
+
+app.get('/make-server-3eae23a6/landlord/conditions-reports/:id', async (c) => {
+  try {
+    const found = await reportFor(c, c.req.param('id'));
+    if ('error' in found) return c.json({ success: false, error: found.error }, found.code);
+    return c.json({ success: true, report: await readReportView(found.record) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load the report.' }, 500);
+  }
+});
+
+/**
+ * What a landlord may change: the wear-or-damage call per area, and the deposit
+ * figure where the lease field was not a number.
+ *
+ * They may NOT set a cost. Black Phoenix prices the damage, and a figure the
+ * landlord typed would undercut the only reason the number is worth having.
+ */
+app.patch('/make-server-3eae23a6/landlord/conditions-reports/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const found = await reportFor(c, id);
+    if ('error' in found) return c.json({ success: false, error: found.error }, found.code);
+    const actor = await landlordActor(c);
+    const who = String(actor.user?.email || '').toLowerCase();
+    const record = found.record;
+    const body = await c.req.json().catch(() => ({}));
+    const now = new Date().toISOString();
+
+    let next: ConditionsReportRecord = { ...record, updatedAt: now };
+
+    if (Array.isArray(body.overrides)) {
+      if (record.frozenDiff) {
+        return c.json({
+          success: false,
+          error: 'The findings on this report were frozen when it was sent. Reopen it first if they need changing.',
+        }, 409);
+      }
+      next.overrides = body.overrides
+        .filter((o: any) => o && String(o.area || '').trim())
+        .filter((o: any) => o.classification === 'wear' || o.classification === 'damage')
+        .slice(0, 100)
+        .map((o: any) => ({
+          area: String(o.area).trim().slice(0, 160),
+          classification: o.classification,
+          // Who decided is recorded from the SESSION, never from the body — the
+          // report says a person made this call and it has to be the real one.
+          by: who,
+          at: now,
+          reason: o.reason ? String(o.reason).trim().slice(0, 500) : undefined,
+        }));
+    }
+
+    if (body.depositOverride !== undefined) {
+      next.depositOverride = String(body.depositOverride || '').trim().slice(0, 40);
+    }
+
+    if (body.status !== undefined) {
+      const to = String(body.status) as ReportStatus;
+      const forms = await reportForms(next);
+      const view = reportView(next, forms.moveIn, forms.moveOut);
+      const refusal = transitionRefusal(next, to, view);
+      if (refusal) return c.json({ success: false, error: refusal }, 409);
+      next = applyTransition(next, to, view, now);
+
+      if (to === 'shared' && next.tenantEmail) {
+        const index = (await kv.get(tenantReportsKey(next.tenantEmail)) as string[]) || [];
+        const key = reportKey(next.landlordEmail, next.id);
+        if (!index.includes(key)) {
+          await kv.set(tenantReportsKey(next.tenantEmail), [key, ...index]);
+        }
+        notifyRecipient(next.tenantEmail, 'conditions_report', {
+          subject: '📋 Your property conditions report',
+          text: 'Your landlord has shared the conditions report for '
+            + `${next.propertyAddress || 'your tenancy'}${next.unit ? `, ${next.unit}` : ''}.\n\n`
+            + 'It compares the condition recorded when you moved in against the move-out '
+            + 'inspection, and shows any deductions from your security deposit.\n\n'
+            + 'Open your tenant portal to read it.',
+          sms: 'Your landlord shared your property conditions report. Read it in your tenant portal.',
+        }).catch(() => {});
+      }
+    }
+
+    await kv.set(reportKey(next.landlordEmail, next.id), next);
+    return c.json({ success: true, report: await readReportView(next) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to update the report.' }, 500);
+  }
+});
+
+/**
+ * The costs, which only Black Phoenix may set.
+ *
+ * This is the write that turns a documented report into a settlement, and it is
+ * staff-only for the reason the whole flow exists: a quoted figure is evidence
+ * and a landlord's own figure is an assertion. A report becomes `priced` by
+ * itself once every chargeable area has one, because the pricing arrives from
+ * our side and the landlord should not have to notice.
+ */
+app.patch('/make-server-3eae23a6/landlord/conditions-reports/:id/costs', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to price a report.' }, 401);
+    if (!await intakeIsAdmin(user)) {
+      return c.json({ success: false, error: 'Only Black Phoenix staff can put a cost on a conditions report.' }, 403);
+    }
+    const id = c.req.param('id');
+    const all = (await kv.getByPrefix('conditions_report:')) as ConditionsReportRecord[];
+    const record = (all || []).find((r) => r?.id === id);
+    if (!record) return c.json({ success: false, error: 'Report not found.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    if (!Array.isArray(body.costs)) return c.json({ success: false, error: 'Costs are required.' }, 400);
+
+    const now = new Date().toISOString();
+    let next: ConditionsReportRecord = {
+      ...record,
+      costs: body.costs
+        .filter((x: any) => x && String(x.area || '').trim())
+        .slice(0, 100)
+        .map((x: any) => {
+          // Absent stays absent. A missing cost must not become zero here, or
+          // the settlement would read as ready with a damaged area priced at
+          // nothing — see the note in `depositMath.ts`.
+          const absent = x.cost === null || x.cost === undefined || x.cost === '';
+          const cost = absent ? null : Number(x.cost);
+          return {
+            area: String(x.area).trim().slice(0, 160),
+            cost: cost !== null && Number.isFinite(cost) && cost >= 0 ? Math.round(cost * 100) / 100 : null,
+            quoteId: x.quoteId ? String(x.quoteId).slice(0, 80) : undefined,
+          };
+        }),
+      updatedAt: now,
+    };
+
+    const forms = await reportForms(next);
+    const view = reportView(next, forms.moveIn, forms.moveOut);
+    if (next.status === 'sent' && isFullyPriced(view)) {
+      next = applyTransition(next, 'priced', view, now);
+      notifyRecipient(next.landlordEmail, 'conditions_report_priced', {
+        subject: '💵 Your conditions report has been priced',
+        text: `The damage on the conditions report for ${next.propertyAddress || 'your property'}`
+          + ' has been priced. Open your Landlord portal to review it and, if you are ready, '
+          + 'share it with your tenant.',
+        sms: 'Your conditions report has been priced. Review it in your Landlord portal.',
+      }).catch(() => {});
+    }
+
+    await kv.set(reportKey(next.landlordEmail, next.id), next);
+    return c.json({ success: true, report: await readReportView(next) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to price the report.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/landlord/conditions-reports/:id', async (c) => {
+  try {
+    const found = await reportFor(c, c.req.param('id'));
+    if ('error' in found) return c.json({ success: false, error: found.error }, found.code);
+    const record = found.record;
+    if (record.status === 'shared') {
+      return c.json({
+        success: false,
+        error: 'This report has been given to the tenant. Deleting it would remove a statement '
+          + 'somebody is relying on.',
+      }, 409);
+    }
+    await kv.del(reportKey(record.landlordEmail, record.id));
+    if (record.tenantEmail) {
+      const key = reportKey(record.landlordEmail, record.id);
+      const index = (await kv.get(tenantReportsKey(record.tenantEmail)) as string[]) || [];
+      await kv.set(tenantReportsKey(record.tenantEmail), index.filter((k) => k !== key));
+    }
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to delete the report.' }, 500);
+  }
+});
+
+/**
+ * What a tenant can read: the reports their landlord chose to share, in full.
+ *
+ * The status is checked as well as the index, so a report reopened or unshared
+ * stops being readable even if the index has not caught up. Two gates rather
+ * than one, because this is somebody else's money being accounted for.
+ */
+app.get('/make-server-3eae23a6/tenant/conditions-reports', async (c) => {
+  try {
+    const user = await intakeActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in to view your reports.' }, 401);
+    const email = String(user.email).toLowerCase();
+    const keys = (await kv.get(tenantReportsKey(email)) as string[]) || [];
+    if (!keys.length) return c.json({ success: true, reports: [] });
+
+    const records = ((await kv.mget(keys)) as ConditionsReportRecord[] || []).filter(Boolean);
+    const mine = records.filter((r) => String(r.tenantEmail || '').toLowerCase() === email
+      && r.status === 'shared');
+    const views = await Promise.all(mine.map(readReportView));
+    views.sort((a, b) => String(b.record.sharedAt || '').localeCompare(String(a.record.sharedAt || '')));
+    return c.json({ success: true, reports: views.map(tenantCopy) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to load your reports.' }, 500);
+  }
 });
 
 app.get('/make-server-3eae23a6/tenant/forms', async (c) => {
