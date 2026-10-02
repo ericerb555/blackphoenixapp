@@ -12,6 +12,7 @@ import {
 import LandlordLeaseManager from './LandlordLeaseManager';
 import OnCallSetup from './OnCallSetup';
 import LandlordFormsManager from './LandlordFormsManager';
+import ConditionsReports from './ConditionsReports';
 import PropertyInspections from './PropertyInspections';
 import UnitTurnoverChecklist from './UnitTurnoverChecklist';
 import NotificationBell from './NotificationBell';
@@ -745,7 +746,7 @@ export default function LandlordPortalView() {
           </FeatureGate>
         )}
 
-        {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><div className="space-y-6"><LandlordLeaseManager session={session} tenants={tenants} /><div className="border-t border-[#2A2A2A] pt-6"><LandlordFormsManager session={session} tenants={tenants} /></div></div></FeatureGate>}
+        {tab === 'leases' && <FeatureGate feature="AI Lease Builder"><div className="space-y-6"><LandlordLeaseManager session={session} tenants={tenants} /><div className="border-t border-[#2A2A2A] pt-6"><LandlordFormsManager session={session} tenants={tenants} /></div><div className="border-t border-[#2A2A2A] pt-6"><ConditionsReports session={session} /></div></div></FeatureGate>}
 
         {tab === 'on-call' && <OnCallSetup session={session} accent="teal" />}
 

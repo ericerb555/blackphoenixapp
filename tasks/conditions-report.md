@@ -15,7 +15,7 @@ and, on where the costs come from:
 
 > "they should be able to send me the report and i will put a cost to it"
 
-**C1, C2 and C3 are built and tested. C4 onward is not started.**
+**C1 to C4 are built. C5 onward is not started.**
 
 ---
 
@@ -149,7 +149,7 @@ else asks the landlord to confirm the figure.
       isolation is structural rather than a filter somebody remembers. Status
       through the four states above; totals recomputed server-side on every
       write.
-- [ ] **C4. The report in the leases tab.** A new panel beside the forms, not a
+- [x] **C4. The report in the leases tab.** A new panel beside the forms, not a
       new tab and no restyling. Per-line wear-or-damage override, recorded as the
       landlord's decision.
 - [ ] **C5. Send to Black Phoenix for pricing.** Raises a work request through
@@ -302,3 +302,43 @@ The costs route exists and is staff-only, so a report can be priced today by
 posting figures to it. What it does NOT yet do is take those figures FROM a
 quote. That is C6, and until then a `quoteId` on a line is a label rather than a
 link.
+
+---
+
+## 10. C4, as built — 2 Oct
+
+`ConditionsReports.tsx`, mounted as a third panel in the leases tab under the
+lease builder and the forms manager. No restyling, no new tab, and the existing
+panels are untouched.
+
+**The deposit is typed on the report, and that is not a fallback.** The lease
+draft form asks for a security deposit, feeds it to the prompt that drafts the
+lease, and stores only the resulting prose — so the figure exists as a sentence
+in a document and NOWHERE as a number. The plan assumed a free-text lease field
+to parse; there is not even that. Parsing it back out of lease text would be
+guessing at the most consequential figure on the statement, so the report asks
+for it. That also works for a tenancy predating the forms entirely.
+
+**Conditions are shown side by side rather than as a verdict.** Each line gives
+the arrival condition, the departure condition, the finding, and — where the two
+accounts differed — "you recorded X" under the signed figure. A single "Damaged,
+$820" would read better and be impossible to check, and this document exists to
+be checked.
+
+**The move-in checklist is matched automatically**, on the tenant, taking the
+latest completed one at or before the departure. No picker, because that is the
+pairing anybody would make by hand. Where there is none, the panel says so
+before the report is made rather than after.
+
+### What is clickable and what it does
+
+Mark damage / not damage per line, while the findings are live. Send to Black
+Phoenix for pricing, which freezes the findings. Reopen, which thaws them.
+Give to tenant, disabled with the reason on hover until the report is priced.
+A shared report shows no destructive controls at all.
+
+### Not verified in the browser
+
+Typecheck, the full suite, smoke and a production build all pass, and smoke
+mounts the landlord portal without throwing. None of that exercises the leases
+tab with a real session, real forms and a real tenant — Eric has to click it.
