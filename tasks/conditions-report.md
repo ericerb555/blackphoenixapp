@@ -15,7 +15,7 @@ and, on where the costs come from:
 
 > "they should be able to send me the report and i will put a cost to it"
 
-**C1 to C4 are built. C5 onward is not started.**
+**C1 to C5 are built. C6 onward is not started.**
 
 ---
 
@@ -152,7 +152,7 @@ else asks the landlord to confirm the figure.
 - [x] **C4. The report in the leases tab.** A new panel beside the forms, not a
       new tab and no restyling. Per-line wear-or-damage override, recorded as the
       landlord's decision.
-- [ ] **C5. Send to Black Phoenix for pricing.** Raises a work request through
+- [x] **C5. Send to Black Phoenix for pricing.** Raises a work request through
       `persistWorkRequest` onto that property's job, carrying the damage lines as
       its scope. This is the step that makes the report a job rather than a
       document.
@@ -342,3 +342,26 @@ A shared report shows no destructive controls at all.
 Typecheck, the full suite, smoke and a production build all pass, and smoke
 mounts the landlord portal without throwing. None of that exercises the leases
 tab with a real session, real forms and a real tenant — Eric has to click it.
+
+---
+
+## 11. C5, as built — 2 Oct
+
+Sending a report raises ONE work request through persistWorkRequest, not one per
+area: a turnover is one visit, one crew and one quote, and three requests for
+three damaged areas would put three jobs on the pipeline for a single departure.
+It lands on the same job identity as everything else about that address.
+
+The description carries, per area, both conditions, both inspections notes, the
+photo count, and any disagreement between the two accounts — because whoever
+prices it has not been in the flat. Wear is named explicitly as NOT to be quoted,
+since pricing a wear line would put work on a deposit statement that has no
+business being there. It asks for a price per area rather than one total.
+
+**Re-sending rescopes the existing job rather than raising a second one.** Two
+crews at one flat is the obvious failure; the quieter one is somebody quoting
+against findings the landlord has since corrected.
+
+Caught by the tests: two join calls had a real newline inside their quotes rather
+than an escape, which made the whole module unparseable. Found in seconds because
+the module is pure and imported by a test.
