@@ -839,3 +839,24 @@ so the screen is owed before any of this is switched on for real.
 
 *Nothing has been verified in a running app*, because there is no UI and no
 applied schema. The routes are reasoned about and unit-tested, not observed.
+
+### The typecheck gap, closed (2026-10-02)
+
+Eric: *"fix the typecheck so both halves run."*
+
+`npm run typecheck` now runs `scripts/typecheck.mjs`, which runs each config in
+turn and prints a count per config — **app 316, server 89** as of today. The
+old line chained the two with `&&`, and since the app config exits non-zero
+every time on its standing backlog, the server half had never run in any
+session. Swapping the operator was not available: npm runs scripts through
+`cmd.exe` on Windows, where `;` is not a separator and `&` is, while every
+other shell is the reverse, so the sequencing is in node where it means one
+thing.
+
+`typecheck:app` was added so each half can still be run alone, and
+`typecheck:tests` is deliberately still outside the default run — adding a
+third config would change what the pre-commit number means, which is a
+decision about the standing check rather than a repair to a broken one.
+
+**Read two numbers from now on, not one.** Every earlier note in this file
+saying "typecheck holds at 316" was only ever checking the front end.

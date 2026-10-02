@@ -7,7 +7,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "node scripts/typecheck.mjs",
+    "typecheck:app": "tsc -p tsconfig.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
     "smoke:all": "node scripts/smoke.mjs --all",
