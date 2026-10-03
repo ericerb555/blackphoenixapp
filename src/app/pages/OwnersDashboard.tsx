@@ -39,6 +39,7 @@ import RoleManagementSystem from '../components/RoleManagementSystem';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import ReviewQueuePanel from '../components/owner/ReviewQueuePanel';
 import StoreAutonomyPanel from '../components/owner/StoreAutonomyPanel';
+import SocialOnboarding from '../components/owner/SocialOnboarding';
 import SimpleCompanyManager from '../components/SimpleCompanyManager';
 import GiftHoursModal from '../components/GiftHoursModal';
 import OwnerGiftManagement from '../components/OwnerGiftManagement';
@@ -784,6 +785,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         {activeTab === 'review-queue' && (
           <div className="space-y-5">
             <StoreAutonomyPanel />
+            <SocialOnboarding />
             <ReviewQueuePanel />
           </div>
         )}

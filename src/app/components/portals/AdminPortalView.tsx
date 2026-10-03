@@ -1,6 +1,7 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import ReviewQueuePanel from '../owner/ReviewQueuePanel';
 import StoreAutonomyPanel from '../owner/StoreAutonomyPanel';
+import SocialOnboarding from '../owner/SocialOnboarding';
 import InvestmentTab from './InvestmentTab';
 /**
  * Admin Portal - Platform Owner Dashboard
@@ -520,6 +521,7 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
         {activeTab === 'review-queue' && (
           <div className="space-y-5">
             <StoreAutonomyPanel />
+            <SocialOnboarding />
             <ReviewQueuePanel />
           </div>
         )}

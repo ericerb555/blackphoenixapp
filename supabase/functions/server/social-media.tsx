@@ -23,7 +23,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
-  PLATFORMS, isPlatform, refusalFor, fitToPlatform, costOfPost, containsLink,
+  PLATFORMS, PLATFORM_SETUP, isPlatform, refusalFor, fitToPlatform, costOfPost, containsLink,
 } from "./socialPlatforms.ts";
 
 const PREFIX = "/make-server-3eae23a6";
@@ -1965,7 +1965,7 @@ socialRouter.post(`${PREFIX}/social/ai-repurpose`, async (c) => {
  * as the secrets themselves. A platform offered without its credentials is a
  * button that fails after the click, so a screen can grey it out instead.
  */
-socialRouter.get(`${PREFIX}/social/platforms`, (c) => {
+socialRouter.get(`${PREFIX}/social/platforms`, async (c) => {
   const configured: Record<string, boolean> = {
     facebook: !!(FB_APP_ID && FB_APP_SECRET),
     instagram: !!(FB_APP_ID && FB_APP_SECRET),
@@ -1983,11 +1983,58 @@ socialRouter.get(`${PREFIX}/social/platforms`, (c) => {
     mastodon: true,
   };
 
+  /**
+   * Everything one screen needs to onboard every platform, in one call.
+   *
+   * Eric, 2026-10-03: *"you should make that on boarding symple for all social
+   * media accounts"*. The friction in connecting a social account has never
+   * been the code — it is that the credentials live in twelve different
+   * developer consoles, each wants a redirect URI pasted in exactly, and each
+   * calls its secrets something different. None of that was reachable from the
+   * interface, so a screen could only offer a button that failed after the
+   * click.
+   *
+   * So the callback URL is returned per platform, ready to be copied into the
+   * console that wants it, alongside the names of the secrets to set and where
+   * to get them. The secret VALUES are never returned — `configured` is a
+   * boolean, and that is the only thing about them anybody needs to see.
+   *
+   * `connected` is this caller's own accounts, so the screen can sort what is
+   * done from what is waiting without a second request.
+   */
+  const token = c.req.header("Authorization")?.split(" ")[1];
+  let connectedIds: string[] = [];
+  if (token) {
+    try {
+      const userId = await getUserId(c);
+      if (userId) {
+        const accounts = await getAccounts(userId);
+        connectedIds = Object.values(accounts || {})
+          .filter((a: any) => a?.connected)
+          .map((a: any) => String(a.platform));
+      }
+    } catch {
+      // An unreadable account list must not take the setup instructions with
+      // it: somebody who cannot be identified still needs to see what to go
+      // and fetch.
+    }
+  }
+
   return c.json({
     platforms: Object.values(PLATFORMS).map((spec) => ({
       ...spec,
       configured: configured[spec.id] ?? false,
+      connected: connectedIds.includes(spec.id),
+      // The exact string to paste into that platform's console.
+      redirectUri: fbRedirectUri(spec.id),
+      setup: PLATFORM_SETUP[spec.id] || { secrets: [], how: "" },
     })),
+    /**
+     * Said once rather than per platform: all twelve callbacks share this
+     * prefix, and a console that wants a domain rather than a full URL wants
+     * this part of it.
+     */
+    callbackBase: `${SUPABASE_URL}/functions/v1/social-oauth`,
   });
 });
 

@@ -551,10 +551,35 @@ coming, without anyone opening the app.
 
 ### Phase 4 — Demand, unattended
 
-- [ ] **4.1 — Eric:** `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, callback URL
-      whitelisted in the Facebook app.
-- [ ] **4.2** Connect Facebook and Instagram; clear the two stale OAuth state
-      rows left by the attempt that never completed.
+Eric, 2026-10-03: *"i will connect once everything else is complete you should
+make that on boarding symple for all social media accounts"*. So the onboarding
+is built first and the connecting waits for him.
+
+- [x] **4.0** One screen for all twelve platforms, `SocialOnboarding`, on the
+      Owners Dashboard and the Admin portal. **The server could already post to
+      twelve platforms and already reported which had credentials — and nothing
+      in the interface read it.** The hub hardcoded three, so nine were
+      unreachable, and because `configured` was never consulted a Connect button
+      could be pressed for a platform with no credentials and simply fail after
+      the click.
+- [x] **4.0b** What makes it simple is fewer unanswered questions, not fewer
+      buttons. Each platform shows the exact callback URL to paste with a copy
+      button, the names of the secrets to set with a copy button, a link to the
+      console that issues them, and one sentence on what to do there — because
+      the friction was never the code, it was that the credentials live in
+      twelve different consoles which each name their secrets differently.
+- [x] **4.0c** Three states kept apart: connected, ready to connect, and
+      waiting on credentials. The third gets **no Connect button**, and says so
+      — offering one is how somebody presses a thing that cannot work and
+      assumes the fault is theirs.
+- [x] **4.0d** Platforms sharing one set of credentials are grouped, so one
+      Google client is understood to cover YouTube and Google Business, and one
+      LinkedIn app to cover both LinkedIn surfaces. X's per-post charge is shown
+      before the button, not after the invoice.
+- [ ] **4.1 — Eric:** the credentials, when he is ready. Every platform now
+      names its own on the screen, so there is no list to keep here.
+- [ ] **4.2** Connect the accounts; clear the two stale OAuth state rows left by
+      the attempt that never completed.
 - [ ] **4.3** Arm the autopilot migration with `requireApproval` ON for the
       first campaign — the clock then proves itself by moving items to "ready"
       with nothing reaching a live page.

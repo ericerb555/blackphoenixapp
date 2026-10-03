@@ -83,6 +83,95 @@ export interface PlatformSpec {
   caveat?: string;
 }
 
+/**
+ * What a person has to go and get before a platform can be connected.
+ *
+ * WHY THIS IS DATA AND NOT A SUPPORT ARTICLE
+ *
+ * Connecting a social account is not hard because of the code. It is hard
+ * because the credentials live in twelve different developer consoles, each
+ * wants a redirect URI pasted in exactly, and each calls its two secrets
+ * something different. That knowledge was spread across comments in the OAuth
+ * handlers and in nobody's head, so the onboarding screen could not tell
+ * somebody what to do — it could only offer a button that failed after the
+ * click.
+ *
+ * `secrets` are the names to set, never the values. `console` is where they
+ * come from. Together with the callback URL the server already knows, a screen
+ * can say the whole truth: here is what to fetch, here is where from, and here
+ * is the one string to paste back.
+ */
+export interface PlatformSetup {
+  /** Environment variable names, in the order they are asked for. */
+  secrets: string[];
+  /** Where the credentials are issued. */
+  console?: string;
+  /** What to do, in one sentence, for somebody who has not done it before. */
+  how: string;
+}
+
+export const PLATFORM_SETUP: Record<PlatformId, PlatformSetup> = {
+  facebook: {
+    secrets: ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'],
+    console: 'https://developers.facebook.com/apps',
+    how: 'Create an app, add Facebook Login, and whitelist the callback URL below as a valid OAuth redirect.',
+  },
+  instagram: {
+    secrets: ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'],
+    console: 'https://developers.facebook.com/apps',
+    how: 'The same Facebook app as above — Instagram posts through a Business account linked to a Facebook Page, so connecting Facebook first is required.',
+  },
+  tiktok: {
+    secrets: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'],
+    console: 'https://developers.tiktok.com/apps',
+    how: 'Register an app and request the Content Posting API. Until TikTok audits it, posts publish privately.',
+  },
+  bluesky: {
+    secrets: [],
+    console: 'https://bsky.app/settings/app-passwords',
+    how: 'Nothing to register. Generate an app password in your own Bluesky settings and paste it when connecting — never your real password.',
+  },
+  mastodon: {
+    secrets: [],
+    how: 'Nothing to register. Give the server your instance (for example mastodon.social) and this app registers itself with it.',
+  },
+  linkedin: {
+    secrets: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
+    console: 'https://www.linkedin.com/developers/apps',
+    how: 'Create an app, request the Share on LinkedIn product, and add the callback URL below.',
+  },
+  threads: {
+    secrets: ['THREADS_APP_ID', 'THREADS_APP_SECRET'],
+    console: 'https://developers.facebook.com/apps',
+    how: 'A Threads app is separate from the Facebook one. Add the Threads API product and the callback URL below.',
+  },
+  pinterest: {
+    secrets: ['PINTEREST_APP_ID', 'PINTEREST_APP_SECRET'],
+    console: 'https://developers.pinterest.com/apps',
+    how: 'Create an app and add the callback URL. A board has to be chosen after connecting, because a pin belongs to one.',
+  },
+  youtube: {
+    secrets: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+    console: 'https://console.cloud.google.com/apis/credentials',
+    how: 'One Google OAuth client covers YouTube and Google Business Profile. Enable the YouTube Data API and add the callback URL as an authorised redirect.',
+  },
+  google_business: {
+    secrets: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+    console: 'https://console.cloud.google.com/apis/credentials',
+    how: 'The same Google client as YouTube. Google must also approve access to the Business Profile API, which is a separate request to them.',
+  },
+  linkedin_company: {
+    secrets: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
+    console: 'https://www.linkedin.com/developers/apps',
+    how: 'The same LinkedIn app, plus the Community Management API — which LinkedIn grants by application, with a screencast.',
+  },
+  x: {
+    secrets: ['X_CLIENT_ID', 'X_CLIENT_SECRET'],
+    console: 'https://developer.x.com/en/portal/dashboard',
+    how: 'Create an app with OAuth 2.0 and add the callback URL. X charges for posting — see the cost shown on this platform before connecting it.',
+  },
+};
+
 export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
   facebook: {
     id: 'facebook', label: 'Facebook', auth: 'oauth', media: 'none', maxChars: 63206,
