@@ -29,6 +29,8 @@ const PRODUCTS = [
   'maint-nh-winter',
   'maint-annual-planner',
   'tmpl-inspection',
+  'tmpl-vendor-contract',
+  'tmpl-board-meeting',
 ];
 
 function human(bytes) {
