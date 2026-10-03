@@ -24,6 +24,7 @@ import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
+import { isStaffRequest } from "./requireStaff.ts";
 import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
@@ -7333,7 +7334,8 @@ const JOB_MEDIA_BUCKETS: { name: string; fileSizeLimit: number; allowedMimeTypes
  * there in every environment this has ever run in, and creating-if-absent
  * would leave every one of them exactly as it was.
  */
-async function ensureStorageBuckets() {
+async function ensureStorageBuckets(): Promise<string[]> {
+  const log: string[] = [];
   const { data: existing } = await supabase.storage.listBuckets();
   const byName = new Map((existing || []).map((b: any) => [b.name, b]));
 
@@ -7347,8 +7349,13 @@ async function ensureStorageBuckets() {
 
     if (!current) {
       const { error } = await supabase.storage.createBucket(spec.name, options);
-      if (error) console.error(`❌ Could not create private bucket ${spec.name}:`, error.message);
-      else console.log(`✅ Created private storage bucket: ${spec.name}`);
+      if (error) {
+        console.error(`❌ Could not create private bucket ${spec.name}:`, error.message);
+        log.push(`${spec.name}: could not create — ${error.message}`);
+      } else {
+        console.log(`✅ Created private storage bucket: ${spec.name}`);
+        log.push(`${spec.name}: created, private`);
+      }
       continue;
     }
 
@@ -7356,12 +7363,50 @@ async function ensureStorageBuckets() {
       const { error } = await supabase.storage.updateBucket(spec.name, options);
       if (error) {
         console.error(`❌ Could not make ${spec.name} private:`, error.message);
+        log.push(`${spec.name}: STILL PUBLIC — ${error.message}`);
       } else {
         console.log(`🔒 Bucket ${spec.name} was public and is now private`);
+        log.push(`${spec.name}: was public, now private`);
       }
+    } else {
+      log.push(`${spec.name}: already private`);
     }
   }
+
+  return log;
 }
+
+/**
+ * Run the bucket repair on demand, and SAY WHAT IT DID.
+ *
+ * WHY THIS ROUTE HAD TO EXIST
+ *
+ * `ensureStorageBuckets` was reachable from exactly one place — inside
+ * `POST /work-requests` — behind `.catch(() => {})`. So it only ran when a
+ * customer happened to submit a request, and if the storage API refused the
+ * change the error was discarded. Checked against production on 2026-10-02,
+ * all three buckets were still public with no size or type limit, months after
+ * the code to fix that shipped, and nothing anywhere said so.
+ *
+ * A security control whose only trigger is somebody else's unrelated action,
+ * and whose failure is thrown away, is not a control. This makes it something
+ * a person can run and read the result of.
+ *
+ * It returns the per-bucket outcome rather than `{ success: true }`, because
+ * "it ran" was never the question — "is the bucket private now" is.
+ */
+app.post('/make-server-3eae23a6/storage/repair-job-media', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  try {
+    const outcome = await ensureStorageBuckets();
+    return c.json({ success: true, buckets: outcome });
+  } catch (error: any) {
+    console.error('[storage] bucket repair failed:', error?.message || error);
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
+  }
+});
 
 async function workRequestActor(c: any) {
   const user = await intakeActor(c);
@@ -7445,7 +7490,13 @@ async function persistWorkRequest(record: any) {
 // as intake leads, but never become readable through the portal until the customer signs in.
 app.post('/make-server-3eae23a6/work-requests', async (c) => {
   try {
-    await ensureStorageBuckets().catch(() => {});
+    // Still best-effort here — a work request must never fail because storage
+    // housekeeping did — but no longer silent. The swallowed version of this
+    // hid three public buckets for months. The staff route above is the one
+    // that reports properly.
+    await ensureStorageBuckets().catch((e: any) => {
+      console.error('[storage] bucket check failed during work-request intake:', e?.message || e);
+    });
     const body = await c.req.json();
     const { user, admin } = await workRequestActor(c);
     const suppliedEmail = String(body.client_info?.email || body.clientEmail || body.email || '').trim().toLowerCase();

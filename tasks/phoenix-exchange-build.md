@@ -974,3 +974,49 @@ reviewer makes contact, and an upload box that goes nowhere is worse than
 saying so. And nothing decides a dispute when the seven days run out: the clock
 only marks it ready, because nothing here takes a business off its owner
 without a person.
+
+### What production actually looks like (checked 2026-10-02)
+
+Read-only inspection of `plzsvzwwcdopnawtiwzm`, because every claim in this
+document about the Exchange being built was an inference from unit tests.
+
+**No Exchange migration has ever been applied.** `organizations` still has its
+original twelve columns — no `claim_state`, `verification_state`,
+`listing_source`, coordinates or licence fields — and not one `exchange_*`
+table exists. The newest applied migration is `20260923003905`; everything
+dated 2026-10-02 is outstanding. So the directory routes would have failed on
+their column list even after the mount bug was fixed, and nothing in Phase 1,
+2 or 3 has ever run against a database.
+
+**The Phase 0 media fix is not in effect either, and nothing was exposed.** All
+three buckets are still `public: true` with no size or MIME limit. The review
+note above describes this as done, and the code is genuinely deployed — but the
+buckets hold **zero objects and always have**, so the exposure that fix was
+written to close never had any data behind it. Worth recording plainly rather
+than leaving the alarming version in the document.
+
+**The real defect is the opposite one: customer attachments have never
+worked.** RLS is on for `storage.objects` with *no policies at all*, and both
+upload paths go browser-side with the user's own token — so every upload is
+refused. `ClientWorkRequestForm` tells the customer "some attachments could not
+be uploaded"; the staff path in `WorkRequestFullView` returns null and logs to
+the console. `20261002120000_private_job_media.sql` grants exactly the two
+missing insert policies, and has never been applied.
+
+Because those buckets are empty, flipping them private carries **no legacy-URL
+risk at all** — the hazard that note worried about does not exist.
+
+**And the repair could never have told us.** `ensureStorageBuckets` was
+reachable from one place, inside `POST /work-requests`, behind
+`.catch(() => {})`. It ran only when a customer happened to submit a request,
+and its failure was discarded. A control whose only trigger is somebody else's
+unrelated action, and whose failure is thrown away, is not a control.
+
+Fixed in code: it now returns a per-bucket outcome, the intake call logs its
+failure instead of discarding it, and `POST /storage/repair-job-media`
+(staff-only) runs it and reports what each bucket actually is now — because
+"it ran" was never the question.
+
+**Nothing was applied to any database.** Eric chose branch-first; the branch
+creation was declined at the prompt, so the migrations remain outstanding and
+customer attachments remain broken until that is settled.
