@@ -39,6 +39,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { mintShareToken, hashToken } from "./shareToken.ts";
 import { isStaffRequest } from "./requireStaff.ts";
+import { ingestTerritory } from "./exchangeIngestRun.ts";
 import { trialEndFor, TRIAL_MONTHS } from "./exchangeTrials.ts";
 import { safeFetch } from "./outboundGuard.ts";
 import {
@@ -1060,5 +1061,40 @@ exchangeClaimRoutes.post("/exchange/review/listing/:id/suspend", async (c) => {
   } catch (error: any) {
     console.error("[exchange] suspend failed:", error?.message || error);
     return c.json({ success: false, error: "Unable to suspend that listing." }, 500);
+  }
+});
+
+// ── compiling the directory ──────────────────────────────────────────────────
+
+/**
+ * Run the ingest for one town.
+ *
+ * Staff only, and a DRY RUN unless `apply: true` is sent. Compiling inserts
+ * hundreds of rows describing real businesses who never asked to be there, so
+ * seeing exactly what a run would do before it does it is worth one parameter.
+ *
+ * One town per call on purpose: the public Overpass endpoint is free, shared,
+ * and answered 504 on two of three towns in testing. A failure should cost one
+ * town and be retryable, not take the whole directory with it.
+ */
+exchangeClaimRoutes.post("/exchange/ingest/:territory", async (c) => {
+  try {
+    if (!await isStaffRequest(c)) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const apply = body?.apply === true;
+    const radius = Number(body?.radiusMetres);
+
+    const outcome = await ingestTerritory(service(), c.req.param("territory"), {
+      dryRun: !apply,
+      radiusMetres: Number.isFinite(radius) ? radius : undefined,
+    });
+
+    return c.json({ success: true, outcome });
+  } catch (error: any) {
+    console.error("[exchange] ingest failed:", error?.message || error);
+    return c.json({ success: false, error: String(error?.message || error) }, 502);
   }
 });

@@ -389,3 +389,41 @@ export function mergeListing(
 
   return patch;
 }
+
+/**
+ * The URL slug for a compiled listing.
+ *
+ * `organizations.slug` is unique and not null, and it is the whole address of
+ * the public page — `/exchange-listing?slug=…` — so it has to be stable,
+ * readable and collision-free.
+ *
+ * Readable matters more than it looks: this is what a business sees when they
+ * are deciding whether to claim, and `sutton-roofing` reads as a product while
+ * `org-7f3a91` reads as a database. The postcode is the discriminator rather
+ * than a random suffix for the same reason — two Dunkin' in one town is a real
+ * situation, and `dunkin-03079` still says something true.
+ *
+ * Accents are folded rather than dropped so that "Café Nervosa" becomes
+ * `cafe-nervosa` and not `caf-nervosa`.
+ */
+export function listingSlug(name: unknown, discriminator?: unknown): string {
+  const base = String(name ?? "")
+    .normalize("NFD")
+    // Combining marks, so folding happens before the strip below.
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+
+  const tail = String(discriminator ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 10);
+
+  // A name of nothing but punctuation still needs an address.
+  if (!base) return tail ? `listing-${tail}` : "listing";
+  return tail ? `${base}-${tail}` : base;
+}

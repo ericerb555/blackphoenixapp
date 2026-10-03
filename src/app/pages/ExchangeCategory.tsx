@@ -262,6 +262,13 @@ export default function ExchangeCategory() {
           </div>
         )}
 
+        {!loading && !error && listings.length > 0 && (
+          /* ODbL: compiled listings carry OpenStreetMap data, and the credit
+             is a licence term. */
+          <div className="bpxb-note">
+            Compiled listings include data from {'© OpenStreetMap contributors'}.
+          </div>
+        )}
         {/*
           The empty state. Deliberately not a shrug: it says plainly that we
           have nobody, and asks who they wanted — which is the row that becomes

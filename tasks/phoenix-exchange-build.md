@@ -1600,3 +1600,67 @@ both at baseline with nothing in the new file, smoke 6 modals 0 threw.
 2. **Running the ingest.** It inserts hundreds of rows into `organizations`.
 3. **The ODbL attribution** — "© OpenStreetMap contributors" has to appear on
    the pages built from this data. It is a licence term.
+
+### The Exchange gets its own kind of organisation (2026-10-03)
+
+Eric: *"yes it should be separate from the main app."*
+
+`org_type` gains **`exchange_business`**, applied to production and verified in
+the enum. A compiled pizzeria is not a subcontractor, a vendor or an
+advertiser, and filing it as one would have put restaurants, nail salons and
+car repair shops in front of every construction screen that lists
+subcontractors — the Exchange leaking into the business that pays the bills.
+
+**Separation is by construction, not by discipline.** Every main-app query
+names the types it wants, so a type none of them names cannot appear in any of
+them. Nothing existing had to change to keep the Exchange out of the main app,
+which is the property that makes this safe rather than merely intended.
+
+`ALTER TYPE ... ADD VALUE` is alone in its migration because PostgreSQL will
+not let a new enum value be *used* in the transaction that adds it.
+
+**A leak fixed on the way past.** The listing route filtered by organisation
+type and the category route filtered by nothing at all, so a customer, a
+landlord or a condo association that ever held a category would have 404'd on
+its own page while appearing in a category listing. Nothing holds one today —
+the inconsistency was the bug, not the symptom. Both routes now share one
+`PUBLIC_ORG_TYPES` list.
+
+**The runner.** `exchangeIngestRun.ts` plus a staff-only
+`POST /exchange/ingest/:territory`. Every rule it applies lives somewhere pure
+and tested; this file only fetches, writes and counts.
+
+*One town per call, and a dry run unless `apply: true` is sent.* Overpass is a
+free shared service that answered 504 on two of three towns, so a failure
+should cost one town and be retryable. And compiling inserts hundreds of rows
+describing real businesses who never asked to be there, so seeing exactly what
+a run would do before it does it is worth one parameter.
+
+*A bad row does not end the town* — it is logged and skipped. *A claimed
+listing is never touched*, because `mergeListing` says so and this file does
+not second-guess it.
+
+**Slugs are readable on purpose.** `sutton-roofing` reads as a product;
+`org-7f3a91` reads as a database, and this is what a business sees when
+deciding whether to claim. The postcode is the discriminator rather than a
+random suffix, because two Dunkin' in one town is a real situation and
+`dunkin-03079` still says something true. Accents fold rather than drop, so
+"Café Nervosa" is `cafe-nervosa`.
+
+**Attribution shipped.** Both browse pages now carry "© OpenStreetMap
+contributors". ODbL requires it; it is a licence term.
+
+**Verified.** Suite 1,609 passing. Typecheck app 316 / server 87, both
+baselines, nothing in the new files. Smoke 12 pages, 0 threw. Function
+deployed: the ingest route answers 401 to an anonymous caller, and the
+directory still serves taxonomy and categories.
+
+**What I could not do: run even the dry run.** It is staff-gated, and I have no
+staff session — the same wall as walking a claim end to end. The call, once
+signed in, is:
+
+    POST /exchange/ingest/salem-nh        {}                 dry run
+    POST /exchange/ingest/salem-nh        {"apply": true}    writes
+
+Expect roughly 185 listable businesses in Salem, about half uncategorised, and
+a real chance of a 504 that simply needs retrying.

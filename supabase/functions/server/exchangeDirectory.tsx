@@ -100,6 +100,25 @@ async function viewer(c: any): Promise<string | null> {
 }
 
 /**
+ * The organisation types the public directory is allowed to show.
+ *
+ * ONE LIST, USED BY EVERY ROUTE. The listing route had this filter and the
+ * category route had none, so an organisation that should never be public —
+ * a customer, a landlord, a condo association — would have 404'd on its own
+ * page while appearing in a category listing, had it ever held a category.
+ * Nothing holds one today; the inconsistency is the bug, not the symptom.
+ *
+ * `exchange_business` is the compiled local business: a type of its own so
+ * that a pizzeria from OpenStreetMap can be in the directory without being
+ * in front of every construction screen that lists subcontractors. Eric:
+ * "yes it should be separate from the main app."
+ *
+ * A customer or a landlord is a private party, often a household, and is never
+ * part of the public directory however it was created.
+ */
+const PUBLIC_ORG_TYPES = ["exchange_business", "subcontractor", "vendor", "advertiser", "operator"];
+
+/**
  * The columns a listing may show the public.
  *
  * Written out rather than `select('*')` on purpose. `organizations` carries
@@ -202,7 +221,7 @@ exchangeDirectory.get("/exchange/listing/:slug", async (c) => {
 
     // A customer or a landlord is a private party, often a household, and is
     // never part of the public directory however it was created.
-    if (!["subcontractor", "vendor", "advertiser", "operator"].includes(String(row.type))) {
+    if (!PUBLIC_ORG_TYPES.includes(String(row.type))) {
       return c.json({ success: false, error: "No such listing." }, 404);
     }
 
@@ -342,7 +361,7 @@ exchangeDirectory.get("/exchange/category/:slug", async (c) => {
 
     const listings = rows
       .map((r: any) => r.organizations)
-      .filter((o: any) => o && o.status === "active")
+      .filter((o: any) => o && o.status === "active" && PUBLIC_ORG_TYPES.includes(String(o.type)))
       .map((o: any) => publicListing(o, [{ slug: category.slug, name: category.name }]));
 
     // Every search is a demand signal, and the ones that found nothing are

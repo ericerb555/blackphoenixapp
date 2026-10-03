@@ -235,6 +235,10 @@ export default function ExchangeDirectory() {
             Every business here is listed from public records or by its owner.
             Nothing is invented, and a business can claim or correct its own
             listing at any time.
+            {' '}
+            {/* ODbL. Compiled listings come from OpenStreetMap, and crediting
+                it is a licence term rather than a courtesy. */}
+            Compiled listings include data from {'© OpenStreetMap contributors'}.
           </div>
         )}
       </div>

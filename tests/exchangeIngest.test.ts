@@ -37,6 +37,7 @@ import {
   dedupeListings,
   mergeListing,
   type ListingCandidate,
+  listingSlug,
 } from '../supabase/functions/server/exchangeIngest.ts';
 
 const ALIASES = new Map<string, string>([
@@ -324,4 +325,38 @@ test('a business not yet in the directory is written in full, as listed', () => 
   assert.equal(patch.claim_state, 'listed');
   assert.equal(patch.listing_source, 'registry');
   assert.equal(patch.name, 'Sutton Roofing LLC');
+});
+
+/* ── the slug for a compiled listing ──────────────────────────────────── */
+
+test('a slug is readable, because a business judges us by it', () => {
+  assert.equal(listingSlug('Sutton Roofing, LLC'), 'sutton-roofing-llc');
+  assert.equal(listingSlug('All Peaks Roofing LLC'), 'all-peaks-roofing-llc');
+  assert.equal(listingSlug("Dunkin'"), 'dunkin');
+});
+
+test('accents are folded, not dropped', () => {
+  // "caf-nervosa" would be a worse address than "cafe-nervosa".
+  assert.equal(listingSlug('Café Nervosa'), 'cafe-nervosa');
+  assert.equal(listingSlug('Beyoncé Hair & Nails'), 'beyonce-hair-and-nails');
+});
+
+test('the postcode discriminates, and still says something true', () => {
+  // Two of the same chain in one town is a real situation.
+  assert.equal(listingSlug("Dunkin'", '03079'), 'dunkin-03079');
+  assert.notEqual(listingSlug("Dunkin'", '03079'), listingSlug("Dunkin'", '03076'));
+});
+
+test('a name of nothing but punctuation still gets an address', () => {
+  assert.equal(listingSlug('!!!'), 'listing');
+  assert.equal(listingSlug('???', '03079'), 'listing-03079');
+  assert.equal(listingSlug(null), 'listing');
+});
+
+test('a slug never starts or ends with a hyphen, however long the name', () => {
+  const long = listingSlug('The Very Long Name Of A Business That Goes On And On And On Forever');
+  assert.ok(!long.startsWith('-'));
+  assert.ok(!long.endsWith('-'), long);
+  assert.ok(long.length <= 60);
+  assert.equal(listingSlug('  spaced out  '), 'spaced-out');
 });

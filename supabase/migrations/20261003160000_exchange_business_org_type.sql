@@ -1,0 +1,31 @@
+-- ============================================================================
+-- A compiled local business is its own kind of organisation
+--
+-- Eric: *"yes it should be separate from the main app."*
+--
+-- WHY A NEW TYPE RATHER THAN REUSING ONE
+--
+-- `org_type` already had operator, subcontractor, vendor, advertiser, customer,
+-- landlord, condo_association, condo_manager and property_manager. A pizzeria
+-- compiled from OpenStreetMap is none of them.
+--
+-- The tempting shortcut was `subcontractor`, because the public directory
+-- already serves that type. It would have put restaurants, nail salons and car
+-- repair shops in front of every construction screen that lists
+-- subcontractors — the bid room, the provider directory, the trade pickers.
+-- That is not a labelling untidiness; it is the Exchange leaking into the
+-- business that pays the bills.
+--
+-- Separation is by construction rather than by discipline: every main-app query
+-- selects the types it wants by name, so a type none of them names cannot
+-- appear in any of them. Nothing existing has to be changed to keep the
+-- Exchange out of the main app — which is the property that makes this safe.
+--
+-- ADDING THE VALUE IS ALL THIS MIGRATION DOES
+--
+-- PostgreSQL will not let a new enum value be USED in the same transaction
+-- that adds it. So this file adds it and stops; the directory's allowed-type
+-- list and the ingest that writes rows of this type are separate changes.
+-- ============================================================================
+
+alter type org_type add value if not exists 'exchange_business';
