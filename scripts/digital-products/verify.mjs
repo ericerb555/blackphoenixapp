@@ -28,7 +28,7 @@
  */
 import ExcelJS from 'exceljs';
 
-const ALL = ['calc-reserve', 'calc-roi', 'calc-rental-pricing', 'calc-ev-roi', 'maint-nh-winter'];
+const ALL = ['calc-reserve', 'calc-roi', 'calc-rental-pricing', 'calc-ev-roi', 'maint-nh-winter', 'maint-annual-planner', 'tmpl-inspection'];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const ids = wanted.length ? wanted : ALL;
 

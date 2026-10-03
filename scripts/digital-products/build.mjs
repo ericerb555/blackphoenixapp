@@ -27,6 +27,8 @@ const PRODUCTS = [
   'calc-rental-pricing',
   'calc-ev-roi',
   'maint-nh-winter',
+  'maint-annual-planner',
+  'tmpl-inspection',
 ];
 
 function human(bytes) {
