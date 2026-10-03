@@ -555,6 +555,8 @@ function RenewalOfferModal({ session, tenant, onClose, onSent }: { session: any;
 export function LandlordApplications({ session, onTenantAdded }: { session: any; onTenantAdded?: (t: any) => void }) {
   const [apps, setApps] = useState<any[]>([]);
   const [applyUrl, setApplyUrl] = useState('');
+  const [link, setLink] = useState<any>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -566,11 +568,35 @@ export function LandlordApplications({ session, onTenantAdded }: { session: any;
       const res = await fetch(`${API}/landlord/applications`, { headers: auth(session) });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Failed to load applications');
-      setApps(data.applications || []); setApplyUrl(data.applyUrl || ''); setError('');
+      setApps(data.applications || []); setApplyUrl(data.applyUrl || ''); setLink(data.link || null); setError('');
     } catch (e: any) { setError(e.message || 'Failed to load applications'); }
     finally { setLoading(false); }
   }, [session]);
   useEffect(() => { load(); }, [load]);
+
+  // Rotate issues a new link and turns the old one off; turn-off leaves the
+  // landlord with no public link at all until they ask for another.
+  const rotateLink = async () => {
+    try {
+      setLinkBusy(true); setError('');
+      const res = await fetch(`${API}/landlord/applications/link`, { method: 'POST', headers: jsonAuth(session) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Unable to rotate the link');
+      setApplyUrl(data.applyUrl || ''); setLink(data.link || null);
+    } catch (e: any) { setError(e.message || 'Unable to rotate the link'); }
+    finally { setLinkBusy(false); }
+  };
+
+  const revokeLink = async () => {
+    try {
+      setLinkBusy(true); setError('');
+      const res = await fetch(`${API}/landlord/applications/link`, { method: 'DELETE', headers: auth(session) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Unable to turn off the link');
+      setApplyUrl(''); setLink(data.link || null);
+    } catch (e: any) { setError(e.message || 'Unable to turn off the link'); }
+    finally { setLinkBusy(false); }
+  };
 
   const pending = apps.filter((a) => a.status === 'pending');
   const decided = apps.filter((a) => a.status !== 'pending');
@@ -588,15 +614,29 @@ export function LandlordApplications({ session, onTenantAdded }: { session: any;
         </div>
       </div>
 
-      {applyUrl && (
-        <div className={`${card} p-4`}>
-          <label className={labelCls}>Public application link — share with prospects</label>
-          <div className="flex items-center gap-2">
-            <input readOnly className={inputCls} value={applyUrl} />
-            <button className={btnTeal} onClick={() => navigator.clipboard.writeText(applyUrl)}><Copy className="h-4 w-4" /> Copy</button>
+      <div className={`${card} p-4`}>
+        <label className={labelCls}>Public application link — share with prospects</label>
+        {applyUrl ? (
+          <>
+            <div className="flex items-center gap-2">
+              <input readOnly className={inputCls} value={applyUrl} />
+              <button className={btnTeal} onClick={() => navigator.clipboard.writeText(applyUrl)}><Copy className="h-4 w-4" /> Copy</button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400">
+              {link?.expiresAt ? <span>Stops accepting applications on {new Date(link.expiresAt).toLocaleDateString()}.</span> : null}
+              <button className={btnGhost} disabled={linkBusy} onClick={rotateLink}>Replace link</button>
+              <button className={btnGhost} disabled={linkBusy} onClick={revokeLink}>Turn off</button>
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-gray-400">
+            {link?.state === 'revoked' && <p>This link is turned off. Anyone who still has it is told to ask you for a current one.</p>}
+            {link?.state === 'expired' && <p>This link expired{link.expiresAt ? ` on ${new Date(link.expiresAt).toLocaleDateString()}` : ''} and is no longer accepting applications.</p>}
+            {!link?.state || link?.state === 'missing' ? <p>You do not have a public application link yet.</p> : null}
+            <button className={`${btnTeal} mt-2`} disabled={linkBusy} onClick={rotateLink}>Issue a new link</button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
@@ -673,17 +713,73 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [result, setResult] = useState<any>(null);
+  const [screening, setScreening] = useState<any>(null);
+  const [screeningBusy, setScreeningBusy] = useState(false);
+  const [screeningError, setScreeningError] = useState('');
+  const [purposes, setPurposes] = useState<any[]>([]);
+  const [certification, setCertification] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [certified, setCertified] = useState(false);
+  const [reportInfluenced, setReportInfluenced] = useState(false);
+  const [adverseAction, setAdverseAction] = useState<any>(null);
+  const [notice, setNotice] = useState<any>(null);
+  const [noticeError, setNoticeError] = useState('');
+  const [chargeNotice, setChargeNotice] = useState('');
+
+  // The landlord's own screenings, matched to this application. Loaded here
+  // rather than passed in so the modal shows the current state each time it is
+  // opened, including an order placed from another device.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/landlord/screening`, { headers: auth(session) });
+        const data = await res.json();
+        if (!live || !data.success) return;
+        setScreening((data.orders || []).find((o: any) => o.applicationId === app.id) || null);
+        // Rendered from the server's own list and wording, so what the landlord
+        // certifies is what the order records.
+        setPurposes(data.purposes || []);
+        setCertification(data.certification || '');
+      } catch { /* the button still works; it reports its own errors */ }
+    })();
+    return () => { live = false; };
+  }, [session, app.id]);
+
+  const orderScreening = async () => {
+    try {
+      setScreeningBusy(true); setScreeningError('');
+      const res = await fetch(`${API}/landlord/applications/${app.id}/screening`, {
+        method: 'POST', headers: jsonAuth(session),
+        body: JSON.stringify({ permissiblePurpose: purpose, certified }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Unable to order the screening');
+      setScreening(data.order);
+      // A fee is configured, so the screening is not ordered until it is paid.
+      // Stripe confirms that to the webhook; coming back to the success page is
+      // not what moves the order along.
+      if (data.payment?.checkoutUrl) { window.location.href = data.payment.checkoutUrl; return; }
+      if (data.charge && data.charge.charged === false) setChargeNotice(data.charge.notice || '');
+    } catch (e: any) { setScreeningError(e.message || 'Unable to order the screening'); }
+    finally { setScreeningBusy(false); }
+  };
 
   const decide = async (decision: 'approved' | 'rejected') => {
     try {
       setBusy(true); setError('');
       const res = await fetch(`${API}/landlord/applications/${app.id}`, {
         method: 'PATCH', headers: jsonAuth(session),
-        body: JSON.stringify({ decision, unit, rent: Number(rent), invite: decision === 'approved' && invite, note }),
+        body: JSON.stringify({ decision, unit, rent: Number(rent), invite: decision === 'approved' && invite, note, reportInfluenced }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
-      if (decision === 'rejected') { onDone(); return; }
+      if (decision === 'rejected') {
+        // A notice may be owed, and the landlord has to know before the modal
+        // closes — nothing sends one on their behalf.
+        if (data.adverseAction?.owed) { setAdverseAction(data.adverseAction); return; }
+        onDone(); return;
+      }
       if (data.warning) { setError(data.warning); return; }
       setResult(data);
     } catch (e: any) { setError(e.message || 'Failed'); } finally { setBusy(false); }
@@ -691,7 +787,45 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
 
   return (
     <Modal onClose={onClose} title={`Review · ${app.name}`}>
-      {result ? (
+      {adverseAction?.owed ? (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <b>{app.name} was declined, and a notice is owed to them.</b>
+            <p className="mt-1 text-xs">
+              Because a consumer report was one of your reasons, the applicant is entitled to be
+              told which agency supplied it and that they may obtain and dispute their file.
+              Nothing has been sent — this is yours to send.
+            </p>
+          </div>
+          {!notice && (
+            <button
+              className={btnGhost}
+              onClick={async () => {
+                try {
+                  setNoticeError('');
+                  const res = await fetch(`${API}/landlord/screening/${adverseAction.orderId}/adverse-action`, { headers: auth(session) });
+                  const data = await res.json();
+                  if (!data.success) throw new Error(data.error || 'Unable to produce the notice');
+                  setNotice(data.notice);
+                } catch (e: any) { setNoticeError(e.message || 'Unable to produce the notice'); }
+              }}
+            >
+              Show the notice
+            </button>
+          )}
+          {noticeError && <div className="text-xs text-rose-400">{noticeError}</div>}
+          {notice && (
+            <div className="rounded-lg border border-[#1F1F1F] bg-[#0A0A0A] p-3 text-xs text-gray-300">
+              {notice.draft && <div className="mb-2 font-semibold text-amber-500">DRAFT — wording not yet reviewed by a lawyer. Do not send as it stands.</div>}
+              <div className="font-semibold text-gray-200">{notice.heading}</div>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                {(notice.statements || []).map((s: string, i: number) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          <button className={btnTeal} onClick={() => onDone()}>Done</button>
+        </div>
+      ) : result ? (
         <div className="space-y-3">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-300">
             {app.name} was approved and added as a tenant.
@@ -717,13 +851,69 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
             {app.phone && <div><b>Phone:</b> {app.phone}</div>}
             {app.employer && <div><b>Employer:</b> {app.employer}</div>}
             {app.income ? <div><b>Income:</b> ${Number(app.income).toLocaleString()}/yr</div> : null}
-            {app.creditScore && <div><b>Credit:</b> {app.creditScore}</div>}
+            {app.creditScore && <div><b>Credit score:</b> {app.creditScore} <span className="text-amber-500">— self-reported by the applicant, not a credit report</span></div>}
             {app.householdSize ? <div><b>Household:</b> {app.householdSize}</div> : null}
             {app.pets && <div><b>Pets:</b> {app.pets}</div>}
             {app.moveIn && <div><b>Move-in:</b> {app.moveIn}</div>}
             {app.currentAddress && <div><b>Current address:</b> {app.currentAddress}</div>}
             {app.notes && <div className="mt-1"><b>Notes:</b> {app.notes}</div>}
-            <div className="mt-1"><b>Background consent:</b> {app.consentBackground ? 'Yes' : 'No'}</div>
+            <div className="mt-1">
+              <b>Background consent:</b> {app.consentBackground ? 'Yes' : 'No'}
+              {app.consentBackground && app.consentAt ? <span className="text-gray-500"> — agreed {new Date(app.consentAt).toLocaleString()}</span> : null}
+            </div>
+            {app.consentBackground && app.consentText
+              ? <div className="mt-1 text-gray-500">“{app.consentText}”</div>
+              : null}
+          </div>
+
+          <div className="rounded-lg border border-[#1F1F1F] bg-[#0A0A0A] p-3">
+            <div className="text-xs font-medium text-gray-300">Tenant screening</div>
+            {screening ? (
+              <div className="mt-1 text-xs text-gray-400">
+                Status: <b className="text-gray-200">{screening.status}</b>
+                {screening.provider === 'manual' && <span className="text-amber-500"> — test provider, no report will be produced</span>}
+                {screening.certifiedAt && (
+                  <div className="mt-1 text-gray-500">
+                    Purpose certified {new Date(screening.certifiedAt).toLocaleString()}
+                    {screening.permissiblePurpose ? ` — ${String(screening.permissiblePurpose).replace(/_/g, ' ')}` : ''}
+                  </div>
+                )}
+                {screening.failureReason && <div className="mt-1 text-rose-400">{screening.failureReason}</div>}
+                {screening.status === 'complete' && (
+                  <label className="mt-2 flex items-start gap-2 text-gray-400">
+                    <input type="checkbox" checked={reportInfluenced} onChange={(e) => setReportInfluenced(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                    If you decline this applicant, tick this if the report is one of your reasons — a
+                    notice is then owed to them, and nothing can work that out on your behalf.
+                  </label>
+                )}
+              </div>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-gray-500">
+                  Orders a credit, eviction and criminal report. The applicant verifies their
+                  identity with the screening partner — their Social Security number is never
+                  entered here.
+                </p>
+                <div className="mt-2">
+                  <label className={labelCls}>Why are you ordering this report?</label>
+                  <select className={inputCls} value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+                    <option value="">Select a purpose…</option>
+                    {purposes.map((p: any) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </div>
+                {certification && (
+                  <label className="mt-2 flex items-start gap-2 text-xs text-gray-400">
+                    <input type="checkbox" checked={certified} onChange={(e) => setCertified(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                    {certification}
+                  </label>
+                )}
+                <button className={`${btnGhost} mt-2`} disabled={screeningBusy || !purpose || !certified} onClick={orderScreening}>
+                  {screeningBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Order screening
+                </button>
+              </>
+            )}
+            {chargeNotice && <div className="mt-2 text-xs text-gray-500">{chargeNotice}</div>}
+            {screeningError && <div className="mt-2 text-xs text-rose-400">{screeningError}</div>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>Assign unit</label><input className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)} /></div>

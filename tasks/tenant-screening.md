@@ -1,0 +1,845 @@
+# PLAN — tenant screening as an automated business line
+
+Eric picked this out of ten candidates on 2026-10-03. Written before any code,
+and checked against the running code the same day.
+
+Not in `tasks/todo.md` because that file is a 12,500-line shared log and another
+session is working in the tree right now. Same convention as
+`store-autonomy.md` and `one-job-identity.md`.
+
+---
+
+## The business, in one paragraph
+
+A landlord, property manager or condo association already collects rental
+applications through this platform. Today an application arrives carrying the
+applicant's own *estimate* of their credit score, which is worth nothing. The
+business is to turn that into a real credit, eviction and criminal report —
+ordered by machine, delivered in minutes, with no person in the loop — and to
+earn the spread between what the consumer reporting agency charges us and what
+the report sells for.
+
+**Why it scales the way nothing else on the list does: revenue follows
+applications, not units.** A single vacancy draws five to fifteen applicants.
+A landlord with ten units might sign three leases a year and screen thirty
+people. The unit count is the floor, not the ceiling.
+
+---
+
+## What already exists, verified in the code
+
+    src/app/pages/TenantApplication.tsx        public application form, token link
+    index.tsx:9619  GET  /screening/:token      validates the link
+    index.tsx:9627  POST /screening/:token/apply stores the application
+    index.tsx:9507  GET  /landlord/applications landlord inbox + shareable link
+    index.tsx:9545  PATCH /landlord/applications/:id  approve -> creates a tenant
+    index.tsx:8948  Stripe Connect Express, destination charges, application_fee_amount
+    landlord_applications:{email}              the application records
+    landlord_screening:{email}                 one permanent token per landlord
+
+The form already has a `consentBackground` checkbox. **Nothing on the server
+reads it.** `buildApplicationRecord` copies it into the record and no code path
+ever looks at the value. That checkbox is the hook this entire business hangs
+on, and it is currently decoration.
+
+The form also asks for `creditScore` as a free-text "(est.)" field, which the
+applicant types about themselves.
+
+## What does not exist
+
+No screening order, no provider integration, no fee, no decision record, no
+adverse-action notice, no retention rule. The word "screening" appears in the
+server only as that token name.
+
+---
+
+## The one architectural rule this plan is built around
+
+**An applicant's Social Security number must never reach a Black Phoenix
+server, a Black Phoenix log, or the key-value store.**
+
+This is not caution, it is the design. The existing applications live as a
+plain array under `landlord_applications:{landlord email}` holding name, email,
+phone, address, employer and income. Adding a date of birth and an SSN to that
+array would create, in one commit, the most attackable record in the repository
+and a breach-notification obligation in fifty states.
+
+So the integration shape is fixed: **the consumer reporting agency hosts the
+identity collection.** We create an order and hand the applicant a link into
+the partner's own flow. They enter their SSN and answer the identity
+verification questions on the partner's page. The report is produced on the
+partner's infrastructure and delivered to the landlord through a link we hold a
+reference to and never the contents of.
+
+What we store is an order and a status. Nothing else.
+
+    screening_order:{id}   landlordEmail, applicationId, applicantEmail,
+                           provider, providerRef, status, requestedAt,
+                           completedAt, expiresAt, priceCents, costCents,
+                           permissiblePurpose, authorizationCapturedAt
+    screening_orders_landlord:{email}   index of order ids
+
+No score. No report body. No identity fields. A landlord who needs the report
+follows a short-lived link into the provider.
+
+This also means the margin is computable per order — `priceCents` minus
+`costCents` — which is the same discipline as a purchase order carrying what
+the vendor was actually paid.
+
+---
+
+## How it ties into what is already here
+
+**Identity and authorisation.** `landlordActor` already resolves the signed-in
+landlord and refuses without an active portal. Every screening route uses it
+unchanged. An order is reachable only from the landlord who created it; the
+applicant reaches only their own, through a single-use token. Staff may read
+order *metadata* for support and billing, and never the report.
+
+**Price.** The fee comes from the published plan catalogue, like every other
+price on the platform, rather than a constant in a route file. One catalogue
+entry, one place to change it.
+
+**Money.** The applicant pays the platform's own Stripe account, not the
+landlord's connected one — we are selling our own service, so there is nothing
+to split and no `application_fee_amount` involved. The partner's cost is
+recorded against the order when the invoice arrives.
+
+**The clock.** Three things need a tick, and all three go on the shared
+scheduler being built in the other session, using the machine-auth pattern
+`autopilot.tsx` already gets right (shared secret from `private_cron_config`,
+refuse when unset): expire stale invitations, chase an applicant who has paid
+and not finished identity verification, and purge orders past their retention
+window.
+
+**Documents.** A decline produces an adverse-action notice, which is a document
+like any other here: viewable as it will really look, and printable to PDF.
+
+**Portals.** Landlord first. Property manager and condo association reuse the
+same provider interface with a different actor resolver, which is why the
+provider call sits behind one small interface rather than inside the landlord
+routes.
+
+---
+
+## What is genuinely blocking, and belongs to Eric
+
+These are not engineering tasks and I should not pretend they are.
+
+**1. A consumer reporting agency agreement.** We cannot order reports without
+one, and the credible partners vet the requester before switching them on —
+some require a site inspection of the office. Nothing in phases 1 onward can
+be tested against anything real until this exists. The candidates to compare
+are a hosted-flow product aimed at independent landlords versus a screening
+API; the hosted flow is slower to customise and carries far less legal weight
+on us, which is why this plan assumes it.
+
+**2. Who the fee is charged to, by state.** Application and screening fees are
+regulated and the rules differ sharply by state. Massachusetts, where Black
+Phoenix operates, is among the most restrictive about charging a residential
+applicant a fee at all, and several states cap the amount. I am not a reliable
+source for the current rule and neither is a model — this needs an answer from
+a lawyer before a dollar is charged. **The build accommodates it either way:**
+the payer is a per-state setting, applicant-paid or landlord-paid, and the
+price comes from the catalogue.
+
+**3. Adverse action.** When a landlord declines someone because of a report,
+federal law obliges a notice naming the agency and the applicant's rights. The
+machine can draft and send it; somebody has to approve the template once.
+
+Until 1 and 2 are settled, phase 0 is the only phase that can ship, and it is
+worth shipping regardless of whether this business ever launches.
+
+---
+
+## Phase 0 — the holes that exist today
+*Shippable now, no partner, no legal dependency.* **Done 2026-10-03, see Review.**
+
+- [x] **The application link never expires and cannot be revoked.**
+      `landlord_screening:{email}` mints one token per landlord, once, forever,
+      and `screening_token:{token}` carries only `landlordEmail` and
+      `createdAt`. A link posted on a listing site three years ago still works.
+      Add an expiry and a rotate-and-revoke control for the landlord.
+- [x] **The public apply route has no rate limit.** `POST
+      /screening/:token/apply` is unauthenticated and writes into an array that
+      grows without bound, so anyone holding a link can fill a landlord's inbox
+      and the key-value record behind it. Cap per token per hour.
+- [x] **Say where the credit score came from.** Label the existing field
+      self-reported in the landlord's inbox. It reads today like a fact.
+- [x] **Record the consent properly.** Store a timestamp and the wording the
+      applicant actually agreed to, not a boolean. A bare `true` proves
+      nothing later, and this is the record the whole business rests on.
+
+## Phase 1 — the order, behind a provider interface
+*Done 2026-10-03, see Review.*
+
+- [x] `ScreeningProvider` interface: `createOrder`, `inviteUrl`,
+      `fetchStatus`, `reportUrl`. One file, no provider specifics outside it.
+- [x] A `manual` provider that does nothing but move the status, so the whole
+      flow is testable before any agreement exists.
+- [x] The order record and its index; the state machine
+      (`created → paid → invited → verifying → complete | expired | failed`).
+- [x] Landlord routes: request screening for an application, list orders, open
+      a report link. Per-record ownership on every one.
+- [x] Applicant route: a single-use token that reveals only their own order.
+
+## Phase 2 — money
+
+- [x] A fee setting (not a catalogue entry — see the review) with a per-state payer.
+- [x] Stripe Checkout against the platform account; the order advances only on
+      a verified webhook, never on a browser redirect.
+- [x] `costCents` recorded per order, and a margin figure in the revenue
+      reporting that already exists.
+
+## Phase 3 — the real provider and the decision
+
+- [ ] The partner provider implementation, plus its webhook.
+- [x] Permissible-purpose certification captured per order, before the invite.
+- [x] Landlord records a decision; a decline produces the adverse-action
+      notice as a viewable document with a PDF.
+- [x] Expiry sweep on the clock (the retention purge itself is still to come).
+
+## Phase 4 — the other portals
+
+- [ ] Property manager and condo association, same interface, different actor.
+
+---
+
+## What I am deliberately not proposing
+
+**No score, band or recommendation stored by us, and no approve-or-decline
+suggestion from the machine.** The moment this software appears to decide who
+gets housing, it is in fair-housing territory and a disparate-impact argument
+is somebody else's lawsuit against Eric. The landlord decides; we deliver the
+report and record what they chose.
+
+**No scraping of court or eviction records as a cheaper substitute for a
+partner.** It is the obvious shortcut, it is what the low-cost competitors do,
+and it is how screening companies end up as defendants — a name match is not a
+person.
+
+## Review — phase 0, 2026-10-03
+
+### What changed
+
+**A new file holds the rules: `supabase/functions/server/screeningLink.ts`.**
+The link's state machine, the submission caps and the consent wording live
+there rather than in `index.tsx`, for the reason `aiCeiling.ts` gives for its
+own existence: the test runner strips types from `.ts` only, so a rule written
+inside a `.tsx` route file cannot be checked by hand. These decide who may
+reach a landlord's records, which is exactly the kind of rule that should be
+tested. `tests/screeningLink.test.ts` pins sixteen of them.
+
+**The link now expires and can be turned off.** A token carries `expiresAt` and
+`revokedAt`, ninety days by default. Two new routes — `POST` and `DELETE` on
+`/landlord/applications/link` — replace and revoke it, and the portal shows the
+expiry date next to the link with *Replace link* and *Turn off* beside it.
+
+Three details worth knowing:
+
+- **The loader no longer mints silently over a dead token.** It used to create a
+  link whenever none was stored, which would have undone a revoke on the
+  landlord's very next page load. A landlord with no usable link is now told
+  which of the three things happened and presses a button.
+- **Expired, revoked and never-existed are reported separately**, because only
+  one of them is the landlord's deliberate act, and a prospect in front of the
+  form should not be told their link is invalid when the landlord switched it
+  off. Both public routes answer `410` for those two and `404` only for a token
+  that was never real.
+- **Old tokens are grandfathered, not killed.** Tokens minted before this
+  carried no expiry; treating that as expired would have broken every live
+  advert the moment this deployed, so the first read stamps ninety days on. A
+  *revoked* token never takes that path — there is a test for exactly that,
+  because the one thing worse than an immortal link is one that resurrects.
+
+**The public route has caps.** Five submissions per fifteen minutes and forty
+per day, per link. Counted from the timestamps on the applications already
+stored rather than a separate counter, which cannot then disagree with the
+truth, and only `source: 'public'` records count — a landlord typing in forty
+applications by hand must never lock out their own link. The refusal names the
+window that bit so a flood is distinguishable in the log from a busy week.
+
+**The consent is a record instead of a boolean.** `consentAt` and the exact
+`consentText` are stored, and the wording is owned by the server: the form asks
+`GET /screening/:token` for it and renders what comes back, so what was shown
+and what was stored cannot drift. A `true` with no wording and no timestamp
+proved nothing, and this record is the entire basis for ever ordering a report
+about somebody. The landlord's inbox shows the date and quotes the sentence.
+
+**The self-reported credit score says so.** It read as `Credit: 740`. It now
+reads `Credit score: 740 — self-reported by the applicant, not a credit report`.
+
+### Checks
+
+    typecheck   app 316, server 89 — both at baseline, nothing added
+    smoke       18 rendered, 0 threw
+    tests       1453 pass, 0 fail (16 of them new)
+
+### Not verified, and how
+
+The server half is a Supabase edge function, so **none of the route behaviour
+has been observed running** — the function has not been deployed. What is
+proven is the logic (unit tests) and that both touched screens still mount
+(smoke). The expiry, the revoke, the `410`s and the caps are unverified against
+a live request until the function ships.
+
+### Deliberately not done (phase 0)
+
+**Consent is still optional on the form.** The plan said record it properly, not
+require it, and a landlord who never screens anybody should not be forced to
+collect a consent they will not use. When phase 1 can actually order a report,
+consent becomes a precondition of *ordering* — which is the right place for it,
+since that is the moment it matters.
+
+**No migration of existing records.** Applications already stored keep their
+bare `consentBackground` with no timestamp and no wording. Back-filling a
+consent date we never recorded would be inventing evidence; the inbox simply
+shows nothing where there is nothing. Such a record cannot support a screening
+order, and phase 1 must refuse to build one from it.
+
+---
+
+## Review — phase 1, 2026-10-03
+
+### The production bug found on the way in
+
+**The public rental application form was returning 401 to every prospect.**
+
+`AUTH_ENFORCE` is on, `/screening/` appeared in none of the public lists, and
+`intakeActor` resolves no user from the anonymous publishable key the form
+sends — so the tier for the path was `user`, the gate refused, and the form
+turned the refusal into *"this application link is invalid or has expired."*
+The link was fine. Every prospect a landlord ever sent a link to was turned
+away and told it was their link's fault.
+
+This is the third instance of the same bug class already documented in that
+file: a share link sitting behind the wall it exists to bypass. The comment
+above `/quotes/by-token/` records the same discovery about quote signing links,
+and `/architect-review/review/` the same about architects.
+
+`/screening/` is now exempt as a whole prefix — deliberately the opposite of the
+one-path-at-a-time treatment `/exchange/` gets, because everything under
+`/screening/` is addressed *by* a token and nothing under it is reachable
+without one. The landlord's side lives at `/landlord/screening` and the test
+harness at `/staff/screening`, both outside the prefix and both still behind
+the wall.
+
+**This is unverified in production**, like the rest of the server half. It is a
+one-line addition to a list whose behaviour is well understood, but the proof
+is a signed-out request to `/screening/:token` answering 200, and that needs
+the function deployed.
+
+### What was built
+
+**`screeningOrder.ts`** — the state machine, the consent gate, the ownership
+check and the projections. **`screeningProvider.ts`** — the `ScreeningProvider`
+interface and the `manual` provider. Twenty tests in
+`tests/screeningOrder.test.ts`.
+
+Six routes: order a screening for an application, list orders, read one order
+with a report link, the applicant's own view, the applicant starting
+verification, and a staff-only route to advance a manual order.
+
+The landlord's review modal now shows a Tenant screening panel with an **Order
+screening** button, the order's status, and a plain note that the applicant's
+Social Security number is never entered here.
+
+### The decisions worth knowing
+
+**No route writes a status.** Everything goes through one `advanceOrder`
+helper over `transition()`. A handler that assigned `order.status` directly
+would bypass the only rule stopping a finished report being walked backwards by
+a late webhook, so there is exactly one place that can move an order.
+
+**A repeated status is a noop, not an error.** Providers resend; a webhook
+delivered twice has to be boring.
+
+**The consent gate is where phase 0's record earns its keep.** An order is
+refused unless the application carries consent, a parseable date and the
+wording. Applications from before phase 0 have the boolean and nothing else,
+and they are refused with a message telling the landlord to send a current
+link — as promised in the phase 0 review, and tested.
+
+**A provider that is not `live` is refused a report link.** Without that, a
+landlord could advance a manual order to `complete` and be shown something
+that resembles a screening report and is not one. A fake report is worse than
+no report, because somebody acts on it.
+
+**Advancing a manual order is staff-only.** A landlord who could move their own
+order to `complete` could manufacture the appearance of a screening.
+
+**Someone else's order answers 404, not 403.** A 403 confirms the id exists,
+which is a slow way to enumerate other landlords' screenings.
+
+**The projections are allow-lists.** `landlordView` and `applicantView` can
+only emit the fields named in them, so a field added to the record later is
+invisible until somebody decides it should be visible. Tests assert that a
+record carrying `ssn`, `reportBody` and a credit score emits none of them, and
+that the provider reference — the handle on the report itself — never reaches
+either party.
+
+**One live order per application.** Re-ordering a screening somebody is part
+way through would charge twice in phase 2 and leave the applicant holding two
+invitations.
+
+**The applicant is emailed only when there is somewhere real to send them.**
+The manual provider returns no invitation URL, and an email asking somebody to
+verify their identity at nowhere is worse than silence.
+
+### Where this departs from the plan
+
+**"A single-use token" is implemented as single-*order*, not single-*read*.** A
+token that burned on first read would break a page refresh, which is the first
+thing an anxious applicant does. It is 128 bits, bound to one order, and
+reveals that order alone. Expiry on the invitation itself is the provider's,
+once there is one.
+
+### Checks
+
+    typecheck   app 316, server 88 — nothing added (server is one BELOW the
+                89 baseline; the other session fixed one in marketplace.tsx)
+    smoke       23 rendered, 0 threw
+    tests       1473 pass, 0 fail (20 of them new)
+
+### Not verified, and what it would take
+
+No route has been exercised against a running server — the edge function is not
+deployed. Deployed, the whole of phase 1 is checkable by hand without a
+provider agreement: submit an application with consent, order a screening, see
+it sit at `invited`, advance it as staff through `verifying` to `complete`,
+confirm the report link is refused because the provider is not live, and
+confirm a second landlord's account gets a 404 for the same order id.
+
+### Deliberately not done (phase 1)
+
+**No expiry sweep.** `invited → expired` is legal in the machine and nothing
+performs it, because that is the clock's job and the clock belongs to the other
+session's work. Phase 3 attaches it.
+
+**No `fetchStatus` polling route.** The manual provider never advances on its
+own, so a poll would be a no-op with a cost. The real provider arrives with a
+webhook in phase 3, which is the right shape anyway.
+
+**No condo or property-manager access.** Phase 4, and the only reason it is
+cheap is that the provider call never learned who the actor was.
+
+---
+
+## Review — the expiry sweep, 2026-10-03
+
+Taken out of phase 3 because phase 2 is blocked on the two answers that are
+Eric's, and this part needed neither.
+
+### What was built
+
+`POST /cron/screening/expire-invitations`, plus `inviteDeadline` and
+`inviteLapsed` in `screeningOrder.ts` and eight more tests. The schedule is
+parked as `20261003120000_schedule_screening_expiry.sql.pending`, hourly at
+seven minutes past, in the same shape as the two jobs already waiting beside
+it.
+
+**Why a sweep and not a check when somebody opens the page.** Because an order
+nobody looks at still has to stop being live. Expiring lazily would show
+`invited` for an invitation that died three weeks ago, and in phase 2 it would
+mean a refund was decided by who happened to load a page.
+
+**The deadline is the provider's when there is one**, and fourteen days from the
+invitation when there is not. An order with no readable invitation date gets no
+deadline at all and is left alone — expiring it would destroy the only evidence
+of what went wrong.
+
+**Everything goes through the same `advanceOrder`.** The sweep cannot do
+something a route could not, so it cannot expire a `complete` order. That is
+asserted from both sides: the machine refuses the transition, and `inviteLapsed`
+returns false for every status except `invited`. Stated twice on purpose — a
+sweep that asks for a refused transition would log a refusal every night for
+ever.
+
+**Idempotent.** A second run finds nothing, because the first moved those orders
+out of `invited`. Overlapping schedules are harmless.
+
+**It scans the orders themselves, not each landlord's index.** An order that no
+index points at is exactly the kind that would otherwise sit in `invited` for
+ever.
+
+### What was checked in production while doing it
+
+The on-call migration parked since September says `private_cron_config` is
+"readable and writable by anyone holding the publishable key" and lists closing
+that as a precondition for switching any further cron job on. I read the live
+database, found row-level security enabled on the table with no policies, and
+wrote that the hole "is closed" — and that `compliance_cron_secret` should be
+rotated because it had sat there in the open.
+
+**The second half of that was wrong, and so was the premise.** The other session
+checked the grants rather than just the RLS flag: `anon` and `authenticated`
+hold no grants on that table at all, so the publishable key could never reach
+it through the REST API. The table was never exposed, no secret leaked, and
+nothing needs rotating. RLS is a second lock, not a repair. Both my migration's
+notes and the on-call file have been corrected; the precondition genuinely does
+not block the clock, but not for the reason I first gave.
+
+### A blocker for the other session's clock — since fixed by them
+
+**`/autopilot/cron-tick` was not in `PUBLIC_POST_PATHS`.** Flagged here rather
+than fixed, for the collision reason below; the other session has since listed
+both it and `/store/cron-tick`, and their migration's notes call this "the third
+time the trap has come up". Leaving the original note intact because the
+reasoning is the useful part. The two live-or-parked
+sweeps are there by exact path — `/compliance/run-reminders` and
+`/on-call/escalate-due` — because a scheduler carries only the publishable key
+and the wall refuses it. The autopilot tick is not, so renaming
+`20260928120000_schedule_autopilot_tick.sql.pending` would produce a job that
+is refused every time it runs and tells nobody. It is a one-line addition to
+the same list.
+
+**Not fixed here on purpose.** The clock is being built in another session, that
+line is in their path, and two sessions adding the same line to a 17,000-line
+file produces a conflict rather than a fix.
+
+### Checks
+
+    typecheck   app 316, server 87 — nothing added (server is two BELOW the 89
+                baseline; the other session is fixing them in marketplace.tsx)
+    smoke       23 rendered, 0 threw
+    tests       1481 pass, 0 fail (8 of them new)
+
+### Not verified
+
+The route has not been called. The sweep's logic is tested, but the secret
+check, the `getByPrefix` scan and the schedule itself are unproven until the
+function is deployed and the migration renamed — and the migration must not be
+renamed before `SCREENING_CRON_SECRET` exists, or the job will be refused every
+hour in silence, which is the exact failure the parked on-call file warns about.
+
+---
+
+## Review — permissible purpose, and why phase 4 was not built, 2026-10-03
+
+Asked for "next" after the expiry sweep. Phase 4 was the stated next step and
+it does not survive contact with the code, so this took the one phase 3 item
+that needs neither the agency agreement nor the lawyer.
+
+### Phase 4 is mostly already done, and partly should not exist
+
+**Property managers already have screening.** `landlordActor` resolves anybody
+holding `portal_access:{email}:property_manager` as a landlord — a
+compatibility shim for the older intake type, with a comment saying so. So a
+property manager already reaches the applications inbox, the public apply link
+and, since phase 1, the Order screening button. There is no second actor
+resolver to write.
+
+What it does mean is that a manager gets **one** applications bucket and
+**one** link, keyed by their email, across every property they manage. For a
+landlord with one triplex that is correct; for a manager with forty buildings
+it is an undifferentiated inbox. Fixing that is "applications belong to a
+property, not to an account", which is a real change to the record shape and
+is not in this plan. Naming it rather than quietly building it.
+
+**Condo associations do not fit, and should not be made to.** The condo manager
+portal keeps `condo_manager_units` — unit number, owner, occupied or vacant,
+dues. Owners, not tenants, and there is no rental application intake anywhere
+in it. That matches how the business is sold: interior work to the unit owners,
+exterior and common areas to the association. Screening a prospective *owner*
+is a different product with different law, and building it on the strength of
+"same interface, different actor" would have been inventing a feature nobody
+asked for.
+
+So phase 4 is closed as written. If screening should reach condo associations,
+that needs its own decision about what is being screened and why.
+
+### What was built instead: permissible purpose
+
+A consumer report may be pulled only for a permissible purpose, and the person
+pulling it has to certify which one. That is our record to capture and it needs
+no partner, so it is now a precondition of ordering:
+
+- `SCREENING_PURPOSES` is a closed list of two — a new application, or a
+  renewal for a sitting tenant. Two values rather than one because they are
+  different moments and a landlord renewing a tenant should not have to claim
+  they are considering an application. There is no "other, please specify",
+  which would collect a certification nobody could stand behind.
+- `purposeRefusal` refuses a missing purpose, an unknown purpose and an
+  uncertified request separately, and **checks the purpose before the
+  certification** — otherwise an impermissible purpose would be reported as
+  merely uncertified and somebody would tick the box and retry.
+- Certification must be literally `true`. Not `"true"`, not `1`, not `"yes"`.
+  Those are things a sloppy client sends; none of them is a person certifying
+  anything.
+- The order stores the purpose, who certified it, when, and the wording — the
+  wording from the server's own constant and the signatory from the verified
+  session, never from the request body. A certification whose words or
+  signatory the caller supplied proves nothing about what anybody certified.
+- The portal renders the purposes and the wording served by the route, so what
+  the landlord sees is what the order records, and the button stays disabled
+  until both are given.
+- The applicant view does not carry any of it. Who certified what, in which
+  words, is between the landlord and the agency; the applicant's own
+  authorisation is the separate record phase 0 built.
+
+**The certification wording is a draft** and is marked as such in the code. It
+states the three things that matter and needs a lawyer's eye once — item 3 of
+the blocking list. It is not left empty in the meantime, because an uncertified
+order is the thing being prevented.
+
+### Checks
+
+    typecheck   app 316, server 87 — unchanged, none in screening
+    tests       1505 pass, 0 fail (9 of them new)
+    smoke       COULD NOT RUN — see below
+
+**`npm run typecheck` printed "server 0 findings" on the first attempt**, which
+is not credible and is not what the compiler says. Running
+`tsc -p tsconfig.server.json` directly gives 87, the same as before this change.
+The miscount happened while the other session was running its own `tsc`; the
+count comes out of parsed compiler output and does not survive two compilers at
+once. Worth knowing before anybody trusts a surprising number from it.
+
+**Smoke could not run at all:** `EADDRINUSE :::9911`, on three attempts over
+seven minutes. Both of its ports are hardcoded constants in
+`scripts/smoke.mjs` (`PORT = 5177`, `REPORT_PORT = 9911`) with no override, so
+two sessions cannot smoke the same checkout at the same time — the second
+simply dies.
+
+The holder is PID 22404, `node scripts/smoke.mjs`, started 13:56:57 and by
+14:04 still holding the port having used 1.3 seconds of CPU. A healthy run
+finishes in well under a minute, so that is a hung run rather than a working
+one — most likely its vite child died and the reporter is waiting for reports
+that will never arrive. **Not killed**: it may be the other session's
+verification in flight, and killing somebody else's check to run my own is not
+mine to decide. Flagged to Eric instead.
+
+Worth fixing in the harness, separately and with sign-off since it is shared
+tooling: take the ports from the environment with the current values as
+defaults, and give the reporter a deadline so a dead vite child cannot leave a
+listener behind for ever. The previous round's smoke
+covered the same two files and reported 23 rendered, 0 threw; this round's
+client change is a select, a checkbox and a disabled condition in a component
+that already mounted. That is a reason to expect it is fine, not evidence, and
+it is recorded here as unrun rather than passed.
+
+---
+
+## Review — the decision and the adverse-action notice, 2026-10-03
+
+The last phase 3 item that needs no agency agreement. The partner
+implementation and its webhook remain blocked, and so does phase 2.
+
+### Built into the decision route that already existed
+
+The landlord already decided applications at
+`PATCH /landlord/applications/:id`. That route now also writes the decision onto
+the screening order, rather than a second decision living somewhere else.
+
+**The one fact nobody can infer: whether the report bore on the decision.** The
+obligation attaches to a decision made *because of* a consumer report, not to
+every rejection. A landlord who declined somebody before the report came back,
+or on grounds unrelated to it, owes a notice about something that did not
+happen — and software that produced one anyway would be putting words in their
+mouth about why they declined. So the portal asks, in a tick box that appears
+only once a report is complete, and the answer is recorded. Nothing guesses it.
+
+Like the purpose certification, it must be literally `true`. `"yes"` and `1` are
+things a client sends; neither is somebody's statement about their own
+reasoning, and there is a test for each.
+
+**The agency belongs to the provider.** `ScreeningProvider` now carries an
+`agency` disclosure — legal name, address, phone — because who furnished the
+report is a fact about the provider, and naming the wrong one sends somebody to
+the wrong company to dispute their own file. The manual provider has none, so
+`adverseActionRefusal` answers `agency_unknown` and the notice is refused. That
+is a refusal and not a blank to fill in later: a notice naming no agency cannot
+tell somebody where their file is, which is the only thing it is for.
+
+**Four refusals, each with its own message**, because "no notice is owed" and
+"a notice is owed and cannot be produced yet" are opposite situations and a
+landlord has to be able to tell them apart.
+
+### Nothing sends it, deliberately
+
+There is no send route. The notice is returned as structured statements rather
+than a rendered document, the portal shows it under a DRAFT banner saying the
+wording has not been reviewed, and the landlord is told plainly that sending it
+is theirs to do.
+
+This is a departure from the house rule that every business document gets a
+view and a PDF, and it is on purpose: a tidy PDF of unreviewed legal language
+is an invitation to send it, and the thing being prevented is exactly that. The
+wording is item 3 of the blocking list — a lawyer's eye, once. **When the
+wording is approved and a live provider supplies the agency block, this should
+become a proper document with a view and a PDF**, and that is the moment for
+it, not now.
+
+### What is in the notice
+
+Five statements: that the application was declined and a report was a factor;
+who supplied it, with address and phone; that they did not make the decision
+and cannot explain it; the right to a free copy within sixty days; and the right
+to dispute accuracy or completeness. Separate fields rather than one block of
+prose, so a lawyer's edit to one does not mean re-reading the others.
+
+### A decision never fails because of screening
+
+The order update is wrapped: if the screening record cannot be written, the
+decision still stands and the failure is logged. The tenancy decision is the
+landlord's and has been made; losing it because a side record would not save
+would be the worse outcome.
+
+### Checks
+
+    typecheck   app 316, server 87 — run directly rather than through the npm
+                script; neither count includes anything in screening
+    smoke       18 rendered, 0 threw — the port was free this time
+    tests       1540 pass, 0 fail (9 of them new, 45 across the two screening
+                files)
+
+### Still not verified
+
+No route has been called. Everything above is unit-tested logic plus two
+screens that mount; the server is still undeployed.
+
+---
+
+## Review — phase 2, money, 2026-10-03
+
+Built on Eric's instruction after being told twice that the CRA cost and the
+Massachusetts fee question are unanswered. So the unknowns are **settings with
+safe defaults**, not guesses, and the system charges nobody until he publishes
+a figure.
+
+### Two things verified against production first
+
+Both by calling the live function, so these are observations rather than
+readings of the code.
+
+**`GET /screening/:token` answers `401 {"error":"Sign in required."}`.** The
+phase 0 diagnosis is now proven: every prospect who has ever followed a
+landlord's application link was turned away, and the form rendered it as "this
+application link is invalid or has expired". The fix is written and undeployed.
+
+**`POST /store/webhook` answers the same 401.** That is the store's payment
+confirmation path, called by the `stripe-webhooks` function. Tested with the
+publishable key, which is what proves the wall refuses a non-user bearer; the
+forwarder actually sends the service-role key, and whether `intakeActor`
+accepts *that* is untested — `supabase.auth.getUser` on a key with no user
+almost certainly returns none, but almost is not a test. **Worth the other
+session checking, since it decides whether store orders are being fulfilled by
+webhook at all.** Not touched here: it is their lane and one line in a list two
+sessions are both editing.
+
+### Why the fee is a setting and not a `plan_addon`
+
+`plan-catalog.tsx` publishes `plan_tier:` and `plan_addon:` records and both
+are recurring subscription shapes. A screening fee is charged once, per
+applicant, with a cost of goods behind it. Forcing it into an add-on would put
+a per-use price where every reader expects a monthly one.
+
+What was borrowed instead is the principle that file states about itself — *no
+seeded tiers, no invented prices* — so `screening_pricing` starts empty, and
+**an empty price charges nobody**. A screening ordered today behaves exactly as
+it did yesterday. This is a deliberate reading of "catalogue entry for the fee"
+rather than the literal one, and it is the half of the plan item I would expect
+Eric to push back on if he disagrees.
+
+### How the unknowns fail
+
+**The payer defaults to the landlord**, because a business paying its own
+supplier is lawful everywhere. It is what happens with nothing configured.
+
+**The applicant is never charged by accident.** It takes an explicit setting
+*and* a known state — a per-state rule cannot be applied to a state nobody
+recorded, so an unknown state resolves to the landlord. There is a test for
+each way of not knowing (empty, null, undefined, whitespace).
+
+**And applicant-paid is currently unreachable from the portal**, because the
+order call sends no property state: the application carries the applicant's
+current address, not the property's. That is the safe place to be while the
+Massachusetts question is open, and it is a deliberate gap rather than an
+oversight — wiring the property's state through is what makes applicant-paid
+possible, and that should happen after the legal answer, not before.
+
+**The law is not encoded anywhere.** No state list, no caps. I am not a
+reliable source for it and neither is any model; what is built is a mechanism
+that works whichever way the answer goes.
+
+**A misplaced decimal point is refused.** Over $200 is treated as a mistake
+rather than a price, at both the save route and the charge decision, because a
+bound is cheaper than a refund and an apology.
+
+### The payment path
+
+**Nothing but Stripe may mark an order paid.** The order stays `created` through
+the checkout; `created → paid` happens only in `POST /screening/webhook`, which
+re-verifies the session directly with Stripe — the same defence in depth the
+store webhook uses — and matches the returned session id against the one stored
+on the order when the checkout was made. A browser arriving at the success URL
+moves nothing, because a success URL can be typed, shared, or reached by
+cancelling and editing the address.
+
+**Replays are boring.** A second delivery of the same event finds the order past
+`created`; the state machine answers `noop` and the route reports a duplicate.
+That property was built in phase 1 for exactly this.
+
+**The checkout is on the platform account** — no connected account, no
+`application_fee_amount`. This is Black Phoenix selling its own service, so
+there is nothing to split. That is the opposite of the rent flow in the same
+file, where the money is the landlord's and we take a fee out of it.
+
+**The price is never read from the request.** A browser that can name its own
+price is a browser that will.
+
+**The path is exempt from the auth wall, and knowing it buys nothing** — a
+forged body cannot make Stripe say a payment succeeded. The exemption is the
+exact path only; every other `/screening/` route is reached by a token.
+
+**`forwardToStore` in the webhook function became `forwardTo(path, raw)`**, with
+`forwardToStore` kept as a wrapper that still reports under `store` so the
+store path's response shape is unchanged. One forwarder, because the
+retry-on-failure behaviour is the part that must not diverge between copies.
+
+### If the provider fails after the money is taken
+
+The order goes to `failed` with `paidAt` set, which is the honest record: the
+money was taken and no report was produced. **Nothing refunds automatically.**
+A refund is a decision for a person, and a webhook that issued them on its own
+would be a webhook that can move money in response to a failure it does not
+understand.
+
+### Margin
+
+`costCents` is stamped on the order from the settings at order time, so the
+margin is computable per order the way a purchase order's vendor cost makes a
+job's margin computable. `GET /staff/screening/revenue` returns it.
+
+**Counted only on orders that were actually paid.** An unpriced order with a
+cost attached must not appear as a loss on work deliberately given away —
+tested.
+
+Wiring that number into the revenue dashboards is deliberately not done: it is
+a decision about where it belongs on screens Eric has asked not to be
+redesigned, and this route is the number those screens would read.
+
+### Checks
+
+    typecheck   app 316, server 87 — both at baseline, nothing in screening.
+                It first came out at 89: two errors, both mine, both the
+                discriminated-union narrowing that `tsconfig.server.json` does
+                not do. `ChargeDecision` is now one flat always-populated shape
+                for that reason, which is written down in the file.
+    smoke       18 rendered, 0 threw
+    tests       1580 pass, 0 fail (18 of them new, 63 across screening)
+
+### Not verified, and this phase matters more than the others
+
+**No money has moved and no route has run.** The function is undeployed, so the
+checkout, the webhook, the Stripe re-verification and the exemption are all
+unproven. Before this is used in anger:
+
+1. Deploy the function and the `stripe-webhooks` function together — the
+   forwarder and the route it forwards to are one change in two places.
+2. Register nothing new with Stripe: the existing endpoint already receives
+   these events and the metadata routes them.
+3. Leave `screening_pricing` empty and confirm a screening still orders at no
+   charge. That is the current behaviour and it should survive the deploy.
+4. Only then set a price, in test mode, and watch a real
+   `checkout.session.completed` move an order `created → paid → invited`.

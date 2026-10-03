@@ -15,6 +15,10 @@ function getToken() {
 export default function TenantApplication() {
   const [token] = useState(getToken());
   const [valid, setValid] = useState<boolean | null>(null);
+  // The wording comes from the server, because the server stores what the
+  // applicant agreed to. The fallback only covers an older server that does not
+  // send it yet; it is the same sentence.
+  const [consentText, setConsentText] = useState('I consent to a background and credit check as part of this application.');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -34,6 +38,7 @@ export default function TenantApplication() {
         const data = await res.json();
         if (!live) return;
         if (!data.success) throw new Error(data.error || 'Invalid link');
+        if (data.consentText) setConsentText(String(data.consentText));
         setValid(true);
       } catch (e: any) {
         if (live) { setValid(false); setError(e.message || 'This application link is invalid or has expired.'); }
@@ -112,7 +117,7 @@ export default function TenantApplication() {
           </div>
           <label className="flex items-start gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={f.consentBackground} onChange={set('consentBackground')} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600" />
-            I consent to a background and credit check as part of this application.
+            {consentText}
           </label>
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
           <button type="submit" disabled={submitting} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50">

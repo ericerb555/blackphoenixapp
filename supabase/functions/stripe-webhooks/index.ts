@@ -97,12 +97,21 @@ async function verifySignature(raw: string, header: string, secret: string): Pro
  * re-verifies the session with Stripe regardless, so the forward adds a hop
  * rather than a weaker check.
  */
-async function forwardToStore(raw: string): Promise<Record<string, unknown>> {
+/**
+ * Forward the original bytes to a route on the main API function.
+ *
+ * Generalised from `forwardToStore` when tenant screening needed the same
+ * thing. The path is a parameter rather than a second copy of this function,
+ * because the retry-on-failure behaviour below is the part that must not
+ * diverge: a forwarding helper that swallowed an error would silently drop a
+ * real payment.
+ */
+async function forwardTo(path: string, raw: string): Promise<Record<string, unknown>> {
   const base = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!base || !serviceKey) return { forwarded: false, error: 'Server keys unavailable.' };
 
-  const res = await fetch(`${base}/functions/v1/make-server-3eae23a6/store/webhook`, {
+  const res = await fetch(`${base}/functions/v1/make-server-3eae23a6/${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -116,9 +125,21 @@ async function forwardToStore(raw: string): Promise<Record<string, unknown>> {
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Surface as a failure so the outer handler returns 500 and Stripe retries.
-    throw new Error(`store/webhook returned ${res.status}: ${JSON.stringify(payload).slice(0, 200)}`);
+    throw new Error(`${path} returned ${res.status}: ${JSON.stringify(payload).slice(0, 200)}`);
   }
-  return { forwarded: true, store: payload };
+  return { forwarded: true, response: payload };
+}
+
+/**
+ * The store's own forward, now sharing the helper above.
+ *
+ * It keeps reporting its result under `store` rather than the generic
+ * `response`, so the shape the store path has always returned is unchanged.
+ * Renaming it would have been a gratuitous edit to a working payment path.
+ */
+async function forwardToStore(raw: string): Promise<Record<string, unknown>> {
+  const { forwarded, response, error } = await forwardTo('store/webhook', raw);
+  return error ? { forwarded, error } : { forwarded, store: response };
 }
 
 // ─── AI Property Intelligence subscriptions ─────────────────────────────────
@@ -632,6 +653,16 @@ Deno.serve(async (req) => {
     const planTierResult = await handlePortalPlanEvent(event);
     if (planTierResult) {
       return new Response(JSON.stringify({ received: true, type: event?.type, ...planTierResult }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Tenant screening, same contract as the two above: it claims an event only
+    // when the checkout carried its own id, and forwards the original bytes so
+    // the downstream route can re-verify the session with Stripe itself.
+    if (object?.metadata?.screening_order_id) {
+      const screening = await forwardTo('screening/webhook', raw);
+      return new Response(JSON.stringify({ received: true, type: event?.type, ...screening }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }

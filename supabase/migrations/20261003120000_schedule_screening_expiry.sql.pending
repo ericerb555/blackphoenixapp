@@ -1,0 +1,95 @@
+-- ------------------------------------------------------------
+-- Expire tenant-screening invitations that have run out of time
+--
+-- NOT APPLIED. The `.pending` extension is deliberate and follows the two jobs
+-- already parked beside this one: a migration run ignores this file until it is
+-- renamed to `.sql`, and it should not be renamed until step 2 below is done,
+-- because the route refuses every request while its secret is unset. Switching
+-- the schedule on first would produce a job that runs every hour, is refused
+-- every hour, and tells nobody.
+--
+-- WHAT IT DOES, AND WHY IT IS THE SAFEST OF THE THREE
+--
+-- Moves a screening order from `invited` to `expired` once its invitation has
+-- lapsed — the provider's own deadline when there is one, otherwise fourteen
+-- days from the invitation. That is the whole of its authority. It cannot
+-- complete an order, cannot reach a report, and touches no money. Compare the
+-- on-call sweep parked next to it, which rings people's phones.
+--
+-- It is idempotent: a second run finds nothing, because the first moved those
+-- orders out of `invited`. Overlapping schedules are harmless.
+--
+-- BEFORE RENAMING THIS TO .sql
+--
+-- 1. Nothing to do about `private_cron_config`, and the alarming version of
+--    this item was wrong — including the version that stood in this file for
+--    an hour on 2026-10-03.
+--
+--    The on-call migration beside this one described the table as "readable and
+--    writable by anyone holding the publishable key". It never was: `anon` and
+--    `authenticated` hold no grants on it at all, so the publishable key cannot
+--    reach it through the REST API. Verified against production, and the
+--    on-call file has since been corrected with the same finding.
+--
+--    Row-level security has also now been enabled on the table as a second
+--    lock. Both roles that matter here bypass it — `postgres`, which owns the
+--    cron jobs, and `service_role`, which the edge function connects as.
+--
+--    So: no secret was exposed and nothing needs rotating. This file first
+--    claimed `compliance_cron_secret` should be rotated "whether or not anybody
+--    read it", which was advice built on the same bad premise.
+--
+-- 2. Put this job's secret in Vault, which is encrypted and not reachable with
+--    the publishable key:
+--
+--        select vault.create_secret(
+--          encode(gen_random_bytes(32), 'base64'),
+--          'screening_cron_secret',
+--          'Authorises POST /cron/screening/expire-invitations'
+--        );
+--
+-- 3. Set the SAME value as the edge-function secret `SCREENING_CRON_SECRET` in
+--    the Supabase dashboard. Read it back with:
+--
+--        select decrypted_secret from vault.decrypted_secrets
+--        where name = 'screening_cron_secret';
+--
+--    The route also accepts the secret from `private_cron_config` under the key
+--    `screening_cron_secret`, which is how the autopilot tick does it. Vault is
+--    the better of the two and this is the job to start the habit on, since it
+--    has no history to preserve.
+--
+-- WHY HOURLY
+--
+-- Because the unit here is days. An invitation that lapsed at 3am does not need
+-- noticing at 3:01, and a landlord looking at their list wants it to have been
+-- noticed by the time they look. Hourly is well inside that and costs one scan
+-- of the orders.
+-- ------------------------------------------------------------
+
+select cron.schedule(
+  'screening-invitation-expiry',
+  '7 * * * *',
+  $$
+  select net.http_post(
+    url := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/cron/screening/expire-invitations',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      -- The gateway wants an Authorization header before the request reaches
+      -- our code at all; the publishable key satisfies it and authorises
+      -- nothing. The header below is what actually authorises this.
+      'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
+      'X-Screening-Cron-Secret', (select decrypted_secret from vault.decrypted_secrets where name = 'screening_cron_secret')
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+
+-- To stop it again:
+--   select cron.unschedule('screening-invitation-expiry');
+--
+-- To see what it has been doing:
+--   select * from cron.job_run_details
+--   where jobid = (select jobid from cron.job where jobname = 'screening-invitation-expiry')
+--   order by start_time desc limit 20;

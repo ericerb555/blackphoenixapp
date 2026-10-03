@@ -25,6 +25,39 @@ import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
+import {
+  SCREENING_CONSENT_TEXT,
+  screeningLinkState,
+  screeningLinkExpiry,
+  submissionRefusal,
+} from "./screeningLink.ts";
+import {
+  SCREENING_STATES,
+  type ScreeningState,
+  transition,
+  isTerminal,
+  consentRefusal,
+  consentRefusalMessage,
+  ownsOrder,
+  landlordView,
+  applicantView,
+  reportReadable,
+  inviteLapsed,
+  SCREENING_PURPOSES,
+  SCREENING_PURPOSE_LABELS,
+  SCREENING_PURPOSE_CERTIFICATION,
+  purposeRefusal,
+  purposeRefusalMessage,
+  adverseActionRefusal,
+  adverseActionNotice,
+} from "./screeningOrder.ts";
+import {
+  chargeFor,
+  chargeRefusalMessage,
+  marginOf,
+  SCREENING_MAX_PRICE_CENTS,
+} from "./screeningPricing.ts";
+import { providerFor, DEFAULT_PROVIDER } from "./screeningProvider.ts";
 import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
@@ -445,6 +478,33 @@ const PUBLIC_PREFIXES = [
    */
   '/quotes/by-token/',
   '/change-orders/by-token/',
+
+  /**
+   * A prospect filling in a rental application, and reading the screening order
+   * that came out of it.
+   *
+   * The same dead end as the quote links above, and found the same way. The
+   * application form sends the anonymous publishable key, `intakeActor` resolves
+   * no user from it, and the tier for an unlisted path is `user` — so with
+   * AUTH_ENFORCE on, `GET /screening/:token` answered 401 and the form reported
+   * "this application link is invalid or has expired". The link was fine. Every
+   * prospect a landlord sent a link to was turned away, and told it was their
+   * link's fault.
+   *
+   * Exempt as a whole prefix, which is the opposite of the `/exchange/`
+   * decision above, and deliberately: everything under `/screening/` is
+   * addressed BY a token and nothing under it is reachable without one. The
+   * landlord's own side of screening lives at `/landlord/screening` and the test
+   * harness at `/staff/screening`, both outside this prefix and both still
+   * behind the wall.
+   *
+   * The token is the credential, and since phase 0 it is a real one: it expires,
+   * it can be revoked, the state machine distinguishes expired from revoked, and
+   * the submission caps bound what somebody holding it can write. See
+   * screeningLink.ts. An invitation token for one order is 128 bits and reveals
+   * only that order — not the landlord, not the price, not the report.
+   */
+  '/screening/',
 ];
 
 // Public to read, protected to change. The storefront has to render these to a
@@ -609,6 +669,45 @@ const PUBLIC_POST_PATHS = [
    * every name and mobile number on it — stays behind the wall.
    */
   '/on-call/escalate-due',
+
+  /**
+   * The screening-invitation expiry sweep, called by the same scheduler.
+   *
+   * Third of its kind and listed for the same reason as the two above: a
+   * scheduler carries only the publishable key, which resolves to no user, so
+   * the wall would refuse a job whose entire purpose is to run when nobody is
+   * looking.
+   *
+   * Guarded inside the route by `SCREENING_CRON_SECRET`, read from
+   * `private_cron_config` first so it can be rotated without a deploy, and
+   * REFUSING EVERYTHING while unset rather than falling open.
+   *
+   * Only this exact path, and note that it is deliberately NOT under the
+   * `/screening/` prefix — that prefix is open to applicants holding a token,
+   * and a machine endpoint has no business sharing a namespace with a public
+   * one. What this route can do is narrow by design: move an order from
+   * `invited` to `expired` and nothing else. It cannot complete an order,
+   * cannot read a report, and touches no money.
+   */
+  '/cron/screening/expire-invitations',
+
+  /**
+   * The screening payment webhook, forwarded from the `stripe-webhooks`
+   * function after it has verified Stripe's signature.
+   *
+   * Listed because a forwarded event cannot cross the wall otherwise — proved
+   * against production on 2026-10-03, where a POST to `/store/webhook` with
+   * the publishable key answered 401 "Sign in required." (That is a finding
+   * about the store's own path, not this one; see the note in
+   * `tasks/tenant-screening.md`.)
+   *
+   * Knowing this path buys nothing: the route re-verifies the session directly
+   * with Stripe and matches it against the session stored on the order, so a
+   * forged body cannot make a payment appear, and a replayed real one is
+   * idempotent. Only this exact path — every other `/screening/` route is
+   * reached by a token instead.
+   */
+  '/screening/webhook',
 
   /**
    * An invited person setting their password for the first time.
@@ -9244,6 +9343,43 @@ function landlordScreeningKey(email: string) { return `landlord_screening:${Stri
 function screeningTokenKey(token: string) { return `screening_token:${token}`; }
 function landlordDocsKey(email: string) { return `landlord_documents:${String(email).toLowerCase()}`; }
 
+// ── The public application link ──────────────────────────────────────────────
+//
+// The rules themselves — expiry, revocation, the submission caps and the
+// consent wording — live in `screeningLink.ts` so they can be tested. What is
+// left here is the storage around them.
+async function mintScreeningToken(email: string) {
+  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+  const now = Date.now();
+  await kv.set(screeningTokenKey(token), {
+    landlordEmail: email,
+    createdAt: new Date(now).toISOString(),
+    expiresAt: screeningLinkExpiry(now),
+    revokedAt: null,
+  });
+  await kv.set(landlordScreeningKey(email), token);
+  return token;
+}
+
+// Loads a token and says what state it is in. `meta` comes back even when the
+// state is bad, so a caller can revoke an already-expired token or report when
+// it lapsed; only `ok` means the link may be used.
+async function loadScreeningToken(token: string): Promise<{ state: 'ok' | 'missing' | 'expired' | 'revoked'; meta: any }> {
+  const key = screeningTokenKey(String(token || ''));
+  const meta = await kv.get(key) as any;
+  const state = screeningLinkState(meta);
+  if (state === 'missing') return { state: 'missing', meta: null };
+  if (state === 'grandfather') {
+    // A token minted before expiries existed. Stamped once, on first sight,
+    // rather than treated as expired — a live advert must not break because we
+    // deployed.
+    const patched = { ...meta, expiresAt: screeningLinkExpiry() };
+    await kv.set(key, patched);
+    return { state: 'ok', meta: patched };
+  }
+  return { state, meta };
+}
+
 // Landlord: charge a tenant rent (or a one-off fee). Creates a pending payment
 // and a Stripe Checkout session (destination charge to the landlord's connected
 // account), then emails the tenant a secure pay link. `channel` distinguishes an
@@ -9591,16 +9727,79 @@ app.get('/make-server-3eae23a6/landlord/applications', async (c) => {
     if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view applications.' }, 401);
     if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
     const email = String(actor.user.email).toLowerCase();
-    let token = await kv.get(landlordScreeningKey(email)) as string | null;
-    if (!token) {
-      token = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
-      await kv.set(landlordScreeningKey(email), token);
-      await kv.set(screeningTokenKey(token), { landlordEmail: email, createdAt: new Date().toISOString() });
+    const stored = await kv.get(landlordScreeningKey(email)) as string | null;
+
+    // A landlord with no link at all gets one. A landlord whose link has expired
+    // or been revoked does NOT get a silent replacement: minting one here would
+    // undo the revoke they just asked for, on their next page load. They are
+    // told the state and press the button.
+    let token = stored;
+    let link = stored ? await loadScreeningToken(stored) : { state: 'missing' as const, meta: null };
+    if (!stored) {
+      token = await mintScreeningToken(email);
+      link = await loadScreeningToken(token);
     }
+
     const applications = (await kv.get(landlordApplicationsKey(email)) as any[]) || [];
-    const applyUrl = `${rentAppUrl()}/apply?t=${token}`;
-    return c.json({ success: true, applications, token, applyUrl });
+    const active = link.state === 'ok';
+    return c.json({
+      success: true,
+      applications,
+      token: active ? token : '',
+      applyUrl: active ? `${rentAppUrl()}/apply?t=${token}` : '',
+      link: {
+        state: link.state,
+        expiresAt: link.meta?.expiresAt || null,
+        revokedAt: link.meta?.revokedAt || null,
+      },
+    });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load applications.' }, 500); }
+});
+
+// Landlord: rotate the public application link. The old token is revoked rather
+// than deleted, so a prospect who follows the stale link is told it was replaced
+// instead of meeting a dead page, and so the record of what was live when an
+// application arrived survives.
+app.post('/make-server-3eae23a6/landlord/applications/link', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to manage your application link.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const previous = await kv.get(landlordScreeningKey(email)) as string | null;
+    if (previous) {
+      const old = await kv.get(screeningTokenKey(previous)) as any;
+      // Only ever revoke a token that is this landlord's own.
+      if (old?.landlordEmail === email && !old.revokedAt) {
+        await kv.set(screeningTokenKey(previous), { ...old, revokedAt: new Date().toISOString() });
+      }
+    }
+    const token = await mintScreeningToken(email);
+    const link = await loadScreeningToken(token);
+    return c.json({
+      success: true,
+      token,
+      applyUrl: `${rentAppUrl()}/apply?t=${token}`,
+      link: { state: link.state, expiresAt: link.meta?.expiresAt || null, revokedAt: null },
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to rotate the link.' }, 500); }
+});
+
+// Landlord: turn the public application link off without issuing another.
+app.delete('/make-server-3eae23a6/landlord/applications/link', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to manage your application link.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const current = await kv.get(landlordScreeningKey(email)) as string | null;
+    if (!current) return c.json({ success: true, link: { state: 'missing', expiresAt: null, revokedAt: null } });
+    const meta = await kv.get(screeningTokenKey(current)) as any;
+    if (meta?.landlordEmail !== email) return c.json({ success: false, error: 'That link is not yours.' }, 403);
+    const revokedAt = meta.revokedAt || new Date().toISOString();
+    await kv.set(screeningTokenKey(current), { ...meta, revokedAt });
+    return c.json({ success: true, link: { state: 'revoked', expiresAt: meta.expiresAt || null, revokedAt } });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to turn off the link.' }, 500); }
 });
 
 app.post('/make-server-3eae23a6/landlord/applications', async (c) => {
@@ -9635,6 +9834,39 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
     const now = new Date().toISOString();
     apps[idx] = { ...apps[idx], status: decision, decidedAt: now, decisionNote: String(body.note || '').slice(0, 500), updatedAt: now };
     await kv.set(key, apps);
+
+    // Record the decision against the screening order too, and with it the one
+    // fact nobody else can supply: whether the report bore on the decision.
+    // The obligation to send an adverse-action notice attaches to a decision
+    // made BECAUSE OF a consumer report, so this is the landlord's answer about
+    // their own reasoning and is never inferred from the rejection alone.
+    let adverseAction: any = null;
+    try {
+      const ids = (await kv.get(landlordOrdersKey(email)) as string[]) || [];
+      const loaded = await Promise.all(ids.slice(0, 200).map((oid) => kv.get(screeningOrderKey(oid)) as Promise<any>));
+      const order = loaded.find((o: any) => ownsOrder(o, email) && o?.applicationId === apps[idx].id);
+      if (order) {
+        const reportInfluenced = body.reportInfluenced === true;
+        await kv.set(screeningOrderKey(order.id), {
+          ...order,
+          decision,
+          decidedAt: now,
+          decidedBy: email,
+          reportInfluenced,
+          updatedAt: now,
+        });
+        const agency = providerFor(order.provider)?.agency ?? null;
+        const refusal = adverseActionRefusal(order, decision, reportInfluenced, agency);
+        // Reported, not sent. There is no route that sends this: the wording is
+        // a draft awaiting a lawyer, and the landlord is told it is owed rather
+        // than having something posted in their name.
+        adverseAction = refusal ? { owed: false, reason: refusal } : { owed: true, orderId: order.id };
+      }
+    } catch (e: any) {
+      // A decision must not fail because the screening record could not be
+      // updated — the tenancy decision is the landlord's and has been made.
+      console.log(`[screening] could not attach decision to order: ${e?.message || e}`);
+    }
 
     let tenant = null; let invite: any = null;
     if (decision === 'approved') {
@@ -9690,30 +9922,43 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
 
       await kv.set(landlordTenantsKey(email), [tenant, ...roster]);
     }
-    return c.json({ success: true, application: apps[idx], tenant, invite });
+    return c.json({ success: true, application: apps[idx], tenant, invite, adverseAction });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update the application.' }, 500); }
 });
 
 // Public: a prospect submits a rental application via a landlord's shared link.
 app.get('/make-server-3eae23a6/screening/:token', async (c) => {
   try {
-    const meta = await kv.get(screeningTokenKey(c.req.param('token'))) as any;
-    if (!meta?.landlordEmail) return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
-    return c.json({ success: true, landlordEmail: meta.landlordEmail });
+    const { state, meta } = await loadScreeningToken(c.req.param('token'));
+    if (state === 'revoked') return c.json({ success: false, error: 'This application link has been turned off by the landlord. Please ask them for a current link.' }, 410);
+    if (state === 'expired') return c.json({ success: false, error: 'This application link has expired. Please ask the landlord for a current link.' }, 410);
+    if (state !== 'ok') return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
+    // The form renders this wording and the record stores it, so the consent we
+    // keep is provably the consent that was shown.
+    return c.json({ success: true, landlordEmail: meta.landlordEmail, consentText: SCREENING_CONSENT_TEXT });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the application form.' }, 500); }
 });
 
 app.post('/make-server-3eae23a6/screening/:token/apply', async (c) => {
   try {
-    const meta = await kv.get(screeningTokenKey(c.req.param('token'))) as any;
-    if (!meta?.landlordEmail) return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
+    const { state, meta } = await loadScreeningToken(c.req.param('token'));
+    if (state === 'revoked') return c.json({ success: false, error: 'This application link has been turned off by the landlord. Please ask them for a current link.' }, 410);
+    if (state === 'expired') return c.json({ success: false, error: 'This application link has expired. Please ask the landlord for a current link.' }, 410);
+    if (state !== 'ok') return c.json({ success: false, error: 'This application link is invalid or has expired.' }, 404);
     const landlordEmail = String(meta.landlordEmail).toLowerCase();
     const body = await c.req.json().catch(() => ({}));
-    const app_ = buildApplicationRecord(body, 'public');
+    const app_ = buildApplicationRecord(body, 'public', SCREENING_CONSENT_TEXT);
     if (!app_.name) return c.json({ success: false, error: 'Please enter your full name.' }, 400);
     if (!app_.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(app_.email)) return c.json({ success: false, error: 'Please enter a valid email address.' }, 400);
     const key = landlordApplicationsKey(landlordEmail);
     const existing = (await kv.get(key) as any[]) || [];
+
+    const refused = submissionRefusal(existing);
+    if (refused) {
+      console.log(`Screening link ${refused.window} cap reached for ${landlordEmail}`);
+      return c.json({ success: false, error: 'Too many applications have been submitted through this link recently. Please try again later or contact the landlord directly.' }, 429);
+    }
+
     await kv.set(key, [app_, ...existing]);
     notifyRecipient(landlordEmail, 'landlord_form', {
       subject: `New rental application — ${app_.name}`,
@@ -9724,8 +9969,13 @@ app.post('/make-server-3eae23a6/screening/:token/apply', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to submit your application.' }, 500); }
 });
 
-function buildApplicationRecord(body: any, source: string) {
+// `consentText` is passed by the caller, never read from the body: the applicant
+// agrees to what the server showed them, and a record carrying wording the
+// submitter chose would prove nothing at all. A manually-entered application
+// passes none, because nobody consented to anything in that case.
+function buildApplicationRecord(body: any, source: string, consentText = '') {
   const now = new Date().toISOString();
+  const consented = !!body.consentBackground;
   return {
     id: `app_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     name: String(body.name || '').trim().slice(0, 200),
@@ -9741,10 +9991,615 @@ function buildApplicationRecord(body: any, source: string) {
     desiredUnit: String(body.desiredUnit || '').trim().slice(0, 160),
     desiredRent: Number(body.desiredRent) || 0,
     notes: String(body.notes || '').trim().slice(0, 2000),
-    consentBackground: !!body.consentBackground,
+    consentBackground: consented,
+    consentAt: consented ? now : null,
+    consentText: consented ? consentText : '',
+    // The applicant's own guess at their credit score. Named so that nothing
+    // downstream, and nobody reading the record, mistakes it for a report.
+    creditScoreSelfReported: true,
     status: 'pending', source, createdAt: now, updatedAt: now,
   };
 }
+
+// ── Screening orders ─────────────────────────────────────────────────────────
+//
+// Ordering a credit, eviction and criminal report on a rental applicant. The
+// rules are in `screeningOrder.ts` and the agency is behind the interface in
+// `screeningProvider.ts`; what is here is storage, authorisation and delivery.
+//
+// There is no live provider yet, so orders are created against `manual`, which
+// issues no invitation and produces no report. That is the point: the flow, the
+// state machine and the ownership checks can be exercised before any agreement
+// exists, and a provider that is not `live` is refused a report link so nobody
+// is ever shown something that resembles a screening report and is not one.
+function screeningOrderKey(id: string) { return `screening_order:${id}`; }
+function landlordOrdersKey(email: string) { return `screening_orders_landlord:${String(email).toLowerCase()}`; }
+function screeningInviteKey(token: string) { return `screening_invite:${token}`; }
+
+// Moves an order's status through the machine, or refuses. Centralised so no
+// route can write a status directly — a handler that assigns `order.status = x`
+// has bypassed the one rule that keeps a finished report from being walked
+// backwards by a late webhook.
+async function advanceOrder(order: any, to: ScreeningState, patch: Record<string, unknown> = {}) {
+  const verdict = transition(order.status as ScreeningState, to);
+  if (verdict === 'refused') return { ok: false as const, order };
+  const now = new Date().toISOString();
+  const next = {
+    ...order,
+    ...patch,
+    status: verdict === 'noop' ? order.status : to,
+    updatedAt: now,
+    ...(to === 'invited' && verdict === 'ok' ? { invitedAt: now } : {}),
+    ...(to === 'complete' && verdict === 'ok' ? { completedAt: now } : {}),
+  };
+  await kv.set(screeningOrderKey(order.id), next);
+  return { ok: true as const, order: next, noop: verdict === 'noop' };
+}
+
+const SCREENING_PRICING_KEY = 'screening_pricing';
+
+/**
+ * Ask the provider for an invitation and hand it to the applicant.
+ *
+ * One implementation, used by the free path and by the webhook once a payment
+ * clears. It was inline in the order route until there were two ways to reach
+ * it, and two copies of "create the provider order, mint the token, move to
+ * invited, email them" is two places for the token to be minted differently.
+ */
+async function inviteForOrder(order: any): Promise<{ ok: boolean; order: any }> {
+  const provider = providerFor(order.provider);
+  if (!provider) {
+    const failed = await advanceOrder(order, 'failed', { failureReason: 'No screening provider is configured.' });
+    return { ok: false, order: failed.order };
+  }
+  try {
+    const created = await provider.createOrder({
+      orderId: order.id,
+      applicantName: String(order.applicantName || ''),
+      applicantEmail: String(order.applicantEmail || ''),
+      returnUrl: `${rentAppUrl()}/apply`,
+    });
+    // The applicant's own token. 128 bits, bound to this one order, and the
+    // only thing that reveals it to them.
+    const inviteToken = crypto.randomUUID().replace(/-/g, '');
+    await kv.set(screeningInviteKey(inviteToken), { orderId: order.id, createdAt: new Date().toISOString() });
+    const moved = await advanceOrder(order, 'invited', {
+      providerRef: created.providerRef,
+      inviteExpiresAt: created.inviteExpiresAt ?? null,
+      inviteToken,
+    });
+
+    // Only tell the applicant when there is somewhere real to send them. The
+    // manual provider returns no invitation URL, and an email asking somebody
+    // to verify their identity at nowhere is worse than silence.
+    const to = String(order.applicantEmail || '').trim().toLowerCase();
+    if (to && created.inviteUrl) {
+      notifyRecipient(to, 'form_completed', {
+        subject: 'Complete your tenant screening',
+        text: `Your rental application is moving forward. To continue, verify your identity with our screening partner:\n\n${created.inviteUrl}\n\nYou agreed to this check when you applied${order.consentAt ? ` on ${new Date(order.consentAt).toLocaleDateString()}` : ''}.`,
+        sms: 'Your rental application needs one more step: verify your identity to complete your tenant screening.',
+      }).catch(() => {});
+    }
+    return { ok: true, order: moved.order };
+  } catch (providerError: any) {
+    const failed = await advanceOrder(order, 'failed', { failureReason: String(providerError?.message || 'The screening provider refused the order.').slice(0, 300) });
+    return { ok: false, order: failed.order };
+  }
+}
+
+/**
+ * A Stripe Checkout session for a screening fee.
+ *
+ * On the PLATFORM account, with no connected account and no
+ * `application_fee_amount`: this is Black Phoenix selling its own service, so
+ * there is nothing to split. That is the opposite of the rent flow above, where
+ * the money is the landlord's and we take a fee out of it.
+ *
+ * The amount comes from the server's own settings. Nothing about the price is
+ * read from the request, because a browser that can name its own price is a
+ * browser that will.
+ *
+ * `screening_order_id` in the metadata is what lets the webhook recognise its
+ * own event — the same routing-by-metadata the store and the plan tiers use,
+ * rather than guessing from the event type.
+ */
+async function createScreeningCheckout(order: any, decision: { payer: string | null; amountCents: number }) {
+  const base = rentAppUrl();
+  const params = new URLSearchParams();
+  params.set('mode', 'payment');
+  params.set('success_url', `${base}/landlord-portal?screening=paid`);
+  params.set('cancel_url', `${base}/landlord-portal?screening=cancelled`);
+  params.set('line_items[0][quantity]', '1');
+  params.set('line_items[0][price_data][currency]', 'usd');
+  params.set('line_items[0][price_data][unit_amount]', String(decision.amountCents));
+  params.set('line_items[0][price_data][product_data][name]', 'Tenant screening report');
+  params.set('line_items[0][price_data][product_data][description]', `Credit, eviction and criminal report for ${order.applicantName || 'an applicant'}`);
+  params.set('metadata[screening_order_id]', String(order.id));
+  params.set('payment_intent_data[metadata][screening_order_id]', String(order.id));
+  // Who is being asked to pay decides which address the receipt goes to, and
+  // nothing else about the charge.
+  const payerEmail = decision.payer === 'applicant'
+    ? String(order.applicantEmail || '')
+    : String(order.landlordEmail || '');
+  if (payerEmail) params.set('customer_email', payerEmail);
+
+  const session = await stripeReq('checkout/sessions', params, 'POST');
+  if (!session?.id || !session?.url) throw new Error('Stripe did not return a checkout session.');
+  return { id: String(session.id), url: String(session.url) };
+}
+
+// Landlord: order a screening for one of their own applications.
+app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to order a screening.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+
+    // Two separate promises by two separate people, checked separately: the
+    // landlord certifies why they are pulling the report, and the applicant
+    // authorised it. Neither can stand in for the other, and the law wants both.
+    const body = await c.req.json().catch(() => ({}));
+    const purposeProblem = purposeRefusal(body.permissiblePurpose, body.certified);
+    if (purposeProblem) {
+      return c.json({ success: false, error: purposeRefusalMessage(purposeProblem), reason: purposeProblem }, 400);
+    }
+
+    const apps = (await kv.get(landlordApplicationsKey(email)) as any[]) || [];
+    const application = apps.find((a: any) => a?.id === c.req.param('id'));
+
+    // The consent gate. Phase 0 recorded the wording and the date; this is the
+    // moment that record earns its keep, and an application that predates it is
+    // refused rather than screened on the strength of a bare boolean.
+    const refusal = consentRefusal(application);
+    if (refusal) {
+      return c.json({ success: false, error: consentRefusalMessage(refusal), reason: refusal }, refusal === 'no_application' ? 404 : 409);
+    }
+
+    // One live order per application. Re-ordering a screening somebody is part
+    // way through would charge twice and confuse the applicant about which
+    // invitation is real.
+    const existingIds = (await kv.get(landlordOrdersKey(email)) as string[]) || [];
+    const existing = await Promise.all(existingIds.slice(0, 200).map((id) => kv.get(screeningOrderKey(id)) as Promise<any>));
+    const live = existing.find((o: any) => o?.applicationId === application.id && o?.status && !isTerminal(o.status));
+    if (live) return c.json({ success: true, order: landlordView(live), existing: true });
+
+    const provider = providerFor(DEFAULT_PROVIDER);
+    if (!provider) return c.json({ success: false, error: 'No screening provider is configured.' }, 503);
+
+    const id = `scr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const now = new Date().toISOString();
+    let order: any = {
+      id,
+      landlordEmail: email,
+      applicationId: application.id,
+      applicantName: application.name || null,
+      applicantEmail: application.email || null,
+      provider: provider.name,
+      providerRef: null,
+      status: 'created' as ScreeningState,
+      createdAt: now,
+      updatedAt: now,
+      // The fee arrives in phase 2, with the price read from the plan catalogue
+      // and the payer decided per state. Until then nothing is due, which is why
+      // the order goes straight to `invited` below rather than through `paid`.
+      priceCents: null,
+      costCents: null,
+      consentAt: application.consentAt,
+      consentText: application.consentText,
+      // Who said why, and the words they agreed to. Stored from the server's own
+      // constant and the verified session, never from the request: a
+      // certification whose wording or signatory the caller supplied would prove
+      // nothing about what anybody actually certified.
+      permissiblePurpose: String(body.permissiblePurpose),
+      certifiedBy: email,
+      certifiedAt: now,
+      certificationText: SCREENING_PURPOSE_CERTIFICATION,
+    };
+    await kv.set(screeningOrderKey(id), order);
+    await kv.set(landlordOrdersKey(email), [id, ...existingIds].slice(0, 500));
+
+    // Is there a fee, and whose? The price comes from the server's own settings
+    // and never from the request; the state decides the payer. An unpriced
+    // system — which is the state of it until somebody publishes a figure —
+    // falls through to inviting at no charge, exactly as it did before money
+    // existed here.
+    const pricing = await kv.get(SCREENING_PRICING_KEY) as any;
+    const decision = chargeFor(pricing, body.propertyState);
+
+    if (decision.charge) {
+      try {
+        const checkout = await createScreeningCheckout(order, decision);
+        order = {
+          ...order,
+          priceCents: decision.amountCents,
+          costCents: decision.costCents,
+          payer: decision.payer,
+          stripeCheckoutSessionId: checkout.id,
+          updatedAt: new Date().toISOString(),
+        };
+        await kv.set(screeningOrderKey(id), order);
+        // The order stays `created`. It becomes `paid` only when Stripe tells
+        // the webhook so — never on a browser coming back from a redirect,
+        // which proves nothing about whether a card was charged.
+        return c.json({
+          success: true,
+          order: landlordView(order),
+          payment: { payer: decision.payer, amountCents: decision.amountCents, checkoutUrl: checkout.url },
+        }, 201);
+      } catch (payError: any) {
+        const failed = await advanceOrder(order, 'failed', { failureReason: String(payError?.message || 'The payment could not be started.').slice(0, 300) });
+        return c.json({ success: false, error: 'The screening could not be started because the payment could not be set up. Nothing has been charged.', order: landlordView(failed.order) }, 502);
+      }
+    }
+
+    const invited = await inviteForOrder(order);
+    if (!invited.ok) {
+      return c.json({ success: false, error: 'The screening could not be started. Nothing has been charged.', order: landlordView(invited.order) }, 502);
+    }
+
+    return c.json({
+      success: true,
+      order: landlordView(invited.order),
+      charge: { charged: false, reason: decision.reason, notice: decision.reason ? chargeRefusalMessage(decision.reason) : null },
+    }, 201);
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to order the screening.' }, 500); }
+});
+
+// Landlord: their own screening orders, newest first.
+app.get('/make-server-3eae23a6/landlord/screening', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view screenings.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const ids = (await kv.get(landlordOrdersKey(email)) as string[]) || [];
+    const loaded = await Promise.all(ids.slice(0, 200).map((id) => kv.get(screeningOrderKey(id)) as Promise<any>));
+    // Filtered through the record's own owner field, not trusted from the index.
+    const orders = loaded.filter((o: any) => ownsOrder(o, email)).map((o: any) => landlordView(o));
+    // The purposes and the certification wording come from here so the portal
+    // renders exactly what the order will record — the same reason the
+    // applicant's consent wording is served rather than hard-coded in the form.
+    return c.json({
+      success: true,
+      orders,
+      purposes: SCREENING_PURPOSES.map((id) => ({ id, label: SCREENING_PURPOSE_LABELS[id] })),
+      certification: SCREENING_PURPOSE_CERTIFICATION,
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load screenings.' }, 500); }
+});
+
+// Landlord: one order, with a link to the report if there is one to give.
+app.get('/make-server-3eae23a6/landlord/screening/:id', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view this screening.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const order = await kv.get(screeningOrderKey(c.req.param('id'))) as any;
+    // 404 rather than 403 for somebody else's order: a 403 confirms the id
+    // exists, which is a slow way of enumerating other landlords' screenings.
+    if (!ownsOrder(order, email)) return c.json({ success: false, error: 'Screening not found.' }, 404);
+
+    const provider = providerFor(order.provider);
+    let reportUrl: string | null = null;
+    let reportNotice: string | null = null;
+    if (reportReadable(order)) {
+      if (!provider?.live) {
+        reportNotice = 'This screening was created against the test provider, so there is no report to show.';
+      } else {
+        // Fetched per request and never stored. A saved report URL is a saved
+        // report, readable by anybody who finds the string.
+        reportUrl = await provider.reportUrl(String(order.providerRef)).catch(() => null);
+        if (!reportUrl) reportNotice = 'The report is complete but the provider did not return a link. Try again shortly.';
+      }
+    }
+    return c.json({ success: true, order: landlordView(order), reportUrl, reportNotice });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the screening.' }, 500); }
+});
+
+/**
+ * The screening payment webhook — the ONLY thing that may mark an order paid.
+ *
+ * WHY NOT ON THE REDIRECT BACK
+ *
+ * Because a browser arriving at a success URL proves nothing. It can be typed,
+ * shared, or reached by cancelling and editing the address. The only statement
+ * that a card was charged comes from Stripe, so that is the only thing allowed
+ * to move an order to `paid`.
+ *
+ * HOW IT GETS HERE, AND WHY THE PATH IS EXEMPT FROM THE AUTH WALL
+ *
+ * Stripe cannot send a Supabase JWT, so signature verification happens in the
+ * separate `stripe-webhooks` function, which runs with `verify_jwt = false`.
+ * That function forwards the original bytes here, the way it already forwards
+ * store events. **Verified against production on 2026-10-03:** a POST to
+ * `/store/webhook` carrying the publishable key answers 401 "Sign in
+ * required.", so a forwarded event cannot cross the wall unless its exact path
+ * is listed. This one is.
+ *
+ * KNOWING THE PATH BUYS NOTHING
+ *
+ * The route re-verifies the session directly with Stripe before it acts — the
+ * same defence in depth the store webhook uses — and then matches the session
+ * id against the one stored on the order when the checkout was created. A
+ * forged body cannot make Stripe say a payment succeeded, and a replayed real
+ * body is idempotent: `created → paid` happens once, and the second delivery
+ * finds the order already past it and reports a duplicate.
+ */
+app.post('/make-server-3eae23a6/screening/webhook', async (c) => {
+  try {
+    const raw = await c.req.text();
+    let event: any;
+    try { event = JSON.parse(raw); } catch { return c.json({ received: false, error: 'Invalid payload.' }, 400); }
+    if (event?.type !== 'checkout.session.completed' && event?.type !== 'checkout.session.async_payment_succeeded') {
+      return c.json({ received: true, ignored: event?.type || 'unknown' });
+    }
+    const session = event?.data?.object || {};
+    const orderId = String(session?.metadata?.screening_order_id || '');
+    if (!orderId) return c.json({ received: true, ignored: 'no screening_order_id metadata' });
+
+    const order = await kv.get(screeningOrderKey(orderId)) as any;
+    if (!order) return c.json({ received: true, error: 'Screening order not found.' });
+
+    // Re-verified with Stripe rather than trusted from the body.
+    const verified = await stripeReq(`checkout/sessions/${encodeURIComponent(String(session.id || order.stripeCheckoutSessionId))}`, undefined, 'GET');
+    if (!verified?.id || verified.id !== order.stripeCheckoutSessionId) {
+      return c.json({ received: true, error: 'This session does not belong to that screening order.' });
+    }
+    if (verified.payment_status !== 'paid') {
+      return c.json({ received: true, error: 'Stripe has not confirmed this payment.' });
+    }
+
+    const paid = await advanceOrder(order, 'paid', {
+      paidAt: new Date().toISOString(),
+      // What Stripe says was actually taken, alongside what we meant to charge.
+      // They should agree; if they ever do not, the record shows both.
+      amountPaidCents: Number(verified.amount_total ?? 0) || null,
+    });
+    if (!paid.ok) return c.json({ received: true, error: `A ${order.status} screening cannot become paid.` });
+    if (paid.noop) return c.json({ received: true, duplicate: true, orderId });
+
+    // Payment taken, so now ask the provider for the invitation. A failure here
+    // leaves the order `failed` with the money taken, which is the honest
+    // record — and the refund is a decision for a person, not something a
+    // webhook should do on its own.
+    const invited = await inviteForOrder(paid.order);
+    return c.json({ received: true, orderId, invited: invited.ok });
+  } catch (error: any) {
+    console.log('screening/webhook error:', error);
+    // 500 so Stripe retries. Swallowing this would drop a real payment.
+    return c.json({ received: false, error: error.message || 'Webhook processing failed.' }, 500);
+  }
+});
+
+// Landlord: the draft adverse-action notice for a declined application.
+//
+// A draft, and nothing here sends it. The wording has not been through a lawyer
+// and the agency block comes from the provider, so with no live provider this
+// route refuses — correctly, since a notice naming no agency cannot tell
+// somebody where their file is, which is the only thing it is for.
+app.get('/make-server-3eae23a6/landlord/screening/:id/adverse-action', async (c) => {
+  try {
+    const actor = await landlordActor(c);
+    if (!actor.user?.email) return c.json({ success: false, error: 'Sign in to view this notice.' }, 401);
+    if (!actor.landlord) return c.json({ success: false, error: 'An active landlord portal is required.' }, 403);
+    const email = String(actor.user.email).toLowerCase();
+    const order = await kv.get(screeningOrderKey(c.req.param('id'))) as any;
+    if (!ownsOrder(order, email)) return c.json({ success: false, error: 'Screening not found.' }, 404);
+
+    const agency = providerFor(order.provider)?.agency ?? null;
+    const refusal = adverseActionRefusal(order, String(order.decision || ''), order.reportInfluenced, agency);
+    if (refusal) {
+      const why: Record<string, string> = {
+        not_declined: 'No notice is owed: this application was not declined.',
+        no_screening: 'No notice is owed: there is no completed screening report for this application.',
+        report_not_used: 'No notice is owed: the report was not recorded as a factor in this decision.',
+        agency_unknown: 'A notice is owed, but it cannot be produced yet: the screening agency that furnished the report is not known. A notice must name the agency so the applicant can obtain and dispute their file.',
+      };
+      return c.json({ success: false, error: why[refusal], reason: refusal }, 409);
+    }
+
+    return c.json({
+      success: true,
+      notice: adverseActionNotice({
+        applicantName: String(order.applicantName || 'Applicant'),
+        applicantEmail: order.applicantEmail ?? null,
+        decidedAt: String(order.decidedAt || order.updatedAt || ''),
+        agency: agency!,
+      }),
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to produce the notice.' }, 500); }
+});
+
+// Applicant: what is happening with the screening they consented to. Addressed
+// by their own invitation token; reveals the order and nothing around it.
+app.get('/make-server-3eae23a6/screening/order/:token', async (c) => {
+  try {
+    const invite = await kv.get(screeningInviteKey(c.req.param('token'))) as any;
+    if (!invite?.orderId) return c.json({ success: false, error: 'This screening link is invalid or has expired.' }, 404);
+    const order = await kv.get(screeningOrderKey(invite.orderId)) as any;
+    if (!order) return c.json({ success: false, error: 'This screening link is invalid or has expired.' }, 404);
+    return c.json({ success: true, order: applicantView(order) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the screening.' }, 500); }
+});
+
+// Applicant: they have started identity verification with the provider.
+app.post('/make-server-3eae23a6/screening/order/:token/begin', async (c) => {
+  try {
+    const invite = await kv.get(screeningInviteKey(c.req.param('token'))) as any;
+    if (!invite?.orderId) return c.json({ success: false, error: 'This screening link is invalid or has expired.' }, 404);
+    const order = await kv.get(screeningOrderKey(invite.orderId)) as any;
+    if (!order) return c.json({ success: false, error: 'This screening link is invalid or has expired.' }, 404);
+    const moved = await advanceOrder(order, 'verifying');
+    if (!moved.ok) return c.json({ success: false, error: 'This screening can no longer be started.', order: applicantView(order) }, 409);
+    return c.json({ success: true, order: applicantView(moved.order) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start the screening.' }, 500); }
+});
+
+/**
+ * Staff: read and set the screening fee.
+ *
+ * Staff-only in both directions, because this decides what members of the
+ * public are charged. It starts empty and an empty price charges nobody, so the
+ * dangerous direction is somebody setting a figure, not somebody failing to.
+ */
+app.get('/make-server-3eae23a6/staff/screening/pricing', async (c) => {
+  try {
+    if (!(await isStaffRequest(c))) return c.json({ success: false, error: 'Staff access is required.' }, 403);
+    const pricing = (await kv.get(SCREENING_PRICING_KEY) as any) || null;
+    return c.json({ success: true, pricing, maxPriceCents: SCREENING_MAX_PRICE_CENTS });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the screening fee.' }, 500); }
+});
+
+app.put('/make-server-3eae23a6/staff/screening/pricing', async (c) => {
+  try {
+    if (!(await isStaffRequest(c))) return c.json({ success: false, error: 'Staff access is required.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+
+    const priceCents = Math.round(Number(body.priceCents ?? 0));
+    const costCents = Math.round(Number(body.costCents ?? 0));
+    if (!Number.isFinite(priceCents) || priceCents < 0) return c.json({ success: false, error: 'The fee must be a positive number of cents, or zero to charge nothing.' }, 400);
+    if (priceCents > SCREENING_MAX_PRICE_CENTS) return c.json({ success: false, error: `The fee cannot exceed $${(SCREENING_MAX_PRICE_CENTS / 100).toFixed(2)}. Check the decimal point.` }, 400);
+    if (!Number.isFinite(costCents) || costCents < 0) return c.json({ success: false, error: 'The agency cost must be a positive number of cents, or zero if not known.' }, 400);
+
+    // Only the two payers, and only two-letter state codes. An unrecognised
+    // payer is dropped rather than stored, so a typo cannot leave a state
+    // configured with something `payerFor` will not honour.
+    const payerByState: Record<string, string> = {};
+    const offered = body.payerByState && typeof body.payerByState === 'object' ? body.payerByState : {};
+    for (const [rawState, rawPayer] of Object.entries(offered)) {
+      const state = String(rawState).trim().toUpperCase();
+      const payer = String(rawPayer).trim().toLowerCase();
+      if (!/^[A-Z]{2}$/.test(state)) continue;
+      if (payer !== 'landlord' && payer !== 'applicant') continue;
+      payerByState[state] = payer;
+    }
+
+    const defaultPayer = String(body.defaultPayer || '').toLowerCase() === 'applicant' ? 'applicant' : 'landlord';
+    const pricing = {
+      priceCents,
+      costCents,
+      defaultPayer,
+      payerByState,
+      enabled: body.enabled !== false,
+      updatedAt: new Date().toISOString(),
+      updatedBy: String((c.get('actor') as any)?.email || 'staff'),
+    };
+    await kv.set(SCREENING_PRICING_KEY, pricing);
+    return c.json({ success: true, pricing });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save the screening fee.' }, 500); }
+});
+
+/**
+ * Staff: what screening has earned.
+ *
+ * Counts only orders that were actually paid, so work deliberately given away
+ * does not appear as a loss. Wiring this figure into the revenue dashboards is
+ * deliberately not done here — that is a UI decision about where it belongs,
+ * and this route is the number those screens would read.
+ */
+app.get('/make-server-3eae23a6/staff/screening/revenue', async (c) => {
+  try {
+    if (!(await isStaffRequest(c))) return c.json({ success: false, error: 'Staff access is required.' }, 403);
+    const rows = await kv.getByPrefix('screening_order:');
+    const orders = rows.map((r: any) => r?.value).filter(Boolean);
+    const byStatus: Record<string, number> = {};
+    for (const o of orders) byStatus[String(o.status)] = (byStatus[String(o.status)] || 0) + 1;
+    return c.json({ success: true, totalOrders: orders.length, byStatus, ...marginOf(orders) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to summarise screening revenue.' }, 500); }
+});
+
+// Staff only: move a `manual` order along, so the flow can be tested before a
+// provider exists. Staff rather than landlord on purpose — a landlord able to
+// advance their own order to `complete` could manufacture the appearance of a
+// screening report, and somebody would act on it.
+app.post('/make-server-3eae23a6/staff/screening/:id/advance', async (c) => {
+  try {
+    if (!(await isStaffRequest(c))) return c.json({ success: false, error: 'Staff access is required.' }, 403);
+    const order = await kv.get(screeningOrderKey(c.req.param('id'))) as any;
+    if (!order) return c.json({ success: false, error: 'Screening not found.' }, 404);
+    const provider = providerFor(order.provider);
+    if (provider?.live) return c.json({ success: false, error: 'A live provider decides its own order statuses; they cannot be set by hand.' }, 409);
+    const body = await c.req.json().catch(() => ({}));
+    const to = String(body.to || '') as ScreeningState;
+    if (!SCREENING_STATES.includes(to)) return c.json({ success: false, error: `Unknown status. One of: ${SCREENING_STATES.join(', ')}.` }, 400);
+    const moved = await advanceOrder(order, to, to === 'failed' ? { failureReason: 'Advanced by staff for testing.' } : {});
+    if (!moved.ok) return c.json({ success: false, error: `A ${order.status} screening cannot become ${to}.` }, 409);
+    return c.json({ success: true, order: landlordView(moved.order) });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to advance the screening.' }, 500); }
+});
+
+/**
+ * The invitation expiry sweep, for the database scheduler.
+ *
+ * WHY A SWEEP AND NOT A CHECK ON READ
+ *
+ * Because an order nobody opens still has to stop being live. Expiring lazily
+ * would mean a landlord's list showed `invited` for an invitation that died
+ * three weeks ago, and phase 2's refunds would be decided by who happened to
+ * load a page.
+ *
+ * AUTHENTICATED BY A SHARED SECRET, FOLLOWING THE TWO SWEEPS THAT CAME BEFORE
+ *
+ * Read from `private_cron_config` so it can be rotated without a deploy, then
+ * the environment, and refusing outright when neither yields a value. An unset
+ * secret must never mean "no check required".
+ *
+ * WHAT IT IS ALLOWED TO DO
+ *
+ * Move `invited` to `expired`, and nothing else. It cannot complete an order,
+ * cannot read a report, and touches no money. Every move goes through the same
+ * `advanceOrder` as every other, so the sweep cannot do something a route
+ * could not — in particular it cannot expire a `complete` order, which is the
+ * midnight-tick accident this design exists to prevent.
+ *
+ * It is also idempotent: a second run finds nothing left to do, because the
+ * first run moved those orders out of `invited`. Safe to retry, safe to run
+ * twice if a schedule overlaps.
+ */
+app.post('/make-server-3eae23a6/cron/screening/expire-invitations', async (c) => {
+  let secret = '';
+  try {
+    const { data } = await supabase
+      .from('private_cron_config')
+      .select('value')
+      .eq('key', 'screening_cron_secret')
+      .maybeSingle();
+    secret = String(data?.value || '');
+  } catch {
+    // Fall through to the environment. A database blip must not turn a machine
+    // endpoint into an open one — the check below still refuses with neither.
+  }
+  if (!secret) secret = Deno.env.get('SCREENING_CRON_SECRET') || '';
+
+  const offered = c.req.header('X-Screening-Cron-Secret') || '';
+  if (!secret || offered !== secret) {
+    return c.json({ success: false, error: 'Unauthorized.' }, 401);
+  }
+
+  try {
+    // Every order, from the orders themselves rather than per landlord: the
+    // sweep must reach an order whose landlord's index has drifted, and an
+    // order that no index points at is exactly the kind that would otherwise
+    // sit in `invited` for ever.
+    const rows = await kv.getByPrefix('screening_order:');
+    const now = Date.now();
+    let expired = 0;
+    let refused = 0;
+    for (const row of rows) {
+      const order = (row as any)?.value;
+      if (!inviteLapsed(order, now)) continue;
+      const moved = await advanceOrder(order, 'expired');
+      if (moved.ok) expired += 1; else refused += 1;
+    }
+    if (expired || refused) console.log(`[screening] expiry sweep: ${expired} expired, ${refused} refused of ${rows.length} orders`);
+    return c.json({ success: true, scanned: rows.length, expired, refused });
+  } catch (error: any) {
+    console.log(`[screening] expiry sweep error: ${error}`);
+    return c.json({ success: false, error: error.message || 'The expiry sweep failed.' }, 500);
+  }
+});
 
 // ── Document vault ───────────────────────────────────────────────────────────
 const LANDLORD_DOCS_BUCKET = 'make-57095a78-landlord-docs';
@@ -17658,9 +18513,19 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
   return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: manualOnly ? undefined : result.error, manualRequired: manualOnly ? result.manualRequired : undefined, status: order.fulfillment_status };
 }
 
-/** Forward every paid order still sitting at pending. */
-async function runFulfillmentSweep(reason: string): Promise<{ examined: number; forwarded: number; failed: number; errors: string[]; orderIds: string[] }> {
-  const orders = (((await kv.getByPrefix('store:order:')) || []) as any[]).filter(orderAwaitsFulfillment);
+/**
+ * Forward every paid order still sitting at pending.
+ *
+ * `limit` is the scheduler's ceiling on how many supplier orders one run may
+ * place. Unbounded is fine for a button somebody pressed — they are watching —
+ * and is not fine for an unattended job, where the failure mode is a loop that
+ * empties the CJ balance before anybody notices.
+ */
+async function runFulfillmentSweep(reason: string, limit?: number): Promise<{ examined: number; forwarded: number; failed: number; errors: string[]; orderIds: string[]; deferred?: number }> {
+  const waiting = (((await kv.getByPrefix('store:order:')) || []) as any[]).filter(orderAwaitsFulfillment);
+  const cap = Number.isFinite(limit as number) && (limit as number) > 0 ? Math.floor(limit as number) : waiting.length;
+  const orders = waiting.slice(0, cap);
+  const deferred = waiting.length - orders.length;
   let forwarded = 0;
   let failed = 0;
   const errors: string[] = [];
