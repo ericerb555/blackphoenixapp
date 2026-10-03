@@ -1267,3 +1267,39 @@ but every claim route requires a signed-in account, so it needs Eric or a test
 account. `POST /exchange/claim/start` with `{"slug":"black-phoenix-builds"}`
 would open a dispute rather than a claim, since that listing is already
 claimed — which is itself the dispute path worth seeing once.
+
+### The operator is no longer "verified" (2026-10-03)
+
+The catalogue migration asserted `verification_state = 'verified'` for Black
+Phoenix, and applying it did exactly that — for an organisation with no licence
+number and no licence expiry on record. The database was asserting a
+verification nobody had performed.
+
+Removed from the migration, and corrected in production. The correction is
+narrow on purpose:
+
+    where type = 'operator'
+      and verification_state = 'verified'
+      and license_number is null
+      and license_expires_at is null
+
+so a real verification entered between then and now would not have been undone.
+
+**Why bother, when nothing was visibly wrong.** That is exactly why. The badge
+is computed as verified AND an in-date `license_expires_at`, and the expiry was
+null, so nothing appeared. The trap was the first person to enter a licence
+expiry date for the company: a verified badge would have appeared on the
+strength of a flag a migration set. Being the operator is not evidence of a
+licence.
+
+The badge logic itself is untouched and was never wrong — requiring an expiry
+date is what kept the lie off the page. `license_number` was deliberately left
+out of the query's column list, and adding it just to tighten this check would
+have weakened a protection that exists for a better reason.
+
+If Black Phoenix should carry the badge, give it a real licence record — number,
+state and expiry — and the existing logic shows it honestly.
+
+Verified after: operator still `claimed`, `operator` source, 50-mile radius, 9
+categories; the live listing still serves 9 categories with
+`licenceVerified: false`. No server code changed, so no redeploy was needed.

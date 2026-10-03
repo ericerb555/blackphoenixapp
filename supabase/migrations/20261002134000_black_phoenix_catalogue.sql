@@ -81,8 +81,23 @@ update organizations
        service_lng          = coalesce(service_lng, -71.290000),
        service_radius_miles = coalesce(service_radius_miles, 50),
        listing_source       = 'operator',
-       claim_state          = 'claimed',
-       verification_state   = case when verification_state = 'unverified'
-                                   then 'verified' else verification_state end
+       claim_state          = 'claimed'
+       -- `verification_state` IS DELIBERATELY NOT SET HERE.
+       --
+       -- This migration used to flip it to 'verified'. Applied against
+       -- production on 2026-10-03 it did exactly that, for an organisation
+       -- with no licence number and no licence expiry on record — so the
+       -- database asserted a verification that nobody had performed.
+       --
+       -- Nothing was visibly wrong, which is what made it worth removing.
+       -- `publicListing` computes the badge as verified AND an in-date
+       -- `license_expires_at`, and the expiry was null, so no badge appeared.
+       -- The trap was the day somebody entered a licence expiry for the
+       -- company: a verified badge would have appeared on the strength of a
+       -- flag this file set, not a check anyone made.
+       --
+       -- Being the operator is not evidence of a licence. If Black Phoenix
+       -- should carry the badge, give it a real licence record — number,
+       -- state and expiry — and the existing logic will show it honestly.
  where type = 'operator'
    and status = 'active';
