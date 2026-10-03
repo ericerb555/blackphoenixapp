@@ -1020,3 +1020,53 @@ failure instead of discarding it, and `POST /storage/repair-job-media`
 **Nothing was applied to any database.** Eric chose branch-first; the branch
 creation was declined at the prompt, so the migrations remain outstanding and
 customer attachments remain broken until that is settled.
+
+### Phase 0, part one — finished, in production (2026-10-02)
+
+Eric: *"just apply the media migration to production."* Applied, verified, and
+customer attachments work again.
+
+**It had to be both halves, and in this order.** Granting the insert policies
+alone would have made production *worse*: uploads would have started working
+into buckets anybody holding a URL could read. The buckets were empty, so there
+was no exposure to close — there was an exposure to *avoid creating*. So the
+buckets were made private first, then the writes were allowed. There is no
+window in which a customer photograph landed in a public bucket.
+
+Two migrations, both recorded in `supabase_migrations`:
+
+    private_job_media_buckets   public=false, size caps, MIME allow-lists
+    private_job_media           the two insert policies
+
+**Verified by reading production back, not by trusting the success flag.** All
+three buckets `public: false` with their caps (15MB / 200MB / 50MB) and
+allow-lists. Exactly two policies on `storage.objects`, both INSERT —
+`authenticated` into the three buckets, `anon` only under `guest/`. No select,
+update or delete for either role, so nothing is readable with a browser key and
+every read goes through the server's signer.
+
+**A trap found on the way in, and worth remembering.** The work request form
+uploaded *blueprints* into `project-photos`, whose allow-list is images only.
+That was harmless for exactly as long as no allow-list was enforced, and would
+have become a silent rejection of every PDF blueprint the moment one was — the
+customer told "some attachments could not be uploaded", with no indication of
+which or why. Blueprints now go to `project-blueprints`, the bucket whose
+allow-list contains `application/pdf`. Safe to move because these buckets had
+never held an object. The same line also produced a literal `undefined/` folder
+for a signed-out customer, which the guest policy would have refused; it is
+`guest/` now, matching the photo and video paths.
+
+**What works now, and what waits on a deploy.** Photo and video uploads work
+immediately — the deployed frontend already stores `storage://` references and
+the deployed function already signs them, both from `cb8c65ab`, which is on
+`origin/main`. Blueprint uploads still fail until the frontend is pushed,
+exactly as they failed before; that is a regression avoided, not introduced.
+
+**The bucket flags now live in a migration** rather than only in
+`ensureStorageBuckets`, so the state is declared where applying it is recorded
+and re-runnable. The function's copy is the belt rather than the braces, and
+`JOB_MEDIA_BUCKETS` must stay in step with the migration — change one, change
+the other.
+
+Typecheck app 316 / server 89, both baselines. Suite 1,437 passing. Smoke 21
+pages, 0 threw.

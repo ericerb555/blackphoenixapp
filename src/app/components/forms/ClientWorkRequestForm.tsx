@@ -1093,13 +1093,31 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         // Upload blueprints to storage
         const blueprintData = [];
         for (const blueprint of formData.blueprints) {
-          const fileName = `${user?.id}/${Date.now()}_${blueprint.name}`;
+          /**
+           * Blueprints go in the BLUEPRINTS bucket.
+           *
+           * They were going into `project-photos`, which worked only because
+           * neither bucket had a type restriction. `project-photos` allows
+           * images and nothing else, so the moment the allow-list is enforced
+           * every PDF blueprint would be rejected — and the customer would be
+           * told "some attachments could not be uploaded" with no way to tell
+           * which or why. `project-blueprints` is the bucket that accepts PDF.
+           *
+           * Safe to change because these buckets have never held a single
+           * object, so there is nothing stored under the old path.
+           *
+           * `guest/` rather than a bare `undefined/` when nobody is signed in:
+           * the guest upload policy only permits anonymous writes under
+           * `guest/`, and this path was producing the literal string
+           * "undefined" as a folder name.
+           */
+          const fileName = `${user?.id || 'guest'}/${Date.now()}_${blueprint.name}`;
           const { error: uploadError } = await supabase.storage
-            .from('project-photos')
+            .from('project-blueprints')
             .upload(fileName, blueprint);
-          
+
           if (!uploadError) {
-            uploadedBlueprintUrls.push(`storage://project-photos/${fileName}`);
+            uploadedBlueprintUrls.push(`storage://project-blueprints/${fileName}`);
 
             // Convert to base64 for AI analysis
             const base64 = await fileToBase64(blueprint);
