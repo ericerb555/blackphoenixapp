@@ -1110,3 +1110,49 @@ the public buckets nobody noticed, the unreachable routes that typechecked
 clean, the server half of the typecheck that never ran. `/exchange/category/:slug`
 and `/exchange/listing/:slug` should be checked for the same pattern. Four
 lines, and it needs a redeploy to take effect, so it is Eric's to say go.
+
+### An empty directory and a broken one are no longer the same answer (2026-10-03)
+
+Eric: *"fix all three routes and redeploy."*
+
+`supabase-js` does not throw. A missing table, an absent column, a refused
+permission — each comes back as `result.error` with `result.data` null. So the
+idiom `const { data } = await sb.from(...)` followed by `data ?? []` converts a
+completely broken database into a confident, cheerful, empty answer.
+
+All four reads in `exchangeDirectory.tsx` now go through one `must()` helper
+that makes an error fatal. The three routes lied in three different ways, which
+is worth recording because each looked plausible on its own:
+
+    /exchange/taxonomy        200 with empty arrays — "the directory is empty"
+    /exchange/category/:slug  404 "No such category" — "your search is wrong",
+                              when in fact the whole taxonomy was gone
+    /exchange/listing/:slug   main query was checked; the SECOND one was not,
+                              so a business rendered with none of its trades
+
+`/exchange/listing/:slug/contact` had the same shape and is fixed in the same
+pass.
+
+**The listing's category read is fatal rather than degraded, deliberately.** A
+listing showing none of the trades a business holds is wrong in the way nobody
+reports: the page looks finished and the business looks like it does nothing. A
+500 is worse to look at and far better to find.
+
+**And a 404 must now mean "we looked and it is not there", never "we could not
+look."** `must()` runs before the not-found check for that reason.
+
+**The claim routes are NOT changed, and they are not the same case.** They read
+`.data` without checking `.error` too, but every one of those paths fails
+CLOSED: a broken `exchange_claim` makes `loadClaim` return null, which answers
+"no such claim" and grants nothing; a broken challenge table yields zero proven
+categories, which grants nothing. Wrong in the safe direction. Worth tidying so
+the diagnosis is loud rather than silent, but it is a separate change and not
+urgent.
+
+**The server typecheck earned its keep immediately.** The first version of
+`must()` was generic, which inferred `unknown` off the Postgrest result type
+and added twelve findings — caught by the half of the typecheck that, this
+morning, had never run. It returns `any` now, matching the rest of the file.
+
+Typecheck app 316 / server 89, both baselines. Suite 1,437 passing. Smoke 6
+modals, 0 threw.

@@ -42,6 +42,46 @@ function service() {
 }
 
 /**
+ * Make a failed query fail, instead of reading as no data.
+ *
+ * WHY THIS EXISTS, WITH THE RECEIPT
+ *
+ * `supabase-js` does not throw. A missing table, a column that does not exist,
+ * a permission refusal — all of them come back as `result.error` with
+ * `result.data` set to null. So `const { data } = await sb.from(...)` followed
+ * by `data ?? []` turns a completely broken database into a confident,
+ * cheerful, empty answer.
+ *
+ * That is not hypothetical here. On 2026-10-03, against a production database
+ * where **not one exchange table existed**, `/exchange/taxonomy` answered:
+ *
+ *     {"success":true,"sections":[],"categories":[],"services":[]}
+ *
+ * HTTP 200. Nothing in the logs. The same shape made `/exchange/category/:slug`
+ * answer `404 No such category` — which reads as "that category is not in our
+ * taxonomy" rather than "the taxonomy is gone" — and made a listing render
+ * with none of the trades the business actually holds.
+ *
+ * This is the failure class that has cost this project the most: three storage
+ * buckets public for months with the fix deployed, every Exchange route
+ * answering 404 while the page typechecked and smoked clean, and half the
+ * typecheck never running at all. In every case the system reported success.
+ *
+ * So: every read goes through here. An empty directory and a broken one must
+ * never be the same answer.
+ */
+// Returns `any` rather than a generic, to match the rest of this file: rows
+// here are `any` throughout, and a generic parameter infers `unknown` off the
+// Postgrest builder's result type, which then fails on every property read.
+function must(result: { data: any; error: any } | null, what: string): any {
+  if (!result) throw new Error(`${what}: no result`);
+  if (result.error) {
+    throw new Error(`${what}: ${result.error.message || result.error}`);
+  }
+  return result.data;
+}
+
+/**
  * Who is asking, when anybody is.
  *
  * Null is the normal case here, not an error: these pages are for people who
@@ -119,7 +159,7 @@ function publicListing(row: any, categories: any[]) {
 exchangeDirectory.get("/exchange/taxonomy", async (c) => {
   try {
     const sb = service();
-    const [sections, categories] = await Promise.all([
+    const [sectionResult, categoryResult] = await Promise.all([
       sb.from("exchange_section")
         .select("slug, name, tagline, sort_order")
         .eq("status", "active").order("sort_order"),
@@ -128,11 +168,14 @@ exchangeDirectory.get("/exchange/taxonomy", async (c) => {
         .eq("status", "active").order("sort_order"),
     ]);
 
+    const sections = must(sectionResult, "exchange_section") ?? [];
+    const categories = must(categoryResult, "exchange_category") ?? [];
+
     return c.json({
       success: true,
-      sections: sections.data ?? [],
-      categories: (categories.data ?? []).filter((r: any) => !r.parent_id),
-      services: (categories.data ?? []).filter((r: any) => r.parent_id),
+      sections,
+      categories: categories.filter((r: any) => !r.parent_id),
+      services: categories.filter((r: any) => r.parent_id),
     });
   } catch (error: any) {
     console.error("[exchange] taxonomy failed:", error?.message || error);
@@ -163,12 +206,23 @@ exchangeDirectory.get("/exchange/listing/:slug", async (c) => {
       return c.json({ success: false, error: "No such listing." }, 404);
     }
 
-    const { data: held } = await sb
-      .from("organization_category")
-      .select("category_id, exchange_category ( slug, name, section_slug )")
-      .eq("org_id", row.id);
+    /**
+     * Fatal rather than degraded, deliberately.
+     *
+     * A listing rendered with none of the trades the business actually holds
+     * is wrong in the way nobody reports: the page looks finished, the
+     * business looks like it does nothing, and no error exists anywhere. A 500
+     * on a public page is worse to look at and far better to find.
+     */
+    const held = must(
+      await sb
+        .from("organization_category")
+        .select("category_id, exchange_category ( slug, name, section_slug )")
+        .eq("org_id", row.id),
+      "organization_category",
+    ) ?? [];
 
-    const categories = (held ?? [])
+    const categories = held
       .map((r: any) => r.exchange_category)
       .filter(Boolean);
 
@@ -218,12 +272,15 @@ exchangeDirectory.post("/exchange/listing/:slug/contact", async (c) => {
       return c.json({ success: false, error: "Unknown contact kind." }, 400);
     }
 
-    const { data: row } = await sb
-      .from("organizations")
-      .select("id, website")
-      .eq("slug", slug)
-      .eq("status", "active")
-      .maybeSingle();
+    const row = must(
+      await sb
+        .from("organizations")
+        .select("id, website")
+        .eq("slug", slug)
+        .eq("status", "active")
+        .maybeSingle(),
+      "organizations",
+    );
 
     if (!row) return c.json({ success: false, error: "No such listing." }, 404);
 
@@ -251,12 +308,23 @@ exchangeDirectory.get("/exchange/category/:slug", async (c) => {
     const slug = c.req.param("slug");
     const territory = c.req.query("territory") || null;
 
-    const { data: category } = await sb
-      .from("exchange_category")
-      .select("id, slug, name, section_slug, parent_id, default_radius_miles")
-      .eq("slug", slug)
-      .eq("status", "active")
-      .maybeSingle();
+    /**
+     * `must` before the 404 check, and the order is the whole point.
+     *
+     * Reading only `.data` here made a missing taxonomy answer "No such
+     * category" — which tells the reader their search term is wrong when in
+     * fact the entire table is gone. A 404 must mean "we looked and it is not
+     * there", never "we could not look".
+     */
+    const category = must(
+      await sb
+        .from("exchange_category")
+        .select("id, slug, name, section_slug, parent_id, default_radius_miles")
+        .eq("slug", slug)
+        .eq("status", "active")
+        .maybeSingle(),
+      "exchange_category",
+    );
 
     if (!category) return c.json({ success: false, error: "No such category." }, 404);
 
@@ -264,12 +332,15 @@ exchangeDirectory.get("/exchange/category/:slug", async (c) => {
     // service leaf lists the businesses that hold its parent.
     const holdingId = category.parent_id ?? category.id;
 
-    const { data: rows } = await sb
-      .from("organization_category")
-      .select(`org_id, organizations ( ${PUBLIC_LISTING_COLUMNS} )`)
-      .eq("category_id", holdingId);
+    const rows = must(
+      await sb
+        .from("organization_category")
+        .select(`org_id, organizations ( ${PUBLIC_LISTING_COLUMNS} )`)
+        .eq("category_id", holdingId),
+      "organization_category",
+    ) ?? [];
 
-    const listings = (rows ?? [])
+    const listings = rows
       .map((r: any) => r.organizations)
       .filter((o: any) => o && o.status === "active")
       .map((o: any) => publicListing(o, [{ slug: category.slug, name: category.name }]));
