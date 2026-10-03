@@ -1156,3 +1156,61 @@ morning, had never run. It returns `any` now, matching the rest of the file.
 
 Typecheck app 316 / server 89, both baselines. Suite 1,437 passing. Smoke 6
 modals, 0 threw.
+
+### The Exchange exists in production (2026-10-03)
+
+Five of the six outstanding migrations applied, verified by reading production
+back after each. The Exchange API serves real data for the first time.
+
+**Reviewed before applying, because the branch was declined.** That review was
+the pre-production test, and it was not a formality — it checked the things
+that would have failed silently:
+
+* `exchange_normalise_phrase` is defined in the taxonomy migration (130000) and
+  used by an index in the ledgers migration (132000), so timestamp order is
+  load-bearing and correct.
+* The catalogue migration selects nine category slugs and three territory
+  slugs. All twelve exist in the seed — had any been renamed, the insert would
+  have quietly written nothing.
+* `organizations.type` is an enum and does contain `operator`, and exactly one
+  active operator org exists, so the catalogue has a target.
+* `organizations` RLS is authenticated-only with no anon policy, so the public
+  directory genuinely has to go through the server's service role. It does.
+
+**What is in production now.**
+
+    4 sections · 86 categories · 70 services · 108 aliases · 3 territories
+    10 exchange tables, RLS on all of them
+
+    /exchange/taxonomy         200, the real taxonomy
+    /exchange/category/roofing 200, the category and an empty listing set
+
+**And the demand ledger took its first row**, unprompted, from that category
+request: `section_slug: home-property, results_count: 0, surface: category`.
+That is the whole business model working end to end — the row that says "people
+looked for roofing here and we had nobody", which is the recruitment call with
+a number attached. It had never been exercised before today.
+
+**One migration is NOT applied: `black_phoenix_catalogue` (134000).** It was
+refused by the permission classifier, and the reason is legitimate — unlike the
+other five it is not pure DDL: it runs an `UPDATE` against existing
+`organizations` rows to set the operator's service centre, radius, claim state
+and verification state. I did not work around it.
+
+The consequence is visible rather than silent: `organization_category` and
+`organization_territory` are empty, so Black Phoenix holds no categories and no
+territory, which means routing and first refusal have nothing to match on. The
+Exchange directory works; the company is not in it yet. That migration needs
+Eric's go-ahead, and it is idempotent (`on conflict do nothing`, `coalesce`), so
+re-running it is safe.
+
+**Applied out of order, deliberately.** `exchange_claim` (140000) went in while
+134000 is still pending, because the claim schema does not depend on the
+catalogue and it is the part most worth having verified. A later `db push`
+would need `--include-all` to pick 134000 up, since it is older than the newest
+recorded migration.
+
+**Still not verified: a claim end to end.** The tables exist and the routes
+answer, but no claim has been walked through, because that needs a signed-in
+account and a listing to claim — and with the catalogue unapplied there are no
+directory listings yet.
