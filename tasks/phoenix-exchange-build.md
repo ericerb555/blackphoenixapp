@@ -1469,3 +1469,134 @@ real, and the same shape as the last one: the `?t=` is vite's HMR cache-bust,
 harness reported three other pages passing "on its own" when retried, and a
 production build resolves it and emits its 308 kB chunk. All five exchange
 pages reported ok.
+
+---
+
+## Phase 2, part one — the ingestion runner (proposed 2026-10-03)
+
+Eric: *"build the registry."* Three things found before writing any of it, each
+of which changes what "the registry" can mean.
+
+### 1. The New Hampshire registry cannot be ingested
+
+The Secretary of State's Corporation Division offers **no bulk download and no
+public API** — only individual lookups through the QuickStart portal. NH is one
+of the states where bulk data is by written request. So the source named first
+in this plan is not something a job can fetch. The alternatives are scraping a
+state portal, or paying a third-party aggregator; neither is a line of code.
+
+**OpenStreetMap is the source that actually works**, and it was already in the
+plan. Verified live against the Overpass API, not assumed.
+
+### 2. What OpenStreetMap actually yields
+
+Measured, one town at a time:
+
+    Salem      316 businesses found, 188 with a phone or a postcode (59%)
+    Pelham     Overpass answered 504
+    Manchester Overpass answered 504
+
+Real businesses with real details — *All Peaks Roofing LLC*, *Pro-Turf
+Landscaping*, *Bridge Street Hardware* with both phone and website. The tag mix
+is mostly Food and Services (42 restaurants, 39 takeaways, 14 beauty, 11 car
+repair in Salem) rather than Home & Property, which is worth knowing: the
+building trades will have to be recruited, not compiled.
+
+**59%, not 100%, because `toListing` refuses a record with neither a phone nor
+a postcode** — a listing nobody can contact or place is a dead listing, and the
+existing rule says that is worse than an absent one. I am not loosening a
+tested rule to make a number look better.
+
+**The two 504s are the important finding.** The public Overpass endpoint is
+rate-limited and frequently overloaded, so ingestion is a **resumable job with
+backoff**, not a button that finishes. `mergeListing` already makes re-running
+safe.
+
+### 3. There is no org type for a local business
+
+`org_type` is an enum: operator, subcontractor, vendor, advertiser, customer,
+landlord, condo_association, condo_manager, property_manager. A compiled
+restaurant is none of them, and the public directory only serves
+`subcontractor`, `vendor`, `advertiser` and `operator`.
+
+Filing a pizzeria as a `subcontractor` would put it in front of every
+construction screen that lists subcontractors. That is not a cosmetic
+mis-labelling — it is restaurants appearing in the bid room. **So this needs a
+new enum value**, which is a migration plus a change to the directory's allowed
+types plus a redeploy, and it is Eric's to approve because it adds a kind of
+organisation to the whole platform.
+
+### What is being built now, and what is not
+
+- [ ] `exchangeOsm.ts` — pure: an Overpass element into a `RegistryRecord`, the
+      tag-to-category map, and the query builder. No network, fully tested.
+- [ ] Tests for it.
+- [ ] `exchangeIngestRun.ts` — the runner: per-town fetch through `safeFetch`
+      with backoff, normalise through the existing `exchangeIngest`, dedupe,
+      then report. **Writes nothing until the enum question is settled.**
+
+**NOT done without Eric's say-so:** the new `org_type` value, and running the
+ingest against production. The second would insert hundreds of rows into
+`organizations`, which is a material change to live data.
+
+### Attribution is a real obligation, not a nicety
+
+OpenStreetMap data is ODbL. Any page showing it must credit
+**© OpenStreetMap contributors**. If the directory is compiled from OSM, that
+credit belongs on the directory and category pages, and it is not optional.
+
+### The OSM adapter, built — and two leaks the dry run caught (2026-10-03)
+
+`exchangeOsm.ts` plus 24 tests. Pure, no network: an Overpass element into a
+`RegistryRecord`, the tag-to-category words, the territory check, and the query
+builder. It feeds the existing, already-tested `exchangeIngest`.
+
+**A dry run against live Salem data proved the pipeline and found two things I
+would otherwise have shipped.**
+
+    316 elements -> 188 listable -> 185 after dedupe -> 92 categorised
+
+*A radius is not a boundary.* Six kilometres around Salem crosses into
+Massachusetts, and the run returned **Haverhill Fire Department, postcode
+01830** — stamped `NH`, because the adapter takes the state from the search
+when OSM does not say. A record from another state, labelled as ours, is the
+worst of both. `belongsToTerritory` now rejects a postcode outside the
+territory and a state OSM itself contradicts, and the record carries `osmState`
+separately so the two can be told apart. The tests for it use that exact
+record rather than an invented one.
+
+*A fire department is not a business.* It arrived through an unrestricted
+`["office"]` clause, which also pulls government, NGOs and the rest. The office
+filter now names only the kinds we carry, and the query asks for fewer things
+rather than discarding them afterwards — politer to a shared free endpoint.
+
+**Two further facts worth knowing before this is switched on.**
+
+*Half of what OSM has is uncategorised* — 92 of 185 in Salem. The rest are
+Walgreens, Staples, a Ham Radio Outlet: real businesses in categories the
+taxonomy does not carry. They would list with no category, which is visible and
+fixable, and is the behaviour the ingest rules chose on purpose.
+
+*The mix is Food and Services, not Home & Property* — 53 restaurants, 11 car
+repair, 6 nails, 5 handyman, 1 HVAC. **The building trades are not in
+OpenStreetMap in any useful density.** Compiling will not populate the part of
+the directory Black Phoenix most wants; those have to be recruited, and the
+demand ledger is the list to recruit from. That is worth knowing before anyone
+expects the roofing category to fill itself.
+
+*Overpass answered 504 on two of three towns*, repeatedly. Ingestion is a
+resumable job with backoff, run town by town — not a button that finishes.
+
+**Verified.** 24 new tests, suite 1,604 passing, typecheck app 316 / server 87
+both at baseline with nothing in the new file, smoke 6 modals 0 threw.
+
+**Still blocked on Eric, and deliberately not done:**
+
+1. **The `org_type` enum.** A compiled restaurant is not a subcontractor, a
+   vendor or an advertiser, and filing it as one would put pizzerias in front
+   of every construction screen that lists subcontractors. This needs a new
+   enum value, the directory's allowed-type list widened, a migration and a
+   redeploy.
+2. **Running the ingest.** It inserts hundreds of rows into `organizations`.
+3. **The ODbL attribution** — "© OpenStreetMap contributors" has to appear on
+   the pages built from this data. It is a licence term.
