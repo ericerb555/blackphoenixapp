@@ -23,6 +23,9 @@ const OUT = join(HERE, '..', '..', 'dist', 'digital-products');
 /** Every product with a builder written. Add an id here as it is authored. */
 const PRODUCTS = [
   'calc-reserve',
+  'calc-roi',
+  'calc-rental-pricing',
+  'calc-ev-roi',
 ];
 
 function human(bytes) {

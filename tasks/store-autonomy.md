@@ -328,15 +328,17 @@ table, and a workbook with live formulas and currency formats). Fonts are
 limited to the standard PDF set, which is enough: Times for book body,
 Helvetica for furniture.
 
-- [ ] **D.1** The pipeline: `scripts/digital-products/build.mjs`, a shared
-      typographic layer (cover, running heads, page numbers, headings, body,
-      bullets, tables, callouts, contents page) and a shared workbook style.
-      Output to `dist/digital-products/`, reviewable before anything uploads.
-- [ ] **D.2** One complete artefact first, to settle the standard before
+- [x] **D.1** The pipeline: `scripts/digital-products/build.mjs`, a shared
+      workbook style and a shared Guide builder. Output to
+      `dist/digital-products/`, reviewable before anything uploads. Plus
+      `verify.mjs`, which checks structure for every product and delegates the
+      arithmetic to a `selfCheck()` the product itself exports.
+- [x] **D.2** One complete artefact first, to settle the standard before
       fourteen more are made to it. The Reserve Fund Adequacy Calculator: no
       legal claims, no format question, and a spreadsheet is judged on whether
       its arithmetic is right, which is unambiguous.
-- [ ] **D.3** The remaining three calculators, once the standard is agreed.
+- [x] **D.3** The remaining three calculators: Property ROI ($39), Rental
+      Pricing Optimizer ($24), EV Charging Revenue ($19).
 - [ ] **D.4** The four templates and the two maintenance products.
 - [ ] **D.5** The five ebooks. Written to substance, not to a page count —
       see the decision below.

@@ -609,3 +609,98 @@ export async function build() {
     buffer: Buffer.from(await wb.xlsx.writeBuffer()),
   }];
 }
+
+/**
+ * Independent recomputation of the model, for `verify.mjs`.
+ *
+ * Deliberately written from the saved input cells rather than from the
+ * constants above, so a seed that fails to reach the sheet shows up as a
+ * disagreement instead of being confirmed by the same array that caused it.
+ */
+export async function selfCheck(wb) {
+  const setup = wb.getWorksheet('Setup');
+  const comps = wb.getWorksheet('Components');
+  const money = (n) => (n < 0 ? `-$${Math.abs(Math.round(n)).toLocaleString()}` : `$${Math.round(n).toLocaleString()}`);
+  const literal = (ws, ref) => {
+    const v = ws.getCell(ref).value;
+    return v && typeof v === 'object' && 'formula' in v ? null : v;
+  };
+
+  const units = literal(setup, S.units);
+  const studyYear = literal(setup, S.studyYear);
+  const balance = literal(setup, S.reserveBalance);
+  const contribution = literal(setup, S.currentContribution);
+  const inflation = literal(setup, S.inflation);
+  const interest = literal(setup, S.interest);
+  const increase = literal(setup, S.contributionIncrease);
+  const catchUp = literal(setup, S.catchUpYears);
+
+  const rows = [];
+  for (let r = FIRST_COMPONENT_ROW; r <= LAST_COMPONENT_ROW; r += 1) {
+    const name = comps.getCell(`A${r}`).value;
+    const qty = comps.getCell(`C${r}`).value;
+    const unitCost = comps.getCell(`E${r}`).value;
+    const life = comps.getCell(`G${r}`).value;
+    const lastDone = comps.getCell(`H${r}`).value;
+    if (!name || qty == null || unitCost == null || !life || !lastDone) continue;
+    const costToday = qty * unitCost;
+    const age = Math.max(0, studyYear - lastDone);
+    const remaining = Math.max(0, life - age);
+    rows.push({ costToday, life, remaining, ffb: costToday * Math.min(age / life, 1), accrual: costToday / life });
+  }
+
+  const ffb = rows.reduce((s, c) => s + c.ffb, 0);
+  const accrual = rows.reduce((s, c) => s + c.accrual, 0);
+  const totalToday = rows.reduce((s, c) => s + c.costToday, 0);
+  const percentFunded = ffb === 0 ? 0 : balance / ffb;
+  const shortfall = Math.max(0, ffb - balance);
+  const recommended = accrual + (catchUp ? shortfall / catchUp : 0);
+
+  const spend = [];
+  for (let t = 1; t <= YEARS; t += 1) {
+    let total = 0;
+    for (const c of rows) {
+      const firstDue = Math.max(c.remaining, 1);
+      if (t >= firstDue && (t - firstDue) % c.life === 0) total += c.costToday * (1 + inflation) ** t;
+    }
+    spend.push(total);
+  }
+
+  let bal = balance;
+  let lowest = Infinity;
+  let firstDry = null;
+  let maxAssessment = 0;
+  for (let t = 1; t <= YEARS; t += 1) {
+    const contrib = contribution * (1 + increase) ** (t - 1);
+    bal += contrib + Math.max(0, bal + contrib / 2) * interest - spend[t - 1];
+    lowest = Math.min(lowest, bal);
+    if (bal < 0) {
+      if (firstDry === null) firstDry = studyYear + t - 1;
+      maxAssessment = Math.max(maxAssessment, -bal);
+    }
+  }
+
+  const reading = percentFunded < 0.3 ? 'Weak' : percentFunded < 0.7 ? 'Fair' : 'Strong';
+  const concerns = [];
+  if (rows.length < 20) concerns.push(`only ${rows.length} components read back out of the workbook`);
+  if (percentFunded <= 0 || percentFunded > 3) concerns.push(`percent funded of ${(percentFunded * 100).toFixed(1)}% is not a believable example`);
+  if (recommended <= contribution) concerns.push('the recommendation does not exceed the current contribution, so the example demonstrates nothing');
+  if (firstDry === null) concerns.push('the seeded association never runs dry, so the projection shows nothing');
+
+  return {
+    figures: [
+      ['components priced', `${rows.length}`],
+      ['replacement cost today', money(totalToday)],
+      ['fully funded balance', money(ffb)],
+      ['reserve balance on hand', money(balance)],
+      ['percent funded', `${(percentFunded * 100).toFixed(1)}%  → ${reading}`],
+      ['shortfall', `${money(shortfall)}  (${money(shortfall / units)} per unit)`],
+      ['recommended contribution', `${money(recommended)}  against ${money(contribution)} now`],
+      ['gap per unit per month', `$${(Math.max(0, recommended - contribution) / units / 12).toFixed(2)}`],
+      ['lowest balance in 30 years', money(lowest)],
+      ['first year the fund dries', firstDry ?? 'never on these assumptions'],
+      ['largest assessment needed', maxAssessment ? `${money(maxAssessment)}  (${money(maxAssessment / units)} per unit)` : 'none'],
+    ],
+    concerns,
+  };
+}
