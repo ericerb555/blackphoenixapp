@@ -50,6 +50,7 @@ import {
   dedupeListings,
   mergeListing,
   listingSlug,
+  collidesWithInviteSlug,
   type ListingCandidate,
 } from "./exchangeIngest.ts";
 
@@ -156,6 +157,10 @@ async function freeSlug(sb: any, candidate: ListingCandidate): Promise<string> {
   const withPostcode = listingSlug(candidate.name, candidate.postcode);
 
   for (const slug of [first, withPostcode]) {
+    // A compiled listing must never take a slug the invite flow would build,
+    // because ensureOrganization REUSES an org it finds by slug — see
+    // collidesWithInviteSlug for what that would hand to the wrong person.
+    if (collidesWithInviteSlug(slug)) continue;
     const { data } = await sb.from("organizations").select("id").eq("slug", slug).maybeSingle();
     if (!data) return slug;
   }
@@ -164,6 +169,7 @@ async function freeSlug(sb: any, candidate: ListingCandidate): Promise<string> {
   // better than refusing to list the second one.
   for (let n = 2; n < 50; n += 1) {
     const slug = listingSlug(candidate.name, `${candidate.postcode ?? ""}${n}`);
+    if (collidesWithInviteSlug(slug)) continue;
     const { data } = await sb.from("organizations").select("id").eq("slug", slug).maybeSingle();
     if (!data) return slug;
   }

@@ -38,6 +38,7 @@ import {
   mergeListing,
   type ListingCandidate,
   listingSlug,
+  collidesWithInviteSlug,
 } from '../supabase/functions/server/exchangeIngest.ts';
 
 const ALIASES = new Map<string, string>([
@@ -359,4 +360,26 @@ test('a slug never starts or ends with a hyphen, however long the name', () => {
   assert.ok(!long.endsWith('-'), long);
   assert.ok(long.length <= 60);
   assert.equal(listingSlug('  spaced out  '), 'spaced-out');
+});
+
+/* ── staying out of the invite flow's way ─────────────────────────────── */
+
+test('a compiled slug that looks like an invite slug is recognised', () => {
+  // ensureOrganization REUSES an org it finds by slug, so a compiled business
+  // named "Joe Vendor" would hand joe@example.com's membership to a stranger's
+  // listing.
+  assert.equal(collidesWithInviteSlug('joe-vendor'), true);
+  assert.equal(collidesWithInviteSlug('smith-subcontractor'), true);
+  assert.equal(collidesWithInviteSlug('acme-condo_association'), true);
+  assert.equal(collidesWithInviteSlug('anything-operator'), true);
+});
+
+test('an ordinary business slug is left alone', () => {
+  assert.equal(collidesWithInviteSlug('sutton-roofing-llc'), false);
+  assert.equal(collidesWithInviteSlug('all-peaks-roofing-llc'), false);
+  assert.equal(collidesWithInviteSlug('dunkin-03079'), false);
+  // The word has to be the ENDING, not merely present.
+  assert.equal(collidesWithInviteSlug('vendor-supply-co'), false);
+  assert.equal(collidesWithInviteSlug(''), false);
+  assert.equal(collidesWithInviteSlug(null), false);
 });

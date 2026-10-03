@@ -1664,3 +1664,56 @@ signed in, is:
 
 Expect roughly 185 listable businesses in Salem, about half uncategorised, and
 a real chance of a 504 that simply needs retrying.
+
+### Rehearsing the write path, and a collision with the invite flow (2026-10-03)
+
+The ingest is staff-gated and I have no staff session, so the runner's write
+path could not be run. It could be **rehearsed**: the exact insert it performs,
+against production, inside a transaction that rolls back.
+
+Proven in one go — the `exchange_business` enum value, every check constraint
+(`claim_state = 'listed'`, `listing_source = 'registry'`,
+`verification_state = 'unverified'`), the category-allowance trigger, both join
+tables, and the directory's own category query returning the new listing
+alongside Black Phoenix and passing the public-type rule. Then rolled back, and
+confirmed gone.
+
+**A mistake worth recording.** The first attempt sent `begin;` and the inserts
+in one call and the `rollback;` in another. Each call runs in its own
+transaction, so the uncommitted work was discarded — but that was luck, not
+design: had the tool committed per call, there would be a fabricated roofing
+company in the live directory right now. A transaction has to begin and end in
+the same statement.
+
+### The real find: compiled listings can collide with the invite flow
+
+Checking the claim that separation is "by construction" rather than asserting
+it: of 19 server queries against `organizations`, only one filters on type.
+The two outside the Exchange are `on-call.tsx`, which matches on **email** —
+compiled listings have none, so it cannot reach them — and
+`organizations.tsx`, which matches on **slug**.
+
+`ensureOrganization` builds an invited account's slug as
+`{email local part}-{portal type}`, so joe@example.com invited to the vendor
+portal becomes `joe-vendor`. **And when it finds that slug already taken it
+REUSES that organisation** rather than creating one. A compiled business
+literally named "Joe Vendor" slugifies to `joe-vendor` — and the next invite
+for that address would attach the person's membership to a stranger's listing.
+
+Unlikely. Not impossible, and the consequence is somebody holding membership of
+a business they have nothing to do with.
+
+**Fixed on the Exchange side, deliberately not in the invite path.** Eric's
+standing rule is that every way onto the platform has to keep working, and the
+invite flow is load-bearing; compiled listings are the newcomer, so the
+newcomer gets out of the way. `collidesWithInviteSlug` rejects any slug ending
+in a portal-type word, and `freeSlug` skips to the next candidate.
+
+**The better fix is still available and is Eric's to take**: have
+`ensureOrganization` reuse an organisation only when its type matches the one
+it would create. That protects against every future slug source rather than
+just this one — but it changes the invite path, which is not something to do
+unasked.
+
+Suite 1,611 passing. Typecheck app 316 / server 87, both baselines. Smoke 6
+modals, 0 threw. Deployed.

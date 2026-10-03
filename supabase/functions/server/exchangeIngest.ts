@@ -427,3 +427,32 @@ export function listingSlug(name: unknown, discriminator?: unknown): string {
   if (!base) return tail ? `listing-${tail}` : "listing";
   return tail ? `${base}-${tail}` : base;
 }
+
+/**
+ * Slug endings the invite flow owns, which a compiled listing must never take.
+ *
+ * `organizations.tsx` builds an invited account's slug as
+ * `{email local part}-{portal type}` — joe@example.com invited to the vendor
+ * portal becomes `joe-vendor`. And `ensureOrganization` REUSES an organisation
+ * it finds by that slug rather than creating one.
+ *
+ * So a compiled business literally named "Joe Vendor" would slugify to
+ * `joe-vendor`, and the next invite for joe@example.com would attach that
+ * person's membership to a business they have nothing to do with. Unlikely,
+ * and the consequence is somebody holding membership of a stranger's listing,
+ * which is not a risk worth carrying for the sake of one tidy slug.
+ *
+ * The invite path is deliberately not the thing being changed here: Eric's
+ * standing rule is that every way onto the platform has to keep working, and
+ * compiled listings are the newcomer. The newcomer gets out of the way.
+ */
+const INVITE_SLUG_ENDINGS = [
+  "customer", "landlord", "vendor", "subcontractor", "advertiser",
+  "property_manager", "condo_manager", "condo_association", "operator",
+];
+
+/** Would this slug collide with the shape the invite flow generates? */
+export function collidesWithInviteSlug(slug: unknown): boolean {
+  const value = String(slug ?? "").toLowerCase();
+  return INVITE_SLUG_ENDINGS.some((ending) => value.endsWith(`-${ending}`));
+}
