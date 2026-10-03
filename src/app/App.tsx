@@ -499,6 +499,17 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * licence number, the lead ledger and the demand ledger are not in it.
      */
     'exchange-listing',
+    /**
+     * The browse surface above it: the front door and the category pages.
+     *
+     * These are what make a listing reachable by anything other than a typed
+     * slug, and what a crawler walks to find them. Public for exactly the same
+     * reasons as the listing itself — and nothing private is served, because
+     * the directory routes choose their own column list and the licence
+     * number, the lead ledger and the demand ledger are not in it.
+     */
+    'exchange',
+    'exchange-category',
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',

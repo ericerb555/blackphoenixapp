@@ -172,6 +172,8 @@ const PermitAI = lazy(() => import("./pages/PermitAI"));
 const SubcontractorEnterprise = lazy(() => import("./pages/SubcontractorEnterprise"));
 const BidRoom = lazy(() => import("./pages/BidRoom"));
 const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
+const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
+const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
@@ -603,6 +605,17 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // search authority, and this is how it is earned.
 
   "exchange-listing":        ExchangeListing,
+  /**
+   * The browse surface. Public for the same reason the listing page is: a
+   * resident looking up a plumber has no account, and these are the pages a
+   * search engine indexes on a domain with no authority to start with.
+   *
+   * `exchange` is the front door and `exchange-category` is what links a
+   * resident to a listing — without them a listing was reachable only by
+   * typing its slug.
+   */
+  "exchange":                ExchangeDirectory,
+  "exchange-category":       ExchangeCategory,
   /**
    * Staff only, and deliberately NOT in App's public route list.
    *

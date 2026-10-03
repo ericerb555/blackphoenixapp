@@ -1303,3 +1303,66 @@ state and expiry — and the existing logic shows it honestly.
 Verified after: operator still `claimed`, `operator` source, 50-mile radius, 9
 categories; the live listing still serves 9 categories with
 `licenceVerified: false`. No server code changed, so no redeploy was needed.
+
+### Phase 2, part three — the browse surface, built (2026-10-03)
+
+The step deferred in favour of the claim, now worth more than when it was
+written: 4 sections, 86 categories and 70 services are live, so these pages
+show real things rather than empty shells.
+
+- [x] `ExchangeDirectory.tsx` — the front door. Four sections, their
+      categories, and the services under each as prose, so a resident can tell
+      whether it is the right door without opening it.
+- [x] `ExchangeCategory.tsx` — the businesses in one category, each linking to
+      its listing.
+- [x] The empty state carries the "who were you looking for?" form, posting to
+      `/exchange/missing`.
+- [x] Routed, and in the public route list with the reasoning written where the
+      listing page's is.
+
+**No search box, no map, no counts.** The real main page — location, search,
+the business count, Happening Now, the map preview — is Phase 4. Building half
+of it here is precisely the "on the whim" failure, so it was left alone.
+
+Counts were omitted for a second reason worth keeping: a tile reading
+"0 businesses" on launch day advertises an empty directory on the page whose
+job is to look complete.
+
+**One addition to the agreed plan, stated rather than slipped in: a town
+chooser.** `GET /exchange/category/:slug` already accepted a `territory` and
+wrote it to the demand ledger, and nothing was ever passing one — so every
+zero-result row read "somebody wanted roofing somewhere" instead of "roofing,
+Salem, nobody". The second is a recruitment call; the first is not. This is the
+same reasoning the plan already used to justify wiring up `/exchange/missing`,
+which also had no caller.
+
+The towns are a **closed set** in `src/app/lib/exchangeTowns.ts`, not free
+text, because `territory_slug` is a foreign key to `exchange_territory` — an
+invented slug violates it, the ledger writer swallows its own failures by
+design, and the demand row would vanish without a sound. The remembered value
+is validated against that set on read, so a hand-edited `localStorage` cannot
+become a query parameter. It chooses which town we ask about and nothing else.
+
+**A correction to my own first pass.** `ExchangeCategory` originally imported
+the town list from `ExchangeDirectory`, which would have pulled an entire
+lazy-loaded page component into the other's chunk for four strings, and
+`readTown` was duplicated in both files. Both now come from the shared module.
+
+**Verified.** Typecheck app 316 / server 87, both baselines, nothing in the new
+files. Suite 1,505 passing. Full smoke sweep of **349 pages: 348 rendered, 0
+did not report, 1 threw** — `dashboard`, with "failed to fetch dynamically
+imported module". Not a real defect: `UnifiedDashboard` imports none of the
+files involved, a production build resolves every module and emits its chunk
+normally, and the parallel session was editing files on disk throughout the
+six-minute sweep, which invalidates vite's module graph mid-run. All four
+exchange pages reported `ok`.
+
+**Note on running the full sweep.** When `routes.tsx` changes, every page is
+affected, and the *targeted* path runs one page at a time with a 60-second
+wait — which is hours for 349 pages. Use `npm run smoke:all`, which batches 15
+at a time and finishes in minutes. Worth knowing before concluding the harness
+has hung.
+
+**Not verified in a browser.** The pages mount under the harness and bundle
+cleanly, and the API they call is confirmed live, but nobody has clicked
+through the directory to a category to a listing yet.
