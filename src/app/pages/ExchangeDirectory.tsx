@@ -128,7 +128,7 @@ export default function ExchangeDirectory() {
   }, [categories]);
 
   const categoryHref = useCallback(
-    (slug: string) => `?page=exchange-category&slug=${encodeURIComponent(slug)}`,
+    (slug: string) => `/exchange-category?slug=${encodeURIComponent(slug)}`,
     [],
   );
 

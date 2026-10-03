@@ -157,7 +157,7 @@ export default function ExchangeCategory() {
     }
   }, [missing, town, slug, authHeader]);
 
-  const listingHref = (s: string) => `?page=exchange-listing&slug=${encodeURIComponent(s)}`;
+  const listingHref = (s: string) => `/exchange-listing?slug=${encodeURIComponent(s)}`;
 
   return (
     <div className="bpx">
@@ -165,7 +165,7 @@ export default function ExchangeCategory() {
       <style>{BROWSE_CSS}</style>
 
       <div className="bpx-shell">
-        <a className="bpxb-crumb" href="?page=exchange">
+        <a className="bpxb-crumb" href="/exchange">
           <ChevronLeft size={14} /> All of Phoenix Exchange
         </a>
 
@@ -197,7 +197,7 @@ export default function ExchangeCategory() {
           <div className="bpx-empty">
             <AlertCircle size={26} color="#fca5a5" />
             <div className="bpx-card-title">{error}</div>
-            <a className="bpx-btn" href="?page=exchange">Back to the directory</a>
+            <a className="bpx-btn" href="/exchange">Back to the directory</a>
           </div>
         )}
 

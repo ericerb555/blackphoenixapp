@@ -1366,3 +1366,48 @@ has hung.
 **Not verified in a browser.** The pages mount under the harness and bundle
 cleanly, and the API they call is confirmed live, but nobody has clicked
 through the directory to a category to a listing yet.
+
+### Seen working, and a routing bug that only looking could have found (2026-10-03)
+
+The browse surface was built, typechecked, bundled and smoked clean — and
+**every link on it went to the landing page.**
+
+This app routes on the **pathname**: `getPageFromPath` reads
+`window.location.pathname.slice(1)`. I had written `?page=exchange-category&…`
+links throughout, which leaves the pathname at `/`, so every click landed on
+`landing`. The convention is `href="/exchange-category?slug=…"`, and
+`ExchangeListing.tsx` was already doing it correctly with `href="/bid-room"`.
+
+Fixed in all three places, including `ExchangeClaimReview`, whose "see the
+public listing" link had the same defect and had already been committed and
+pushed.
+
+**Nothing else in the app had this pattern** — a grep for `href="?page=` across
+`src/app/` returns only what I wrote — so it was mine, and only mine.
+
+**Why no check caught it.** It is not a type error: the string is a valid
+string. It is not a mount failure: smoke renders a page and never clicks a
+link. It is not a build error: the module resolves. The page rendered perfectly
+and did the wrong thing, which is the exact class this project keeps meeting —
+the public buckets, the unreachable routes, the directory that reported itself
+as empty.
+
+**Observed, headlessly, against the live production API** (the Chrome extension
+was not connected, so the smoke harness's Edge was used with
+`--virtual-time-budget` to let the fetches settle):
+
+    /exchange                          4 sections, every category, services
+                                       listed under each as prose, town chips
+    /exchange-category?slug=roofing    1 business — Black Phoenix Builds,
+                                       CLAIMED, through to its full listing
+    /exchange-category?slug=plumbing   "Nobody here yet for plumbing", with
+                                       the missing-business form
+
+Screenshots were taken at 1300×1500 and read back; the directory fills the page
+with real taxonomy rather than placeholder text.
+
+**Verified after the fix.** Typecheck app 316 / server 87, both baselines.
+Suite 1,505 passing. Smoke 21 pages, 0 threw.
+
+**The lesson is the one already written down**, and it earned its place again:
+a passing build says the code compiles, not that the product works.

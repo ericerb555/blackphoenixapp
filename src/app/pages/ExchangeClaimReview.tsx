@@ -425,7 +425,7 @@ export default function ExchangeClaimReview() {
                     {claim.business.slug && (
                       <a
                         className="bpx-btn"
-                        href={`?page=exchange-listing&slug=${encodeURIComponent(claim.business.slug)}`}
+                        href={`/exchange-listing?slug=${encodeURIComponent(claim.business.slug)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{ alignSelf: 'flex-start' }}
