@@ -1070,3 +1070,43 @@ the other.
 
 Typecheck app 316 / server 89, both baselines. Suite 1,437 passing. Smoke 21
 pages, 0 threw.
+
+### The edge function is deployed (2026-10-03)
+
+`supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm`.
+Live and healthy at version `2.9.0-command-center-resilient`.
+
+**Deployed BY NAME, deliberately.** A bare `supabase functions deploy` deploys
+every function in `config.toml`, and that file carries an explicit warning that
+doing so once pointed `make-server-57095a78` at its full directory and
+re-exposed 509 retired routes with service-role privileges against live data.
+Name the function.
+
+**`--no-verify-jwt` was NOT passed, despite `deploy.md` saying to.** The live
+function and `config.toml` both have `verify_jwt = true`, so the flag would
+have loosened the gateway — a security change nobody asked for. `deploy.md` is
+stale on this point and should be corrected.
+
+**Verified against production, not assumed.**
+
+    /health                       200, version 2.9.0
+    /exchange/taxonomy            200 — was unreachable before the mount fix
+    /exchange/review/claims       401 with an anon key
+    /storage/repair-job-media     401 with an anon key
+    /exchange/claim/start         401 with an anon key
+
+The three private routes are refused by the global auth wall before the
+per-handler staff checks are even reached, which is the layering we want.
+
+**A bug the deploy exposed, not yet fixed.** `/exchange/taxonomy` answered
+`{"success":true,"sections":[],"categories":[],"services":[]}` — on a database
+where **none of the exchange tables exist**. `supabase-js` returns a missing
+table as `result.error` rather than throwing, and the route reads
+`sections.data ?? []` without ever checking `.error`, so the `catch` never
+fires. A completely broken directory reports itself as an empty one.
+
+That is the same silent-failure class that has bitten this project repeatedly:
+the public buckets nobody noticed, the unreachable routes that typechecked
+clean, the server half of the typecheck that never ran. `/exchange/category/:slug`
+and `/exchange/listing/:slug` should be checked for the same pattern. Four
+lines, and it needs a redeploy to take effect, so it is Eric's to say go.
