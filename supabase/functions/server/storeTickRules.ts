@@ -135,3 +135,122 @@ export function clockHealth(lastRunAt: unknown, now: Date = new Date()): ClockHe
 export function disabledJobs(registered: string[], settings: AutonomySettings): string[] {
   return registered.filter((name) => name !== "heartbeat" && settings.jobs[name] !== true);
 }
+
+// ── Asking a person ─────────────────────────────────────────────────────────
+
+/**
+ * When the machine stops and asks.
+ *
+ * Eric's requirement, in his words: *"can we make sure the automony feature has
+ * a reporting place that we can review and a place it it needs a human approval
+ * or guidence we can communicate?"* Both halves matter. The heartbeat is the
+ * report; this is the asking, and the answer has to come back and be acted on —
+ * a one-way alert is not a conversation.
+ *
+ * An ask is raised by a job, carries what the job was about to do and why it
+ * stopped, offers named choices, and waits. It is deliberately NOT an alert:
+ * an alert is something you read, and this is something you answer.
+ */
+export type AskStatus = "open" | "answered" | "withdrawn";
+
+export interface StoreAsk {
+  id: string;
+  /** The job that wants a decision. */
+  job: string;
+  /**
+   * Stable per question, so a job that runs every fifteen minutes raises one
+   * ask rather than ninety-six a day. This is the whole reason the queue stays
+   * readable.
+   */
+  dedupeKey: string;
+  /** One line: what is being asked. */
+  question: string;
+  /** Why the machine would not decide this itself. */
+  because: string;
+  /** What it was about to do, if nobody intervenes. Plain language. */
+  wouldHaveDone?: string;
+  /** Named options. The first is the machine's recommendation, if it has one. */
+  choices: Array<{ key: string; label: string; consequence?: string }>;
+  /** Label/value pairs: the facts a person needs to decide. */
+  detail: Array<[string, string]>;
+  /** What this concerns, so the answer can be applied. */
+  subject?: { kind: string; id: string };
+  status: AskStatus;
+  raisedAt: string;
+  answeredAt?: string;
+  answeredBy?: string;
+  /** The chosen option key. */
+  answer?: string;
+  /** Free text from the person answering — the "guidance" half. */
+  note?: string;
+}
+
+export const ASK_CHOICE_MAX = 6;
+
+/** Is this ask still waiting on somebody? */
+export function askIsOpen(ask: unknown): boolean {
+  return (ask as any)?.status === "open";
+}
+
+/**
+ * Accept an answer, or say why not.
+ *
+ * Refuses a choice the ask never offered. A job reads `answer` and acts on it,
+ * so an answer outside the offered set is an instruction the job has no code
+ * for — better refused at the door than stored for a job to misread.
+ */
+export function applyAnswer(
+  ask: StoreAsk,
+  choice: string,
+  opts: { by?: string; note?: string; now?: Date } = {},
+): { ok: boolean; ask?: StoreAsk; error?: string } {
+  /*
+   * A flat shape with an optional error rather than a discriminated union.
+   * This project compiles the server without strictNullChecks, and without it
+   * TypeScript will not narrow `{ok:true} | {ok:false, error}` on `!result.ok`
+   * — so the tidier union reads better and does not compile.
+   */
+  if (!askIsOpen(ask)) {
+    return { ok: false, error: `This was already ${ask.status === "answered" ? "answered" : "withdrawn"}.` };
+  }
+  const offered = (ask.choices || []).map((c) => c.key);
+  if (!offered.includes(choice)) {
+    return { ok: false, error: `"${choice}" is not one of the options (${offered.join(", ")}).` };
+  }
+  const note = String(opts.note || "").trim().slice(0, 2000);
+  return {
+    ok: true,
+    ask: {
+      ...ask,
+      status: "answered",
+      answer: choice,
+      answeredAt: (opts.now || new Date()).toISOString(),
+      answeredBy: opts.by,
+      ...(note ? { note } : {}),
+    },
+  };
+}
+
+/**
+ * Validate what a job wants to ask, before it reaches the queue.
+ *
+ * A malformed ask is worse than none: it occupies the place a person looks and
+ * tells them nothing they can act on. So a question, a reason and at least two
+ * named choices are required — if there is only one option it is not a
+ * decision, and the job should just do it.
+ */
+export function askIsWellFormed(ask: Partial<StoreAsk>): { ok: boolean; error?: string } {
+  if (!String(ask.job || "").trim()) return { ok: false, error: "An ask must name the job that raised it." };
+  if (!String(ask.dedupeKey || "").trim()) return { ok: false, error: "An ask needs a dedupe key, or it will be raised again every tick." };
+  if (!String(ask.question || "").trim()) return { ok: false, error: "An ask needs a question." };
+  if (!String(ask.because || "").trim()) return { ok: false, error: "An ask must say why the machine would not decide it." };
+  const choices = Array.isArray(ask.choices) ? ask.choices : [];
+  if (choices.length < 2) return { ok: false, error: "An ask needs at least two choices — with one option it is not a decision." };
+  if (choices.length > ASK_CHOICE_MAX) return { ok: false, error: `An ask may offer at most ${ASK_CHOICE_MAX} choices.` };
+  if (choices.some((c) => !String(c?.key || "").trim() || !String(c?.label || "").trim())) {
+    return { ok: false, error: "Every choice needs a key and a label." };
+  }
+  const keys = choices.map((c) => c.key);
+  if (new Set(keys).size !== keys.length) return { ok: false, error: "Two choices share a key." };
+  return { ok: true };
+}

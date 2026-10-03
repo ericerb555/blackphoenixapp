@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   normaliseSettings, secretMatches, leaseIsHeld, clockHealth, disabledJobs,
   DEFAULT_SETTINGS, STALE_AFTER_MINUTES, MAX_ORDERS_CEILING, MAX_SPEND_CEILING,
+  askIsWellFormed, askIsOpen, applyAnswer,
 } from '../supabase/functions/server/storeTickRules.ts';
 
 const NOW = new Date('2026-10-03T12:00:00.000Z');
@@ -132,4 +133,81 @@ test('the heartbeat reports which jobs are registered and off', () => {
   const off = disabledJobs(['heartbeat', 'fulfil', 'track', 'catalogue'], settings);
   assert.deepEqual(off, ['track', 'catalogue']);
   assert.equal(disabledJobs(['heartbeat'], settings).length, 0);
+});
+
+// ── Asking a person, and answering ──────────────────────────────────────────
+
+const ASK = {
+  id: 'track--order:BP-1',
+  job: 'track',
+  dedupeKey: 'order:BP-1',
+  question: 'What should we do about this order?',
+  because: 'CJ will not say what happened to it.',
+  choices: [
+    { key: 'keep-trying', label: 'Keep trying' },
+    { key: 'manual', label: 'I will check by hand' },
+  ],
+  detail: [['Order', 'BP-1']] as Array<[string, string]>,
+  status: 'open' as const,
+  raisedAt: NOW.toISOString(),
+};
+
+test('an ask must be answerable, or it is not worth the space it takes', () => {
+  assert.equal(askIsWellFormed(ASK).ok, true);
+  assert.equal(askIsWellFormed({ ...ASK, job: '' }).ok, false);
+  assert.equal(askIsWellFormed({ ...ASK, dedupeKey: '' }).ok, false);
+  assert.equal(askIsWellFormed({ ...ASK, question: '' }).ok, false);
+  // The reason is required: an ask that does not say why the machine stopped
+  // asks a person to reconstruct the machine's reasoning before deciding.
+  assert.equal(askIsWellFormed({ ...ASK, because: '' }).ok, false);
+});
+
+test('one option is not a decision', () => {
+  assert.equal(askIsWellFormed({ ...ASK, choices: [ASK.choices[0]] }).ok, false);
+  assert.equal(askIsWellFormed({ ...ASK, choices: [] }).ok, false);
+});
+
+test('choices need keys and labels, and may not collide', () => {
+  assert.equal(askIsWellFormed({ ...ASK, choices: [{ key: 'a', label: '' }, { key: 'b', label: 'B' }] as any }).ok, false);
+  assert.equal(askIsWellFormed({ ...ASK, choices: [{ key: '', label: 'A' }, { key: 'b', label: 'B' }] as any }).ok, false);
+  assert.equal(askIsWellFormed({ ...ASK, choices: [{ key: 'a', label: 'A' }, { key: 'a', label: 'Also A' }] }).ok, false);
+});
+
+test('an answer the ask never offered is refused', () => {
+  // A job acts on `answer`, so an answer outside the offered set is an
+  // instruction it has no code for — better refused than stored to be misread.
+  const out = applyAnswer(ASK, 'refund', { now: NOW });
+  assert.equal(out.ok, false);
+  assert.match(String(out.error), /not one of the options/);
+});
+
+test('an offered answer is recorded with who said it and what they added', () => {
+  const out = applyAnswer(ASK, 'manual', { by: 'eric@example.com', note: 'Checked CJ, it shipped.', now: NOW });
+  assert.equal(out.ok, true);
+  assert.equal(out.ask!.status, 'answered');
+  assert.equal(out.ask!.answer, 'manual');
+  assert.equal(out.ask!.answeredBy, 'eric@example.com');
+  assert.equal(out.ask!.note, 'Checked CJ, it shipped.');
+  assert.equal(out.ask!.answeredAt, NOW.toISOString());
+});
+
+test('answering twice does not overwrite the first decision', () => {
+  const first = applyAnswer(ASK, 'manual', { now: NOW });
+  const second = applyAnswer(first.ask!, 'keep-trying', { now: NOW });
+  assert.equal(second.ok, false);
+  assert.match(String(second.error), /already answered/);
+});
+
+test('a withdrawn ask cannot be answered either', () => {
+  const withdrawn = { ...ASK, status: 'withdrawn' as const };
+  const out = applyAnswer(withdrawn, 'manual', { now: NOW });
+  assert.equal(out.ok, false);
+  assert.equal(askIsOpen(withdrawn), false);
+  assert.equal(askIsOpen(ASK), true);
+});
+
+test('a long note is kept but bounded', () => {
+  const out = applyAnswer(ASK, 'manual', { note: 'x'.repeat(5000), now: NOW });
+  assert.equal(out.ok, true);
+  assert.equal(out.ask!.note!.length, 2000);
 });

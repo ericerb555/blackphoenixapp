@@ -434,22 +434,78 @@ wrong while doing nothing.
 
 *Proved by:* 96 heartbeat records a day and not one other effect.
 
+### Phase R — The report, and a way for it to ask
+
+Eric, 2026-10-03: *"can we make sure the automony feature has a reporting place
+that we can review and a place it it needs a human approval or guidence we can
+communicate?"*
+
+Both halves, and they live on one screen because the question somebody has when
+they open it is one question: **is it working, and does it need me?** Split
+across two screens, the one nobody opens is where the next silence happens.
+
+- [x] **R.1** `askForGuidance()` — a job raises a question instead of guessing.
+      Idempotent on a dedupe key, so a job running every fifteen minutes asks
+      once rather than ninety-six times a day. A job must not act while its ask
+      is open; that is the point of it.
+- [x] **R.2** An ask carries what was about to happen, why the machine stopped,
+      the facts needed to decide, and **at least two named choices** — with one
+      option it is not a decision and the job should just do it. Enforced, not
+      merely documented.
+- [x] **R.3** `GET /store/autonomy/asks` and
+      `POST /store/autonomy/asks/:id/answer`, staff only. The answer carries a
+      free-text note — the "guidance" half — and the job reads it on its next
+      run. The route records the decision and executes nothing: the doing
+      belongs in the job that knows how, not in the place somebody clicked.
+- [x] **R.4** `StoreAutonomyPanel` on the Owners Dashboard and in the Admin
+      portal, beside the existing approval queue. Shows the open questions first
+      with an answer box, then the clock's health, the jobs and what each run
+      actually did. Every figure is read from the heartbeat — there is no green
+      light that means "probably fine", and "never ran" is reported differently
+      from "ran and then stopped".
+- [x] **R.5** Eight more tests on the ask rules: an answer the ask never
+      offered is refused, answering twice does not overwrite the first
+      decision, a withdrawn ask cannot be answered, and a long note is kept but
+      bounded.
+
 ### Phase 2 — Fulfilment and tracking, unattended
 
 Switch jobs on one at a time, in the order a customer feels them.
 
-- [ ] **2.1** Job `fulfil` — retry paid-but-unforwarded CJ orders, reusing
-      `runFulfillmentSweep` untouched. The ceiling and the allowlist apply.
-- [ ] **2.2** Job `track` — pull from CJ, and write the tracking number,
-      carrier and status onto the **store order**. This is the bridge that has
-      never existed.
-- [ ] **2.3** Email the customer the first time their parcel gets a tracking
-      number, and again on delivery. Once each, keyed on the order.
-- [ ] **2.4** Take the admin-session requirement off nothing: leave
-      `/store/fulfillment/run` exactly as it is for the manual button. The
-      clock uses its own route, so no existing guard is loosened.
-- [ ] **2.5** Watch one real order from payment to delivery with nobody
-      touching it.
+- [x] **2.1** Job `fulfil` — registered from `index.tsx`, where the sweep lives,
+      so the scheduler holds no second copy of it. `runFulfillmentSweep` gained
+      a `limit`: unbounded is fine for a button somebody is watching and is not
+      fine for an unattended job, where the failure is a loop that empties the
+      CJ balance before anybody notices. Anything over the ceiling waits for the
+      next tick and the run record says so.
+- [x] **2.2** Job `track` in `storeTrackingJob.ts` — pulls from CJ and writes
+      the tracking number, carrier, URL and status onto the **store order**.
+- [x] **2.2b** **CJ tracking had to be written from scratch.**
+      `fetchTrackingFromProvider` does `GET {apiUrl}/orders/{id}/tracking` with
+      a Bearer token; CJ wants `CJ-Access-Token` and a different path. So the
+      old "sync tracking" could never have worked against the only supplier
+      this store sells, and scheduling it would have failed quietly every
+      fifteen minutes. `fetchCJOrderStatus` uses the file's own authenticated
+      helper. **Not yet proven against a live CJ order** — there is no CJ order
+      in the system to test against, so it is written to fail loudly and ask
+      rather than to look as though it worked.
+- [x] **2.3** The customer is emailed once when their parcel gets a tracking
+      number and once when it is delivered, keyed on the order so a repeat tick
+      cannot repeat the email. No fabricated carrier URL: CJ's own link if it
+      gives one, otherwise the number and the carrier name.
+- [x] **2.3b** An unrecognised supplier status leaves the order where it is.
+      Telling somebody their parcel arrived because CJ renamed a status is not a
+      recoverable mistake.
+- [x] **2.4** `/store/fulfillment/run` is untouched — the clock uses its own
+      route, so no existing guard is loosened.
+- [x] **2.4b** Three consecutive tracking failures on one order stop the
+      guessing and raise an ask: keep trying, check CJ by hand, or pause
+      tracking. This is the direct guard against the failure that started all
+      of this — something that cannot work, retrying forever, with the reason
+      written where nobody looks.
+- [ ] **2.5 — Eric:** watch one real order from payment to delivery with
+      nobody touching it. Needs the clock armed (1.5) and `fulfil` and `track`
+      switched on from the panel, one at a time.
 
 *Proved by:* a parcel arrives at somebody's door, and they were told it was
 coming, without anyone opening the app.

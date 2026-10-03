@@ -50,7 +50,8 @@ import projectVisionRouter from "./project-vision.tsx";
 import aiFloorplanRouter from "./ai-floorplan.tsx";
 import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
-import { storeAutonomyRouter } from "./storeAutonomy.ts";
+import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
+import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
@@ -17682,9 +17683,40 @@ async function runFulfillmentSweep(reason: string): Promise<{ examined: number; 
     lastRunErrors: errors.slice(0, 10),
   });
 
-  console.log(`[fulfillment sweep:${reason}] examined=${orders.length} forwarded=${forwarded} failed=${failed}`);
-  return { examined: orders.length, forwarded, failed, errors, orderIds };
+  console.log(`[fulfillment sweep:${reason}] examined=${orders.length} forwarded=${forwarded} failed=${failed}${deferred ? ` deferred=${deferred}` : ''}`);
+  return { examined: orders.length, forwarded, failed, errors, orderIds, deferred };
 }
+
+/**
+ * The sweep, on the clock.
+ *
+ * Registered here rather than in `storeAutonomy.ts` because this is where the
+ * sweep lives — the scheduler should not contain a second copy of anybody's
+ * work. It starts switched off, like every job that touches money.
+ *
+ * The ceiling comes from the run context. Nothing else about the behaviour
+ * changes: the same `forwardStoreOrderToSupplier` runs, writes the same
+ * fields, and raises the same staff alert on a paid order that did not ship.
+ */
+registerStoreJob('fulfil', async (ctx) => {
+  const result = await runFulfillmentSweep(`cron:${ctx.runId}`, ctx.maxOrdersPerTick);
+  if (result.examined === 0) {
+    return { ran: false, detail: 'No paid order is waiting to be sent to a supplier.' };
+  }
+  const bits = [`${result.examined} examined`, `${result.forwarded} forwarded`];
+  if (result.failed) bits.push(`${result.failed} failed`);
+  if (result.deferred) bits.push(`${result.deferred} left for the next tick (ceiling ${ctx.maxOrdersPerTick})`);
+  return {
+    ran: true,
+    detail: bits.join(', '),
+    counts: { examined: result.examined, forwarded: result.forwarded, failed: result.failed, deferred: result.deferred || 0 },
+    error: result.errors.length ? result.errors.slice(0, 5).join('; ') : undefined,
+  };
+});
+
+// The tracking job owns itself; this is the explicit registration call, rather
+// than a side-effect import that somebody would later tidy away.
+registerStoreTrackingJob();
 
 /** Has today's daily window opened without a run? */
 function dailySweepIsDue(settings: FulfillmentSettings, now = new Date()): boolean {

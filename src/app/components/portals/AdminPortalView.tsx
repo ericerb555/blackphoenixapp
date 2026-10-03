@@ -1,5 +1,6 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import ReviewQueuePanel from '../owner/ReviewQueuePanel';
+import StoreAutonomyPanel from '../owner/StoreAutonomyPanel';
 import InvestmentTab from './InvestmentTab';
 /**
  * Admin Portal - Platform Owner Dashboard
@@ -516,7 +517,12 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
 
         {/* Overview Tab */}
         {/* Tenant submissions, invisible to everybody until accepted here. */}
-        {activeTab === 'review-queue' && <ReviewQueuePanel />}
+        {activeTab === 'review-queue' && (
+          <div className="space-y-5">
+            <StoreAutonomyPanel />
+            <ReviewQueuePanel />
+          </div>
+        )}
         {activeTab === 'guide' && <PortalFeatureGuide portal="admin" />}
 
         {activeTab === 'investments' && <InvestmentTab portalType="admin" />}

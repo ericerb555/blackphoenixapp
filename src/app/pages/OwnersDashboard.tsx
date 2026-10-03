@@ -38,6 +38,7 @@ import { toast } from 'sonner@2.0.3';
 import RoleManagementSystem from '../components/RoleManagementSystem';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import ReviewQueuePanel from '../components/owner/ReviewQueuePanel';
+import StoreAutonomyPanel from '../components/owner/StoreAutonomyPanel';
 import SimpleCompanyManager from '../components/SimpleCompanyManager';
 import GiftHoursModal from '../components/GiftHoursModal';
 import OwnerGiftManagement from '../components/OwnerGiftManagement';
@@ -774,8 +775,15 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
           Reels, advertisements and offers submitted by tenants. None of them
           is visible to anybody until it is accepted here.
         */}
+        {/*
+          The store's clock sits beside the approval queue, because they answer
+          the same question: what is waiting on a person. The autonomy panel
+          carries its own questions rather than feeding this list, since those
+          need an answer typed back rather than a yes or a no.
+        */}
         {activeTab === 'review-queue' && (
           <div className="space-y-5">
+            <StoreAutonomyPanel />
             <ReviewQueuePanel />
           </div>
         )}

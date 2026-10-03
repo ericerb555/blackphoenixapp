@@ -492,6 +492,95 @@ export async function submitCJOrder(
 }
 
 // ---------------------------------------------------------------------------
+// Order status and tracking
+// ---------------------------------------------------------------------------
+
+export interface CjOrderStatus {
+  providerOrderId: string;
+  /** CJ's own words, kept verbatim so a surprising value is visible. */
+  rawStatus: string;
+  /** Our vocabulary: what the store order should now say. */
+  status: 'forwarded' | 'shipped' | 'delivered' | 'cancelled' | 'unknown';
+  trackingNumber?: string;
+  carrier?: string;
+  /** Only ever what CJ actually returned. Never constructed. */
+  trackingUrl?: string;
+}
+
+/**
+ * Map CJ's order status onto ours.
+ *
+ * Matched on substrings rather than an exact list because CJ's vocabulary has
+ * changed before and an unrecognised value must not read as "delivered". The
+ * default is `unknown`, which leaves the order where it is — the safe direction,
+ * since the alternative is telling a customer their parcel arrived because a
+ * supplier renamed a status.
+ */
+function mapCjStatus(raw: string): CjOrderStatus['status'] {
+  const s = String(raw || '').toUpperCase();
+  if (!s) return 'unknown';
+  if (s.includes('CANCEL') || s.includes('REFUND')) return 'cancelled';
+  if (s.includes('DELIVERED') || s.includes('SIGNED') || s.includes('RECEIVED')) return 'delivered';
+  if (s.includes('SHIPPED') || s.includes('SHIPPING') || s.includes('TRANSIT') || s.includes('DISPATCH')) return 'shipped';
+  if (s.includes('UNSHIPPED') || s.includes('CREATED') || s.includes('PENDING') || s.includes('CUTTING') || s.includes('PROCESS')) return 'forwarded';
+  return 'unknown';
+}
+
+/**
+ * Ask CJ what has happened to an order it accepted.
+ *
+ * WHY THIS HAD TO BE WRITTEN
+ *
+ * The generic `fetchTrackingFromProvider` in dropshipper.tsx does
+ * `GET {apiUrl}/orders/{id}/tracking` with a Bearer token. CJ answers neither:
+ * it wants `CJ-Access-Token` and a different path entirely. So "sync tracking"
+ * could never have worked against the only supplier this store sells, and
+ * scheduling it would have failed quietly every fifteen minutes — the same
+ * shape of fault as posting Zendrop orders to an endpoint that does not create
+ * them.
+ *
+ * NOT YET PROVEN AGAINST A LIVE CJ ORDER
+ *
+ * Stated plainly because it matters: there is no CJ order in this system to
+ * test against. The only CJ checkouts on record are probes that never
+ * completed payment, so this endpoint and its field names are written from
+ * CJ's documented API 2.0 shape and have not been exercised against a real
+ * order id. `cjFetch` throws with CJ's own message on failure, the tracking
+ * job records that against the order rather than swallowing it, and the first
+ * real order is what will confirm or correct it. It is written to fail loudly
+ * rather than to look as though it worked.
+ */
+export async function fetchCJOrderStatus(
+  apiKey: string | undefined,
+  providerOrderId: string,
+): Promise<CjOrderStatus> {
+  const key = resolveKey(apiKey);
+  if (!key) throw new Error('No CJ_API_KEY secret configured, so CJ cannot be asked about this order.');
+  if (!providerOrderId) throw new Error('No CJ order id on this order, so there is nothing to ask about.');
+
+  const data = await cjFetch(key, '/shopping/order/getOrderDetail', {
+    query: { orderId: providerOrderId },
+  });
+
+  const d = data?.data ?? {};
+  // Field names differ across CJ's own docs and responses; read every spelling
+  // seen rather than the one that happens to be current.
+  const trackingNumber = String(d.trackNumber ?? d.trackingNumber ?? d.logisticTrackNumber ?? '').trim();
+  const carrier = String(d.logisticName ?? d.logisticsName ?? d.shippingName ?? '').trim();
+  const trackingUrl = String(d.trackUrl ?? d.trackingUrl ?? '').trim();
+  const rawStatus = String(d.orderStatus ?? d.status ?? '').trim();
+
+  return {
+    providerOrderId,
+    rawStatus,
+    status: mapCjStatus(rawStatus),
+    ...(trackingNumber ? { trackingNumber } : {}),
+    ...(carrier ? { carrier } : {}),
+    ...(trackingUrl ? { trackingUrl } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Provider registration + product sync
 // ---------------------------------------------------------------------------
 

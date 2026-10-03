@@ -55,6 +55,7 @@ import { isStaffRequest } from "./requireStaff.ts";
 import {
   type AutonomySettings, normaliseSettings, secretMatches, leaseIsHeld,
   disabledJobs, LOCK_MINUTES, MAX_ORDERS_CEILING, MAX_SPEND_CEILING,
+  type StoreAsk, askIsWellFormed, askIsOpen, applyAnswer,
 } from "./storeTickRules.ts";
 
 export const storeAutonomyRouter = new Hono();
@@ -185,6 +186,140 @@ registerStoreJob("heartbeat", async () => {
       : `Clock alive; ${off.length} job(s) registered but switched off: ${off.join(", ")}.`,
     counts: { registered: registeredStoreJobs().length, enabled: registeredStoreJobs().length - off.length },
   };
+});
+
+// ── Asking a person ─────────────────────────────────────────────────────────
+
+const ASK_PREFIX = "store:autonomy:ask:";
+const askKey = (id: string) => `${ASK_PREFIX}${id}`;
+
+/**
+ * Raise a question for a person, or return the answer if one has been given.
+ *
+ * This is how a job stops rather than guesses. It is idempotent on
+ * `dedupeKey`: a job running every fifteen minutes asks once, and on every
+ * later tick gets the same ask back — still open, or answered with the choice
+ * and whatever the person typed alongside it.
+ *
+ * So the calling pattern is a question, not a notification:
+ *
+ *     const ask = await askForGuidance({ ... });
+ *     if (ask.status !== "answered") return { ran: false, detail: "Waiting on a decision." };
+ *     if (ask.answer === "refund") { ... }
+ *
+ * A job must not act while an ask is open. That is the point of it.
+ */
+export async function askForGuidance(input: {
+  job: string;
+  dedupeKey: string;
+  question: string;
+  because: string;
+  wouldHaveDone?: string;
+  choices: Array<{ key: string; label: string; consequence?: string }>;
+  detail?: Array<[string, string]>;
+  subject?: { kind: string; id: string };
+}): Promise<StoreAsk> {
+  const wellFormed = askIsWellFormed(input);
+  if (!wellFormed.ok) {
+    // A job asking badly is a bug in the job, and it must not be allowed to
+    // put something unanswerable in the place a person looks.
+    throw new Error(`[store-tick] job "${input.job}" raised a malformed ask: ${wellFormed.error}`);
+  }
+
+  // Deterministic id from the dedupe key, so "ask again" and "ask once" are the
+  // same call and no job has to remember whether it already asked.
+  const id = `${input.job}--${input.dedupeKey}`.replace(/[^A-Za-z0-9_.:-]+/g, "-").slice(0, 180);
+  const existing = (await kv.get(askKey(id))) as StoreAsk | null;
+  if (existing) return existing;
+
+  const ask: StoreAsk = {
+    id,
+    job: input.job,
+    dedupeKey: input.dedupeKey,
+    question: input.question,
+    because: input.because,
+    wouldHaveDone: input.wouldHaveDone,
+    choices: input.choices,
+    detail: input.detail || [],
+    subject: input.subject,
+    status: "open",
+    raisedAt: new Date().toISOString(),
+  };
+  await kv.set(askKey(id), ask);
+  console.log(`[store-tick] job "${input.job}" is asking: ${input.question}`);
+  return ask;
+}
+
+/** Withdraw an ask a job no longer needs answered — the situation resolved. */
+export async function withdrawAsk(job: string, dedupeKey: string): Promise<void> {
+  const id = `${job}--${dedupeKey}`.replace(/[^A-Za-z0-9_.:-]+/g, "-").slice(0, 180);
+  const existing = (await kv.get(askKey(id))) as StoreAsk | null;
+  if (!existing || existing.status !== "open") return;
+  await kv.set(askKey(id), { ...existing, status: "withdrawn", answeredAt: new Date().toISOString() });
+}
+
+async function allAsks(): Promise<StoreAsk[]> {
+  const rows = ((await kv.getByPrefix(ASK_PREFIX)) || []) as StoreAsk[];
+  return rows
+    .filter((a) => a && typeof a === "object")
+    .sort((a, b) => String(b.raisedAt || "").localeCompare(String(a.raisedAt || "")));
+}
+
+/**
+ * What the machine is waiting to be told. Staff only.
+ *
+ * Open items by default, because that is what a review screen is for. Pass
+ * `?include=all` to see what was decided and what was said about it — the
+ * record of the conversation, which is half the value of having had it.
+ */
+storeAutonomyRouter.get(`${PREFIX}/store/autonomy/asks`, async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required for this." }, 403);
+  }
+  try {
+    const all = await allAsks();
+    const wantAll = c.req.query("include") === "all";
+    const items = wantAll ? all : all.filter(askIsOpen);
+    return c.json({
+      success: true,
+      open: all.filter(askIsOpen).length,
+      items: items.slice(0, 100),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
+  }
+});
+
+/**
+ * Answer one. Staff only.
+ *
+ * The answer is stored against the ask, and the job that raised it reads it on
+ * its next tick and acts. Nothing is executed here — a route that both took a
+ * decision and carried it out would put the doing in the place a person
+ * clicked, instead of in the job that knows how.
+ */
+storeAutonomyRouter.post(`${PREFIX}/store/autonomy/asks/:id/answer`, async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required for this." }, 403);
+  }
+  try {
+    const id = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const existing = (await kv.get(askKey(id))) as StoreAsk | null;
+    if (!existing) return c.json({ success: false, error: "That question is no longer in the queue." }, 404);
+
+    const outcome = applyAnswer(existing, String(body?.choice || ""), {
+      by: String(body?.by || "") || undefined,
+      note: String(body?.note || ""),
+    });
+    if (!outcome.ok) return c.json({ success: false, error: outcome.error }, 400);
+
+    await kv.set(askKey(id), outcome.ask);
+    console.log(`[store-tick] "${existing.question}" answered: ${outcome.ask.answer}${outcome.ask.note ? ` — ${outcome.ask.note}` : ""}`);
+    return c.json({ success: true, ask: outcome.ask });
+  } catch (error: any) {
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
+  }
 });
 
 // ── The secret ──────────────────────────────────────────────────────────────
