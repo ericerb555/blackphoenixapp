@@ -9,13 +9,21 @@
 --
 -- BEFORE RENAMING THIS TO .sql
 --
--- 1. Close the row-level security hole on `private_cron_config`, and rotate
---    `compliance_cron_secret` afterwards. That table is readable and writable
---    by anyone holding the publishable key today. This migration deliberately
---    does NOT use it — see below — but adding a second scheduled job to a
---    system whose first one has an open secret is the wrong order to work in.
+-- 1. DONE, and the claim this item was based on was wrong.
 --
---        alter table "public"."private_cron_config" enable row level security;
+--    This said `private_cron_config` "is readable and writable by anyone
+--    holding the publishable key today". Checked against production on
+--    2026-10-03, that was never true: `anon` and `authenticated` hold no
+--    grants on the table at all, so the publishable key cannot reach it
+--    through the REST API. The secret was not exposed and did not need
+--    rotating on this account.
+--
+--    Row-level security has since been enabled anyway, as a second lock —
+--    migration 20261003140000 explains why: grants are one well-meaning
+--    `grant` statement away from being undone, and RLS with no policies is
+--    deny-by-default. Verified first that `postgres` (which owns the cron
+--    jobs) and `service_role` (which the edge function connects as) both
+--    carry rolbypassrls, so neither is affected.
 --
 -- 2. Put this job's own secret in Vault, which is encrypted and not reachable
 --    with the publishable key:

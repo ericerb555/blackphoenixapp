@@ -1,0 +1,105 @@
+-- The store gets a clock.
+--
+-- WHY THIS EXISTS
+--
+-- This database has one scheduled job in it: `compliance-expiry-reminders`.
+-- Everything "automatic" about the store is really advanced by somebody opening
+-- a page — fulfilment retries when an administrator loads the Orders screen,
+-- tracking by a button, the supplier catalogue when somebody remembers. So
+-- overnight and at weekends the store does nothing, and a paid order that fails
+-- to reach its supplier sits unshipped with the failure written to a field on a
+-- record nobody opens. That happened, and nobody heard it.
+--
+-- ONE JOB, NOT FIVE
+--
+-- `/store/cron-tick` runs a registry of small jobs, each individually
+-- switchable from `/store/autonomy/settings`. One schedule, one secret, one
+-- thing to rotate. A job can be switched off without touching this file, and
+-- this file can be unscheduled without editing any job.
+--
+-- WHY .pending
+--
+-- Named `.sql.pending` like the on-call and autopilot migrations, so a deploy
+-- does NOT apply it. Rename to `.sql` to arm it, deliberately.
+--
+-- WHAT IT WILL DO ON THE FIRST DAY: NOTHING
+--
+-- Read this before deciding it is risky. The default settings enable the
+-- heartbeat and nothing else. The heartbeat looks at nothing and changes
+-- nothing; it writes a record saying the clock is alive and lists which jobs
+-- are registered and switched off. Fulfilment, tracking, catalogue sync and
+-- cart recovery all start disabled and are switched on one at a time, after the
+-- clock has been watched working.
+--
+-- That is the point of arming it empty. If the schedule, the secret, the header
+-- or the mount path is wrong, it is wrong while doing nothing — and
+-- `/store/autonomy/status` is how you tell "working and idle" apart from "never
+-- ran". There is no way to learn that from a clock that was armed carrying the
+-- fulfilment sweep.
+--
+-- THE TRAP THIS ONE AVOIDS
+--
+-- `/store/cron-tick` and `/autopilot/cron-tick` are both listed in
+-- `PUBLIC_POST_PATHS` in index.tsx. They have to be: the auth gate there
+-- defaults every unlisted route to "signed in", a scheduler has no user to be,
+-- and the gate answers **401 "Sign in required."** before a route's own secret
+-- check ever runs. `/autopilot/cron-tick` was NOT listed, so arming its
+-- migration would have failed on every single tick with nothing to show for it.
+-- Both are listed now. Anything else scheduled against this server needs the
+-- same entry — this is the third time the trap has come up.
+
+-- The secret the scheduler sends and the route checks. Generated here so it
+-- never has to be typed anywhere, and kept in the same private table the
+-- compliance secret already uses: no grants to anon or authenticated, and row
+-- level security enabled on 2026-10-03.
+insert into private_cron_config (key, value)
+values (
+  'store_cron_secret',
+  encode(gen_random_bytes(32), 'base64')
+)
+on conflict (key) do nothing;
+
+-- Unschedule first so re-running this is safe.
+select cron.unschedule('store-tick')
+where exists (select 1 from cron.job where jobname = 'store-tick');
+
+-- Every fifteen minutes.
+--
+-- The tick takes a lease before it runs and skips if a previous one is still
+-- holding it, so a slow supplier API cannot have two ticks overlap. Every job
+-- is idempotent in its own right as well, because a lease in a store with no
+-- compare-and-set is a second line of defence rather than a guarantee.
+--
+-- Fifteen minutes is close enough that a customer is told about their parcel
+-- within the hour, without asking the function to wake up constantly.
+select cron.schedule(
+  'store-tick',
+  '*/15 * * * *',
+  $$
+  select net.http_post(
+    url     := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/store/cron-tick',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
+      'X-Store-Cron-Secret', (select value from private_cron_config where key = 'store_cron_secret')
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+
+-- AFTER ARMING THIS
+--
+-- 1. Wait fifteen minutes, then GET /store/autonomy/status as a member of
+--    staff. `totalRuns` should be 1 or more and `minutesSinceLastRun` under 20.
+--    If `secretConfigured` is false, the row above did not land.
+-- 2. Leave it a full day. 96 heartbeats, no other effect.
+-- 3. Then switch on `fulfil`, and only that, through
+--    PUT /store/autonomy/settings. Watch one real order through.
+--
+-- TO STOP IT
+--
+--     select cron.unschedule('store-tick');
+--
+-- Or switch every job off and leave the heartbeat running, which keeps the
+-- record of the clock being alive while it does nothing else.

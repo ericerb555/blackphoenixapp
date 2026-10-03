@@ -403,16 +403,34 @@ Helvetica for furniture.
 Build the scheduler with only the watchman aboard. If the clock is wrong, it is
 wrong while doing nothing.
 
-- [ ] **1.1** `POST /store/cron-tick` — secret from `private_cron_config`,
-      refusal when unset, nothing read from the body, a job registry with
-      per-job enable flags stored in KV, and per-tick ceilings. Copies
-      `/autopilot/cron-tick` deliberately rather than inventing a second shape.
-- [ ] **1.2** The heartbeat job: record every run — when, which jobs ran, what
-      each did, what each cost. This is the record everything later reads.
-- [ ] **1.3** `GET /store/autonomy/status` for staff: the heartbeat, plainly.
-- [ ] **1.4** The migration, as `.sql.pending`, with its own generated secret.
-- [ ] **1.5** Arm it with **every job disabled but the heartbeat**. Watch one
-      tick, then one full day. A clock that proves itself on an empty load.
+- [x] **1.1** `POST /store/cron-tick` in `storeAutonomy.ts` — secret from
+      `private_cron_config`, refusal when unset, nothing read from the body, a
+      job registry with per-job enable flags in KV, per-tick ceilings, and a
+      lease so two ticks cannot overlap. Its own module, so mounting it costs
+      one line in `index.tsx` rather than adding to a 20,000-line file a
+      parallel session is also editing.
+- [x] **1.2** The heartbeat job and the run record: every tick, which jobs ran,
+      what each did, how long each took. Keeps 150 runs — a day and a half.
+- [x] **1.3** `GET /store/autonomy/status`, staff only. Reports whether a secret
+      is configured without reporting what it is, and tells "never ran" apart
+      from "ran and stopped" — different investigations, so different answers.
+      Plus `PUT /store/autonomy/settings` to switch a job on, and
+      `POST /store/autonomy/run` to prove the registry without the cron secret.
+- [x] **1.3b** The decision logic lives in `storeTickRules.ts`, which has no
+      Deno or npm imports so the test runner can load it, with 15 tests. The
+      one that matters: only `true` enables a job, so a half-written settings
+      record cannot arm something that spends money.
+- [x] **1.4** `20261003140000_schedule_store_tick.sql.pending`, with its own
+      generated secret, parked rather than applied.
+- [x] **1.4b** **Found arming it would have failed silently, and fixed it.**
+      `index.tsx`'s auth gate defaults every unlisted route to "signed in" and
+      a scheduler has no user, so it answers 401 before a route's own secret
+      check runs. `/autopilot/cron-tick` was not listed — the autopilot
+      migration, armed as it stood, would have been refused on every tick with
+      nothing to show for it. Both machine endpoints are listed now.
+- [ ] **1.5 — Eric:** rename the migration to `.sql` and apply it, then check
+      `/store/autonomy/status` after fifteen minutes and again after a day. 96
+      heartbeats and no other effect is what success looks like.
 
 *Proved by:* 96 heartbeat records a day and not one other effect.
 

@@ -50,6 +50,7 @@ import projectVisionRouter from "./project-vision.tsx";
 import aiFloorplanRouter from "./ai-floorplan.tsx";
 import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
+import { storeAutonomyRouter } from "./storeAutonomy.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
@@ -622,6 +623,31 @@ const PUBLIC_POST_PATHS = [
    * between an invited person and their account.
    */
   '/intake/set-password',
+
+  /**
+   * The two machine endpoints a scheduler calls, and why they are listed here.
+   *
+   * "Public" in this list means "the auth gate does not ask for a session". It
+   * does not mean unauthenticated. A scheduler has no user to be, so a session
+   * is the wrong credential for it; both of these carry a 32-byte shared secret
+   * in a header, read from `private_cron_config`, and refuse outright when no
+   * secret is configured. That is a stronger check than the gate's, not a
+   * weaker one — every signed-in portal customer passes the gate, and none of
+   * them holds this secret.
+   *
+   * `/autopilot/cron-tick` WAS NOT LISTED, AND WOULD HAVE FAILED SILENTLY.
+   *
+   * It was written for an external scheduler and a pg_cron migration for it
+   * sits ready at 20260928120000_schedule_autopilot_tick.sql.pending. Armed as
+   * it stood, every tick would have been answered **401 "Sign in required."**
+   * by this gate, before the route's own secret check ever ran — so the
+   * campaigns would have gone on never posting, with the migration applied and
+   * nothing to show that anything was wrong. The same trap is recorded in the
+   * on-call pending migration; this is the third time it has come up, which is
+   * why it is written out at length rather than fixed quietly.
+   */
+  '/store/cron-tick',
+  '/autopilot/cron-tick',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
@@ -1026,6 +1052,8 @@ app.route("/", cjRouter);
 app.route("/", seoEngineRouter);
 app.route("/", contentFilterRouter);
 app.route("/", maintenanceConfigRouter);
+// The store's clock. Spells its own paths out in full, so it mounts at "/".
+app.route("/", storeAutonomyRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/", marketplaceRouter);
