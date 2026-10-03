@@ -1214,3 +1214,56 @@ recorded migration.
 answer, but no claim has been walked through, because that needs a signed-in
 account and a listing to claim — and with the catalogue unapplied there are no
 directory listings yet.
+
+### All six applied — and both ledgers have written real rows (2026-10-03)
+
+`black_phoenix_catalogue` applied on Eric's explicit go-ahead, after the
+permission classifier refused it on the first attempt. It was right to stop me:
+alone among the six it writes to existing `organizations` rows rather than only
+creating structure.
+
+**Black Phoenix Builds, before and after:**
+
+    service centre      null            -> 42.85, -71.29
+    radius              null            -> 50 miles
+    listing_source      signup          -> operator
+    verification_state  unverified      -> verified
+    categories          0               -> 9
+    territories         none            -> manchester-nh, pelham-nh, salem-nh
+
+**The whole chain now works against production.**
+
+    /exchange/listing/black-phoenix-builds   200, claimed, 9 categories
+    /exchange/category/roofing               200, 1 listing — Black Phoenix
+
+**Both ledgers took their first rows, unprompted, from those two requests.**
+The demand ledger recorded the roofing view, and the lead ledger recorded
+`viewed · profile · general-contracting · anonymous`. The lead ledger is the
+sentence that sells a subscription — *"you received this many enquiries here"* —
+and it is now counting, from an anonymous visitor, exactly as designed.
+
+**Two things verified that are easy to get wrong.**
+
+*The licence number does not leak.* The listing response carries
+`credentials: { licenceVerified, insuranceInDate, licenceState }` and no
+licence field of any other kind. The column list being written out rather than
+`select('*')` is what holds that.
+
+*The verified badge does NOT show, despite `verification_state = 'verified'`.*
+`publicListing` requires verification AND an in-date `license_expires_at`, and
+the expiry is null, so `licenceVerified` is false. A badge that would otherwise
+have appeared on nothing but a self-set flag correctly does not.
+
+**But that is a latent trap worth naming.** The catalogue migration set
+`verification_state = 'verified'` for Black Phoenix with no licence record
+behind it. Nothing is wrong today because the expiry check suppresses the
+badge. The day somebody enters a licence expiry date for the company, a
+verified badge appears on the strength of a flag a migration set, not a
+verification anybody performed. Either give the operator a real licence record
+or stop the migration asserting `verified`.
+
+**Still not verified: a claim end to end.** There is now a listing to claim,
+but every claim route requires a signed-in account, so it needs Eric or a test
+account. `POST /exchange/claim/start` with `{"slug":"black-phoenix-builds"}`
+would open a dispute rather than a claim, since that listing is already
+claimed — which is itself the dispute path worth seeing once.
