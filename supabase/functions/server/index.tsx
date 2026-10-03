@@ -53,6 +53,7 @@ import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
+import { registerStoreWatchJob } from "./storeWatchJob.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
@@ -17723,6 +17724,7 @@ registerStoreJob('fulfil', async (ctx) => {
 // existing.
 registerStoreTrackingJob();
 registerStoreCatalogueJob();
+registerStoreWatchJob();
 
 /** Has today's daily window opened without a run? */
 function dailySweepIsDue(settings: FulfillmentSettings, now = new Date()): boolean {

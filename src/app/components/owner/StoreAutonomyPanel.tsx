@@ -53,6 +53,16 @@ interface Run {
   errors: number;
 }
 
+interface Finding {
+  kind: string;
+  key: string;
+  severity: 'urgent' | 'attention';
+  summary: string;
+  subject: { kind: string; id: string };
+  ageHours: number;
+  amount?: number;
+}
+
 interface Status {
   secretConfigured: boolean;
   lastRunAt: string | null;
@@ -61,6 +71,8 @@ interface Status {
   jobs: Array<{ name: string; enabled: boolean }>;
   ceilings: { maxOrdersPerTick: number; maxSpendPerTick: number };
   recent: Run[];
+  /** Null means the reconciliation has never run — NOT that nothing is wrong. */
+  findings: { at: string; urgent: number; attention: number; items: Finding[] } | null;
 }
 
 interface Ask {
@@ -304,6 +316,45 @@ export default function StoreAutonomyPanel() {
         </div>
       )}
 
+      {/* ── What the reconciliation found ─────────────────────────────────── */}
+      {status?.findings && status.findings.items.length > 0 && (
+        <div className={`bg-[#111] border rounded-2xl p-5 ${status.findings.urgent > 0 ? 'border-red-500/40' : 'border-[#2A2A2A]'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className={`w-5 h-5 ${status.findings.urgent > 0 ? 'text-red-400' : 'text-amber-400'}`} />
+            <h2 className="text-base font-bold text-white">
+              {status.findings.urgent > 0
+                ? `${status.findings.urgent} urgent, ${status.findings.attention} to look at`
+                : `${status.findings.attention} to look at`}
+            </h2>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            Money reconciled against what actually happened, {when(status.findings.at)}. Worst and
+            oldest first — that is the order to work through them in.
+          </p>
+          <div className="space-y-1.5 max-h-80 overflow-y-auto">
+            {status.findings.items.map((f) => (
+              <div
+                key={f.key}
+                className={`px-3 py-2 rounded-lg border ${
+                  f.severity === 'urgent'
+                    ? 'bg-red-500/5 border-red-500/30'
+                    : 'bg-[#0A0A0A] border-[#2A2A2A]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className={`text-sm ${f.severity === 'urgent' ? 'text-red-200' : 'text-gray-200'}`}>
+                    <span className="font-bold">{f.subject.id}</span> — {f.summary}
+                  </p>
+                  <span className="text-[10px] uppercase tracking-wide text-gray-500 flex-shrink-0">
+                    {f.amount ? `$${f.amount.toFixed(2)} · ` : ''}{f.kind}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── The report ────────────────────────────────────────────────────── */}
       <div className="bg-[#111] border border-[#2A2A2A] rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
@@ -345,6 +396,28 @@ export default function StoreAutonomyPanel() {
               </div>
               <p className="text-xs text-gray-400">{HEALTH_COPY[health].note}</p>
             </div>
+
+            {/*
+              Said explicitly rather than shown as an empty list. "The
+              reconciliation has not run" and "nothing is wrong" look identical
+              on a dashboard, and the difference is the whole point of having
+              one — a reassuring blank is how the original eight-week silence
+              went unnoticed.
+            */}
+            {!status.findings && (
+              <p className="text-xs text-gray-500 mb-4 flex items-start gap-2">
+                <HelpCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                The reconciliation has never run, so nothing has been checked. That is not
+                the same as nothing being wrong — switch the <span className="text-gray-300">watch</span> job on below.
+              </p>
+            )}
+            {status.findings && status.findings.items.length === 0 && (
+              <p className="text-xs text-emerald-400/90 mb-4 flex items-start gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                Checked {when(status.findings.at)}: every paid order has been sent to a supplier,
+                and every customer who should have been told has been.
+              </p>
+            )}
 
             <div className="mb-4">
               <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Jobs</p>

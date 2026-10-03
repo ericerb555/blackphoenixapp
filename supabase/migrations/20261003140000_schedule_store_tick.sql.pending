@@ -88,6 +88,47 @@ select cron.schedule(
   $$
 );
 
+-- THE DEAD-MAN'S SWITCH, AND WHY IT IS A SECOND JOB
+--
+-- Everything above argues for one schedule rather than five, and this is the
+-- one exception. A watchdog inside the thing it watches is not a watchdog: if
+-- `store-tick` stops firing, nothing inside it runs either, including any check
+-- on whether it is running. So the staleness check has to be triggered by
+-- something else.
+--
+-- It is cheap and it cannot cause harm: it reads one record, compares a
+-- timestamp, and sends at most one email a day per state. It places no orders
+-- and changes no prices. Half-hourly against a one-hour silence threshold means
+-- a stopped clock is noticed inside ninety minutes.
+--
+-- WHAT NEITHER OF THESE CAN CATCH
+--
+-- If pg_cron itself stops, or the project is paused, nothing fires — including
+-- the watchdog. No in-database watchdog can report its own absence. The only
+-- real protection is something outside this system checking in: an external
+-- uptime monitor pointed at GET /store/autonomy/status would close that last
+-- gap. Until there is one, "no alarm" is not quite the same as "all well", and
+-- that is worth knowing rather than assuming.
+
+select cron.unschedule('store-watchdog')
+where exists (select 1 from cron.job where jobname = 'store-watchdog');
+
+select cron.schedule(
+  'store-watchdog',
+  '*/30 * * * *',
+  $$
+  select net.http_post(
+    url     := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/store/watchdog',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
+      'X-Store-Cron-Secret', (select value from private_cron_config where key = 'store_cron_secret')
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+
 -- AFTER ARMING THIS
 --
 -- 1. Wait fifteen minutes, then GET /store/autonomy/status as a member of
@@ -100,6 +141,10 @@ select cron.schedule(
 -- TO STOP IT
 --
 --     select cron.unschedule('store-tick');
+--     select cron.unschedule('store-watchdog');
+--
+-- Stop the watchdog too, or it will correctly report that the clock has
+-- stopped — every day, because it has.
 --
 -- Or switch every job off and leave the heartbeat running, which keeps the
 -- record of the clock being alive while it does nothing else.

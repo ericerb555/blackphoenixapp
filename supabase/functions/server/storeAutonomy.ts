@@ -52,6 +52,8 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
+import { notifyStaffInBackground } from "./staff-notifications.tsx";
+import { clockVerdict } from "./storeWatchRules.ts";
 import {
   type AutonomySettings, normaliseSettings, secretMatches, leaseIsHeld,
   disabledJobs, LOCK_MINUTES, MAX_ORDERS_CEILING, MAX_SPEND_CEILING,
@@ -64,12 +66,22 @@ const PREFIX = "/make-server-3eae23a6";
 const SETTINGS_KEY = "store:autonomy:settings";
 const HEARTBEAT_KEY = "store:autonomy:heartbeat";
 const LOCK_KEY = "store:autonomy:lock";
+const FINDINGS_KEY = "store:autonomy:findings";
 const SECRET_ROW = "store_cron_secret";
 const SECRET_HEADER = "X-Store-Cron-Secret";
 const SECRET_ENV = "STORE_CRON_SECRET";
 
 /** How many recent runs the heartbeat keeps. Enough to see a day and a half. */
 const RUN_HISTORY = 150;
+
+/**
+ * Silence that means something is wrong rather than quiet.
+ *
+ * The schedule is every fifteen minutes, so an hour is four missed ticks. Set
+ * tighter, one slow run would raise an alarm — and an alarm that cries wolf is
+ * one that gets ignored, which is the exact failure this is here to prevent.
+ */
+const SILENT_AFTER_MINUTES = 60;
 
 let adminClient: any = null;
 function admin() {
@@ -461,15 +473,87 @@ storeAutonomyRouter.post(`${PREFIX}/store/cron-tick`, async (c) => {
   }
 });
 
+/**
+ * The dead-man's switch.
+ *
+ * WHY IT IS A SEPARATE ENDPOINT ON A SEPARATE SCHEDULE
+ *
+ * Because a watchdog inside the thing it watches is not a watchdog. The `watch`
+ * job reconciles orders and runs ON the clock, so it cannot report that the
+ * clock stopped — if the tick never fires, neither does anything inside it.
+ * This route is therefore scheduled independently and does one thing: compare
+ * how long it has been since the last tick, and say something if the answer is
+ * "too long".
+ *
+ * It takes the same secret as the tick, because it is the same kind of caller
+ * and a second secret is a second thing to rotate and forget.
+ *
+ * WHAT IT STILL CANNOT CATCH, STATED HONESTLY
+ *
+ * If pg_cron itself stops, or the project is paused, nothing fires — including
+ * this. No amount of in-database watchdog fixes that; the only real protection
+ * is something outside this system checking in on it. An external uptime
+ * monitor pointed at `/store/autonomy/status` would close that last gap, and
+ * until there is one, "no alarm" is not quite the same as "all well".
+ */
+storeAutonomyRouter.post(`${PREFIX}/store/watchdog`, async (c) => {
+  const expected = await expectedSecret();
+  const offered = c.req.header(SECRET_HEADER) || "";
+  if (!expected || !secretMatches(offered, expected)) {
+    return c.json({ success: false, error: "Unauthorized." }, 401);
+  }
+  try {
+    const heartbeat = ((await kv.get(HEARTBEAT_KEY)) as any) || null;
+    const { verdict, minutesSince } = clockVerdict(heartbeat?.lastRunAt, new Date(), SILENT_AFTER_MINUTES);
+
+    if (verdict === "alive") {
+      return c.json({ success: true, verdict, minutesSince });
+    }
+
+    /**
+     * "Never armed" is reported differently from "stopped" and only once.
+     *
+     * A store whose clock was never armed is a configuration state, not an
+     * incident — it does not need an email every half hour. One is sent so it
+     * cannot be missed entirely, then the dedupe key holds.
+     */
+    notifyStaffInBackground("payment", {
+      subject: verdict === "stopped"
+        ? "The store's clock has stopped"
+        : "The store's clock has never run",
+      heading: verdict === "stopped" ? "🔴 The store stopped running itself" : "⏸️ The store's clock is not armed",
+      rows: [
+        ["Last tick", heartbeat?.lastRunAt || "never"],
+        ["Silent for", minutesSince === null ? "—" : `${Math.floor(minutesSince)} minutes`],
+        ["Runs recorded", String(heartbeat?.totalRuns || 0)],
+      ],
+      note: verdict === "stopped"
+        ? "Nothing is being fulfilled, tracked or told to customers while this is true. Check that the store-tick cron job is still scheduled and that its secret still matches."
+        : "The schedule has not been armed, so none of the store's automatic work is happening. The migration is still named .pending until somebody renames it.",
+      ctaLabel: "Open the review queue",
+      ctaPath: "/owners-dashboard",
+      dedupeKey: `clock:${verdict}:${new Date().toISOString().slice(0, 10)}`,
+    });
+
+    console.log(`[store-watchdog] ${verdict}; last tick ${heartbeat?.lastRunAt || "never"}`);
+    return c.json({ success: true, verdict, minutesSince, alerted: true });
+  } catch (error: any) {
+    console.log(`[store-watchdog] error: ${error?.message || error}`);
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
+  }
+});
+
 /** Is the store running itself? Reads the heartbeat; invents nothing. */
 storeAutonomyRouter.get(`${PREFIX}/store/autonomy/status`, async (c) => {
   if (!await isStaffRequest(c)) {
     return c.json({ success: false, error: "Company access is required for this." }, 403);
   }
-  const [settings, heartbeat, secret] = await Promise.all([
+  const [settings, heartbeat, secret, findings] = await Promise.all([
     readSettings(),
     kv.get(HEARTBEAT_KEY) as Promise<any>,
     expectedSecret(),
+    // Written by the watch job; null until it has run once.
+    kv.get(FINDINGS_KEY) as Promise<any>,
   ]);
   const lastRunAt = heartbeat?.lastRunAt || null;
   const minutesSince = lastRunAt
@@ -486,6 +570,17 @@ storeAutonomyRouter.get(`${PREFIX}/store/autonomy/status`, async (c) => {
     jobs: registeredStoreJobs().map((name) => ({ name, enabled: settings.jobs[name] === true })),
     ceilings: { maxOrdersPerTick: settings.maxOrdersPerTick, maxSpendPerTick: settings.maxSpendPerTick },
     recent: Array.isArray(heartbeat?.recent) ? heartbeat.recent.slice(0, 20) : [],
+    // What the reconciliation found. Null means it has not run, which is NOT
+    // the same as "nothing is wrong" — the panel says so rather than showing a
+    // reassuring empty list.
+    findings: findings
+      ? {
+        at: findings.at,
+        urgent: Number(findings.urgent || 0),
+        attention: Number(findings.attention || 0),
+        items: (Array.isArray(findings.findings) ? findings.findings : []).slice(0, 25),
+      }
+      : null,
   });
 });
 

@@ -566,15 +566,41 @@ coming, without anyone opening the app.
 
 ### Phase 5 — The watchman earns its keep
 
-- [ ] **5.1** Dead-man's switch: no tick in N hours raises an alarm. This is the
-      guard against the failure that already happened — a silence nobody heard
-      for six weeks.
-- [ ] **5.2** Job `watch` — reconcile money against state every tick and alarm
-      on anything stuck: paid but not forwarded beyond N hours, forwarded with
-      no tracking beyond N days, delivered but the customer never told, a CJ
-      call refused for funds or credentials.
-- [ ] **5.3** One screen that answers "is the store running itself right now",
-      reading the heartbeat rather than showing an invented green light.
+- [x] **5.1** Dead-man's switch: `POST /store/watchdog`, on its **own**
+      half-hourly schedule. This is the one place a second cron job is correct —
+      a watchdog inside the thing it watches is not a watchdog, because if the
+      tick stops firing then so does anything inside it. One hour of silence
+      against a fifteen-minute schedule is four missed ticks, so it cannot cry
+      wolf over one slow run. "Never armed" is reported differently from
+      "stopped", and both are deduped to one email a day.
+- [x] **5.1b** What neither can catch, written into the migration rather than
+      left to be assumed: if pg_cron itself stops or the project is paused,
+      nothing fires, including the watchdog. No in-database watchdog can report
+      its own absence. An external uptime monitor on `/store/autonomy/status`
+      would close that last gap — until there is one, "no alarm" is not quite
+      "all well".
+- [x] **5.2** Job `watch` — reconciles money against state and finds seven
+      shapes of stuck: paid but not forwarded, an order that will never resolve
+      itself, the supplier silent for days, a tracking number the customer was
+      never told about, delivered and never mentioned, **paid for a digital
+      product with no file behind it**, and a question the machine asked that
+      nobody answered. A queue nobody works is the same failure as a field
+      nobody reads, one step further along.
+- [x] **5.2b** Test orders are never reported, by the `is_test` field rather
+      than a guess from the id. A watchman that alarms on the owner's own test
+      payments is one that gets muted — and a muted watchman is how the original
+      silence happened.
+- [x] **5.2c** Only urgent findings are emailed, deduped on a stable key, and a
+      finding that goes away drops out so a recurrence alerts again. The rest
+      wait on the screen, where somebody is looking on purpose.
+- [x] **5.3** The findings are on `StoreAutonomyPanel`, worst and oldest first.
+      "The reconciliation has never run" is stated in words rather than shown as
+      an empty list, because a reassuring blank is exactly how the original
+      eight-week silence went unnoticed.
+- [x] **5.4** Twenty-two tests, half of them about NOT crying wolf: a fresh
+      order, an unpaid one, a line with no SKU, a supplier holding something for
+      a day, a recent question, and the owner's own test payments all raise
+      nothing.
 
 *Proved by:* deliberately breaking a job and being told about it without
 looking.
