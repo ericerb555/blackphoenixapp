@@ -28,7 +28,7 @@
  */
 import ExcelJS from 'exceljs';
 
-const ALL = ['calc-reserve', 'calc-roi', 'calc-rental-pricing', 'calc-ev-roi'];
+const ALL = ['calc-reserve', 'calc-roi', 'calc-rental-pricing', 'calc-ev-roi', 'maint-nh-winter'];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const ids = wanted.length ? wanted : ALL;
 
@@ -40,9 +40,28 @@ for (const id of ids) {
   const xlsx = files.find((f) => f.name.endsWith('.xlsx'));
 
   console.log(`\n${mod.meta.title}  —  $${(mod.meta.price / 100).toFixed(0)}`);
+  console.log(`  files       ${files.map((f) => `${f.name} (${Math.round(f.buffer.length / 1024)} KB)`).join(', ')}`);
 
+  /**
+   * Only a spreadsheet gets the formula walk below. A PDF or a Word file is
+   * checked by the product's own `selfCheck` — a PDF has no formulas to
+   * inspect, and a .docx is verified by being unzipped and having its parts
+   * accounted for, which the product does because it knows what it put in.
+   */
   if (!xlsx) {
-    console.log('  (no workbook in this product)');
+    if (typeof mod.selfCheck === 'function') {
+      const { figures = [], concerns = [] } = (await mod.selfCheck()) || {};
+      if (figures.length) {
+        const pad = Math.max(...figures.map(([label]) => label.length));
+        for (const [label, value] of figures) console.log(`      ${String(label).padEnd(pad)}   ${value}`);
+      }
+      console.log(`  checks      ${concerns.length === 0 ? 'the files open and the listing\'s promises are kept' : 'review:'}`);
+      for (const c of concerns) console.log(`      - ${c}`);
+      if (concerns.length) anyProblem = true;
+    } else {
+      console.log('  checks      no selfCheck() — not verified');
+      anyProblem = true;
+    }
     continue;
   }
 

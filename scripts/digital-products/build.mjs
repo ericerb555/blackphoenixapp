@@ -26,6 +26,7 @@ const PRODUCTS = [
   'calc-roi',
   'calc-rental-pricing',
   'calc-ev-roi',
+  'maint-nh-winter',
 ];
 
 function human(bytes) {
