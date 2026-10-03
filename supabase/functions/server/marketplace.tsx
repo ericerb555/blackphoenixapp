@@ -16,6 +16,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { isStaffRequest } from "./requireStaff.ts";
 
 const router = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -110,13 +111,60 @@ function stripFiles(product: any): any {
  * also keeps a localStorage list, but that is a UI convenience only and is not
  * trusted here.)
  */
-async function findPaidOrder(email: string, productId: string): Promise<any | null> {
+/**
+ * Who is asking, established from the token rather than from a query string.
+ *
+ * WHY THIS EXISTS
+ *
+ * Because a paid download used to be protected by nothing but a typed email
+ * address. `GET /marketplace/entitlements?email=` listed everything an address
+ * had ever bought and `…/download?email=` minted the signed file link, and
+ * neither asked who was asking. Anybody who knew a customer's email could read
+ * their purchase history and take the files they had paid for. The signing and
+ * the paid-order check were both done well; the identity check was missing
+ * altogether, which is the easiest kind of hole to leave and the hardest to
+ * notice, because every legitimate request still works.
+ *
+ * The storefront sends the publishable key as a bearer token when nobody is
+ * signed in, so `getUser` fails for it and this correctly answers "nobody".
+ * That is the fail-closed path and it is deliberate: an identity we could not
+ * establish is not an identity.
+ */
+async function callerIdentity(c: any): Promise<{ email: string | null; staff: boolean }> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return { email: null, staff: false };
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) return { email: null, staff: false };
+    const email = String(data.user.email || "").trim().toLowerCase() || null;
+    return { email, staff: await isStaffRequest(c) };
+  } catch {
+    return { email: null, staff: false };
+  }
+}
+
+/**
+ * Find the paid order that entitles somebody to a product.
+ *
+ * `orderId`, when given, must belong to the same order as the email. That pair
+ * is how a guest who bought without an account proves ownership: the order
+ * number is a ten-character random token from their receipt, which is the same
+ * standard `/fulfillment/track` already holds buyers to. An email on its own is
+ * not a secret and never was.
+ */
+async function findPaidOrder(
+  email: string,
+  productId: string,
+  orderId?: string | null,
+): Promise<any | null> {
   const normalised = String(email || "").trim().toLowerCase();
   if (!normalised || !productId) return null;
+  const wantedOrder = String(orderId || "").trim().toUpperCase();
   const orders = ((await kv.getByPrefix(ORDER_PREFIX)) as any[]) || [];
   return orders.find((o) => {
     if (String(o?.customer_email || o?.customer?.email || "").trim().toLowerCase() !== normalised) return false;
     if (o?.payment_status !== "paid") return false;
+    if (wantedOrder && String(o?.id || "").trim().toUpperCase() !== wantedOrder) return false;
     return (Array.isArray(o?.items) ? o.items : []).some(
       (i: any) => String(i?.id ?? i?.productId ?? "") === String(productId),
     );
@@ -144,6 +192,35 @@ async function getAllProducts(): Promise<any[]> {
   return (rows as any[]).filter(Boolean);
 }
 
+/**
+ * Can this product actually be handed over to somebody who pays for it?
+ *
+ * A digital product is a promise to deliver a file. Twenty-one of them were on
+ * sale, priced from $14 to $199, with no file attached to a single one and the
+ * deliverables bucket never created — so a buyer paid and got an apology. The
+ * listings were written before the artefacts existed and nothing in the system
+ * knew the difference.
+ *
+ * `deliveryMethod: "generated"` counts as undeliverable too, deliberately.
+ * Three products claim a report is produced on purchase and there is no
+ * generator behind them; the claim does not deliver the file, the code does.
+ * When one exists, this is the single place that has to learn about it.
+ *
+ * Refusing a sale is always safe. Taking money for a file that does not exist
+ * is not, which is why this gates the catalogue AND the checkout rather than
+ * just hiding a card.
+ */
+export function marketplaceProductIsDeliverable(p: any): boolean {
+  const files = Array.isArray(p?.files) ? p.files : [];
+  return files.some((f: any) => f && typeof f.path === "string" && f.path.length > 0);
+}
+
+/** One product by id, for callers outside this module (the checkout). */
+export async function getMarketplaceProduct(id: string): Promise<any | null> {
+  if (!id) return null;
+  return ((await kv.get(`${PRODUCT_PREFIX}${id}`)) as any) || null;
+}
+
 async function saveProduct(p: any): Promise<void> {
   await kv.set(`${PRODUCT_PREFIX}${p.id}`, p);
   const ids = ((await kv.get(PRODUCT_INDEX)) as string[] | null) || [];
@@ -155,12 +232,28 @@ async function saveProduct(p: any): Promise<void> {
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 
-// GET catalog. ?admin=true returns everything (incl. hidden); otherwise only visible.
+/**
+ * GET catalog. `?admin=true` returns everything, including hidden products and
+ * their file lists — and now only for somebody who works here.
+ *
+ * It used to be decided by the query string alone, so any visitor could ask for
+ * the admin view and receive unpublished products and the storage paths behind
+ * the paid files. A flag a caller sets for themselves is not a permission.
+ *
+ * A non-staff caller who asks for it is served the ordinary public catalogue
+ * rather than refused, so a stale tab degrades to the right answer instead of
+ * breaking — the storefront must not go blank because somebody's session
+ * expired.
+ */
 router.get(`${PREFIX}/marketplace/products`, async (c) => {
   try {
-    const admin = c.req.query("admin") === "true";
+    const admin = c.req.query("admin") === "true" && await isStaffRequest(c);
     let products = await getAllProducts();
-    if (!admin) products = products.filter((p) => p.visible !== false);
+    if (!admin) {
+      // Hidden, or nothing behind it. Both are "not for sale", and the second
+      // one is enforced again at checkout — a hidden card is not a control.
+      products = products.filter((p) => p.visible !== false && marketplaceProductIsDeliverable(p));
+    }
     products.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     // Re-sign any AI-generated cover images so their URLs are always fresh.
     products = await Promise.all(products.map(signCover));
@@ -411,9 +504,25 @@ router.delete(`${PREFIX}/marketplace/products/:id/files/:fileId`, async (c) => {
  * Which products has this email paid for? Powers the "My Purchases" lookup so a
  * buyer can re-download from any device, not just the browser they bought on.
  */
+/**
+ * What has this person bought?
+ *
+ * Answered for the signed-in account about itself, and for staff about anybody
+ * (support has to be able to look up a customer). There is no anonymous form of
+ * this question: "list everything this address has ever purchased" is not
+ * something a stranger gets to ask, and an email address is not a password.
+ */
 router.get(`${PREFIX}/marketplace/entitlements`, async (c) => {
   try {
-    const email = String(c.req.query("email") || "").trim().toLowerCase();
+    const asked = String(c.req.query("email") || "").trim().toLowerCase();
+    const { email: signedIn, staff } = await callerIdentity(c);
+    if (!staff && !signedIn) {
+      return c.json({
+        error: "Sign in to see your purchases, or open the product page and enter your order number.",
+      }, 401);
+    }
+    // Staff may look anybody up; everybody else only ever gets themselves.
+    const email = staff ? (asked || signedIn || "") : (signedIn || "");
     if (!email) return c.json({ error: "An email is required to look up purchases." }, 400);
     const orders = ((await kv.getByPrefix(ORDER_PREFIX)) as any[]) || [];
     const productIds = new Set<string>();
@@ -439,16 +548,47 @@ router.get(`${PREFIX}/marketplace/entitlements`, async (c) => {
 router.get(`${PREFIX}/marketplace/products/:id/download`, async (c) => {
   try {
     const id = c.req.param("id");
-    const email = String(c.req.query("email") || "").trim().toLowerCase();
+    const asked = String(c.req.query("email") || "").trim().toLowerCase();
+    const orderId = String(c.req.query("order") || "").trim();
+    const { email: signedIn, staff } = await callerIdentity(c);
+
+    /**
+     * Three ways to be entitled, and an email address alone is not one of them.
+     *
+     *   staff      may mint a link for any customer, for support
+     *   signed in  gets their own purchases, from the session — a query-string
+     *              email is ignored entirely, so it cannot be substituted
+     *   guest      must present the order number from their receipt with the
+     *              email, and both must match the same paid order
+     */
+    let email = "";
+    let requireOrderId = false;
+    if (staff) {
+      email = asked || signedIn || "";
+    } else if (signedIn) {
+      email = signedIn;
+    } else {
+      email = asked;
+      requireOrderId = true;
+    }
+
     if (!email) return c.json({ error: "Enter the email you purchased with." }, 400);
+    if (requireOrderId && !orderId) {
+      return c.json({
+        error: "Enter your order number as well as your email, or sign in to the account you bought with. The order number is on your receipt.",
+        needsOrderId: true,
+      }, 401);
+    }
 
     const product = (await kv.get(`${PRODUCT_PREFIX}${id}`)) as any;
     if (!product) return c.json({ error: "Product not found." }, 404);
 
-    const order = await findPaidOrder(email, id);
+    const order = await findPaidOrder(email, id, requireOrderId ? orderId : (orderId || null));
     if (!order) {
       return c.json({
-        error: "We could not find a completed purchase of this product under that email. If you just paid, give it a moment and try again — otherwise check the address you used at checkout.",
+        error: requireOrderId
+          ? "We could not match that order number and email to a purchase of this product. Both must be exactly as they appear on your receipt. If you just paid, give it a moment and try again."
+          : "We could not find a completed purchase of this product on your account. If you bought it as a guest with a different email, open the product page and enter your order number instead.",
       }, 403);
     }
 

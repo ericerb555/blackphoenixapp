@@ -56,7 +56,9 @@ import zendropRouter from "./zendrop.tsx";
 import cjRouter from "./cjdropshipping.tsx";
 import seoEngineRouter from "./seo-engine.tsx";
 import { productsRouter } from "./ecommerce-products.tsx";
-import marketplaceRouter from "./marketplace.tsx";
+import marketplaceRouter, {
+  getMarketplaceProduct, marketplaceProductIsDeliverable,
+} from "./marketplace.tsx";
 import flashSalesRouter from "./flash-sales.tsx";
 import storeBoostersRouter from "./store-boosters.tsx";
 import promotionsEngineRouter from "./promotions-engine.tsx";
@@ -6554,25 +6556,69 @@ app.post('/make-server-3eae23a6/marketplace/checkout', async (c) => {
       'metadata[commerce_account]': 'TBPCO_ECOMMERCE',
       'metadata[customer_name]': String(body.name || ''),
     });
-    items.forEach((item: any, i: number) => {
-      const price = Math.max(0, Math.round((Number(item.price) || 0) * 100));
+    /**
+     * Price from our own records, and refuse anything we cannot hand over.
+     *
+     * This route used to take `item.price` from the request body and bill it,
+     * so a posted `price: 0.01` bought a $199 bundle for a cent. The physical
+     * store's checkout has priced server-side for a while; this one never got
+     * the same treatment, and nothing pointed at it because every honest
+     * request carried the right number.
+     *
+     * The delivery check is here as well as on the catalogue because hiding a
+     * card is not a control: the product id is in the open and this endpoint
+     * accepts whatever it is given. A product with no file behind it cannot be
+     * bought, however it was reached.
+     */
+    const priced: any[] = [];
+    for (const item of items) {
+      const id = String(item?.id ?? item?.productId ?? '').trim();
+      if (!id) return c.json({ error: 'An item in your cart has no product id.' }, 400);
+      const product = await getMarketplaceProduct(id);
+      if (!product || product.visible === false) {
+        return c.json({ error: `"${item?.title || item?.name || id}" is no longer available.` }, 400);
+      }
+      if (!marketplaceProductIsDeliverable(product)) {
+        return c.json({
+          error: `"${product.title || id}" is not available for download yet, so it cannot be purchased. Nothing has been charged.`,
+        }, 409);
+      }
+      const unitCents = Math.round(Number(product.price) || 0);
+      if (unitCents <= 0) {
+        return c.json({ error: `"${product.title || id}" has no price set, so it cannot be sold.` }, 409);
+      }
+      priced.push({
+        id,
+        title: String(product.title || id),
+        price: unitCents / 100,
+        qty: Math.min(20, Math.max(1, Math.floor(Number(item.qty || item.quantity || 1)) || 1)),
+        unitCents,
+      });
+    }
+
+    priced.forEach((item, i: number) => {
       params.set(`line_items[${i}][price_data][currency]`, 'usd');
-      params.set(`line_items[${i}][price_data][product_data][name]`, String(item.title || item.name || 'Item'));
-      params.set(`line_items[${i}][price_data][unit_amount]`, String(price));
-      params.set(`line_items[${i}][quantity]`, String(Math.max(1, Number(item.qty || item.quantity || 1))));
+      params.set(`line_items[${i}][price_data][product_data][name]`, item.title);
+      params.set(`line_items[${i}][price_data][unit_amount]`, String(item.unitCents));
+      params.set(`line_items[${i}][quantity]`, String(item.qty));
     });
     const session = await stripeCheckoutSession(params, 'tbpco_ecommerce');
 
     // Record a pending order under the shared `store_order:` prefix so it shows
     // up in Marketplace Admin (GET /marketplace/orders) and the Order Manager.
-    const orderId = `BP-${Date.now()}`;
-    const total = items.reduce((a: number, i: any) => a + (Number(i.price) || 0) * (Number(i.qty || i.quantity) || 1), 0);
+    //
+    // The id is random, not `BP-${Date.now()}`. A guest proves ownership of a
+    // digital purchase with their order number, and a millisecond timestamp is
+    // guessable — which would have made that proof worth very little.
+    const orderId = `BP-${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+    const total = priced.reduce((a: number, i: any) => a + i.price * i.qty, 0);
     await kv.set(`store_order:${orderId}`, {
       id: orderId,
       customer_name: String(body.name || ''),
       customer_email: email,
-      items,
+      items: priced.map(({ unitCents: _drop, ...rest }) => rest),
       total,
+      amount_total: total,
       fulfillment_status: 'unfulfilled',
       payment_status: 'pending',
       stripe_session_id: session.id,
@@ -16709,11 +16755,22 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   }
 
   const account: StripeAccount = checkout.stripeAccount === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+  /**
+   * `amount_total`, not `total`.
+   *
+   * `createStoreOrder` writes `amount_total`; it has never written `total`. So
+   * `Number(order.total || 0)` was always zero and every payment notice this
+   * system has ever sent announced "Payment received — $0.00", in the subject
+   * line and in the body. The type checker had been reporting it all along,
+   * inside the standing backlog, which is a decent argument for reading that
+   * backlog rather than only counting it.
+   */
+  const paidAmount = Number(order.amount_total ?? order.total ?? 0);
   notifyStaffInBackground('payment', {
-    subject: `Payment received — $${Number(order.total || 0).toFixed(2)}`,
+    subject: `Payment received — $${paidAmount.toFixed(2)}`,
     heading: '💳 Payment received',
     rows: [
-      ['Amount', `$${Number(order.total || 0).toFixed(2)}`],
+      ['Amount', `$${paidAmount.toFixed(2)}`],
       ['Stripe account', stripeAccountLabel(account)],
       ['Customer', order.customer?.name || order.customer_name || '—'],
       ['Email', order.customer?.email || order.customer_email || '—'],
@@ -17454,6 +17511,20 @@ async function getFulfillmentSettings(): Promise<FulfillmentSettings> {
 /** Paid, not yet handed to a supplier, and carrying at least one line item. */
 function orderAwaitsFulfillment(order: any): boolean {
   if (!order || typeof order !== 'object') return false;
+  /**
+   * A test order is never awaiting anything.
+   *
+   * `store:order:BP-F42D79D34D` is a real payment through live Stripe that was
+   * Eric's wife exercising the checkout. Two seeded demo orders carried
+   * `payment_status: "paid"` with no SKU on any line. All three satisfied every
+   * other condition below, so arming a scheduled sweep would have had it
+   * retrying them forever and emailing staff about customers who do not exist.
+   *
+   * The flag is set on the record and honoured here, rather than matching on
+   * "BP-DEMO" or on an email ending in example.com — a name pattern is not a
+   * fact about an order, and the next test order will not be called DEMO.
+   */
+  if (order.is_test === true) return false;
   const paid = order.payment_status === 'paid' || order.payment_status === 'gift_card_paid' || order.status === 'paid';
   if (!paid) return false;
   const status = String(order.fulfillment_status || 'pending');

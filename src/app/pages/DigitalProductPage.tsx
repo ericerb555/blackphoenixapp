@@ -27,6 +27,10 @@ import UnifiedCheckout from '../components/UnifiedCheckout';
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 const PURCHASED_KEY = 'bp_mkt_purchased';
 const BUYER_EMAIL_KEY = 'bp_mkt_buyer_email';
+// The order number from the receipt. A guest download needs it, because an
+// email address is not a secret and used to be the only thing protecting a
+// paid file.
+const BUYER_ORDER_KEY = 'bp_mkt_order_id';
 
 type ProductCategory = 'ebook' | 'template' | 'calculator' | 'ai_report' | 'maintenance' | 'bundle';
 
@@ -98,6 +102,7 @@ export default function DigitalProductPage({ onNavigate }: Props) {
 
   // Download / entitlement
   const [buyerEmail, setBuyerEmail] = useState(() => localStorage.getItem(BUYER_EMAIL_KEY) || '');
+  const [buyerOrderId, setBuyerOrderId] = useState(() => localStorage.getItem(BUYER_ORDER_KEY) || '');
   const [downloads, setDownloads] = useState<DownloadLink[] | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -156,15 +161,20 @@ export default function DigitalProductPage({ onNavigate }: Props) {
   }, [productId]);
 
   // Ask the server whether this email owns the product, and if so mint links.
-  const requestDownload = useCallback(async (email: string) => {
+  const requestDownload = useCallback(async (email: string, orderId?: string) => {
     if (!product) return;
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) { setAccessError('Enter the email you purchased with.'); return; }
     setCheckingAccess(true);
     setAccessError(null);
     try {
+      // The order number is only needed when nobody is signed in; the server
+      // takes a signed-in buyer's identity from their session and ignores
+      // anything the page claims about who they are.
+      const order = String(orderId || '').trim();
+      const query = `email=${encodeURIComponent(trimmed)}${order ? `&order=${encodeURIComponent(order)}` : ''}`;
       const res = await fetch(
-        `${SERVER}/marketplace/products/${encodeURIComponent(product.id)}/download?email=${encodeURIComponent(trimmed)}`,
+        `${SERVER}/marketplace/products/${encodeURIComponent(product.id)}/download?${query}`,
         { headers: await authedHeadersOrAnon(publicAnonKey) },
       );
       const data = await res.json().catch(() => null);
@@ -173,6 +183,10 @@ export default function DigitalProductPage({ onNavigate }: Props) {
       }
       setDownloads(data.downloads || []);
       localStorage.setItem(BUYER_EMAIL_KEY, trimmed);
+      if (data.orderId) {
+        setBuyerOrderId(String(data.orderId));
+        try { localStorage.setItem(BUYER_ORDER_KEY, String(data.orderId)); } catch { /* non-fatal */ }
+      }
     } catch (err: any) {
       console.error('[DigitalProductPage] download request failed:', err);
       setDownloads(null);
@@ -208,7 +222,13 @@ export default function DigitalProductPage({ onNavigate }: Props) {
           localStorage.setItem(PURCHASED_KEY, JSON.stringify([...merged]));
         } catch { /* non-fatal */ }
         const email = order.customer_email || '';
-        if (email) { setBuyerEmail(email); void requestDownload(email); }
+        // Keep the order number: it is how this buyer proves ownership later if
+        // they bought as a guest and come back from a different browser.
+        if (order.id) {
+          setBuyerOrderId(String(order.id));
+          try { localStorage.setItem(BUYER_ORDER_KEY, String(order.id)); } catch { /* non-fatal */ }
+        }
+        if (email) { setBuyerEmail(email); void requestDownload(email, order.id ? String(order.id) : undefined); }
         toast.success('Payment confirmed — your download is ready below.');
       } catch (err: any) {
         console.error('[DigitalProductPage] checkout confirmation failed:', err);
@@ -311,14 +331,23 @@ export default function DigitalProductPage({ onNavigate }: Props) {
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-white leading-tight">{product.title}</h1>
             <p className="text-lg text-gray-400 mt-2">{product.subtitle}</p>
-            <div className="flex items-center gap-2 mt-4">
-              <span className="flex items-center gap-0.5">
-                {[1, 2, 3, 4, 5].map(i => (
-                  <Star key={i} className={`w-4 h-4 ${i <= Math.round(product.rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'}`} />
-                ))}
-              </span>
-              <span className="text-sm text-gray-400">{product.rating} ({product.reviews} reviews)</span>
-            </div>
+            {/*
+              Shown only once somebody has actually left a review. Every one of
+              these products shipped with 4.8 to 4.9 stars and seventeen to
+              forty-one reviews against zero orders, invented by the same seed
+              that wrote the descriptions. Five stars nobody gave is worse than
+              no stars at all.
+            */}
+            {Number(product.reviews) > 0 && (
+              <div className="flex items-center gap-2 mt-4">
+                <span className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <Star key={i} className={`w-4 h-4 ${i <= Math.round(product.rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'}`} />
+                  ))}
+                </span>
+                <span className="text-sm text-gray-400">{product.rating} ({product.reviews} reviews)</span>
+              </div>
+            )}
           </div>
 
           {product.coverImage && (
@@ -372,8 +401,8 @@ export default function DigitalProductPage({ onNavigate }: Props) {
               <h2 className="text-base font-bold text-white">Already bought this?</h2>
             </div>
             <p className="text-sm text-gray-400 mb-4">
-              Enter the email you checked out with and we'll verify the purchase with Stripe and
-              hand you a fresh download link.
+              Sign in to the account you bought with and we'll hand you a fresh download link.
+              Bought as a guest? Add the order number from your receipt.
               {likelyOwned && <span className="text-green-400"> This browser shows a past purchase of this product.</span>}
             </p>
 
@@ -382,12 +411,25 @@ export default function DigitalProductPage({ onNavigate }: Props) {
                 type="email"
                 value={buyerEmail}
                 onChange={e => setBuyerEmail(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void requestDownload(buyerEmail); }}
+                onKeyDown={e => { if (e.key === 'Enter') void requestDownload(buyerEmail, buyerOrderId); }}
                 placeholder="you@example.com"
                 className="flex-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600"
               />
+              {/*
+                The order number is what a guest proves ownership with. An email
+                address on its own used to be enough, which meant anybody who
+                knew a customer's address could take the files they paid for.
+              */}
+              <input
+                type="text"
+                value={buyerOrderId}
+                onChange={e => setBuyerOrderId(e.target.value.toUpperCase())}
+                onKeyDown={e => { if (e.key === 'Enter') void requestDownload(buyerEmail, buyerOrderId); }}
+                placeholder="Order no. (e.g. BP-1A2B3C4D5E)"
+                className="sm:w-56 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600"
+              />
               <button
-                onClick={() => void requestDownload(buyerEmail)}
+                onClick={() => void requestDownload(buyerEmail, buyerOrderId)}
                 disabled={checkingAccess}
                 className="px-5 py-2.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2"
               >

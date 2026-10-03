@@ -6,7 +6,10 @@
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
-import { submitZendropOrder, linkInventoryProduct, resolveKey as resolveZendropKey, importTopProducts as importZendropProducts } from './zendrop.tsx';
+// Zendrop is deliberately not imported here any more. Its API cannot create an
+// order, so neither forwarding nor catalogue import had any value — see the
+// notes in `syncInventory` and `sendOrderToProvider`. Dropping the import is
+// what stops a future edit reaching for it by habit.
 import { submitCJOrder, resolveKey as resolveCJKey, storedOrSecretKey as cjKey, importProducts as importCJProducts } from './cjdropshipping.tsx';
 
 /**
@@ -113,16 +116,19 @@ export async function syncInventory(): Promise<{ success: boolean; synced: numbe
     try {
       const kind = providerKind(provider);
 
-      // Zendrop & CJ have real, provider-specific importers that pull from their
-      // actual APIs (Zendrop MCP / CJ REST) and persist inventory themselves.
-      // Dispatch to those instead of the generic `{apiUrl}/products` shape,
-      // which neither supplier serves (that path only fits a plain REST vendor).
+      // CJ has a real, provider-specific importer that pulls from its own REST
+      // API and persists inventory itself. Dispatch to it instead of the generic
+      // `{apiUrl}/products` shape, which CJ does not serve (that path only fits
+      // a plain REST vendor).
+      //
+      // The Zendrop branch that used to sit here is gone — see the note in
+      // `sendOrderToProvider`. Importing a catalogue we can never place an order
+      // against only produces listings that cannot be fulfilled, which is how
+      // the store came to be selling something it could not ship.
       if (kind === 'zendrop') {
-        const apiKey = resolveZendropKey(provider.apiKey);
-        if (!apiKey) throw new Error('No Zendrop API key configured (set ZENDROP_API_KEY or save a provider key).');
-        const { imported } = await importZendropProducts(apiKey, provider.settings?.syncLimit || 100);
-        totalSynced += imported;
-        console.log(`[Dropshipper] Zendrop sync imported ${imported} products.`);
+        throw new Error(
+          'Zendrop is no longer a supported supplier: its API cannot place an order, so its products could never be shipped. Remove the provider record.',
+        );
       } else if (kind === 'cj') {
         // Secret first — see storedOrSecretKey. The provider record holds the
         // key in plain text and should stop being the source of it.
@@ -422,42 +428,26 @@ async function sendOrderToProvider(
     return providerOrderId;
   }
 
-  // Zendrop is NOT a plain REST API — it speaks MCP (JSON-RPC 2.0) at
-  // app.zendrop.com/mcp/v1, the same endpoint the catalog sync already uses.
-  // Posting to `${provider.apiUrl}/orders` never created an order; it just
-  // failed and left the store order sitting at "pending".
-  if (String(provider.id) === 'zendrop' || /zendrop/i.test(String(provider.name || ''))) {
-    const key = resolveZendropKey(provider.apiKey) || '';
-
-    // Auto-fill step: before attempting fulfillment, make sure every ordered
-    // product actually exists in the user's Zendrop account (import_my_product).
-    // This is the prerequisite the platform requires and runs automatically the
-    // moment an order is paid. Best-effort per item — a link failure must not
-    // abort the order; it only means that item stays manual.
-    if (key) {
-      for (const item of orderData.items) {
-        const providerProductId = item.providerProductId ? String(item.providerProductId) : undefined;
-        if (!providerProductId && !item.sku) continue;
-        try {
-          const r = await linkInventoryProduct(key, { sku: item.sku, providerProductId });
-          if (r.success) {
-            console.log(`[Dropshipper] Zendrop product ${item.sku} ${r.skipped ? 'already linked' : `linked (${r.myProductId || 'ok'})`}`);
-          } else {
-            console.log(`[Dropshipper] Zendrop link skipped for ${item.sku}: ${r.error}`);
-          }
-        } catch (e) {
-          console.log(`[Dropshipper] Zendrop link error for ${item.sku}: ${e}`);
-        }
-      }
-    }
-
-    const { providerOrderId } = await submitZendropOrder(provider.apiKey, {
-      orderId: orderData.orderId || 'unknown',
-      items: orderData.items,
-      shippingAddress: orderData.shippingAddress,
-    });
-    return providerOrderId;
-  }
+  /**
+   * Zendrop is gone. Eric, 2026-10-03: *"zendrop is not apart of this anymore
+   * only cj for now until we add more in"* and *"remove zendrop paths will not
+   * work with this app"*.
+   *
+   * The reason is a capability limit rather than a preference: Zendrop's API
+   * exposes no order-creation call at all. It can only fulfil orders that
+   * already exist inside a connected Zendrop store, so an order taken by this
+   * storefront could never be placed with them by machine, whatever key or
+   * scope was used. That is what left a paid order sitting unshipped for eight
+   * weeks, and no amount of retrying was ever going to clear it.
+   *
+   * The branch that used to be here imported each product into the Zendrop
+   * account and then posted the order over MCP, and it never completed. It is
+   * removed rather than left behind a flag, so a future session cannot revive a
+   * path that cannot work. `sellableProviders.ts` already refuses to price a
+   * Zendrop item, so nothing can reach this function carrying one; if a
+   * provider record for Zendrop is ever recreated by hand, the generic REST
+   * post below will reject it honestly instead of pretending.
+   */
 
   const response = await fetch(`${provider.apiUrl}/orders`, {
     method: 'POST',

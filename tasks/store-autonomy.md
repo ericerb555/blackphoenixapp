@@ -250,33 +250,51 @@ Nothing here is about autonomy. It is about not arming a clock over a store
 that takes money for goods it cannot hand over. **This phase is the one that
 protects real customers, so it goes first.**
 
-- [ ] **0.1** Close the download hole (e2): prove who is asking from their
-      session, not from a query string, before listing purchases or signing a
-      file. Fail closed — an unidentified caller gets nothing.
-- [ ] **0.2** A digital product with no artefact behind it cannot be `visible`.
-      Enforced in `marketplace.tsx` so it holds whatever a screen says. This is
-      a rule, not a one-off tidy: it is what stops the catalogue drifting back
-      into selling descriptions.
+- [x] **0.1** Close the download hole (e2): identity comes from the session, not
+      from a query string. Staff may look anybody up; a signed-in buyer gets
+      their own purchases and a query-string email is ignored entirely; a guest
+      must present the order number from their receipt alongside the email.
+      `entitlements` refuses anonymous callers outright.
+- [x] **0.1b** `?admin=true` now requires staff. It was deciding, on the query
+      string alone, whether to return hidden products and their file paths.
+- [x] **0.1c** **The marketplace checkout was billing the price the browser
+      sent.** `item.price` went straight into the Stripe line item, so a posted
+      `price: 0.01` bought the $199 bundle for a cent. Now priced server-side
+      from the `marketplace_product:` record, with quantity clamped, and the
+      order id is random rather than `BP-${Date.now()}` — a guest proves
+      ownership with that number and a millisecond timestamp is guessable.
+- [x] **0.2** A digital product with no artefact behind it cannot be bought.
+      Enforced on the catalogue *and* at the checkout, because hiding a card is
+      not a control when the product id is in the open.
 - [ ] **0.3** Generate the 21 cover images, through the
-      `/marketplace/generate-image` route that already exists, and store them
-      in the cover bucket. **This is the piece Eric asked for.**
-- [ ] **0.4** Attach the eighteen finished downloads once he hands them over,
-      and make `deliveryMethod: generated` mean something — or drop the claim
-      from those three until it does.
-- [ ] **0.5** Strip the invented ratings and review counts from all 21.
-- [ ] **0.6** Mark `store:order:BP-F42D79D34D` as the test it was, so it stops
-      reading as an unsettled paid order and stops the sweep and the watchman
-      picking it up forever. No refund — it was Eric's wife exercising the live
-      checkout.
-- [ ] **0.7** Delete the two `BP-DEMO-…` paid orders.
-- [ ] **0.8** Fix the $0.00 payment email (`order.total` → `amount_total`).
-- [ ] **0.9** Enable RLS on `private_cron_config`, and correct the stale
-      "open secret" warning in the on-call pending migration.
-- [ ] **0.10** Confirm `CJ_API_KEY` is set as a secret, then clear the plaintext
-      key out of `dropshipper_config:providers`.
-- [ ] **0.11** Remove the Zendrop paths — it will not work with this app.
-      Out of the forwarding switch, out of the sync switch, module retired, so
-      no future session revives it.
+      `/marketplace/generate-image` route that already exists.
+- [ ] **0.4** Attach the eighteen finished downloads, and make
+      `deliveryMethod: generated` mean something — or drop the claim.
+- [x] **0.5** Invented ratings and review counts stripped from all 21, in the
+      database and in the seed list that would have restored them, and the three
+      render sites now show a rating only when a real review exists.
+- [x] **0.6** `store:order:BP-F42D79D34D` carries `is_test: true`, and
+      `orderAwaitsFulfillment` honours the flag — so no sweep, alert or
+      reconciliation will ever treat it as an unshipped customer order. No
+      refund: it was Eric's wife exercising the live checkout.
+- [x] **0.7** The two `BP-DEMO-…` paid orders are gone.
+- [x] **0.8** The $0.00 payment email — it read `order.total`, which
+      `createStoreOrder` has never written.
+- [x] **0.9** RLS enabled on `private_cron_config`, with the grants re-revoked.
+      Verified first that `postgres` (the cron owner) and `service_role` both
+      carry `rolbypassrls`, so neither the scheduler nor the edge function can
+      be affected.
+- [ ] **0.10 — Eric:** confirm `CJ_API_KEY` is set in Supabase secrets and the
+      plaintext key comes out of `dropshipper_config:providers`. **Not done
+      deliberately:** the log line that would prove the secret is in use has no
+      hits, but the window is 24 hours and no CJ call happened in it, so that
+      proves nothing. Deleting the stored key without confirming could silently
+      break the only working fulfilment path.
+- [x] **0.11** Zendrop removed from the forwarding switch and the sync switch,
+      and the import dropped, so a future session cannot reach for it by habit.
+
+Everything changed or deleted in production is archived first, in
+`public.kv_archive_20261003`, with the reason on each row.
 
 *Proved by:* the store cannot be made to sell an undeliverable item from any
 surface, a stranger with somebody's email address gets nothing, and no record

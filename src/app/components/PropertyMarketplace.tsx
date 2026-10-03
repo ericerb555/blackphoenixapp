@@ -64,7 +64,7 @@ const PRODUCTS: Product[] = [
     description: 'A professionally authored 85-page guide covering every aspect of NH landlord operations — from RSA 540 compliance and tenant screening to lease drafting, habitability standards, and the eviction process. Written specifically for New Hampshire law.',
     features: ['RSA 540 and RSA 540-A compliance guide', 'NH-specific tenant screening framework', 'Sample lease clauses (NH-compliant)', 'Security deposit rules and timelines', 'Step-by-step eviction process flowchart', 'Habitability standards checklist', 'Vendor contract guidance'],
     price: 2900, audience: ['Landlords', 'Property Managers'],
-    rating: 4.9, reviews: 142, icon: BookOpen, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20',
+    rating: 0, reviews: 0, icon: BookOpen, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20',
     badge: 'BESTSELLER', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'EPUB'], pages: 85, deliveryMethod: 'download',
     preview: 'Chapter 1 covers RSA 540 in plain English — no law degree required. Every NH landlord should understand their rights and obligations before accepting a first tenant.',
@@ -77,7 +77,7 @@ const PRODUCTS: Product[] = [
     description: 'A 72-page guide for NH condo and HOA board members. Covers RSA 356-B in detail, board meeting procedures, fiduciary duties, budget governance, reserve funds, vendor contracts, and owner communication best practices.',
     features: ['RSA 356-B plain-English guide', 'Board meeting agenda and minute templates', 'Fiduciary duty explained', 'Special assessment procedures', 'Reserve fund adequacy framework', 'Vendor contract red flags', 'Owner dispute resolution'],
     price: 2400, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'],
-    rating: 4.8, reviews: 98, icon: Shield, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
+    rating: 0, reviews: 0, icon: Shield, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
     nhRelevant: true, popular: true,
     fileTypes: ['PDF'], pages: 72, deliveryMethod: 'download',
   },
@@ -89,7 +89,7 @@ const PRODUCTS: Product[] = [
     description: 'Everything a new NH homeowner needs to know — from day one orientation to seasonal maintenance, building system understanding, emergency preparedness, and smart budgeting for the long term.',
     features: ['First 30-day orientation checklist', 'NH seasonal maintenance calendar', 'Building systems life expectancy chart', 'Emergency preparedness plan template', 'Annual budget worksheet', 'Eversource NH rebate guide', 'Contractor hiring checklist'],
     price: 1400, audience: ['Homeowners', 'First-Time Buyers'],
-    rating: 4.7, reviews: 215, icon: Home, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20',
+    rating: 0, reviews: 0, icon: Home, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20',
     nhRelevant: true,
     fileTypes: ['PDF', 'EPUB'], pages: 58, deliveryMethod: 'download',
   },
@@ -101,7 +101,7 @@ const PRODUCTS: Product[] = [
     description: 'A technical 45-page guide to 10-year capital planning for multi-family and commercial properties. Covers reserve study interpretation, funding models, project financing options, and special assessment management.',
     features: ['Reserve study interpretation guide', 'Straight-line vs. percent-funded models', 'Financing vs. special assessment analysis', 'NH CDFA financing overview', 'Project bidding and contractor selection', '10-year capital planning spreadsheet (Excel)', 'Owner communication templates'],
     price: 3400, audience: ['Property Managers', 'Condo Boards', 'Commercial Owners'],
-    rating: 4.8, reviews: 67, icon: TrendingUp, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
+    rating: 0, reviews: 0, icon: TrendingUp, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
     nhRelevant: true,
     fileTypes: ['PDF', 'XLSX'], pages: 45, deliveryMethod: 'download',
   },
@@ -113,7 +113,7 @@ const PRODUCTS: Product[] = [
     description: 'An illustrated 120-page guide to the most common home repairs. Covers plumbing basics, electrical safety, drywall, painting, weatherproofing, and NH-specific winterization — with clear step-by-step instructions.',
     features: ['100+ repair procedures with photos', 'NH winterization deep-dive', 'When to DIY vs. hire a pro (NH rules)', 'Tools required for each repair', 'Material cost estimates', 'Safety checklist for each category', 'Eversource NH weatherization rebates'],
     price: 2900, audience: ['Homeowners', 'DIY Enthusiasts'],
-    rating: 4.6, reviews: 189, icon: Wrench, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
+    rating: 0, reviews: 0, icon: Wrench, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
     nhRelevant: true,
     fileTypes: ['PDF'], pages: 120, deliveryMethod: 'download',
   },
@@ -126,7 +126,7 @@ const PRODUCTS: Product[] = [
     description: 'A comprehensive template pack with three NH lease agreement formats: standard 12-month lease, month-to-month lease, and room rental agreement. All reviewed for RSA 540 compliance and including common NH-specific clauses.',
     features: ['Standard 12-month lease (RSA 540-compliant)', 'Month-to-month lease agreement', 'Room rental agreement', 'Pet addendum (NH law)', 'Move-in inspection checklist addendum', 'Security deposit receipt', 'Lead paint disclosure (pre-1978 properties)', 'Editable Word and PDF formats'],
     price: 4900, audience: ['Landlords'],
-    rating: 4.9, reviews: 321, icon: FileText, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
+    rating: 0, reviews: 0, icon: FileText, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
     badge: 'TOP RATED', nhRelevant: true, popular: true,
     fileTypes: ['DOCX', 'PDF'], deliveryMethod: 'download',
   },
@@ -138,7 +138,7 @@ const PRODUCTS: Product[] = [
     description: 'A comprehensive move-in/move-out inspection template with room-by-room checklists, condition ratings, photo attachment slots, and signature fields. Designed specifically for NH landlord-tenant documentation requirements.',
     features: ['Room-by-room condition checklist (16 rooms/areas)', 'Numerical condition rating system', 'Photo documentation log', 'Dual-party signature section', 'Damage cost estimation worksheet', 'NH RSA 540-A compliance notes', 'Fillable PDF and Word formats'],
     price: 1900, audience: ['Landlords', 'Property Managers'],
-    rating: 4.8, reviews: 178, icon: Eye, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/20',
+    rating: 0, reviews: 0, icon: Eye, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/20',
     nhRelevant: true,
     fileTypes: ['PDF', 'DOCX'], deliveryMethod: 'download',
   },
@@ -150,7 +150,7 @@ const PRODUCTS: Product[] = [
     description: 'Five vendor contract templates for the most common property services: HVAC maintenance, landscaping/snow removal, cleaning, general handyman, and management agreement. Each includes insurance requirements, scope of work, and termination clauses.',
     features: ['HVAC maintenance agreement', 'Landscaping and snow removal contract', 'Cleaning services agreement', 'General handyman contract', 'Property management agreement', 'Certificate of insurance checklist', 'NH contractor license verification guide'],
     price: 5900, audience: ['Property Managers', 'Condo Boards', 'Landlords'],
-    rating: 4.7, reviews: 94, icon: FileText, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
+    rating: 0, reviews: 0, icon: FileText, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
     nhRelevant: true,
     fileTypes: ['DOCX', 'PDF'], deliveryMethod: 'download',
   },
@@ -162,7 +162,7 @@ const PRODUCTS: Product[] = [
     description: 'A complete meeting package for condo and HOA boards: agenda template, minutes template, action item tracker, owner notification letter, proxy form, and annual meeting package.',
     features: ['Board meeting agenda template', 'Meeting minutes template (RSA 356-B compliant)', 'Action item tracker spreadsheet', 'Owner notification letter templates', 'Proxy voting form', 'Annual meeting package', 'Executive session documentation guide'],
     price: 2400, audience: ['Condo Boards', 'HOA Boards'],
-    rating: 4.8, reviews: 112, icon: Layers, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
+    rating: 0, reviews: 0, icon: Layers, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
     nhRelevant: true,
     fileTypes: ['DOCX', 'XLSX', 'PDF'], deliveryMethod: 'download',
   },
@@ -175,7 +175,7 @@ const PRODUCTS: Product[] = [
     description: 'An interactive Excel-based calculator that models cash-on-cash return, cap rate, net operating income, debt service coverage, and 10-year equity growth for any residential or commercial property.',
     features: ['Cash-on-cash return model', 'Cap rate and NOI calculator', 'Mortgage amortization table', 'Vacancy and expense scenario modeling', '10-year equity projection', 'Comparison tool for multiple properties', 'NH-specific tax rate inputs'],
     price: 3900, audience: ['Real Estate Investors', 'Landlords', 'Commercial Owners'],
-    rating: 4.9, reviews: 267, icon: Calculator, color: 'text-lime-400', bg: 'bg-lime-500/10 border-lime-500/20',
+    rating: 0, reviews: 0, icon: Calculator, color: 'text-lime-400', bg: 'bg-lime-500/10 border-lime-500/20',
     badge: 'INTERACTIVE', nhRelevant: true, popular: true,
     fileTypes: ['XLSX'], deliveryMethod: 'download',
   },
@@ -187,7 +187,7 @@ const PRODUCTS: Product[] = [
     description: 'A spreadsheet calculator that inventories your association\'s capital components, calculates current funding percentage, projects future funding under different contribution scenarios, and identifies the annual contribution needed to reach 100% funded.',
     features: ['Component inventory worksheet (50 line items)', 'Current percent-funded score', '3 funding scenario models', 'Annual contribution optimizer', 'Special assessment probability estimator', '10-year projection chart', 'Board presentation chart pack'],
     price: 2900, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'],
-    rating: 4.8, reviews: 83, icon: BarChart3, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
+    rating: 0, reviews: 0, icon: BarChart3, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
     nhRelevant: true,
     fileTypes: ['XLSX'], deliveryMethod: 'download',
   },
@@ -199,7 +199,7 @@ const PRODUCTS: Product[] = [
     description: 'Calculate the exact ROI on EV charging station installation for your property — accounting for Eversource NH rebates (up to $500/port), installation costs, usage rates, and annual revenue projections.',
     features: ['Eversource NH rebate calculator', 'Installation cost estimator', 'Revenue projection by port count', 'Payback period analysis', 'Pricing strategy comparison (flat/per-kWh/subscription)', 'NH net metering integration model', 'Comparison: residential vs. commercial chargers'],
     price: 1900, audience: ['Landlords', 'Condo Boards', 'Commercial Owners'],
-    rating: 4.7, reviews: 56, icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20',
+    rating: 0, reviews: 0, icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20',
     nhRelevant: true,
     fileTypes: ['XLSX'], deliveryMethod: 'download',
   },
@@ -211,7 +211,7 @@ const PRODUCTS: Product[] = [
     description: 'A pricing model that helps landlords find the optimal rent by balancing vacancy risk against revenue maximization. Includes local NH market data inputs, seasonal adjustment factors, and unit-by-unit comparison.',
     features: ['Market rent comparison worksheet', 'Vacancy risk vs. revenue model', 'Seasonal adjustment factors', 'Unit-by-unit pricing matrix', 'Renewal vs. re-let decision tool', 'Concession value calculator', 'NH market benchmark inputs'],
     price: 2400, audience: ['Landlords', 'Property Managers'],
-    rating: 4.6, reviews: 74, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
+    rating: 0, reviews: 0, icon: DollarSign, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
     nhRelevant: true,
     fileTypes: ['XLSX'], deliveryMethod: 'download',
   },
@@ -224,7 +224,7 @@ const PRODUCTS: Product[] = [
     description: 'A personalized 20-page property health report generated from your PropertyAI profile data. Includes health score breakdown, system-by-system analysis, risk factors, priority action plan, and NH-specific recommendations.',
     features: ['Personalized health score analysis', 'System-by-system condition assessment', 'Risk factor prioritization', '90-day action plan', 'NH regulatory compliance checklist', 'Estimated cost of deferred maintenance', 'Comparable property benchmarks'],
     price: 7900, audience: ['All Property Types'],
-    rating: 4.9, reviews: 38, icon: Bot, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
+    rating: 0, reviews: 0, icon: Bot, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
     badge: 'AI GENERATED', nhRelevant: true,
     fileTypes: ['PDF'], pages: 20, deliveryMethod: 'generated',
   },
@@ -236,7 +236,7 @@ const PRODUCTS: Product[] = [
     description: 'A custom 25-page revenue analysis generated from your property profile. Every opportunity is scored, ranked, and presented with implementation cost, payback period, confidence level, and NH-specific execution notes.',
     features: ['Full opportunity inventory (14+ categories)', 'ROI ranking with payback periods', 'Startup cost estimates', 'NH regulatory and incentive notes', 'Quick-win action plan (90 days)', 'Scenario modeling for top 3 opportunities', 'Board-ready executive summary'],
     price: 9900, audience: ['Landlords', 'Condo Boards', 'Commercial Owners', 'Property Managers'],
-    rating: 4.9, reviews: 29, icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
+    rating: 0, reviews: 0, icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20',
     badge: 'AI GENERATED', nhRelevant: true, popular: true,
     fileTypes: ['PDF'], pages: 25, deliveryMethod: 'generated',
   },
@@ -248,7 +248,7 @@ const PRODUCTS: Product[] = [
     description: 'A custom 30-page capital planning report generated from your building systems data. Includes year-by-year expenditure forecast, funding gap analysis, recommended reserve contribution rate, and financing options.',
     features: ['10-year expenditure forecast by system', 'Funding gap analysis', 'Recommended annual reserve contribution', 'Three funding scenario models', 'NH CDFA financing options', 'Contingency planning framework', 'Board-ready presentation charts'],
     price: 12900, audience: ['Condo Boards', 'Commercial Owners', 'Property Managers'],
-    rating: 4.8, reviews: 22, icon: BarChart3, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
+    rating: 0, reviews: 0, icon: BarChart3, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20',
     badge: 'AI GENERATED', nhRelevant: true,
     fileTypes: ['PDF'], pages: 30, deliveryMethod: 'generated',
   },
@@ -261,7 +261,7 @@ const PRODUCTS: Product[] = [
     description: 'Everything you need to prepare your NH property for winter — a 40-item winterization checklist, detailed guide for each task, contractor hiring checklist, emergency response plan, and Eversource NH rebate guide.',
     features: ['40-item winterization checklist', 'Task-by-task instruction guide', 'Heating system prep protocol', 'Pipe freeze prevention plan', 'Emergency contact and response plan', 'Eversource NH rebate guide', 'Ice dam prevention and response'],
     price: 3400, audience: ['Homeowners', 'Landlords', 'Property Managers'],
-    rating: 4.9, reviews: 156, icon: Wrench, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20',
+    rating: 0, reviews: 0, icon: Wrench, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20',
     badge: 'NH ESSENTIAL', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'XLSX'], deliveryMethod: 'download',
   },
@@ -273,7 +273,7 @@ const PRODUCTS: Product[] = [
     description: 'A comprehensive 12-month maintenance planner with monthly task checklists, contractor scheduling templates, budget tracking, and seasonal preparation guides — all tailored to NH\'s climate.',
     features: ['12-month task calendar (NH seasonal)', 'Monthly contractor scheduling templates', 'Maintenance budget tracker', 'Vendor contact log', 'System service history tracker', 'Emergency maintenance protocol', 'Annual summary report template'],
     price: 2400, audience: ['Homeowners', 'Landlords', 'Property Managers'],
-    rating: 4.8, reviews: 203, icon: Clock, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20',
+    rating: 0, reviews: 0, icon: Clock, color: 'text-teal-400', bg: 'bg-teal-500/10 border-teal-500/20',
     nhRelevant: true,
     fileTypes: ['PDF', 'XLSX'], deliveryMethod: 'download',
   },
@@ -286,7 +286,7 @@ const PRODUCTS: Product[] = [
     description: 'The most comprehensive bundle for new NH landlords. Includes the Operations Manual ebook, NH Lease Agreement Template Pack, Property Inspection Report Template, and the Annual Maintenance Planner — everything you need before you accept your first tenant.',
     features: ['NH Landlord Operations Manual (ebook, $29)', 'NH Lease Agreement Template Pack ($49)', 'Property Inspection Report Template ($19)', 'Annual Property Maintenance Planner ($24)', 'Free 30-min PropertyAI onboarding session', 'NH RSA 540 quick-reference card (bonus)'],
     price: 8900, originalPrice: 12100, audience: ['Landlords'],
-    rating: 4.9, reviews: 88, icon: Package, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
+    rating: 0, reviews: 0, icon: Package, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20',
     badge: 'SAVE 27%', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'DOCX', 'XLSX'], deliveryMethod: 'download',
   },
@@ -298,7 +298,7 @@ const PRODUCTS: Product[] = [
     description: 'The definitive bundle for NH condo and HOA boards. Includes the Board Handbook ebook, Board Meeting Package templates, Reserve Fund Adequacy Calculator, Reserve Planning Guide ebook, and Vendor Contract Template Pack.',
     features: ['Condo Board Governance Handbook (ebook, $24)', 'Board Meeting Package templates ($24)', 'Reserve Fund Adequacy Calculator ($29)', 'Reserve Planning Guide (ebook, $34)', 'Vendor Contract Template Pack ($59)', 'Capital Planning Guide (ebook, $34)'],
     price: 14900, originalPrice: 20400, audience: ['Condo Boards', 'HOA Boards'],
-    rating: 4.9, reviews: 54, icon: Gift, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
+    rating: 0, reviews: 0, icon: Gift, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',
     badge: 'SAVE 27%', nhRelevant: true,
     fileTypes: ['PDF', 'DOCX', 'XLSX'], deliveryMethod: 'download',
   },
@@ -310,7 +310,7 @@ const PRODUCTS: Product[] = [
     description: 'The most complete bundle available — designed for professional property managers who need legal templates, financial calculators, maintenance systems, and governance documents to run a multi-property portfolio at scale.',
     features: ['NH Landlord Operations Manual', 'NH Lease Agreement Template Pack', 'Vendor Contract Template Pack', 'Rental Pricing Optimizer calculator', 'Property ROI Calculator', 'Annual Maintenance Planner', 'Condo Board Governance Handbook', 'Capital Planning Guide', 'Revenue Opportunity Analysis Report (AI-generated)'],
     price: 19900, originalPrice: 29900, audience: ['Property Managers', 'Multi-Family Owners'],
-    rating: 5.0, reviews: 31, icon: Sparkles, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/20',
+    rating: 0, reviews: 0, icon: Sparkles, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/20',
     badge: 'BEST VALUE', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'DOCX', 'XLSX'], deliveryMethod: 'download',
   },
@@ -621,10 +621,13 @@ export default function PropertyMarketplace() {
 
                 <p className="text-xs text-gray-400 leading-relaxed mb-3 line-clamp-2">{p.subtitle}</p>
 
-                <div className="flex items-center gap-3 mb-3">
-                  <Stars rating={p.rating} />
-                  <span className="text-xs text-gray-500">{p.rating} ({p.reviews})</span>
-                </div>
+                {/* Only once a real buyer has left one — see DigitalProductPage. */}
+                {Number(p.reviews) > 0 && (
+                  <div className="flex items-center gap-3 mb-3">
+                    <Stars rating={p.rating} />
+                    <span className="text-xs text-gray-500">{p.rating} ({p.reviews})</span>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 flex-wrap text-[10px] text-gray-500">
                   <span className="flex items-center gap-1"><Download className="w-3 h-3" />{DELIVERY_LABEL[p.deliveryMethod]}</span>
@@ -706,10 +709,12 @@ export default function PropertyMarketplace() {
                   {selected.badge && <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500 text-black">{selected.badge}</span>}
                   <h2 className="text-xl font-black text-white leading-tight">{selected.title}</h2>
                   <p className="text-sm text-gray-400">{selected.subtitle}</p>
-                  <div className="flex items-center gap-3">
-                    <Stars rating={selected.rating} />
-                    <span className="text-sm text-gray-400">{selected.rating} · {selected.reviews} reviews</span>
-                  </div>
+                  {Number(selected.reviews) > 0 && (
+                    <div className="flex items-center gap-3">
+                      <Stars rating={selected.rating} />
+                      <span className="text-sm text-gray-400">{selected.rating} · {selected.reviews} reviews</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Price block */}
