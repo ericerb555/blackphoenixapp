@@ -512,20 +512,40 @@ coming, without anyone opening the app.
 
 ### Phase 3 — A catalogue that cannot lie
 
-- [ ] **3.1** Job `catalogue` — CJ stock sync. Out of stock goes off sale, the
-      same tick.
-- [ ] **3.2** Cost drift: re-price inside the agreed band automatically; outside
-      it, off sale and ask. Needs decision 1 below.
-- [ ] **3.3** Job `delist` — every tick, anything unsellable comes off sale: no
-      stock, no deliverable, no supplier on the allowlist. Phase 0.1 made that
-      true once; this keeps it true.
-- [ ] **3.4** Autonomous listing: new CJ products scored and published against a
-      margin floor, which is what `AutoProductPilot` was built to do. Last,
-      because listing more of something is only safe once the rest holds.
-- [ ] **3.5** Fix the two screens that send the publishable key instead of the
-      session — `AutoProductPilot` and `ProductPagePilot` both build auth
-      headers as a module constant, so every call they make resolves to nobody
-      and a signed-in person is told to sign in.
+- [x] **3.1** Job `catalogue` — CJ stock. Out of stock goes off sale the same
+      tick; back in stock returns to sale if the margin still holds. **Unknown
+      is not zero**: when CJ will not answer, nothing changes, because reading a
+      transient API failure as "no stock" would empty the storefront on one bad
+      afternoon.
+- [x] **3.2** Cost drift: re-prices inside the band automatically, and outside
+      it takes the product off sale and asks — with the price that would clear
+      the floor, the margin as it stands, and what each choice does. **Decision
+      1 is no longer a blocker**: until a floor and a band are set the job does
+      nothing at all except ask for them, with three named policies to pick
+      from, because a margin floor invented here would be a pricing decision
+      taken by the wrong person. `PUT /store/catalogue/policy` sets exact
+      figures.
+- [x] **3.2b** A cost that FELL does not cut the price. Lowering a price is a
+      revenue decision, not arithmetic.
+- [x] **3.2c** A product a *person* took off sale is never relisted by the job —
+      only one the job delisted itself. Silently overriding a human decision is
+      worse than a lost sale.
+- [x] **3.3** Folded into 3.1 rather than built as a separate job: the same
+      sweep that checks stock enforces sellability, and Phase 0.2 already stops
+      an undeliverable digital product being bought. A second job would have
+      been a second thing to switch on.
+- [ ] **3.4** Autonomous listing: new CJ products scored and published against
+      the margin floor, which is what `AutoProductPilot` was built to do. Left
+      until last on purpose — listing more of something is only safe once the
+      rest holds.
+- [x] **3.5** The two screens that sent the publishable key instead of the
+      session. Both built their headers as a module **constant**, which can
+      never carry a token because at module load there is no session — so every
+      call resolved to nobody and a signed-in administrator was told to sign in.
+      Now read at call time.
+- [x] **3.6** Nineteen tests on the policy, including that a transient supplier
+      failure cannot empty the catalogue, that the floor price is rounded up
+      rather than down, and that stock takes precedence over margin.
 
 *Proved by:* a product CJ runs out of overnight is off sale by morning.
 

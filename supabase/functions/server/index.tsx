@@ -52,6 +52,7 @@ import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
+import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
@@ -1053,8 +1054,10 @@ app.route("/", cjRouter);
 app.route("/", seoEngineRouter);
 app.route("/", contentFilterRouter);
 app.route("/", maintenanceConfigRouter);
-// The store's clock. Spells its own paths out in full, so it mounts at "/".
+// The store's clock, and the catalogue policy it reads. Both spell their own
+// paths out in full, so they mount at "/".
 app.route("/", storeAutonomyRouter);
+app.route("/", storeCatalogueRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/", marketplaceRouter);
@@ -17714,9 +17717,12 @@ registerStoreJob('fulfil', async (ctx) => {
   };
 });
 
-// The tracking job owns itself; this is the explicit registration call, rather
-// than a side-effect import that somebody would later tidy away.
+// The tracking and catalogue jobs own themselves; these are explicit
+// registration calls, rather than side-effect imports somebody would later
+// tidy away — the symptom of which would be a job that silently stops
+// existing.
 registerStoreTrackingJob();
+registerStoreCatalogueJob();
 
 /** Has today's daily window opened without a run? */
 function dailySweepIsDue(settings: FulfillmentSettings, now = new Date()): boolean {

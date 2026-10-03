@@ -13,9 +13,19 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-const autoProductAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * The session, not the publishable key.
+ *
+ * This was a module CONSTANT built from the anon key, so every call this screen
+ * made resolved to nobody and the server answered a signed-in administrator
+ * with "Sign in required." Built as a constant it could never carry a session:
+ * the token has to be read at call time, because at module load there is not
+ * one yet.
+ */
+const autoProductAuthHeaders = () => authedHeadersOrAnon(publicAnonKey);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -80,11 +90,17 @@ function loadSaved(): AutoProduct[] {
 function saveToDB(products: AutoProduct[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
   // Mirror to server so imported products persist and are shared across devices.
-  fetch(`${SERVER}/auto-products`, {
-    method: 'POST',
-    headers: autoProductAuthHeaders,
-    body: JSON.stringify({ products }),
-  }).catch((err) => console.error('[AutoProductPilot] server save failed:', err));
+  void (async () => {
+    try {
+      await fetch(`${SERVER}/auto-products`, {
+        method: 'POST',
+        headers: await autoProductAuthHeaders(),
+        body: JSON.stringify({ products }),
+      });
+    } catch (err) {
+      console.error('[AutoProductPilot] server save failed:', err);
+    }
+  })();
 }
 
 function buildProduct(base: Omit<AutoProduct, 'id' | 'status' | 'importedAt'>, score: number): AutoProduct {
@@ -250,7 +266,7 @@ export default function AutoProductPilot() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/auto-products`, { headers: autoProductAuthHeaders });
+        const res = await fetch(`${SERVER}/auto-products`, { headers: await autoProductAuthHeaders() });
         const json = await res.json();
         if (json.success && Array.isArray(json.products)) {
           setProducts(json.products);

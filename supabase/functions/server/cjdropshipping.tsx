@@ -492,6 +492,60 @@ export async function submitCJOrder(
 }
 
 // ---------------------------------------------------------------------------
+// What CJ says about a product right now
+// ---------------------------------------------------------------------------
+
+export interface CjVariantSnapshot {
+  pid: string;
+  vid?: string;
+  /** What CJ charges us, per unit. Null when CJ would not say. */
+  cost: number | null;
+  /** Units available. Null when CJ would not say — NOT zero. */
+  stock: number | null;
+}
+
+/**
+ * Current cost and stock for one listed product.
+ *
+ * `null` is not `0`, and the distinction is the whole reason this returns what
+ * it does. A transient CJ error that read as "no stock" would pull a product —
+ * or, on a bad afternoon, the entire catalogue — off sale, and the operator
+ * would be left wondering why the store emptied. The caller must treat an
+ * unknown as "leave it alone", which is what the catalogue job does.
+ *
+ * Two calls, because CJ splits the answer: the variant query knows the price
+ * and the variant id, and only the stock endpoint knows the inventory.
+ */
+export async function fetchCJVariantSnapshot(
+  apiKey: string | undefined,
+  pid: string,
+  knownVid?: string,
+): Promise<CjVariantSnapshot> {
+  const key = resolveKey(apiKey);
+  if (!key) throw new Error('No CJ_API_KEY secret configured, so CJ cannot be asked about this product.');
+  if (!pid && !knownVid) throw new Error('No CJ product id on this record, so there is nothing to ask about.');
+
+  let vid = knownVid;
+  let cost: number | null = null;
+
+  if (pid) {
+    const data = await cjFetch(key, '/product/variant/query', { query: { pid } });
+    const variants: any[] = Array.isArray(data?.data) ? data.data : data?.data?.list || [];
+    const first = variants[0];
+    if (first) {
+      if (!vid) vid = first.vid || first.variantId ? String(first.vid || first.variantId) : undefined;
+      // Same spellings the importer reads, so the two cannot disagree about
+      // what "cost" means and quietly produce a different margin.
+      const raw = num(first?.variantSellPrice ?? first?.sellPrice ?? first?.price ?? 0, 0);
+      cost = raw > 0 ? raw : null;
+    }
+  }
+
+  const stock = vid ? await fetchVariantStock(key, vid) : null;
+  return { pid, vid, cost, stock };
+}
+
+// ---------------------------------------------------------------------------
 // Order status and tracking
 // ---------------------------------------------------------------------------
 

@@ -12,6 +12,7 @@ import {
   CheckCircle2, XCircle, Save, ArrowLeft, ShoppingBag, RefreshCw,
 } from 'lucide-react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import CampaignPage, { type Campaign } from './CampaignPage';
 
@@ -31,7 +32,12 @@ interface StoreProduct {
   badge?: string;
 }
 
-const authHeaders = { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' };
+/**
+ * The session, not the publishable key. Built as a module constant this could
+ * never carry a token — there is no session at module load — so every call
+ * resolved to nobody and a signed-in person was told to sign in.
+ */
+const authHeaders = () => authedHeadersOrAnon(publicAnonKey);
 
 export default function ProductPagePilot() {
   const [config, setConfig] = useState({ maxSlots: 6, maxProducts: 4 });
@@ -59,10 +65,10 @@ export default function ProductPagePilot() {
     setLoading(true);
     try {
       const [cfgRes, prodRes, listRes, slotRes] = await Promise.all([
-        fetch(`${SERVER}/page-pilot/config`, { headers: authHeaders }),
-        fetch(`${SERVER}/products?isActive=true&limit=100`, { headers: authHeaders }),
-        fetch(`${SERVER}/page-pilot/list`, { headers: authHeaders }),
-        fetch(`${SERVER}/page-pilot/slots`, { headers: authHeaders }),
+        fetch(`${SERVER}/page-pilot/config`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/products?isActive=true&limit=100`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/page-pilot/list`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/page-pilot/slots`, { headers: await authHeaders() }),
       ]);
       if (cfgRes.ok) setConfig(await cfgRes.json());
       if (prodRes.ok) {
@@ -145,7 +151,7 @@ export default function ProductPagePilot() {
     try {
       const res = await fetch(`${SERVER}/page-pilot/generate`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: await authHeaders(),
         body: JSON.stringify({ title, angle, sourceUrl, accent, products: selectedList }),
       });
       const data = await res.json();
@@ -164,7 +170,7 @@ export default function ProductPagePilot() {
     setBusyId(id);
     try {
       const res = await fetch(`${SERVER}/page-pilot/${id}`, {
-        method: 'PUT', headers: authHeaders, body: JSON.stringify(patch),
+        method: 'PUT', headers: await authHeaders(), body: JSON.stringify(patch),
       });
       const data = await res.json();
       if (!res.ok) { alert(data.error || 'Update failed'); return; }
@@ -180,7 +186,7 @@ export default function ProductPagePilot() {
     if (!confirm('Delete this campaign page? This frees its slot.')) return;
     setBusyId(id);
     try {
-      await fetch(`${SERVER}/page-pilot/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/page-pilot/${id}`, { method: 'DELETE', headers: await authHeaders() });
       await loadAll();
     } finally { setBusyId(''); }
   }
