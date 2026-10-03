@@ -31,6 +31,7 @@ const PRODUCTS = [
   'tmpl-inspection',
   'tmpl-vendor-contract',
   'tmpl-board-meeting',
+  'eb-capital-planning',
 ];
 
 function human(bytes) {
