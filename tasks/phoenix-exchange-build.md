@@ -1411,3 +1411,61 @@ Suite 1,505 passing. Smoke 21 pages, 0 threw.
 
 **The lesson is the one already written down**, and it earned its place again:
 a passing build says the code compiles, not that the product works.
+
+### Phase 3, part three — a business can actually claim a listing (2026-10-03)
+
+The gap nobody had noticed: engine, schema, routes and the review queue were
+all built, tested and deployed to production, and the "Claim this listing"
+button on the listing page was **an inert `<span>`**. The entire claim system
+was unreachable by the people it exists for.
+
+`ExchangeClaim.tsx` is the missing screen. It shows what claiming involves,
+asks for a sign-in, starts the claim, requests each factor, takes the codes,
+and renders every outcome the server can return — open, needs a person,
+disputed, granted, refused.
+
+**The decision that shaped the whole page: starting is an explicit act.**
+
+`POST /exchange/claim/start` is idempotent and would have made a tidy "get or
+create" on mount. It is deliberately not called that way, because on a listing
+somebody already holds it opens a dispute **and emails the current owner**. A
+page that emails a stranger's business because somebody opened a URL is
+indefensible — a crawler, a prefetch or a mistyped link would do it. So the
+claim starts on a button press, and for an already-claimed listing the page
+says plainly, before the press, that this opens a dispute, that the holder is
+told immediately, and that nothing changes while a person looks.
+
+The claim id is kept in **session** storage so a refresh resumes through
+`GET /exchange/claim/:id` instead of posting start again. It is a convenience
+with no authority: the server checks the claim belongs to the caller and
+answers 404 otherwise, so a copied id gets nothing.
+
+**Nothing on this screen reveals a contact detail the listing does not already
+show.** Targets arrive from the server masked and are rendered exactly as they
+arrive.
+
+**Seen working** at `/exchange-claim?slug=black-phoenix-builds`: the sign-in
+gate renders and names the business correctly, which also proves the public
+listing fetch works before any session exists. The listing page still renders
+its nine categories.
+
+**What could not be seen, and why.** Everything past the sign-in gate needs a
+real account: starting a claim, receiving a code, answering it, and the grant.
+The routes are unit-tested and their authorisation is confirmed refusing
+anonymous callers in production, but the signed-in path has never been walked.
+That remains the last unverified piece of the claim system, and it is Eric's to
+do — or mine, with a test account he is willing to create.
+
+**Also unverifiable right now: the claim button itself.** It only renders on an
+*unclaimed* listing, and the directory currently contains exactly one business,
+which is claimed. The markup is a real link now rather than a dead span, and
+that is as far as looking can get until the registries are ingested.
+
+Typecheck app 316 / server 87, both baselines, nothing in the new files. Suite
+1,580 passing. Full sweep **350 pages: 349 rendered, 1 threw** — `settings`,
+"failed to fetch dynamically imported module: OwnersDashboard.tsx?t=...". Not
+real, and the same shape as the last one: the `?t=` is vite's HMR cache-bust,
+`OwnersDashboard` is a file the parallel session had just committed to, the
+harness reported three other pages passing "on its own" when retried, and a
+production build resolves it and emits its 308 kB chunk. All five exchange
+pages reported ok.

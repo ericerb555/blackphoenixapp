@@ -214,12 +214,13 @@ export default function ExchangeListing() {
                 deals — and to see the people who have been looking for you.
               </p>
             </div>
-            {/* The claim flow is phase 3. Rendered as the button it will be,
-                but inert rather than pointing at a page that does not exist —
-                a dead link reads as a broken product. */}
-            <span className="bpxl-btn bpxl-btn-soon" aria-disabled="true">
+            {/* Phase 3 landed, so this is a real link. It opens a page that explains
+                what claiming involves and asks for a sign-in — it does NOT start
+                anything on arrival, because starting a claim on a listing somebody
+                already holds emails the current owner. */}
+            <a className="bpxl-btn" href={`/exchange-claim?slug=${encodeURIComponent(slug)}`}>
               Claim this listing
-            </span>
+            </a>
           </section>
         )}
 

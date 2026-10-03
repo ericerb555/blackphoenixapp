@@ -174,6 +174,7 @@ const BidRoom = lazy(() => import("./pages/BidRoom"));
 const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
 const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
 const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
+const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
@@ -616,6 +617,13 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    */
   "exchange":                ExchangeDirectory,
   "exchange-category":       ExchangeCategory,
+  /**
+   * Claiming a listing. Public in the route sense — a business owner arrives
+   * from their own listing page, often without an account yet — and the screen
+   * itself asks them to sign in, because a claim has to belong to somebody.
+   * Every claim route refuses an unidentified caller server-side.
+   */
+  "exchange-claim":          ExchangeClaim,
   /**
    * Staff only, and deliberately NOT in App's public route list.
    *

@@ -510,6 +510,13 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      */
     'exchange',
     'exchange-category',
+    /**
+     * The claim screen. Reachable without a session so an owner can read what
+     * claiming involves before signing in; the screen itself asks them to sign
+     * in before anything starts, and the server refuses every claim route to an
+     * unidentified caller regardless of what this list says.
+     */
+    'exchange-claim',
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',
