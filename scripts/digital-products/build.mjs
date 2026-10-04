@@ -35,6 +35,7 @@ const PRODUCTS = [
   'eb-condo-board',
   'bundle-condo-complete',
   'eb-landlord-ops',
+  'bundle-pm-pro',
 ];
 
 function human(bytes) {
