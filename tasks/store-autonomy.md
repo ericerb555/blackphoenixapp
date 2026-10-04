@@ -821,3 +821,95 @@ where it happens is a real decision: `npm:jspdf` under Deno, or an HTML view
 that prints, which is the pattern `documents-need-a-view-and-a-pdf` already
 establishes across the platform. Worth settling before writing it rather than
 after.
+
+---
+
+## Review — the Property Health Report, as a document (2026-10-04)
+
+The gate was built first; this is the document behind it. One of the three, not
+all three, because a report that is actually worth $79 is worth more than three
+that are nearly worth their prices.
+
+### Where it is rendered, and why that was not a coin toss
+
+There is no PDF renderer on the server, and no Deno available here to prove
+`jspdf` works under it — so shipping that dependency into the function that
+carries payments would have been a guess with a live blast radius.
+
+It did not need to be a guess. `documents-need-a-view-and-a-pdf` is the standing
+expectation that every business document can be **seen as it will actually
+look** and printed or saved as a PDF, and that is the pattern the rest of the
+platform already uses. So the report renders as a page with a print stylesheet:
+US Letter, the same one-inch margins, Times for body and Helvetica for
+furniture, 10.5pt on 14pt — the measurements `pdfBook.mjs` uses for the fifteen
+authored products.
+
+**And the plan's architecture note is kept where it matters.** It warned that
+generated reports would otherwise *"look like a different company made them"*.
+`propertyReportContent.ts` emits **only** the block vocabulary `pdfBook`
+understands — `h2`, `h3`, `p`, `bullets`, `numbers`, `checks`, `callout`,
+`table`, `fields`, `rule`, `break` — and a test fails if a block appears that it
+cannot typeset. So the shared thing is the document's shape, which is what makes
+two documents look like one company; the library that draws it can change later
+without touching the content. If jsPDF is ever proven under Deno, the same
+structure goes through the same renderer as the books, unchanged.
+
+### What the report says
+
+Five chapters, from records only: where the property stands, condition area by
+area, what is still open, what has been done, and what to do next.
+
+- **Worst first.** The condition table is sorted by condition, because that is
+  the order the work gets read in, and the headline names the areas at the
+  bottom of the scale rather than making the reader find them.
+- **The ranking is printed, not applied silently.** The inspection form writes a
+  free string and defaults it to "Good". Ranking those words is a judgement, so
+  the report states the scale and says that a word it does not recognise is
+  treated as between Fair and Good — not as the worst thing in the building, and
+  not as the best. A stray word must not reorder somebody's priorities.
+- **Nothing recorded says "not recorded"**, never a blank or a zero.
+- **No completed work reads as "nothing has been done through us, so this report
+  cannot evidence it"** rather than as a clean maintenance history. That
+  difference matters to a buyer, an insurer or a lender, and it is the kind of
+  sentence a generated document gets wrong by omission.
+- **It says what would make the next one better** — and at ten or more areas
+  that is a second inspection next year, not a fuller one. The gate already
+  requires eight, so telling the owner of a ten-area walk-through to inspect
+  more thoroughly reads as a sales line and ignores what they just did.
+
+### The gate is on the route, not only on the button
+
+`canSell` runs in the view handler before a single record is read. A listing
+that hides a button is not a check, and the difference between refusing to sell
+a hollow report and printing one is whether the document route itself refuses.
+
+### Escaping, because these pages get shared
+
+Every string in the report was typed into an inspection note, a property name or
+a job title, and the page is meant to be shown to tenants, buyers and lenders.
+All of it goes through one escape — table cells and list items included — and a
+test injects `<script>`, `<svg onload=>`, `<img onerror=>` and a `</td>` break
+into every one of those fields and asserts no element survives, while the text
+still appears rather than being silently swallowed.
+
+### Checks
+
+typecheck app 316 / server 87, both at baseline. smoke 6 affected pages, 0
+threw. 1736 tests pass, 30 of them new across the gate and the document. A
+realistic sample is rendered to
+`dist/digital-products/sample-property-health.html` — worth opening before this
+is sold, because reading the document is the only check that catches a report
+which is accurate and still not worth $79.
+
+### Still to do on the reports
+
+- **Revenue Opportunity and the 10-Year Capital Plan have gates and no
+  documents.** The capital plan is the one to write carefully: it needs costing
+  through our own labour and materials catalogue, which is the part no
+  competitor can copy, and it must keep estimated and observed lives visibly
+  apart.
+- **Nothing charges for one yet.** There is no Stripe product, no purchase and
+  no delivery — the view route is reachable by the owner of the property,
+  because the gate and the document had to exist before any of that could be
+  wired. That is the next piece, and it is the same `marketplace_product` path
+  the other sixteen products use.

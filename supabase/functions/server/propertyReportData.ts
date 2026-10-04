@@ -169,3 +169,84 @@ export async function evidenceFor(email: string, propertyId: string): Promise<Pr
 
   return evidence;
 }
+
+/**
+ * The records themselves, for a report that has already passed the gate.
+ *
+ * `evidenceFor` counts; this returns what the counting was done on. Two
+ * functions rather than one because they are asked at different moments and the
+ * expensive one must not run to answer the cheap question: the gate is checked
+ * every time a portal page renders a price, and the records are read once, after
+ * somebody has bought.
+ */
+export interface PropertyDetail {
+  property: any | null;
+  /** Completed inspections for this property, newest first. */
+  inspections: any[];
+  /** Every area across them, with the inspection it came from. */
+  areas: Array<{ name: string; condition: string; notes: string; inspectedAt: string }>;
+  /** Items still open across those inspections. */
+  openItems: Array<{ area: string; what: string; inspectedAt: string }>;
+  jobs: any[];
+  conditionsReports: any[];
+}
+
+export async function detailFor(email: string, propertyId: string): Promise<PropertyDetail> {
+  const address = lower(email);
+  const id = String(propertyId || "").trim();
+  const out: PropertyDetail = { property: null, inspections: [], areas: [], openItems: [], jobs: [], conditionsReports: [] };
+  if (!address || !id) return out;
+
+  out.property = await propertyFor(address, id);
+  if (!out.property) return out;
+
+  try {
+    const rows = ((await kv.getByPrefix(`inspection:${address}:`)) as any[]) || [];
+    out.inspections = rows.filter(Boolean)
+      .filter((r: any) => String(r?.propertyId || "") === id && String(r?.status || "") === "complete")
+      .sort((a: any, b: any) => String(b?.completedAt || b?.startedAt || "").localeCompare(String(a?.completedAt || a?.startedAt || "")));
+
+    for (const inspection of out.inspections) {
+      const when = String(inspection?.completedAt || inspection?.startedAt || "").slice(0, 10);
+      for (const area of (Array.isArray(inspection?.areas) ? inspection.areas : [])) {
+        const name = String(area?.name || "").trim();
+        if (!name) continue;
+        out.areas.push({
+          name,
+          condition: String(area?.condition || "Good").trim(),
+          notes: String(area?.notes || "").trim(),
+          inspectedAt: when,
+        });
+      }
+      for (const item of (Array.isArray(inspection?.items) ? inspection.items : [])) {
+        if (String(item?.status || "open") !== "open") continue;
+        out.openItems.push({
+          area: String(item?.area || item?.areaName || "").trim(),
+          what: String(item?.what || item?.note || item?.description || "").trim(),
+          inspectedAt: when,
+        });
+      }
+    }
+  } catch (err) {
+    console.log("[property-reports] could not read the inspections in full:", err);
+  }
+
+  try {
+    const ids = ((await kv.get(`landlord_work_request:${address}`)) as any[]) || [];
+    const keys = (Array.isArray(ids) ? ids : []).slice(0, 500).map((wrId: any) => `wr:${String(wrId)}`);
+    const jobs = keys.length ? (((await kv.mget(keys)) as any[]) || []).filter(Boolean) : [];
+    out.jobs = jobs.filter((j: any) => String(j?.propertyId || "") === id)
+      .sort((a: any, b: any) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
+  } catch (err) {
+    console.log("[property-reports] could not read the work requests in full:", err);
+  }
+
+  try {
+    const rows = ((await kv.getByPrefix(`conditions_report:${address}:`)) as any[]) || [];
+    out.conditionsReports = rows.filter(Boolean).filter((r: any) => String(r?.propertyId || "") === id);
+  } catch (err) {
+    console.log("[property-reports] could not read the conditions reports in full:", err);
+  }
+
+  return out;
+}

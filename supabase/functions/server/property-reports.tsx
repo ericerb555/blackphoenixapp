@@ -25,7 +25,9 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { evidenceFor, propertyFor } from "./propertyReportData.ts";
+import { evidenceFor, propertyFor, detailFor } from "./propertyReportData.ts";
+import { propertyHealthReport } from "./propertyReportContent.ts";
+import { reportToHtml } from "./reportHtml.ts";
 import { offerFor, canSell, capitalPlanBasis, reportSpec } from "./propertyReportRules.ts";
 
 const reportsRouter = new Hono();
@@ -118,6 +120,40 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/:reportId"
     },
     evidence,
   });
+});
+
+/**
+ * GET /property-reports/:propertyId/property-health/view — the document itself.
+ *
+ * Returns HTML rather than a PDF, which is the pattern the rest of the platform
+ * uses: the owner sees the document as it will look and prints or saves it from
+ * their browser. See the note at the top of reportHtml.ts for why not jsPDF.
+ *
+ * THE GATE IS CHECKED HERE TOO, NOT ONLY ON THE PAGE THAT SELLS IT
+ *
+ * A listing that hides a button is not a check — the route is the check. So the
+ * same `canSell` runs before a single record is read, and a property without
+ * enough behind it gets the reason rather than a thin document. That is the
+ * difference between refusing to sell a hollow report and printing one.
+ */
+reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/property-health/view", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const propertyId = String(c.req.param("propertyId") || "").trim();
+  const evidence = await evidenceFor(who.email, propertyId);
+  const verdict = canSell("property-health", evidence);
+  if (!verdict.ok) {
+    return c.json({
+      success: false,
+      error: `There is not enough recorded about this property yet: ${verdict.blocker}.`,
+      requirements: verdict.requirements,
+    }, 409);
+  }
+
+  const detail = await detailFor(who.email, propertyId);
+  const report = propertyHealthReport(detail, evidence);
+  return c.html(reportToHtml(report));
 });
 
 export default reportsRouter;
