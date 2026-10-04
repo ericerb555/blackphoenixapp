@@ -558,8 +558,10 @@ approval until you say it may.
       is meant to buy.
 - [ ] **P8. Retire the other two price lists.** `portalUpgradePrices.ts` and
       `PricingPage.tsx` read the catalogue. One source, visibly.
-- [ ] **P9. The price watcher,** as a job on the autonomy clock, raising asks to
-      owner and admin. Read-only proposals until you arm it.
+- [x] **P9. The price watcher.** Built and registered on the autonomy clock,
+      read-only, raising asks on the channel that already exists. OFF until it
+      is switched on in the autonomy settings. See the review at the end for the
+      three signals it cannot yet see.
 
 Order matters. P1 is a fix and ships on its own. P2–P4 are the consolidation and
 nothing sells correctly before them. P5–P6 are where money starts moving. P7–P9
@@ -946,3 +948,80 @@ labels, and a wholesale swap would have produced three blank buttons.
    matter when a maintenance plan has to bill through Stripe alongside a portal
    subscription, which is the fourth question in section 15 of
    `price-ladders.md`.
+
+---
+
+## 21. Review — P9, the price watcher (2026-10-04)
+
+Eric's words were *"ai assistant should be watching of of this and ping the
+owner and admin if somehting needs to be changed **and why**."* The last two
+words are the deliverable, and they shaped the whole thing: a watcher that says
+"raise the vendor Advanced rung to $128" is useless, and one that says "raise it
+because 9 of 11 trials on it converted" is a decision somebody can make in ten
+seconds. Every proposal carries the figure that triggered it and what the change
+is expected to do, and a test asserts that none can be raised without both.
+
+**What changed.**
+
+- `priceWatchRules.ts` (new) is pure — no records, no network, no KV — because
+  these are rules about money and every way they fail is silent. A watcher that
+  proposes a 40% rise because a divisor was one does not throw; it writes a
+  confident sentence into the place Eric looks and waits to be approved.
+- Six signals: capacity nearly full, capacity unsold for a quarter, trial
+  conversion too low, trial conversion so high there is room above, churn above
+  a tenth of a rung, and an add-on nobody has taken. The last raises a
+  **question with no number**, deliberately — either the price is wrong or the
+  add-on is, and the price cannot be the answer to both.
+- The guardrails from section 12 of `price-ladders.md` are enforced rather than
+  documented: a 10% cap per move, 90 days between changes, a floor and an
+  optional ceiling. The cap **clamps rather than refuses**, because the
+  direction is the useful half of the judgement and the size is what the rail is
+  for. A clamp that lands on the current price proposes nothing, so the watcher
+  never suggests changing a price to itself.
+- **`MIN_SAMPLE = 8`.** Two trials converting out of two is a coincidence, not a
+  signal, and a price moved on it gets moved back next month. Every rule that
+  divides checks it first — a ratio from a denominator of one is the classic way
+  a watcher like this starts talking confident nonsense.
+- **The labour floor outranks the waiting period.** Every other rule is an
+  optimisation and can wait ninety days; a rung priced below what the work costs
+  loses money on every sale, so it is raised immediately and is not clamped to
+  10% — it has to reach the floor, not creep towards it over a year of
+  ninety-day steps. An underwater rung reports only that, and nothing else.
+- `priceWatchJob.ts` (new) registers as another job on the store autonomy clock
+  and raises each proposal as an ask on the existing channel. **No second
+  inbox** — a second place to look is a place that stops being looked at.
+- A proposal that stops being true **withdraws itself**. A band that filled and
+  then emptied would otherwise leave "raise this, it is 90% full" sitting in the
+  queue, and an ask that is wrong by the time it is read teaches somebody to
+  ignore the screen.
+- `tests/priceWatchRules.test.ts` (new, 23 tests).
+
+**Checks.** typecheck app 316 / server 87, both at baseline. smoke 6 affected
+pages, 0 threw. 1687 tests pass.
+
+**It is registered and OFF.** Like every job on that clock it stays off until it
+is switched on in the autonomy settings, and switching it on grants it nothing
+but the ability to ask: it writes no price and the rules module returns
+sentences, not writes.
+
+**What it cannot see yet, stated rather than estimated.**
+
+1. **Churn.** Nothing records a cancellation against a rung. The Stripe webhook
+   clears `tierId` off the grant when a subscription ends, which loses the one
+   fact the churn rule needs. The rule is written and tested; it will stay
+   silent until something records which rung somebody left.
+2. **Add-on attach.** Add-ons are not purchasable yet (U3b in
+   `plan-catalogue-unification.md`), so there is nothing to attach.
+3. **The labour floor.** It needs quoted hours per rung, which does not exist.
+   `employees-have-a-pay-rate-and-a-bill-rate` is what makes the figure knowable
+   once it does.
+
+All three are left **unset** rather than approximated, because the rules skip a
+signal they were not given — and a churn figure invented here would be the most
+confident wrong number on the screen.
+
+**And it will find nothing today.** One populated ladder, no cohort records, and
+sample thresholds that refuse to read a signal out of three accounts. That is
+the correct result rather than a fault: it was built now so that it already
+works when the numbers arrive, and because the rules were worth getting right
+while nothing depended on them.

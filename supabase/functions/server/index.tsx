@@ -92,6 +92,7 @@ import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
 import { registerStoreWatchJob } from "./storeWatchJob.ts";
+import { registerPriceWatchJob } from "./priceWatchJob.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
 import zendropRouter from "./zendrop.tsx";
@@ -19095,6 +19096,12 @@ registerStoreJob('fulfil', async (ctx) => {
 registerStoreTrackingJob();
 registerStoreCatalogueJob();
 registerStoreWatchJob();
+/**
+ * The pricing watcher. Registered is not enabled — like every other job it
+ * stays off until it is switched on in the autonomy settings, and it only ever
+ * reads and asks.
+ */
+registerPriceWatchJob();
 
 /** Has today's daily window opened without a run? */
 function dailySweepIsDue(settings: FulfillmentSettings, now = new Date()): boolean {
