@@ -544,7 +544,10 @@ approval until you say it may.
       per audience per rung, with bands. `plan_tier` / `plan_addon` become its
       projection.
 - [ ] **P5. The three rungs for all eleven audiences.** Names, what each
-      includes, prices. Needs your figures — see section 15.
+      includes, prices. **Drafted — see `tasks/price-ladders.md`**, which turns
+      out to be ten ladders rather than eleven (the content centre is an add-on,
+      not a portal type) and carries four conflicts that need settling first.
+      Waiting on Eric's edits to that table.
 - [ ] **P6. Stripe prices for every rung and every add-on,** live and test,
       written into the catalogue. Subscription items, not separate
       subscriptions.
