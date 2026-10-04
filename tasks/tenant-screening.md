@@ -197,7 +197,8 @@ worth shipping regardless of whether this business ever launches.
 - [x] Permissible-purpose certification captured per order, before the invite.
 - [x] Landlord records a decision; a decline produces the adverse-action
       notice as a viewable document with a PDF.
-- [x] Expiry sweep on the clock (the retention purge itself is still to come).
+- [x] Expiry sweep on the clock, and the retention purge alongside it — the
+      purge stays off until `SCREENING_RETENTION_DAYS` is set.
 
 ## Phase 4 — the other portals
 
@@ -843,3 +844,146 @@ unproven. Before this is used in anger:
    charge. That is the current behaviour and it should survive the deploy.
 4. Only then set a price, in test mode, and watch a real
    `checkout.session.completed` move an order `created → paid → invited`.
+
+---
+
+## Review — the retention purge, 2026-10-03
+
+The last item in the plan that did not need an answer from Eric. Phase 3's
+partner implementation and its webhook remain blocked on the agency agreement,
+and nothing else is left.
+
+### Built into the sweep that already exists
+
+No second clock entry: it is the same question asked of the same records on the
+same schedule, so `POST /cron/screening/expire-invitations` now expires
+invitations and purges finished orders in one pass, and reports both numbers.
+
+**The window is an edge-function secret, not a setting and not a route.**
+`SCREENING_RETENTION_DAYS`. Deleting records is the only irreversible thing in
+this system, and a destructive policy should take dashboard access to change
+rather than any staff session that happens to be signed in. There is
+deliberately no screen for it.
+
+**Unset means nothing is purged**, and so does anything below a 180-day floor.
+So deploying this does not start deleting records, and arming the schedule does
+not either — that takes a second, separate decision. The 180 days is not a
+legal figure and is not presented as one; it is a floor against somebody typing
+7 to tidy up and destroying every consent record older than a week. The real
+number is a lawyer's, alongside the fee question.
+
+**Two kinds of record are never purged on a timer.** An order that is not
+finished, and — the one worth stating — an order where the landlord declined
+somebody *because of* the report. That is precisely the record you need if the
+decision is ever questioned: the consent wording, the purpose, who certified
+it, the date. Those outlive the window on purpose, and deleting one has to be
+somebody's explicit act rather than a sweep's.
+
+**Age is measured from the last activity**, not from creation. An order created
+in January and completed in June is six months of relevance, not six months of
+age. Tested.
+
+**An order whose dates cannot be read is kept.** Failing closed, because a
+record that cannot be aged is a record for somebody to look at rather than one
+to delete quietly.
+
+**The applicant's invitation token is deleted with the order**, since a token
+pointing at a record that no longer exists is just a key to nothing.
+
+### Checks
+
+    typecheck   app 316, server 87 — both at baseline, nothing in screening
+    smoke       6 rendered, 0 threw (fewer pages than before: this round
+                changed only server files and the plan, so the harness had
+                less to reach)
+    tests       1619 pass, 0 fail (9 of them new, 71 across screening)
+
+### The deploy is still not live, and that has not changed
+
+A deploy of `make-server-3eae23a6` landed at 18:03 local — version 601 — and it
+does **not** contain any of this work. Proved twice: `/screening/:token` and
+`POST /screening/webhook` are both refused by the auth wall with "Sign in
+required.", where a live build would have the wall let them through and the
+route answer for itself.
+
+Production is not rolled back — `/exchange/taxonomy` still answers 200 — so
+whatever was deployed was recent, just not this. `stripe-webhooks` has not been
+redeployed at all since 30 September.
+
+Two things that wasted time and are worth not repeating: `/health`'s `version`
+string is hardcoded in the source and never changes on a deploy, so it is
+useless as a marker — the version number from the Supabase management API is
+the real one. And there is a **second clone of the same remote** at
+`GitHub\blackphoenixapp`, last committed 2026-07-25, with none of this work in
+it; deploying from that folder would ship a ten-week-old server.
+
+**So everything in phases 0 to 2 remains unverified against a running server,
+including the 401 that is still turning away every applicant who follows a
+landlord's link.** The frontend is live and ahead of it, which is the one
+combination that looks worse to a landlord than before: the Order screening
+button is on screen and the routes behind it are not there.
+
+---
+
+## DEPLOYED AND VERIFIED — 2026-10-03
+
+Both functions deployed from this session. The CLI had been authenticated all
+along: its token lives in the Windows credential store rather than a file, so
+the earlier conclusion that this needed Eric's hands was wrong, and several
+rounds of handing commands back and forth were wasted on it.
+
+    npx supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm
+    npx supabase functions deploy stripe-webhooks     --project-ref plzsvzwwcdopnawtiwzm
+
+By name and with no `--no-verify-jwt`, per the procedure recorded in commit
+af30da28. `stripe-webhooks` warns "Docker is not running" and deploys anyway.
+
+### What production now answers
+
+    GET  /screening/<bogus>              404  "This application link is invalid…"
+    POST /screening/webhook  {ping}      200  {"received":true,"ignored":"ping"}
+    GET  /health                         200
+    GET  /landlord/screening             401  "Sign in required."
+    GET  /staff/screening/pricing        401  "Sign in required."
+    GET  /staff/screening/revenue        401  "Sign in required."
+    POST /staff/screening/:id/advance    401  "Sign in required."
+    POST /cron/screening/expire-…        401  "Unauthorized."
+    GET  /screening/order/<bogus>        404  "This screening link is invalid…"
+
+**The first line is the one that mattered.** That route answered `401 "Sign in
+required."` for as long as the feature has existed. It now answers from the
+route itself, which means every rental application link a landlord has ever
+shared works again.
+
+**The last two lines prove the exemptions did not open anything.** The cron
+route answers `"Unauthorized."` — its *own* message, not the wall's — so a
+scheduler can reach it and it still refuses everything while
+`SCREENING_CRON_SECRET` is unset. Every landlord and staff route is still
+behind the wall.
+
+### The state of the data
+
+    screening_pricing      0 rows   → no fee configured, so nothing can be charged
+    screening_order:       0        → no orders yet
+    screening_invite:      0
+    screening_token:       1        → one real landlord application link
+
+That single application link is the one that was broken. It predates expiries,
+so it carries no `expiresAt`, and the grandfather path will stamp ninety days
+on it the first time somebody loads it — which is exactly the case that path
+was written for.
+
+### Still not exercised
+
+**No payment has been taken and no provider order placed.** With
+`screening_pricing` empty nothing charges, which is the intended resting state.
+The checkout, the Stripe re-verification and the `created → paid → invited`
+walk are deployed and unproven; proving them needs a test-mode price and one
+real `checkout.session.completed`.
+
+`stripe-webhooks` is deployed but cannot be probed by hand — it requires a
+valid Stripe signature — so its forwarding of a screening event is also
+unproven until a real event carries `screening_order_id`.
+
+Neither cron job is scheduled: both migrations remain `.pending`, and the
+retention purge needs `SCREENING_RETENTION_DAYS` on top of that.

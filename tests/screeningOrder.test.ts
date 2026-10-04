@@ -36,6 +36,8 @@ import {
   purposeRefusalMessage,
   adverseActionRefusal,
   adverseActionNotice,
+  purgeRefusal,
+  SCREENING_MIN_RETENTION_DAYS,
 } from '../supabase/functions/server/screeningOrder.ts';
 
 const EMAIL = 'landlord@example.com';
@@ -379,4 +381,62 @@ test('the notice names the agency in every statement that needs it', () => {
 test('the notice is always marked a draft', () => {
   // Until a lawyer has read it, nothing produced here may look final.
   assert.equal(adverseActionNotice({ applicantName: 'A', decidedAt: 'x', agency }).draft, true);
+});
+
+/* ── throwing records away ────────────────────────────────────────────────── */
+
+const DAY = 24 * 60 * 60 * 1000;
+const finished = (over: Partial<ScreeningOrderRecord> = {}) =>
+  order({ status: 'complete', providerRef: 'x_1', updatedAt: '2026-01-01T00:00:00.000Z', ...over });
+const LATER = Date.parse('2027-01-01T00:00:00.000Z');
+
+test('with no retention window configured, nothing is ever purged', () => {
+  // The ordinary state. Deploying must not silently start destroying records.
+  assert.equal(purgeRefusal(finished(), 0, LATER), 'no_retention');
+  assert.equal(purgeRefusal(finished(), null, LATER), 'no_retention');
+  assert.equal(purgeRefusal(finished(), undefined, LATER), 'no_retention');
+});
+
+test('a window shorter than the floor is treated as unset, not honoured', () => {
+  // Somebody typing 7 to tidy up must not destroy every consent record older
+  // than a week.
+  assert.equal(purgeRefusal(finished(), 7, LATER), 'no_retention');
+  assert.equal(purgeRefusal(finished(), SCREENING_MIN_RETENTION_DAYS - 1, LATER), 'no_retention');
+  assert.equal(purgeRefusal(finished(), Number.NaN, LATER), 'no_retention');
+});
+
+test('an unfinished order is never purged however old', () => {
+  for (const status of SCREENING_STATES.filter((s) => !isTerminal(s))) {
+    assert.equal(purgeRefusal(finished({ status }), 365, LATER), 'not_finished');
+  }
+});
+
+test('a finished order inside the window is kept', () => {
+  const justInside = Date.parse('2026-01-01T00:00:00.000Z') + 364 * DAY;
+  assert.equal(purgeRefusal(finished(), 365, justInside), 'within_window');
+});
+
+test('a finished order past the window may be purged', () => {
+  const past = Date.parse('2026-01-01T00:00:00.000Z') + 366 * DAY;
+  assert.equal(purgeRefusal(finished(), 365, past), null);
+});
+
+test('an ADVERSE ACTION trail is never purged on a timer', () => {
+  // The order whose record you need if the decision is ever questioned.
+  assert.equal(purgeRefusal(finished({ reportInfluenced: true }), 365, LATER), 'adverse_action_trail');
+  // A rejection the report did not bear on has no such trail to protect.
+  assert.equal(purgeRefusal(finished({ reportInfluenced: false }), 365, LATER), null);
+});
+
+test('age is measured from the last activity, not from creation', () => {
+  // Created in January, completed in June is six months of relevance.
+  const o = finished({ createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-06-01T00:00:00.000Z' });
+  const janPlus200 = Date.parse('2026-01-01T00:00:00.000Z') + 200 * DAY;
+  assert.equal(purgeRefusal(o, 180, janPlus200), 'within_window');
+});
+
+test('an order with unreadable dates is kept, not deleted', () => {
+  // Fails closed: a record that cannot be aged is a record to look at.
+  assert.equal(purgeRefusal(finished({ updatedAt: 'whenever', completedAt: null, createdAt: null }), 365, LATER), 'not_finished');
+  assert.equal(purgeRefusal(null, 365, LATER), 'not_finished');
 });

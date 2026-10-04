@@ -347,6 +347,65 @@ export function inviteLapsed(
   return Number.isFinite(at) && at <= nowMs;
 }
 
+/* ── throwing records away ────────────────────────────────────────────────── */
+
+/**
+ * The shortest retention this will accept.
+ *
+ * Not a legal figure — I am not the right source for one and the plan says so.
+ * It is a floor against the obvious mistake: somebody typing 7 to tidy up, and
+ * destroying the consent wording, the purpose certification and the decision
+ * trail for every screening more than a week old. Those records exist to answer
+ * a challenge that arrives months later, so a short window defeats the whole
+ * point of having kept them.
+ *
+ * The real figure is Eric's to set once a lawyer has said what it should be.
+ * Until then nothing is purged at all — see `purgeRefusal`.
+ */
+export const SCREENING_MIN_RETENTION_DAYS = 180;
+
+export type PurgeRefusal =
+  | 'no_retention'
+  | 'not_finished'
+  | 'within_window'
+  | 'adverse_action_trail';
+
+/**
+ * Why this order must be kept, or `null` if it may be deleted.
+ *
+ * Deletion is the one irreversible thing in this module, so every branch here
+ * is a reason NOT to delete and the default is to keep.
+ *
+ * `no_retention` is the ordinary state: with no window configured nothing is
+ * ever purged. A purge that ran on a built-in default would mean deploying this
+ * file silently started destroying records, which is not a thing a deploy
+ * should do.
+ *
+ * `adverse_action_trail` is the one worth explaining. An order where the
+ * landlord declined somebody *because of* the report is precisely the order
+ * whose record you need if that decision is ever questioned — the consent, the
+ * wording, the purpose, the date, who certified it. So those are never purged
+ * on a timer. They outlive the window deliberately, and deleting one has to be
+ * somebody's explicit decision rather than a sweep's.
+ */
+export function purgeRefusal(
+  order: ScreeningOrderRecord | null | undefined,
+  retentionDays: number | null | undefined,
+  nowMs: number = Date.now(),
+): PurgeRefusal | null {
+  const days = Number(retentionDays ?? 0);
+  if (!Number.isFinite(days) || days < SCREENING_MIN_RETENTION_DAYS) return 'no_retention';
+  if (!order || !isTerminal(order.status)) return 'not_finished';
+  if (order.reportInfluenced === true) return 'adverse_action_trail';
+
+  // Measured from the last thing that happened to the order, not from its
+  // creation: an order created in January and completed in June is six months
+  // of relevance, not six months of age.
+  const last = Date.parse(String(order.updatedAt || order.completedAt || order.createdAt || ''));
+  if (!Number.isFinite(last)) return 'not_finished';
+  return last + days * DAY_MS <= nowMs ? null : 'within_window';
+}
+
 /* ── turning somebody down ────────────────────────────────────────────────── */
 
 /**

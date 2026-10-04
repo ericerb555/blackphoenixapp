@@ -59,6 +59,27 @@
 --    the better of the two and this is the job to start the habit on, since it
 --    has no history to preserve.
 --
+-- THIS JOB ALSO PURGES, AND THAT HALF IS OFF UNTIL YOU TURN IT ON
+--
+-- The same sweep deletes finished orders past a retention window. It reads the
+-- window from the edge-function secret `SCREENING_RETENTION_DAYS`, which is
+-- deliberately NOT a stored setting and NOT a route: deleting records is the
+-- only irreversible thing in the screening system, and a destructive policy
+-- should take dashboard access to change rather than any staff session that
+-- happens to be signed in.
+--
+-- **Unset means nothing is purged**, and so does any figure below the 180-day
+-- floor in `screeningOrder.ts`. So arming this schedule does not start deleting
+-- anything; that needs a second, separate decision.
+--
+-- Two kinds of record are never purged on a timer whatever the window says: an
+-- order that is not finished, and an order where the landlord declined somebody
+-- BECAUSE OF the report. The second is the record you need if that decision is
+-- ever questioned, so deleting one has to be somebody's explicit act.
+--
+-- The right number is a question for a lawyer, alongside the fee question in
+-- `tasks/tenant-screening.md`. Do not guess it here.
+--
 -- WHY HOURLY
 --
 -- Because the unit here is days. An invitation that lapsed at 3am does not need

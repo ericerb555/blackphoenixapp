@@ -50,6 +50,8 @@ import {
   purposeRefusalMessage,
   adverseActionRefusal,
   adverseActionNotice,
+  purgeRefusal,
+  SCREENING_MIN_RETENTION_DAYS,
 } from "./screeningOrder.ts";
 import {
   chargeFor,
@@ -10593,8 +10595,49 @@ app.post('/make-server-3eae23a6/cron/screening/expire-invitations', async (c) =>
       const moved = await advanceOrder(order, 'expired');
       if (moved.ok) expired += 1; else refused += 1;
     }
-    if (expired || refused) console.log(`[screening] expiry sweep: ${expired} expired, ${refused} refused of ${rows.length} orders`);
-    return c.json({ success: true, scanned: rows.length, expired, refused });
+
+    /**
+     * The retention purge, in the same sweep.
+     *
+     * One job rather than a second clock entry, because it is the same
+     * question asked of the same records on the same schedule. It reads its
+     * window from `SCREENING_RETENTION_DAYS` — an edge-function secret, not a
+     * stored setting and not a route — on purpose: this is the only
+     * irreversible thing in the screening system, and a destructive policy
+     * should not be editable from any staff session that happens to be signed
+     * in. Changing it takes dashboard access.
+     *
+     * UNSET MEANS NOTHING IS PURGED. Deploying this file must not silently
+     * begin destroying records, so there is no built-in default window and a
+     * figure below the floor in `screeningOrder.ts` is treated as unset.
+     */
+    const retentionDays = Number(Deno.env.get('SCREENING_RETENTION_DAYS') || 0);
+    let purged = 0;
+    let kept = 0;
+    if (retentionDays >= SCREENING_MIN_RETENTION_DAYS) {
+      for (const row of rows) {
+        const order = (row as any)?.value;
+        if (!order?.id) continue;
+        if (purgeRefusal(order, retentionDays, now)) { kept += 1; continue; }
+        // The applicant's invitation token goes with it. Leaving it behind
+        // would be a key to a record that no longer exists.
+        if (order.inviteToken) await kv.del(screeningInviteKey(String(order.inviteToken))).catch(() => {});
+        await kv.del(screeningOrderKey(String(order.id)));
+        purged += 1;
+      }
+    }
+
+    if (expired || refused || purged) {
+      console.log(`[screening] sweep: ${expired} expired, ${refused} refused, ${purged} purged, ${kept} kept of ${rows.length} orders`);
+    }
+    return c.json({
+      success: true,
+      scanned: rows.length,
+      expired,
+      refused,
+      purged,
+      retention: retentionDays >= SCREENING_MIN_RETENTION_DAYS ? { days: retentionDays, kept } : { configured: false },
+    });
   } catch (error: any) {
     console.log(`[screening] expiry sweep error: ${error}`);
     return c.json({ success: false, error: error.message || 'The expiry sweep failed.' }, 500);
