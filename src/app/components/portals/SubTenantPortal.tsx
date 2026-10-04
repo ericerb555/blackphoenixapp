@@ -22,6 +22,7 @@ import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
+import { useCompanyInfo } from '../../lib/hooks/useCompanyInfo';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -83,6 +84,9 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
 
   /** The referral link, on the live domain and on a route that attributes it. */
   const referralLink = `https://theblackphoenixcompany.com/signup?ref=${user?.id?.slice(0, 8) || 'demo'}`;
+
+  /** The company contact details, so changing them once changes them here. */
+  const company = useCompanyInfo();
 
   const [tab, setTab] = useState<Tab>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
@@ -874,9 +878,18 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
             <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
               <h3 className="font-bold text-base mb-4">Emergency Contacts</h3>
               <div className="space-y-3">
+                {/*
+                  Read, never typed. These were hardcoded, and the emergency line
+                  was the placeholder (603) 555-0199 — a number that rings nowhere,
+                  shown to tenants as the one to call in an emergency.
+
+                  "Not set" when there is no value. A plausible-looking default is
+                  precisely how that placeholder survived, and inventing a second
+                  one would be the same mistake with different digits.
+                */}
                 {[
-                  { label: 'Black Phoenix Emergency Line', value: '(603) 555-0199', icon: Phone },
-                  { label: 'Support Email', value: 'support@blackphoenixbuilds.com', icon: Mail },
+                  { label: 'Black Phoenix Emergency Line', value: company.emergencyPhone, icon: Phone },
+                  { label: 'Support Email', value: company.supportEmail || company.email, icon: Mail },
                 ].map(contact => {
                   const Icon = contact.icon;
                   return (
@@ -884,7 +897,11 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                       <Icon className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                       <div>
                         <p className="text-xs text-gray-500">{contact.label}</p>
-                        <p className="text-white text-sm font-medium">{contact.value}</p>
+                        {/* A blank line would read as a rendering fault. Saying
+                            it is not set is honest and points at the fix. */}
+                        <p className={contact.value ? 'text-white text-sm font-medium' : 'text-gray-500 text-sm italic'}>
+                          {contact.value || (company.loading ? 'Loading…' : 'Not set')}
+                        </p>
                       </div>
                     </div>
                   );

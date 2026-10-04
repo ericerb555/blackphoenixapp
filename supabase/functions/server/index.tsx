@@ -57,6 +57,8 @@ import {
   chargeFor,
   chargeRefusalMessage,
   marginOf,
+  refundDue,
+  staleUndecided,
   SCREENING_MAX_PRICE_CENTS,
 } from "./screeningPricing.ts";
 import { providerFor, DEFAULT_PROVIDER } from "./screeningProvider.ts";
@@ -1470,7 +1472,7 @@ app.get('/make-server-3eae23a6/public/branding', async (c) => {
     // 3. companies table — if logo is base64, auto-migrate to Storage server-side
     const { data: companies } = await supabase
       .from('companies')
-      .select('id, company_name, company_legal_name, logo_primary, logo_url, primary_color, secondary_color, email, phone, website')
+      .select('id, company_name, company_legal_name, logo_primary, logo_url, primary_color, secondary_color, email, phone, website, emergency_phone, support_email')
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -1526,6 +1528,12 @@ app.get('/make-server-3eae23a6/public/branding', async (c) => {
         email: co.email || null,
         phone: co.phone || null,
         website: co.website || null,
+        // The out-of-hours line and the support address. Served here because
+        // this is the one company endpoint every screen can already reach
+        // without a session — a tenant looking at an emergency number may not
+        // be signed in.
+        emergency_phone: co.emergency_phone || null,
+        support_email: co.support_email || null,
       };
 
       if (logo) {
@@ -1741,6 +1749,86 @@ app.post('/make-server-3eae23a6/business-profiles', async (c) => {
 // ============================================
 
 // Get all companies for user
+/**
+ * The company's own contact details — changed once, true everywhere.
+ *
+ * Eric: "we need to be able to change this number and it automatically updates
+ * app wide when i save it." This is the route that makes that sentence true,
+ * and it exists because three separate things were stopping it.
+ *
+ * IT WRITES THE TABLE THE APP ACTUALLY READS
+ *
+ * `POST /companies` writes a per-user key in the key-value store. Nothing else
+ * reads that key. `GET /public/branding` — which is what the screens get their
+ * company details from — reads the `companies` TABLE, whose contact fields
+ * nothing but the logo upload had ever written. So the company settings form
+ * was saving into a place no screen has ever looked, which is why changing a
+ * number changed nothing.
+ *
+ * IT CLEARS THE CACHE, WHICH IS THE WHOLE POINT
+ *
+ * `/public/branding` answers from a cached `public_branding` value first and
+ * only falls through to the table when that cache has no usable logo. Writing
+ * the table without clearing the cache would leave the old number being served
+ * indefinitely. Both the key-value cache and the `public_branding_profile` row
+ * are cleared here, so the next read rebuilds from the table.
+ *
+ * STAFF ONLY. This is the number the whole platform shows as its own.
+ */
+app.put('/make-server-3eae23a6/company/contact', async (c) => {
+  try {
+    if (!await isStaffRequest(c)) {
+      return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const clean = (value: unknown, max = 200) => {
+      const text = String(value ?? '').trim().slice(0, max);
+      return text.length > 0 ? text : null;
+    };
+
+    // Only the fields this route owns. A stray key in the body must never
+    // reach the table.
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    for (const field of ['phone', 'emergency_phone', 'support_email', 'email', 'website']) {
+      if (field in body) patch[field] = clean((body as any)[field]);
+    }
+
+    if (Object.keys(patch).length === 1) {
+      return c.json({ success: false, error: 'Nothing to change.' }, 400);
+    }
+
+    // The row `/public/branding` serves: the most recent one. There is more
+    // than one company row and they disagree; this keeps the write and the
+    // read pointed at the same record rather than quietly editing a different
+    // one.
+    const { data: rows } = await supabase
+      .from('companies')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (!rows || rows.length === 0) {
+      return c.json({ success: false, error: 'There is no company record to update.' }, 404);
+    }
+
+    const { error } = await supabase.from('companies').update(patch).eq('id', rows[0].id);
+    if (error) {
+      console.error('[Company] contact update failed:', error.message);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+
+    // Clear both caches so the very next read rebuilds from the table.
+    await kv.del('public_branding').catch(() => {});
+    await supabase.from('kv_store_57095a78').delete().eq('key', 'public_branding_profile');
+
+    return c.json({ success: true, updated: Object.keys(patch).filter((k) => k !== 'updated_at') });
+  } catch (error: any) {
+    console.error('[Company] contact update failed:', error?.message || error);
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/companies', async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -9136,11 +9224,15 @@ function landlordStripeKey(email: string) { return `landlord_stripe:${String(ema
 function rentPaymentKey(id: string) { return `payment:${id}`; }
 function tenantRentIndexKey(email: string) { return `rent_payments_tenant:${String(email).toLowerCase()}`; }
 
-async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' | 'DELETE' = 'POST', connectedAccount?: string) {
+async function stripeReq(path: string, params?: URLSearchParams, method: 'POST' | 'GET' | 'DELETE' = 'POST', connectedAccount?: string, idempotencyKey?: string) {
   const key = stripeKeyFor('services');
   if (!key) throw new Error('Stripe is not configured on the platform account.');
   const headers: Record<string, string> = { Authorization: `Basic ${btoa(`${key}:`)}` };
   if (method === 'POST') headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  // Stripe's own guard against a double charge or a double refund: the same key
+  // replays the first result instead of acting again. Optional, and supplied
+  // where a retry would move money twice.
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   // When a connected account id is supplied, the request runs AS that account
   // (Stripe Connect "direct charge"). Funds settle directly to the landlord —
   // the platform is never the merchant of record and never holds the money.
@@ -9843,20 +9935,39 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
     // made BECAUSE OF a consumer report, so this is the landlord's answer about
     // their own reasoning and is never inferred from the rejection alone.
     let adverseAction: any = null;
+    let refundIssued = 0;
+    let refundBlocked: string | null = null;
     try {
       const ids = (await kv.get(landlordOrdersKey(email)) as string[]) || [];
       const loaded = await Promise.all(ids.slice(0, 200).map((oid) => kv.get(screeningOrderKey(oid)) as Promise<any>));
       const order = loaded.find((o: any) => ownsOrder(o, email) && o?.applicationId === apps[idx].id);
       if (order) {
         const reportInfluenced = body.reportInfluenced === true;
-        await kv.set(screeningOrderKey(order.id), {
+        const decided = {
           ...order,
           decision,
           decidedAt: now,
           decidedBy: email,
           reportInfluenced,
           updatedAt: now,
-        });
+        };
+        await kv.set(screeningOrderKey(order.id), decided);
+
+        // The statutory refund, issued the moment the rejection is recorded
+        // rather than waited for. Thirty days is the outer limit in
+        // RSA 540-A:3 VIII, not the target, and the sweep is only a backstop
+        // for a decision made while this call was failing.
+        try {
+          const settled = await settleScreeningRefund(decided);
+          if (settled.refundedAt && !order.refundedAt) refundIssued = settled.refundCents || 0;
+          if (settled.refundBlocked) refundBlocked = settled.refundBlocked;
+        } catch (refundError: any) {
+          // Not fatal to the decision, and loud, because money is owed on a
+          // statutory clock and the sweep has to pick it up.
+          console.log(`[screening] refund failed on ${order.id}: ${refundError?.message || refundError}`);
+          refundBlocked = 'error';
+        }
+
         const agency = providerFor(order.provider)?.agency ?? null;
         const refusal = adverseActionRefusal(order, decision, reportInfluenced, agency);
         // Reported, not sent. There is no route that sends this: the wording is
@@ -9924,7 +10035,12 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
 
       await kv.set(landlordTenantsKey(email), [tenant, ...roster]);
     }
-    return c.json({ success: true, application: apps[idx], tenant, invite, adverseAction });
+    return c.json({
+      success: true, application: apps[idx], tenant, invite, adverseAction,
+      refund: refundIssued > 0
+        ? { issued: true, cents: refundIssued }
+        : (refundBlocked ? { issued: false, blocked: refundBlocked } : { issued: false }),
+    });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update the application.' }, 500); }
 });
 
@@ -10017,6 +10133,41 @@ function buildApplicationRecord(body: any, source: string, consentText = '') {
 function screeningOrderKey(id: string) { return `screening_order:${id}`; }
 function landlordOrdersKey(email: string) { return `screening_orders_landlord:${String(email).toLowerCase()}`; }
 function screeningInviteKey(token: string) { return `screening_invite:${token}`; }
+function screeningDisclosureKey(token: string) { return `screening_disclosure:${token}`; }
+
+/**
+ * What an applicant in New Hampshire must be shown before a penny is taken.
+ *
+ * `RSA 540-A:3 VIII` names two facts: the amount, and whether a satisfactory
+ * criminal background and credit check is required. The second is the
+ * landlord's own letting policy rather than anything this software knows, so it
+ * is captured per order when the screening is ordered.
+ *
+ * The refund sentence is here because it is the other half of the same statute
+ * and the applicant is the person it protects. Telling them the fee is
+ * refundable above cost if they are not offered the unit is not marketing; it
+ * is what the law obliges the landlord to do, and an applicant who does not
+ * know it cannot ask for it.
+ *
+ * Owned by the server and stored with the order, for the third time in this
+ * system and the same reason as the applicant's consent and the landlord's
+ * purpose certification: what was shown has to be what was kept.
+ */
+function screeningDisclosure(amountCents: number, requiresSatisfactoryCheck: boolean) {
+  const amount = `$${(amountCents / 100).toFixed(2)}`;
+  return {
+    amountCents,
+    requiresSatisfactoryCheck,
+    statements: [
+      `The screening fee is ${amount}, payable before the background and credit check is run.`,
+      requiresSatisfactoryCheck
+        ? 'A satisfactory criminal background check and credit check are required for this tenancy.'
+        : 'A satisfactory criminal background check and credit check are not a requirement for this tenancy.',
+      'The fee covers the cost of the documented background and credit checks and reasonable administrative costs.',
+      'If you are not offered the unit, any amount beyond those documented costs is returned to you within 30 days.',
+    ],
+  };
+}
 
 // Moves an order's status through the machine, or refuses. Centralised so no
 // route can write a status directly — a handler that assigns `order.status = x`
@@ -10039,6 +10190,11 @@ async function advanceOrder(order: any, to: ScreeningState, patch: Record<string
 }
 
 const SCREENING_PRICING_KEY = 'screening_pricing';
+
+// How long an applicant-paid screening may sit undecided before the landlord is
+// told. Two weeks: long enough that it is not chasing an ordinary decision,
+// short enough to leave over a fortnight of the thirty-day refund window.
+const SCREENING_STALE_DAYS = 14;
 
 /**
  * Ask the provider for an invitation and hand it to the applicant.
@@ -10130,6 +10286,72 @@ async function createScreeningCheckout(order: any, decision: { payer: string | n
   return { id: String(session.id), url: String(session.url) };
 }
 
+/**
+ * Issue the refund New Hampshire obliges, if one is owed.
+ *
+ * Returns the order, changed or not. Deliberately quiet when nothing is owed:
+ * most orders owe nothing, and a caller should be able to say "settle this
+ * order" after any decision without first working out whether a statute
+ * applies.
+ *
+ * `retainedAdminCents` comes from the settings, defaulting to zero — the
+ * conservative reading of "reasonable administrative costs", which refunds the
+ * whole markup. See `screeningPricing.ts`.
+ *
+ * IDEMPOTENT IN TWO PLACES, BECAUSE THIS MOVES MONEY
+ *
+ * `refundDue` returns nothing once `refundedAt` is set, and the Stripe call
+ * carries an idempotency key derived from the order id. So a decision recorded
+ * twice, or a sweep that overlaps the decision route, cannot refund twice —
+ * neither on our side nor on Stripe's.
+ */
+async function settleScreeningRefund(order: any): Promise<any> {
+  const pricing = await kv.get(SCREENING_PRICING_KEY) as any;
+  const owed = refundDue(order, Number(pricing?.retainedAdminCents ?? 0));
+  if (owed <= 0) return order;
+
+  const intent = String(order.stripePaymentIntentId || '');
+  if (!intent) {
+    // Owed, and we cannot pay it. Loud, because the deadline is statutory and
+    // somebody has to issue this by hand.
+    console.log(`[screening] REFUND OWED BUT NO PAYMENT INTENT on ${order.id}: ${owed} cents`);
+    const flagged = { ...order, refundOwedCents: owed, refundBlocked: 'no_payment_intent', updatedAt: new Date().toISOString() };
+    await kv.set(screeningOrderKey(order.id), flagged);
+    return flagged;
+  }
+
+  const params = new URLSearchParams();
+  params.set('payment_intent', intent);
+  params.set('amount', String(owed));
+  params.set('reason', 'requested_by_customer');
+  params.set('metadata[screening_order_id]', String(order.id));
+  params.set('metadata[basis]', 'RSA 540-A:3 VIII');
+
+  const refund = await stripeReq('refunds', params, 'POST', undefined, `screening-refund-${order.id}`);
+  const now = new Date().toISOString();
+  const settled = {
+    ...order,
+    refundedAt: now,
+    refundCents: owed,
+    refundId: String(refund?.id || '') || null,
+    refundOwedCents: null,
+    refundBlocked: null,
+    updatedAt: now,
+  };
+  await kv.set(screeningOrderKey(order.id), settled);
+
+  const to = String(order.applicantEmail || '').trim().toLowerCase();
+  if (to) {
+    notifyRecipient(to, 'payment', {
+      subject: 'Your screening fee has been partly refunded',
+      text: `You were not offered the unit you applied for, so the part of your screening fee above the documented cost of the background and credit checks has been refunded: $${(owed / 100).toFixed(2)}.\n\nIt will appear on the card you paid with, usually within a few business days.`,
+      sms: `A $${(owed / 100).toFixed(2)} refund of your screening fee is on its way back to your card.`,
+    }).catch(() => {});
+  }
+  console.log(`[screening] refunded ${owed} cents on ${order.id} (RSA 540-A:3 VIII)`);
+  return settled;
+}
+
 // Landlord: order a screening for one of their own applications.
 app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) => {
   try {
@@ -10211,15 +10433,69 @@ app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) 
 
     if (decision.charge) {
       try {
-        const checkout = await createScreeningCheckout(order, decision);
         order = {
           ...order,
           priceCents: decision.amountCents,
           costCents: decision.costCents,
           payer: decision.payer,
-          stripeCheckoutSessionId: checkout.id,
+          propertyState: String(body.propertyState || '').trim().toUpperCase() || null,
           updatedAt: new Date().toISOString(),
         };
+
+        /**
+         * An applicant is SENT to the payment. They are not redirected through
+         * the landlord's browser.
+         *
+         * This route used to build the checkout here and hand its URL back to
+         * whoever called — which, for an applicant-paid fee, is the landlord.
+         * They would have been the one typing a card number for a fee somebody
+         * else owes. Nobody hit it because applicant-paid was unreachable
+         * without a property state, but New Hampshire is the first state where
+         * it is both lawful and wanted.
+         *
+         * No Stripe session is created yet, and that is the statute rather than
+         * tidiness: `RSA 540-A:3 VIII` requires the amount and the
+         * satisfactory-check requirement to be disclosed in writing *prior to
+         * collecting any fee*. The session comes into existence when the
+         * applicant has seen the disclosure, and not before.
+         */
+        if (decision.payer === 'applicant') {
+          // The disclosure has to state whether a satisfactory check is
+          // required, and that is the landlord's letting policy rather than
+          // anything this software can work out. An absent answer is not a
+          // "no": refuse rather than disclose something nobody said.
+          if (body.requiresSatisfactoryCheck !== true && body.requiresSatisfactoryCheck !== false) {
+            return c.json({
+              success: false,
+              error: 'Before an applicant can be charged, say whether a satisfactory background and credit check is required for this tenancy. It has to be disclosed to them in writing before any fee is taken.',
+              reason: 'satisfactory_check_unanswered',
+            }, 400);
+          }
+          const disclosureToken = crypto.randomUUID().replace(/-/g, '');
+          order = { ...order, disclosureToken, requiresSatisfactoryCheck: body.requiresSatisfactoryCheck === true };
+          await kv.set(screeningOrderKey(id), order);
+          await kv.set(screeningDisclosureKey(disclosureToken), { orderId: id, createdAt: new Date().toISOString() });
+
+          const to = String(order.applicantEmail || '').trim().toLowerCase();
+          const payUrl = `${rentAppUrl()}/screening-fee?t=${disclosureToken}`;
+          if (to) {
+            notifyRecipient(to, 'form_completed', {
+              subject: 'One step to continue your rental application',
+              text: `Your rental application is moving forward.\n\nBefore the background and credit check can be run, there is a screening fee of $${(decision.amountCents / 100).toFixed(2)}. You will see exactly what it covers before paying anything:\n\n${payUrl}\n\nIf you are not offered the unit, any amount above the documented cost of the checks is returned to you.`,
+              sms: `Your rental application needs a screening fee of $${(decision.amountCents / 100).toFixed(2)} to continue. Check your email for the link.`,
+            }).catch(() => {});
+          }
+          return c.json({
+            success: true,
+            order: landlordView(order),
+            payment: { payer: 'applicant', amountCents: decision.amountCents, notified: !!to, applicantEmail: to || null },
+          }, 201);
+        }
+
+        // Landlord-paid is unchanged: they are the payer, so handing them the
+        // checkout is correct.
+        const checkout = await createScreeningCheckout(order, decision);
+        order = { ...order, stripeCheckoutSessionId: checkout.id, updatedAt: new Date().toISOString() };
         await kv.set(screeningOrderKey(id), order);
         // The order stays `created`. It becomes `paid` only when Stripe tells
         // the webhook so — never on a browser coming back from a redirect,
@@ -10355,6 +10631,9 @@ app.post('/make-server-3eae23a6/screening/webhook', async (c) => {
 
     const paid = await advanceOrder(order, 'paid', {
       paidAt: new Date().toISOString(),
+      // Kept because a refund is issued against the payment intent, not the
+      // session. Without it the statutory refund would have nothing to target.
+      stripePaymentIntentId: String(verified.payment_intent || '') || null,
       // What Stripe says was actually taken, alongside what we meant to charge.
       // They should agree; if they ever do not, the record shows both.
       amountPaidCents: Number(verified.amount_total ?? 0) || null,
@@ -10412,6 +10691,61 @@ app.get('/make-server-3eae23a6/landlord/screening/:id/adverse-action', async (c)
       }),
     });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to produce the notice.' }, 500); }
+});
+
+// Applicant: the fee disclosure. Read before anything is charged, by a person
+// with no account, addressed by their own token.
+app.get('/make-server-3eae23a6/screening/fee/:token', async (c) => {
+  try {
+    const rec = await kv.get(screeningDisclosureKey(c.req.param('token'))) as any;
+    if (!rec?.orderId) return c.json({ success: false, error: 'This payment link is invalid or has expired.' }, 404);
+    const order = await kv.get(screeningOrderKey(rec.orderId)) as any;
+    if (!order) return c.json({ success: false, error: 'This payment link is invalid or has expired.' }, 404);
+    if (order.paidAt) return c.json({ success: true, alreadyPaid: true, order: applicantView(order) });
+    if (isTerminal(order.status)) return c.json({ success: false, error: 'This screening is no longer open.' }, 409);
+    return c.json({
+      success: true,
+      applicantName: order.applicantName || null,
+      disclosure: screeningDisclosure(Number(order.priceCents || 0), order.requiresSatisfactoryCheck === true),
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load the fee details.' }, 500); }
+});
+
+/**
+ * Applicant: they have read the disclosure, so now a checkout may exist.
+ *
+ * The ordering is the compliance. "Prior to collecting any fee" means the
+ * Stripe session is created HERE, after the disclosure has been shown and
+ * acknowledged, rather than at order time with a disclosure shown beside it.
+ * There is no path to a payment page that does not pass through this route, so
+ * there is no path to a charge without a record of what was disclosed.
+ */
+app.post('/make-server-3eae23a6/screening/fee/:token/accept', async (c) => {
+  try {
+    const rec = await kv.get(screeningDisclosureKey(c.req.param('token'))) as any;
+    if (!rec?.orderId) return c.json({ success: false, error: 'This payment link is invalid or has expired.' }, 404);
+    const order = await kv.get(screeningOrderKey(rec.orderId)) as any;
+    if (!order) return c.json({ success: false, error: 'This payment link is invalid or has expired.' }, 404);
+    if (order.paidAt) return c.json({ success: true, alreadyPaid: true });
+    if (isTerminal(order.status)) return c.json({ success: false, error: 'This screening is no longer open.' }, 409);
+    if (String(order.payer || '') !== 'applicant') return c.json({ success: false, error: 'This screening is not paid by the applicant.' }, 409);
+
+    const amountCents = Number(order.priceCents || 0);
+    if (!(amountCents > 0)) return c.json({ success: false, error: 'This screening has no fee to pay.' }, 409);
+
+    const disclosure = screeningDisclosure(amountCents, order.requiresSatisfactoryCheck === true);
+    const checkout = await createScreeningCheckout(order, { payer: 'applicant', amountCents });
+    const now = new Date().toISOString();
+    await kv.set(screeningOrderKey(order.id), {
+      ...order,
+      stripeCheckoutSessionId: checkout.id,
+      disclosedAt: now,
+      disclosedAmountCents: amountCents,
+      disclosureText: disclosure.statements.join(' '),
+      updatedAt: now,
+    });
+    return c.json({ success: true, checkoutUrl: checkout.url });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start the payment.' }, 500); }
 });
 
 // Applicant: what is happening with the screening they consented to. Addressed
@@ -10478,10 +10812,19 @@ app.put('/make-server-3eae23a6/staff/screening/pricing', async (c) => {
       payerByState[state] = payer;
     }
 
+    // What may be retained from a refunded fee as "reasonable administrative
+    // costs" under RSA 540-A:3 VIII. Zero is the conservative reading and the
+    // default; raising it is a legal judgement somebody has taken advice on,
+    // not a pricing decision, which is why it has no UI and sits here.
+    const retainedAdminCents = Math.round(Number(body.retainedAdminCents ?? 0));
+    if (!Number.isFinite(retainedAdminCents) || retainedAdminCents < 0) return c.json({ success: false, error: 'Retained administrative costs must be zero or a positive number of cents.' }, 400);
+    if (retainedAdminCents > priceCents) return c.json({ success: false, error: 'Retained administrative costs cannot exceed the fee itself.' }, 400);
+
     const defaultPayer = String(body.defaultPayer || '').toLowerCase() === 'applicant' ? 'applicant' : 'landlord';
     const pricing = {
       priceCents,
       costCents,
+      retainedAdminCents,
       defaultPayer,
       payerByState,
       enabled: body.enabled !== false,
@@ -10627,8 +10970,51 @@ app.post('/make-server-3eae23a6/cron/screening/expire-invitations', async (c) =>
       }
     }
 
-    if (expired || refused || purged) {
-      console.log(`[screening] sweep: ${expired} expired, ${refused} refused, ${purged} purged, ${kept} kept of ${rows.length} orders`);
+    /**
+     * The refund backstop, and the stale-application report.
+     *
+     * The refund normally happens the instant a rejection is recorded. This
+     * pass exists for the decision that was recorded while Stripe or this
+     * server was having a bad minute — the thirty-day clock in
+     * RSA 540-A:3 VIII runs from when the fee was received, not from when we
+     * noticed, so a missed call must not become a missed deadline.
+     */
+    const orders = rows.map((r: any) => r?.value).filter((o: any) => o?.id);
+    let refunded = 0;
+    let refundsOwed = 0;
+    for (const order of orders) {
+      try {
+        const settled = await settleScreeningRefund(order);
+        if (settled.refundedAt && !order.refundedAt) refunded += 1;
+        if (settled.refundBlocked) refundsOwed += 1;
+      } catch (refundError: any) {
+        refundsOwed += 1;
+        console.log(`[screening] sweep refund failed on ${order.id}: ${refundError?.message || refundError}`);
+      }
+    }
+
+    // An undecided application is NOT a rejection, so nothing is refunded on
+    // one. It is reported instead: the landlord has taken somebody's money and
+    // not answered them, and only they can resolve it. Told once per order, so
+    // an hourly job does not become hourly nagging.
+    const stale = staleUndecided(orders, SCREENING_STALE_DAYS, now);
+    let reported = 0;
+    for (const order of stale) {
+      if (order.staleNoticeSentAt) continue;
+      await kv.set(screeningOrderKey(order.id), { ...order, staleNoticeSentAt: new Date().toISOString() });
+      const to = String(order.landlordEmail || '').trim().toLowerCase();
+      if (to) {
+        notifyRecipient(to, 'message', {
+          subject: `An applicant paid for screening ${SCREENING_STALE_DAYS} days ago and has had no answer`,
+          text: `${order.applicantName || 'An applicant'} paid the screening fee for their application and no decision has been recorded.\n\nIf you are not renting the unit to them, the part of their fee above the documented cost of the checks has to be returned within 30 days of when they paid it — the clock started then, not today. Recording the decision in your portal issues that refund automatically.`,
+          sms: `An applicant paid for screening ${SCREENING_STALE_DAYS} days ago with no decision recorded. A refund deadline may be running.`,
+        }).catch(() => {});
+      }
+      reported += 1;
+    }
+
+    if (expired || refused || purged || refunded || refundsOwed || reported) {
+      console.log(`[screening] sweep: ${expired} expired, ${refused} refused, ${purged} purged, ${kept} kept, ${refunded} refunded, ${refundsOwed} refunds stuck, ${reported} stale reported, of ${rows.length} orders`);
     }
     return c.json({
       success: true,
@@ -10636,6 +11022,9 @@ app.post('/make-server-3eae23a6/cron/screening/expire-invitations', async (c) =>
       expired,
       refused,
       purged,
+      refunded,
+      refundsStuck: refundsOwed,
+      staleReported: reported,
       retention: retentionDays >= SCREENING_MIN_RETENTION_DAYS ? { days: retentionDays, kept } : { configured: false },
     });
   } catch (error: any) {
