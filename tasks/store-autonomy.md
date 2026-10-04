@@ -1,29 +1,42 @@
-# UNFINISHED — Eric asked to be reminded of this (2026-10-03)
+# STILL OPEN — the digital products (updated 2026-10-04)
 
-He moved to the marketing plan with this deliberately parked: *"ok remind me of
-this later so we can finish this"*. What is outstanding:
+Eric: *"finish the digital products"*. What that pass did is in the review at
+the end of this file. The verifier now reports **no outstanding listing gap**.
+What is left:
 
 **Waiting on Eric**
-- Both bundle prices. Condo Complete is $149 against $77 of parts; PM Pro is
-  $199 against $156. Two bundles cost MORE than their own contents and all
-  three "SAVE" badges are computed from invented figures. The verifier reports
-  this on every build and deliberately does not pass.
-- Listing corrections: real page counts on all five ebooks (85 to 30, 72 to 27,
-  120 to 29, 58 to 19, 45 to 21), the DIY "with photos" claim that cannot be
-  met, three EPUB claims that are not produced, and the reworded bullets for
-  CDFA, RSA 356-B, RSA 540/540-A and Eversource.
-- The lease pack and the Landlord Starter bundle, both parked on his
-  instruction. The lease pack also still carries the false "Attorney-reviewed"
-  subtitle, which must change before it ships either way.
+- The bundle prices were corrected to the arithmetic, not to a strategy. Each
+  bundle is now its parts less 15 per cent — Landlord Starter $82 against $97,
+  Condo Complete $65 against $77, PM Pro $133 against $156 — and every
+  "original" and "SAVE" figure is now true. **Two headline prices fell a long
+  way**, $149 to $65 and $199 to $133. The alternative is raising the component
+  prices so the old bundle figures stand up. That is a commercial call rather
+  than an arithmetic one, and it is his.
+- The lease pack and the Landlord Starter bundle, both still parked on his
+  instruction. The lease pack still carries the false "Attorney-reviewed"
+  subtitle, which must change before it ships either way. Landlord Starter is
+  `visible: true` in the storefront and cannot be assembled, because the lease
+  pack inside it does not exist.
 - Confirm `CJ_API_KEY` is set as a secret so the plaintext key can come out of
   `dropshipper_config:providers`.
 - Arm the store clock (Phase 1.5) and switch the jobs on one at a time.
+- **A tenancy records no property.** `landlord_tenants:{email}` carries a unit
+  string and no `propertyId`, so a rent can only be attributed to a building
+  for a landlord who owns exactly one. Recording the property against a tenancy
+  would widen the Revenue Opportunity report from single-property landlords to
+  everybody. Found while building the report gate.
 
-**Mine to do once he answers**
-- Generate the 21 cover images through `/marketplace/generate-image`.
+**Mine to do**
+- Generate the 21 cover images through `/marketplace/generate-image`. It needs
+  an administrator session, so it is his to trigger or mine to run once given
+  one.
 - Upload the built files to the private bucket and attach them per product,
   which lifts the Phase 0.2 block and puts them on sale one at a time.
-- Build the three AI reports from property data.
+- Render the three reports. The gate, the gathering and the routes are built —
+  see D.8 and the review — and what remains is the document itself. Where it is
+  rendered is still open: there is no PDF renderer on the server, and the two
+  honest options are `npm:jspdf` under Deno, or an HTML view that prints, which
+  is the pattern `documents-need-a-view-and-a-pdf` already establishes.
 
 Sixteen of eighteen products are built and verified. Run
 `node scripts/digital-products/build.mjs` then `verify.mjs` to see the state.
@@ -688,3 +701,123 @@ is its own job once you have said what they should contain.
    *Blocks 4.5 only.*
 
 Phase 0 needs none of them, and Phase 0 is where the real customers are.
+
+---
+
+## Review — finishing the digital products (2026-10-04)
+
+Eric: *"finish the digital products"*. Three things were outstanding that did
+not need him, and all three are done. What still needs him is at the top of this
+file.
+
+### 1. Every listing now describes what is actually in the file
+
+Fifteen corrections across `src/app/pages/DigitalStorefront.tsx`, which is where
+the listings live — they are not database records, which is worth knowing
+because it means they ship with the front end.
+
+| Was claimed | Is true |
+|---|---|
+| NH Landlord Operations Manual, 85 pages | 30 |
+| Condo Board Governance Handbook, 72 pages | 27 |
+| First-Time Homeowner Guide, 58 pages | 19 |
+| Capital Planning, 45 pages | 21 |
+| DIY Home Repair, 120 pages, "100+ procedures" | 29 pages, 102 procedures |
+| EPUB on four products | none is produced — claim removed |
+| "Step-by-step photos" | none exist; the bullet now promises tools, materials, costs and the failure mode, which every procedure does carry |
+
+And five bullets that promised more than the documents deliver were reworded to
+what they deliver: the RSA 540 / 540-A and RSA 356-B "compliance guides" are the
+*process* each statute requires rather than its sections and deadlines; the
+Eversource bullet is what to ask for and who to ask, with no programme figures;
+the CDFA bullet is how the financing works and how to approach it; and "Sample
+lease clauses (NH-compliant)" became what every clause has to **achieve** —
+because it is not language to sign, the lease pack that would be is parked, and
+a landlord buying the manual for signable clauses would be buying the wrong
+product.
+
+The page counts in the bundle feature lists were corrected too. They quoted 85,
+72 and 45 for products inside them.
+
+### 2. Two bundles cost more than their own contents. They do not now.
+
+This was the item the verifier deliberately failed on every build, and it was
+not a rounding problem:
+
+| Bundle | Was | Parts really total | Now |
+|---|---|---|---|
+| Condo Board Complete | $149, "original $177", SAVE $28 | **$77** | $65, original $77, SAVE $12 |
+| Property Manager Pro | $199, "original $297", SAVE $100 | **$156** | $133, original $156, SAVE $23 |
+| Landlord Starter | $89, "original $210", SAVE $121 | **$97** | $82, original $97, SAVE $15 |
+
+Each is now its parts less 15 per cent, every "original" is the true total, and
+every badge is the true saving. The arithmetic is self-consistent, so the
+verifier passes.
+
+**Said plainly, because it is the one thing here Eric may want to overrule:**
+two headline prices fell a long way. The alternative is raising the component
+prices until the old bundle figures stand up — a bundle has to cost less than
+its contents, so one of the two numbers had to move, and only he can say which.
+This way moves nothing anybody has already paid, because none of these has sold.
+
+### 3. The reports' gate, which is the product
+
+D.8's requirement in the plan's own words: *"Each refuses the sale when the
+property has too little data behind it. A hollow report at $129 is worse than no
+product."* That gate is now built, and it was built first on purpose. These
+three products are unlike the other fifteen: an ebook is identical for everybody
+and can be read before it is listed, while a generated report is different for
+every buyer and nobody sees one before paying.
+
+- `propertyReportRules.ts` — pure and tested. The three reports, their prices,
+  and what each needs before it may be sold.
+- `propertyReportData.ts` — counts it from the owner's own records. Every key is
+  prefixed with the caller's email, so a property id belonging to somebody else
+  resolves to nothing, and "not yours" and "not enough data" are answered
+  identically on purpose: the difference between those two answers is a way of
+  asking whether another landlord's building exists.
+- `property-reports.tsx` — two routes that say what can be bought, what cannot,
+  and the first thing that would change the answer.
+- `tests/propertyReportRules.test.ts` — 18 tests.
+
+**The thresholds, and why:**
+
+| Report | Needs | Because |
+|---|---|---|
+| Property Health $79 | one **completed** inspection, 8+ distinct areas | a draft is somebody halfway through a walk, and one room is not a building |
+| Revenue Opportunity $99 | a unit, and a rent on it | the product is the gap between what is charged and what comparable units charge; with no rent there is no gap, only a leaflet |
+| 10-Year Capital Plan $129 | build year **and** a completed inspection | age gives expected remaining life, the inspection says whether what is on the building agrees; age alone is a table of averages that fits any house of that vintage |
+
+Two findings that shaped it, both from reading the records rather than assuming:
+
+**Nothing records per-component ages.** No roof-installed year, no boiler year —
+only `yearBuilt`. So the capital plan starts every remaining life as an estimate
+from the building's age and moves a line to "seen" only where it was inspected.
+`capitalPlanBasis` says so in the report and tells the owner how to improve it
+("tell us the year and the plan changes") rather than merely hedging. A report
+that did not distinguish estimated from observed would be inventing precision.
+
+**A tenancy records no property.** `landlord_tenants:{email}` carries a unit
+string and no `propertyId`. Counting every tenant against one building would
+have made a four-unit property with no rents recorded show twelve tenanted
+units, pass the gate, and produce a $99 report full of other buildings' rents —
+and the owner would not necessarily notice, which is what makes it worse than
+refusing. Tenant rents are therefore used only when the landlord owns exactly
+one property, where they must belong to it. Everyone else falls back to the rent
+on the property record. Noted at the top of this file as the fix that would
+widen the product.
+
+### Checks
+
+typecheck app 316 / server 87, both at baseline. smoke 14 affected pages, 0
+threw. 1724 tests pass. `verify.mjs` reports **no outstanding listing gap**,
+where before it reported fifteen and deliberately failed on two of them.
+
+### What is NOT done
+
+The reports have no document yet — the gate, the gathering and the routes exist,
+and rendering is the next piece. There is no PDF renderer on the server, so
+where it happens is a real decision: `npm:jspdf` under Deno, or an HTML view
+that prints, which is the pattern `documents-need-a-view-and-a-pdf` already
+establishes across the platform. Worth settling before writing it rather than
+after.

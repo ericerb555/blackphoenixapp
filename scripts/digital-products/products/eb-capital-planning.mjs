@@ -622,7 +622,7 @@ export async function selfCheck() {
       ['guide', `${pdf.pages} pages, ${Math.round(pdf.buffer.length / 1024)} KB`],
       ['plan workbook', `${Math.round(files[1].buffer.length / 1024)} KB`],
       ['seeded plan', `${PLAN_SEED.length} projects, $${total.toLocaleString()}, ${sources.size} funding sources`],
-      ['listing says', '45 pages — correct the listing to the real figure'],
+      ['listing', 'corrected to 21 pages on 2026-10-04 — it said 45'],
       ['listing also claims', '"NH CDFA financing overview" — not delivered, deliberately; reword to "how associations finance capital work"'],
     ],
     concerns,

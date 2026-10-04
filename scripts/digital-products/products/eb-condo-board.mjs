@@ -434,8 +434,8 @@ export async function selfCheck() {
       ['chapters', String(chapters().length)],
       ['handbook', `${pdf.pages} pages, ${Math.round(pdf.buffer.length / 1024)} KB`],
       ['hierarchy / duties / ladder', `${HIERARCHY.length} levels, ${DUTIES.length} duties, ${LADDER.length} rungs`],
-      ['listing says', '72 pages — correct the listing to the real figure'],
-      ['listing also claims', '"RSA 356-B plain-English guide" — delivered as how to WORK WITH the Act, with no section numbers quoted; reword the bullet'],
+      ['listing', 'corrected to 27 pages on 2026-10-04 — it said 72; the RSA 356-B bullet now says what the handbook actually delivers'],
+      ['listing also claims', 'the bullet was reworded on 2026-10-04 to "what RSA 356-B requires of a board, step by step". The handbook explains how to work with the Act and quotes no section numbers.'],
     ],
     concerns,
   };

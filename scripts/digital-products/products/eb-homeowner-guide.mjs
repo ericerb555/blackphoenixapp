@@ -393,9 +393,9 @@ export async function selfCheck() {
       ['chapters', String(chapters().length)],
       ['guide', `${pdf.pages} pages, ${Math.round(pdf.buffer.length / 1024)} KB`],
       ['tables', `${FIRST_30.length} first-month jobs, ${LIFESPANS.length} systems costed, ${HIRING.length} hiring questions`],
-      ['listing says', '58 pages — correct the listing to the real figure'],
-      ['listing claims', '"Eversource NH rebate guide" — delivered as what to ask for and who to ask, with no programme figures; reword the bullet'],
-      ['EPUB', 'listed and not produced — drop it from the listing'],
+      ['listing', 'corrected to 19 pages on 2026-10-04 — it said 58'],
+      ['Eversource', 'bullet reworded on 2026-10-04 to "what to ask for, and who to ask", which is what the chapter delivers — it carries no programme figures'],
+      ['EPUB', 'claim removed from the listing on 2026-10-04 — none is produced'],
     ],
     concerns,
   };

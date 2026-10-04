@@ -582,8 +582,8 @@ export async function selfCheck() {
       ['walkthroughs', String(WALKTHROUGHS.length)],
       ['never-DIY exclusions', String(NEVER_DIY.length)],
       ['encyclopedia', `${pdf.pages} pages, ${Math.round(pdf.buffer.length / 1024)} KB`],
-      ['listing says', `120 pages and "100+ procedures" — this has ${PROCEDURE_COUNT} procedures in ${pdf.pages} pages; correct the listing`],
-      ['listing claims PHOTOS', 'none exist and the renderer has no image support — shoot them, license them, or drop the claim'],
+      ['listing', `corrected to ${pdf.pages} pages and ${PROCEDURE_COUNT} procedures on 2026-10-04 — it said 120 pages and "100+"`],
+      ['photos', 'the claim was dropped on 2026-10-04. None exist and the renderer has no image support; the bullet now promises tools, materials, costs and the failure mode, which is what each procedure carries'],
     ],
     concerns,
   };

@@ -23,9 +23,9 @@ export const meta = {
   id: 'bundle-condo-complete',
   title: 'Condo Board Complete Bundle',
   subtitle: 'The full governance toolkit for NH condo boards',
-  price: 14900,
+  price: 6500,
   /** What the listing claims it would cost separately. */
-  listedOriginalPrice: 17700,
+  listedOriginalPrice: 7700,
   files: ['pdf', 'docx', 'xlsx'],
 };
 

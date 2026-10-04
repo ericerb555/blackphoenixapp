@@ -25,9 +25,9 @@ export const meta = {
   id: 'bundle-pm-pro',
   title: 'Property Manager Pro Bundle',
   subtitle: 'The complete toolkit for professional property managers',
-  price: 19900,
+  price: 13300,
   /** What the listing claims it would cost separately. */
-  listedOriginalPrice: 29700,
+  listedOriginalPrice: 15600,
   files: ['pdf', 'docx', 'xlsx'],
 };
 
