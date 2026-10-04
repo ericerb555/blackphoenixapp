@@ -1,7 +1,36 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { requireStaff } from "./requireStaff.ts";
 
 const router = new Hono();
+
+/**
+ * WHO MAY WRITE A PRICE
+ *
+ * Both POST routes in this file, and the DELETE, had no authorisation check at
+ * all. The auth wall in index.tsx defaults an unlisted route to "signed in",
+ * and /maintenance-config is unlisted — so every portal customer, tenant,
+ * vendor and subcontractor could overwrite the platform's entire service
+ * catalogue, every price in it included, and the plan builder would then quote
+ * from it. `/subscription-plan-overrides` is at least behind the admin prefix
+ * list in index.tsx, but a guard that lives in another file is one rename away
+ * from being gone without anybody noticing, so it gets a check of its own too.
+ *
+ * Reading stays open to any signed-in account: the plan builder has to show the
+ * catalogue to the person choosing from it.
+ *
+ * Scoped to this router's own paths, never `use("*")` — this router is mounted
+ * at "/" and a wildcard here would make the whole API staff-only. See the note
+ * on requireStaffOn in requireStaff.ts, which is the same trap.
+ */
+const staffForWrites = async (c: any, next: any) => {
+  const method = c.req.method;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return await next();
+  return await requireStaff(c, next);
+};
+router.use("/make-server-3eae23a6/maintenance-config", staffForWrites);
+router.use("/make-server-3eae23a6/subscription-plan-overrides", staffForWrites);
+router.use("/make-server-3eae23a6/subscription-plan-overrides/*", staffForWrites);
 
 // The maintenance plan builder's editable configuration: service catalog,
 // technician (skill) levels, frequency tiers, and pricing regions. The admin

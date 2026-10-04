@@ -25,6 +25,7 @@ import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
+import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
   SCREENING_CONSENT_TEXT,
   screeningLinkState,
@@ -6447,7 +6448,18 @@ app.post('/make-server-3eae23a6/plan-builder/price-custom', async (c) => {
     const entityType = String(body.entityType || 'general');
     const portalRole = String(body.portalRole || 'service');
     if (!request) return c.json({ success: false, error: 'Describe the service you want priced.' }, 400);
-    const catalog = Array.isArray(body.catalog) ? body.catalog : [];
+    /**
+     * The reference prices come from OUR catalogue, not from the request body.
+     *
+     * They used to be posted, so the browser told the model what our existing
+     * services cost before asking for a comparable figure — send an inflated
+     * list and the model quotes to match it. The price it returns then became a
+     * line on a saved plan, so this decided money.
+     */
+    const actor = c.get('actor');
+    const quotedFor = String(actor?.email || '');
+    if (!quotedFor) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const catalog = await referenceCatalogue(entityType);
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) return c.json({ success: false, error: 'AI pricing is not configured.' }, 500);
     const prompt = `You price services for a ${portalRole} portal (entity type: ${entityType}) at MID-TO-HIGH market rates for Southern New Hampshire and Northern Massachusetts.
@@ -6468,14 +6480,31 @@ Estimate a fair monthly base price consistent with the reference items. Respond 
     try { item = JSON.parse(aiJson?.choices?.[0]?.message?.content || '{}'); } catch { item = {}; }
     const price = Math.max(0, Math.round(Number(item.baseMonthlyPrice) || 0));
     if (!price) return c.json({ success: false, error: 'Could not estimate a price. Add more detail and try again.' }, 422);
+    /**
+     * The quote is kept server-side and only its id goes back.
+     *
+     * That is the whole point: a custom item has no catalogue price, so if the
+     * browser carried the figure there would be nothing to check it against
+     * when the plan is saved. It can echo the id; it cannot name the price.
+     */
+    const quoted = await saveQuotedItem({
+      name: String(item.name || request),
+      category: String(item.category || 'Custom Request'),
+      unit: String(item.unit || 'per month'),
+      baseMonthlyPrice: price,
+      rationale: String(item.rationale || ''),
+      entity: entityType,
+      quotedFor,
+    });
     return c.json({
       success: true,
       item: {
-        name: String(item.name || request).slice(0, 80),
-        category: String(item.category || 'Custom Request').slice(0, 40),
-        baseMonthlyPrice: price,
-        unit: String(item.unit || 'per month').slice(0, 30),
-        rationale: String(item.rationale || '').slice(0, 240),
+        id: quoted.id,
+        name: quoted.name,
+        category: quoted.category,
+        baseMonthlyPrice: quoted.baseMonthlyPrice,
+        unit: quoted.unit,
+        rationale: quoted.rationale,
       },
     });
   } catch (error: any) { console.log('price-custom error:', error); return c.json({ success: false, error: error.message || 'Unable to price the request.' }, 500); }

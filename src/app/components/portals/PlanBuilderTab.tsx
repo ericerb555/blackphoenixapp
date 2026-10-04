@@ -175,18 +175,24 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
+          // The reference catalogue is NOT sent. The server reads its own, so a
+          // caller cannot talk the model into a price by posting inflated
+          // comparables — see planPricing.ts.
           body: JSON.stringify({
             entityType: entity,
             portalRole: portalType,
             request: customRequest.trim(),
-            catalog: catalog.map(s => ({ name: s.name, category: s.category, baseMonthlyPrice: s.baseMonthlyPrice, unit: s.unit })),
           }),
         },
       );
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data?.error || `Pricing failed (${res.status})`);
+      // The id is the server's receipt for the price it quoted. Saving the plan
+      // sends the id back and the server re-reads its own figure, so this value
+      // has to be the one it issued rather than one made up here.
+      if (!data.item?.id) throw new Error('That price could not be recorded. Try again.');
       const item: CustomItem = {
-        id: `custom-${Date.now()}`,
+        id: String(data.item.id),
         name: data.item.name,
         category: data.item.category || 'Custom Request',
         baseMonthlyPrice: data.item.baseMonthlyPrice,

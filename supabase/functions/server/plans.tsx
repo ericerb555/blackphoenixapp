@@ -23,6 +23,7 @@ import { cors } from 'npm:hono@4/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { recordEntitlementEvent } from './entitlements.tsx';
+import { pricePlan } from './planPricing.ts';
 
 const plansRouter = new Hono<{ Variables: { actor: any; admin: boolean } }>();
 const auth = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
@@ -153,19 +154,54 @@ plansRouter.post('/make-server-3eae23a6/plans', async (c) => {
 
     const id = genId('PLAN');
     const now = new Date().toISOString();
-    const links = provisionLinks(body);
+
+    /**
+     * The price is ours, not the browser's.
+     *
+     * This handler used to store `Number(body.monthlyTotal) || 0`, and that
+     * figure is not decorative: `provisionLinks` turns it into an included
+     * hours allotment and a welcome gift card worth up to $250, both written as
+     * real records. So the browser decided money. It is recomputed from the
+     * chosen ids now, and the posted figure survives only as a cross-check.
+     */
+    const priced = await pricePlan({
+      entity: body.entity || 'homeowner',
+      skillId: body.skillId || 'journeyman',
+      frequencyId: body.frequencyId || 'monthly',
+      regionId: body.regionId,
+      serviceIds: Array.isArray(body.serviceIds) ? body.serviceIds : [],
+      forEmail: actor.email,
+      allowAnyOwner: admin,
+    });
+    if (!priced.lines.length) {
+      return c.json({ success: false, error: 'Choose at least one service before saving a plan.' }, 400);
+    }
+    // Refused rather than silently dropped: a plan missing a line the customer
+    // chose is a plan they did not agree to, and it would bill short.
+    if (priced.unknownIds.length) {
+      return c.json({ success: false, error: `We could not price ${priced.unknownIds.length} of the chosen items. Rebuild the plan and try again.` }, 400);
+    }
+    const posted = Number(body.monthlyTotal) || 0;
+    if (Math.abs(posted - priced.monthlyTotal) > 1) {
+      console.log(`[Plans] price mismatch for ${actor.email}: posted $${posted}, server $${priced.monthlyTotal} across ${priced.lines.length} items (${priced.skillId}/${priced.frequencyId})`);
+    }
+
+    const links = provisionLinks({ ...body, monthlyTotal: priced.monthlyTotal, serviceIds: priced.lines.map((l) => l.id) });
 
     const plan = {
       id,
       planName: body.planName || 'Custom Maintenance Plan',
       portalType: body.portalType || 'customer',
       entity: body.entity || 'homeowner',
-      skillId: body.skillId || 'journeyman',
-      frequencyId: body.frequencyId || 'monthly',
-      serviceIds: Array.isArray(body.serviceIds) ? body.serviceIds : [],
-      serviceNames: Array.isArray(body.serviceNames) ? body.serviceNames : [],
-      monthlyTotal: Number(body.monthlyTotal) || 0,
-      annualTotal: Number(body.annualTotal) || (Number(body.monthlyTotal) || 0) * 12,
+      skillId: priced.skillId,
+      frequencyId: priced.frequencyId,
+      regionId: priced.regionId,
+      serviceIds: priced.lines.map((l) => l.id),
+      serviceNames: priced.lines.map((l) => l.name),
+      // What each line cost and why, so an invoice question has an answer.
+      lines: priced.lines,
+      monthlyTotal: priced.monthlyTotal,
+      annualTotal: priced.annualTotal,
       owner: body.owner || actor.user_metadata?.full_name || actor.email,
       ownerEmail: admin ? (body.ownerEmail || null) : actor.email,
       source: body.source || 'portal', // 'portal' | 'application'
@@ -173,7 +209,7 @@ plansRouter.post('/make-server-3eae23a6/plans', async (c) => {
       createdAt: now,
       updatedAt: now,
       ...links,
-      rewards: { points: Math.round((Number(body.monthlyTotal) || 0) / 5) },
+      rewards: { points: Math.round(priced.monthlyTotal / 5) },
       history: [{ ts: now, type: 'created', note: 'Plan created via AI builder' }],
     };
 
@@ -249,8 +285,35 @@ plansRouter.patch('/make-server-3eae23a6/plans/:id', async (c) => {
 
     const patch = await c.req.json();
     const now = new Date().toISOString();
-    const allowed = ['planName', 'status', 'skillId', 'frequencyId', 'monthlyTotal', 'annualTotal', 'serviceIds', 'serviceNames'];
+    /**
+     * `monthlyTotal` and `annualTotal` are deliberately NOT patchable.
+     *
+     * They were, and the owner of a plan may reach this route, so an account
+     * could set its own price on a plan it already held — the same hole as the
+     * create route, one screen further along. The price is derived from what
+     * the plan contains, below.
+     */
+    const allowed = ['planName', 'status', 'skillId', 'frequencyId', 'serviceIds'];
     for (const k of allowed) if (k in patch) (plan as any)[k] = patch[k];
+
+    // Anything that moves the price re-prices the plan from our own records.
+    if (['skillId', 'frequencyId', 'serviceIds'].some((k) => k in patch)) {
+      const priced = await pricePlan({
+        entity: plan.entity, skillId: plan.skillId, frequencyId: plan.frequencyId,
+        regionId: plan.regionId, serviceIds: plan.serviceIds || [],
+        forEmail: String(plan.ownerEmail || ''), allowAnyOwner: !!c.get('admin'),
+      });
+      if (priced.unknownIds.length) {
+        return c.json({ success: false, error: `We could not price ${priced.unknownIds.length} of the chosen items.` }, 400);
+      }
+      plan.skillId = priced.skillId;
+      plan.frequencyId = priced.frequencyId;
+      plan.serviceIds = priced.lines.map((l: any) => l.id);
+      plan.serviceNames = priced.lines.map((l: any) => l.name);
+      plan.lines = priced.lines;
+      plan.monthlyTotal = priced.monthlyTotal;
+      plan.annualTotal = priced.annualTotal;
+    }
     plan.updatedAt = now;
     plan.history = [...(plan.history || []), { ts: now, type: 'updated', note: patch.note || 'Plan updated' }];
 
