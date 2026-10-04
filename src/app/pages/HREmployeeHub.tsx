@@ -9,11 +9,25 @@ import TimeOffApprovals from '../components/schedule/TimeOffApprovals';
 import { TRADE_IDS, TRADE_LABELS } from '../lib/laborTasks';
 
 type PayType = 'hourly' | 'salary' | 'contract';
+/**
+ * W-2 employee or W-9 contractor. A SEPARATE axis from pay type: a W-2 may be
+ * hourly or salaried, a W-9 invoices and is neither.
+ */
+type WorkerType = 'w2' | 'w9';
 type Status = 'active' | 'inactive' | 'onleave';
 
 interface Employee {
   id: string; firstName: string; lastName: string; email: string; phone: string;
   role: string; department: string; payType: PayType;
+  /**
+   * How they are engaged, for payroll and liability. Not how they are paid.
+   *
+   * NOTE: a W-2 hour costs more than the pay rate — employer FICA,
+   * unemployment, workers' comp. No burden is applied anywhere yet, so W-2
+   * labour costs at the bare rate and its margin reads slightly better than it
+   * is. See WorkerType in employeeRates.ts.
+   */
+  workerType?: WorkerType;
   /** What we PAY. Hourly, or ANNUAL when payType is 'salary'. */
   payRate: number;
   /**
@@ -185,6 +199,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           role: String(r.role || 'Employee'),
           department: String(r.department || 'field'),
           payType: (r.payType === 'salary' ? 'salary' : 'hourly') as PayType,
+          workerType: (r.workerType === 'w9' ? 'w9' : 'w2') as WorkerType,
           payRate: Number(r.payRate) || 0,
           billRate: Number(r.billRate) || 0,
           status: 'active' as Status,
@@ -374,6 +389,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           department: emp.department || 'field',
           phoneNumber: emp.phone || '',
           payType: emp.payType || 'hourly',
+          workerType: emp.workerType || 'w2',
           payRate: Number(emp.payRate) || 0,
           billRate: Number(emp.billRate) || 0,
           trades: Array.isArray(emp.trades) ? emp.trades : [],
@@ -401,8 +417,8 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   }
 
   function exportCSV() {
-    const rows = [['ID','Name','Role','Dept','Pay Type','Rate','Status'],
-      ...employees.map(e => [e.id, `${e.firstName} ${e.lastName}`, e.role, e.department, e.payType, e.payRate, e.status])
+    const rows = [['ID','Name','Role','Dept','Status (W-2/W-9)','Pay Type','Rate','Status'],
+      ...employees.map(e => [e.id, `${e.firstName} ${e.lastName}`, e.role, e.department, e.workerType === 'w9' ? 'W-9' : 'W-2', e.payType, e.payRate, e.status])
     ].map(r => r.join(',')).join('\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows], { type: 'text/csv' })); a.download = 'employees.csv'; a.click();
   }
@@ -425,6 +441,24 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                     style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }} />
                 </div>
               ))}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Employment status</p>
+                <select value={editing.workerType || 'w2'} onChange={e => setEditing(p => ({ ...p, workerType: e.target.value as WorkerType }))}
+                  className="w-full px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
+                  style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <option value="w2">W-2 employee</option><option value="w9">W-9 contractor</option>
+                </select>
+                {/*
+                  Said out loud because it changes what the margin means, not
+                  just what the record says. No burden multiplier is applied
+                  anywhere yet, so a W-2 hour is costed at the bare rate.
+                */}
+                {editing.workerType !== 'w9' && (
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    Costed at the pay rate — employer taxes and workers' comp are not added yet
+                  </p>
+                )}
+              </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Pay Type</p>
                 <select value={editing.payType || 'hourly'} onChange={e => setEditing(p => ({ ...p, payType: e.target.value as PayType }))}
@@ -558,7 +592,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
             <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-gray-500" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <Download className="w-4 h-4" /> Export
             </button>
-            <button onClick={() => setEditing({ payType: 'hourly', payRate: 25, status: 'active', startDate: new Date().toISOString().slice(0,10), hoursThisWeek: 0, hoursThisPeriod: 0, certifications: [], notes: '', department: 'field' })}
+            <button onClick={() => setEditing({ payType: 'hourly', workerType: 'w2', payRate: 25, status: 'active', startDate: new Date().toISOString().slice(0,10), hoursThisWeek: 0, hoursThisPeriod: 0, certifications: [], notes: '', department: 'field' })}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black text-white" style={{ background: 'linear-gradient(135deg,#ea580c,#c2410c)' }}>
               <Plus className="w-4 h-4" /> Add Employee
             </button>

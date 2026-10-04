@@ -38,8 +38,32 @@ export const HOURS_PER_YEAR = 2080;
 
 export type PayType = 'hourly' | 'salary';
 
+/**
+ * How somebody is engaged: an employee on a W-2, or a contractor on a W-9.
+ *
+ * A SEPARATE AXIS FROM `PayType`, and worth keeping separate. A W-2 employee
+ * may be hourly or salaried; a W-9 contractor invoices and is neither. Folding
+ * the two into one field would put a tax classification into the value that
+ * decides whether to divide a figure by 2,080.
+ *
+ * WHAT THIS DOES NOT YET DO, STATED PLAINLY
+ *
+ * A W-2 hour costs more than the pay rate. Employer FICA, unemployment
+ * insurance and workers' compensation are real costs of that hour and are
+ * typically 10–25% on top. `hourlyCostRate` does not apply any burden, so a
+ * W-2 hour is costed at the bare rate and the labour margin on it reads
+ * slightly better than it truly is.
+ *
+ * That is recorded rather than guessed at. The direction of the error is the
+ * flattering one — the same fault `HOURS_PER_YEAR` warns about above — and the
+ * multiplier is a number Black Phoenix has to supply, not one to invent here.
+ */
+export type WorkerType = 'w2' | 'w9';
+
 export interface EmployeeRates {
   payType?: PayType | string;
+  /** W-2 or W-9. Does not affect the arithmetic yet — see WorkerType. */
+  workerType?: WorkerType | string;
   /** Hourly for an hourly employee; ANNUAL for a salaried one. */
   payRate?: number | string | null;
   /** Always hourly. What this person's time is charged at. */

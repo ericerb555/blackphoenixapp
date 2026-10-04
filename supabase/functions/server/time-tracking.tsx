@@ -375,7 +375,7 @@ timeTrackingRouter.get("/employees/:id", async (c) => {
 timeTrackingRouter.post("/employees", async (c) => {
   try {
     const body = await c.req.json();
-    const { id, name, role, department, phoneNumber, payRate, payType, billRate, assignedProject, trades } = body;
+    const { id, name, role, department, phoneNumber, payRate, payType, billRate, workerType, assignedProject, trades } = body;
     const denial = requireEmployeeAccess(c, id);
     if (denial) return denial;
     
@@ -402,6 +402,29 @@ timeTrackingRouter.post("/employees", async (c) => {
       payType: isAdmin
         ? (String(payType || existing?.payType || 'hourly').toLowerCase() === 'salary' ? 'salary' : 'hourly')
         : (existing?.payType || 'hourly'),
+      /**
+       * W-2 or W-9: how this person is engaged, not how they are paid.
+       *
+       * Eric: "make sure we can choose a hourly w-2 or w-9 employee status
+       * too." It is a SEPARATE axis from `payType`, deliberately. A W-2 can be
+       * hourly or salaried; a W-9 contractor is neither — they invoice. Folding
+       * the two together would have put a tax classification into the field
+       * that decides whether to divide a figure by 2,080, which is the division
+       * that turns a salary into an hourly cost.
+       *
+       * Admin-only for the same reason as the rates: this is a payroll and
+       * liability classification, not a preference, and getting it wrong is a
+       * tax question rather than a display one.
+       *
+       * NOTE ON COST: a W-2 hour costs more than the pay rate — employer FICA,
+       * unemployment, workers' compensation. Nothing here models that burden
+       * yet, so W-2 labour is costed at the bare rate and the margin on it
+       * reads slightly better than it is. Recorded rather than quietly
+       * adjusted, because the multiplier is Eric's to set.
+       */
+      workerType: isAdmin
+        ? (String(workerType || existing?.workerType || 'w2').toLowerCase() === 'w9' ? 'w9' : 'w2')
+        : (existing?.workerType || 'w2'),
       /**
        * What we CHARGE for an hour of their time. Always hourly, whatever the
        * pay type. The gap between this and the cost is the labour margin, which
