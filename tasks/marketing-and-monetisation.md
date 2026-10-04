@@ -913,17 +913,33 @@ bundled into the browser. That is done.
 **Checks.** typecheck app 316 / server 87, both at baseline. smoke 50 affected
 pages rendered, 0 threw. 1664 tests pass.
 
+**Deployed and verified against production, 2026-10-04.**
+
+`npx supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm --use-api`
+with no flags, as `config.toml` already pins the entrypoint and `verify_jwt = true`.
+Deployed by name on purpose: a bare deploy ships every function in config.toml,
+which once re-exposed 509 retired routes.
+
+| Check | Result |
+|---|---|
+| `/health` | 200 |
+| `GET /maintenance-catalogue` with the anon key | 200, 8 entities, 115 services |
+| Multipliers served | apprentice 0.8 / journeyman 1 / master 1.3; monthly 1 / quarterly 0.9 / annual 0.72 |
+| `POST /maintenance-config` with the anon key | **401** — writes still refused |
+| Labels after the field-wise merge | three skill levels and three frequencies, **zero blank labels** |
+| One price end to end | Furnace/AC Tune-Up, $95 x 1.3 Master x 0.72 Annual = **$89/mo** |
+
+The last two were checked by replaying the browser-s own merge against the live
+response in node, because the Chrome extension was not connected. That is the
+exact thing the field-wise merge protects — the server sends multipliers with no
+labels, and a wholesale swap would have produced three blank buttons.
+
 **Known gaps.**
 
-1. **The new route is not deployed.** Until the edge function is deployed,
-   `fetchMaintenanceConfig` will fail and fall back to the bundled catalogue —
-   which is exactly what happens today, so nothing regresses, but nothing
-   improves either until the deploy.
-2. **Not verified in the running app.** Smoke proves the tab mounts and throws
-   nothing; it does not prove the fetch returns what the builder expects, because
-   the route is not live. Worth opening the builder in a portal after the deploy
-   and confirming the technician-level buttons still carry their labels — that is
-   the thing the field-wise merge above protects, and it is visible in one glance.
+1. **Not seen rendered in a browser.** The merge and the arithmetic are verified
+   against production data, but nobody has looked at the tab. The front end also
+   has to reach Vercel before any visitor gets this — these commits are not
+   pushed.
 3. **The entity/audience question is still open.** The services live under
    entities and the ladders live under audiences, and nothing yet maps one to the
    other. It has not had to: the builder asks for an entity directly. It will
