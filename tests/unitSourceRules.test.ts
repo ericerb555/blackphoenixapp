@@ -23,6 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AUDIENCE_UNIT_SOURCE, sourceForAudience, meteredAudiences,
+  ON_CALL_UNIT_SOURCES, largerOfOverlapping,
 } from '../supabase/functions/server/unitSourceRules.ts';
 import { AGREED_LADDERS } from '../supabase/functions/server/agreedLadders.ts';
 
@@ -99,4 +100,64 @@ test('investor is unsourced on purpose, not by omission', () => {
   // Its investment: records are stakes in deals, not buildings — counting them
   // would bill somebody for holding several positions in one property.
   assert.match(decision.reason || '', /records an investor/);
+});
+
+// ─── On-call counts everything, without counting anything twice ──────────────
+
+test('on-call counts every source, including the condo-manager roster', () => {
+  // Eric, 2026-10-04: "yes count it towards on-call". A tier is priced on what
+  // one audience holds; on-call is priced on everything the account is
+  // responsible for, because the phone rings for all of it.
+  assert.deepEqual(
+    [...ON_CALL_UNIT_SOURCES].sort(),
+    ['condo_association', 'condo_manager', 'landlord', 'property_manager'],
+  );
+});
+
+test('every on-call source is a real source, and every real source is counted', () => {
+  // A source that exists but is left out of on-call undercharges silently; one
+  // named here that no reader implements counts nothing and looks the same.
+  for (const kind of ON_CALL_UNIT_SOURCES) {
+    assert.ok(
+      Object.values(AUDIENCE_UNIT_SOURCE).includes(kind),
+      `${kind} is counted for on-call but is not a source any audience uses`,
+    );
+  }
+  assert.equal(ON_CALL_UNIT_SOURCES.length, meteredAudiences().length);
+});
+
+test('a manager who is also on the board is not billed for the same units twice', () => {
+  // The roster and the associations describe the same buildings. Summing them
+  // would roughly double the bill on an invoice that looks entirely normal.
+  const { unitsByKind, dropped } = largerOfOverlapping({
+    condo_manager: 400,
+    condo_association: 120,
+    landlord: 4,
+  });
+  assert.deepEqual(dropped, ['condo_association']);
+  assert.equal(unitsByKind.condo_manager, 400);
+  assert.equal(unitsByKind.landlord, 4, 'a source that does not overlap is untouched');
+  assert.equal(Object.values(unitsByKind).reduce((a, b) => a + b, 0), 404);
+});
+
+test('the larger side wins whichever way round it is', () => {
+  const { unitsByKind, dropped } = largerOfOverlapping({ condo_manager: 20, condo_association: 300 });
+  assert.deepEqual(dropped, ['condo_manager']);
+  assert.equal(unitsByKind.condo_association, 300);
+});
+
+test('one source alone is never dropped', () => {
+  for (const only of [{ condo_manager: 50 }, { condo_association: 50 }, { landlord: 9 }]) {
+    const { unitsByKind, dropped } = largerOfOverlapping(only);
+    assert.deepEqual(dropped, []);
+    assert.deepEqual(unitsByKind, only);
+  }
+});
+
+test('a zero does not count as an overlapping source', () => {
+  // Otherwise an account with a roster recorded but empty would lose the
+  // association units it genuinely holds.
+  const { unitsByKind, dropped } = largerOfOverlapping({ condo_manager: 0, condo_association: 120 });
+  assert.deepEqual(dropped, []);
+  assert.equal(unitsByKind.condo_association, 120);
 });

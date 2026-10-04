@@ -11,12 +11,17 @@
  *
  * A four-unit house and a hundred-and-twenty-unit block do not cost the same to
  * cover, and a box somebody fills in themselves is not a count, it is a claim.
- * The platform already records the real figure in three places, so it is read
- * from there.
+ * The platform already records the real figure, so it is read from there.
  *
  *   landlord_portfolio:{email}          properties, each with `units`
  *   property_manager_portfolio:{email}  the same shape, for managers
  *   condo_assoc:{id}                    an association, with `unitCount`
+ *   condo_manager_units:{email}         a managing company's roster, one per unit
+ *
+ * Four sources, because on-call covers everything the account is responsible
+ * for — the phone rings for all of it. Eric added the fourth on 2026-10-04:
+ * "yes count it towards on-call". Two of the four can describe the SAME units,
+ * which is handled where they are summed.
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  *
@@ -26,7 +31,7 @@
  * overcharge somebody. Both are worse than saying "nothing recorded".
  */
 import * as kv from "./kv_store.tsx";
-import { sourceForAudience } from "./unitSourceRules.ts";
+import { sourceForAudience, largerOfOverlapping } from "./unitSourceRules.ts";
 
 export interface UnitCount {
   units: number;
@@ -106,13 +111,35 @@ export async function unitsCovered(email: string): Promise<UnitCount> {
   const address = String(email || "").trim().toLowerCase();
   if (!address) return { units: 0, sources: [], reason: "no account" };
 
-  const sources: UnitCount["sources"] = [
+  const found: UnitCount["sources"] = [
     ...(await readPortfolio("landlord", `landlord_portfolio:${address}`)),
     ...(await readPortfolio("property_manager", `property_manager_portfolio:${address}`)),
     ...(await readCondoAssociations(address)),
+    // Eric, 2026-10-04, asked directly because it changes what some existing
+    // accounts pay: "yes count it towards on-call".
+    ...(await readCondoManagerRoster(address)),
   ];
 
-  const units = sources.reduce((sum, s) => sum + s.units, 0);
+  /**
+   * The same units can arrive twice.
+   *
+   * A condo manager who is also attached to the associations they manage is
+   * counted through the roster AND through those associations, and summing both
+   * would roughly double their bill on an invoice that looks entirely normal.
+   * `largerOfOverlapping` keeps whichever side counts more, so no unit is ever
+   * charged for twice — see the note on it, including why the overlap cannot be
+   * resolved by matching buildings.
+   */
+  const byKind: Record<string, number> = {};
+  for (const s of found) byKind[s.kind] = (byKind[s.kind] || 0) + s.units;
+  const { unitsByKind, dropped } = largerOfOverlapping(byKind);
+
+  const sources = found.filter((s) => !dropped.includes(s.kind));
+  const units = Object.values(unitsByKind).reduce((sum, n) => sum + n, 0);
+  if (dropped.length) {
+    console.log(`[unitsCovered] ${address}: ${dropped.join(", ")} overlapped a larger source and was not counted twice`);
+  }
+
   return {
     units,
     sources,
@@ -166,11 +193,11 @@ export async function unitsForAudience(email: string, audience: string): Promise
 /**
  * A condo manager's roster: `condo_manager_units:{email}`, one record per unit.
  *
- * Deliberately NOT added to `unitsCovered` above. That function prices on-call,
- * and adding a source to it would change what some existing accounts are charged
- * for emergency cover without anybody deciding to. Whether a managing company's
- * roster should count towards their on-call is a real question and it is Eric's,
- * not one to answer by editing a sum.
+ * Counted towards on-call as well as towards the condo-manager tier. It was held
+ * back from `unitsCovered` until Eric decided, because adding a source changes
+ * what some existing accounts are charged for emergency cover — not a thing to
+ * settle by editing a sum. He answered on 2026-10-04: "yes count it towards
+ * on-call".
  */
 async function readCondoManagerRoster(address: string): Promise<UnitCount['sources']> {
   try {

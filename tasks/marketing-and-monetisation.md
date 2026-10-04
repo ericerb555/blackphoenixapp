@@ -811,11 +811,10 @@ would have put $418 a month on a four-unit landlord's invoice.
   extracted so both functions share them, and `unitsCovered` itself reads exactly
   the same three sources it did before — its behaviour is unchanged.
 - A fourth source added for condo managers: `condo_manager_units:{email}`, one
-  record per unit, so the count is the roster length. **Deliberately not added to
-  `unitsCovered`**, because that function prices on-call and adding a source to
-  it would change what some existing accounts pay for emergency cover without
-  anybody deciding to. Whether a managing company's roster should count towards
-  their on-call is a real question and it is Eric's.
+  record per unit, so the count is the roster length. It was held back from
+  `unitsCovered` until Eric decided, because adding a source there changes what
+  existing accounts pay for emergency cover. **He answered on 2026-10-04: "yes
+  count it towards on-call"** — see section 22.
 - `monthlyFigure` takes a unit count and passes it through; `GET /my-plan`
   resolves it with `unitsForAudience` and returns a `metering` block — the count,
   the included units, the rate, and **which properties contributed**. A figure
@@ -1025,3 +1024,50 @@ sample thresholds that refuse to read a signal out of three accounts. That is
 the correct result rather than a fault: it was built now so that it already
 works when the numbers arrive, and because the rules were worth getting right
 while nothing depended on them.
+
+---
+
+## 22. Review — a condo manager's roster counts towards on-call (2026-10-04)
+
+Asked separately, because adding a source to the on-call count changes what
+existing accounts are charged for emergency cover, Eric answered: **"yes count
+it towards on-call"**.
+
+So the on-call unit count is now every unit the account is responsible for,
+across all four sources: a landlord's portfolio, a property manager's portfolio,
+the associations a person is attached to, and a condo manager's roster. The
+principle is the one already in `on-call-is-priced-by-call-hours-and-units` — a
+bigger property costs more to cover — and a managing company fielding calls for
+four hundred units is not covering the same risk as one fielding calls for
+forty.
+
+**The trap this opened, and what was done about it.** The same units can arrive
+twice. A condo manager who is also attached to the associations they manage is
+counted through the roster *and* through those associations, and summing both
+would roughly double their bill on an invoice that looks entirely normal — the
+worst kind of pricing bug, because nothing about it looks wrong.
+
+It cannot be resolved by matching buildings: the roster is an aggregate with no
+association ids in it. So `largerOfOverlapping` keeps whichever side counts
+more and drops the other, logging that it did. That never charges for a unit
+twice and errs towards under-counting rather than over-billing somebody, which
+is the right direction to be wrong in when the alternative is a doubled invoice.
+
+**Also made testable on the way.** The set of sources that decides an on-call
+price now lives in `unitSourceRules.ts` as `ON_CALL_UNIT_SOURCES` rather than
+inline in a file the test runner cannot load. Six tests cover it: that all four
+are counted, that every source named is one some audience actually uses, that
+the overlap collapses to the larger side whichever way round it is, that a
+single source is never dropped, and that a recorded-but-empty roster does not
+cost an account the association units it genuinely holds.
+
+**Checks.** typecheck app 316 / server 87, both at baseline — the change briefly
+added four server findings from a missing import, which is exactly the class of
+mistake that rule exists to catch, and they are fixed rather than absorbed.
+smoke 6 affected pages, 0 threw. 1706 tests pass.
+
+**Worth saying plainly:** this raises the on-call figure for any condo-manager
+account with a roster recorded. Nothing bills from it yet — on-call pricing
+reads this count, and no on-call subscription is being charged through it today
+— but when one is, those accounts will see a higher number than they would have
+yesterday, and that is the decision rather than a side effect.

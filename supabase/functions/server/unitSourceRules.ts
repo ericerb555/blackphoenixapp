@@ -92,3 +92,70 @@ export function sourceForAudience(audience: string): UnitSourceDecision {
 export function meteredAudiences(): string[] {
   return Object.keys(AUDIENCE_UNIT_SOURCE).filter((a) => AUDIENCE_UNIT_SOURCE[a] !== null);
 }
+
+/**
+ * The sources that decide an ON-CALL price — which is every one of them.
+ *
+ * On-call is the opposite question to a tier. A tier is priced on what one
+ * audience holds; on-call is priced on everything the account is responsible
+ * for, because an emergency can come from any of it. One person may own a
+ * rental house, sit on an association board and manage a portfolio, and the
+ * phone rings for all three.
+ *
+ * Eric settled the last of these on 2026-10-04, asked directly because adding
+ * it changes what existing accounts pay: *"yes count it towards on-call"* — a
+ * managing company's roster counts.
+ *
+ * Here rather than inline in `unitsCovered` so the set that decides a bill can
+ * be tested; that file reaches `kv_store.tsx` and the test runner cannot load
+ * it.
+ */
+export const ON_CALL_UNIT_SOURCES: UnitSourceKind[] = [
+  'landlord',
+  'property_manager',
+  'condo_association',
+  'condo_manager',
+];
+
+/**
+ * Sources that can describe the SAME units twice.
+ *
+ * A condo manager who is also attached to the associations they manage appears
+ * through the roster and again through those associations. Summing both would
+ * roughly double their on-call bill, and the invoice would look entirely
+ * normal — the worst kind of pricing bug.
+ *
+ * The roster is an aggregate with no association ids in it, so the overlap
+ * cannot be resolved by matching buildings. `largerOfOverlapping` takes the
+ * larger of the two instead, which never charges for a unit twice and errs
+ * towards under-counting rather than over-billing somebody.
+ */
+export const OVERLAPPING_SOURCES: UnitSourceKind[][] = [
+  ['condo_association', 'condo_manager'],
+];
+
+/**
+ * Collapse an overlapping pair to whichever side counts more units.
+ *
+ * Takes and returns per-kind totals so it can be tested without any records.
+ * Kinds that do not overlap pass through untouched.
+ */
+export function largerOfOverlapping(
+  unitsByKind: Record<string, number>,
+): { unitsByKind: Record<string, number>; dropped: string[] } {
+  const out: Record<string, number> = { ...unitsByKind };
+  const dropped: string[] = [];
+
+  for (const group of OVERLAPPING_SOURCES) {
+    const present = group.filter((kind) => Number(out[kind]) > 0);
+    if (present.length < 2) continue;
+    // Keep the biggest; drop the rest of the group.
+    const keep = present.reduce((best, kind) => (out[kind] > out[best] ? kind : best), present[0]);
+    for (const kind of present) {
+      if (kind === keep) continue;
+      delete out[kind];
+      dropped.push(kind);
+    }
+  }
+  return { unitsByKind: out, dropped };
+}
