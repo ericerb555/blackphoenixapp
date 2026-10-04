@@ -24,6 +24,16 @@ applications, not units.** A single vacancy draws five to fifteen applicants.
 A landlord with ten units might sign three leases a year and screen thirty
 people. The unit count is the floor, not the ceiling.
 
+**That thesis is half wrong in the two states Black Phoenix actually works in,
+and the research below is what corrected it.** In Massachusetts a landlord may
+not charge an applicant at all, so the fee is the landlord's cost. In New
+Hampshire the applicant may be charged, but everything above documented cost
+has to go back to anybody who is not rented to, within thirty days. So in both
+home states the *margin* follows leases signed, not applications — the
+application volume only recovers cost. The per-application thesis holds in
+states like Florida, with no cap and no refund duty. This is worth knowing
+before anybody forecasts on it.
+
 ---
 
 ## What already exists, verified in the code
@@ -134,14 +144,126 @@ are a hosted-flow product aimed at independent landlords versus a screening
 API; the hosted flow is slower to customise and carries far less legal weight
 on us, which is why this plan assumes it.
 
-**2. Who the fee is charged to, by state.** Application and screening fees are
-regulated and the rules differ sharply by state. Massachusetts, where Black
-Phoenix operates, is among the most restrictive about charging a residential
-applicant a fee at all, and several states cap the amount. I am not a reliable
-source for the current rule and neither is a model — this needs an answer from
-a lawyer before a dollar is charged. **The build accommodates it either way:**
-the payer is a per-state setting, applicant-paid or landlord-paid, and the
-price comes from the catalogue.
+**2. Who the fee is charged to, by state. — ANSWERED 2026-10-03, by looking
+it up.** This item used to say the question needed a lawyer. Eric pushed back
+and asked why I could not just find the answer, and he was right: the general
+rule is published statute, not a judgement call.
+
+**In Massachusetts a landlord may not charge an application, credit-check or
+screening fee at all.** G.L. c. 186 § 15B(1)(b) is a closed list of what may be
+required at or before the start of a tenancy — first month's rent, last month's
+rent, a security deposit of up to one month, and the cost of a key and lock.
+A screening fee is not on the list, so it cannot be collected. Worse than
+merely void: a § 15B violation is also an unfair practice under c. 93A, which
+carries multiple damages and attorney's fees.
+
+The one Massachusetts exemption is **licensed real estate brokers**, who charge
+under 254 CMR 7 rather than § 15B. Black Phoenix is not a broker, so that door
+is shut unless somebody deliberately walks through it.
+
+**So in Massachusetts the screening fee is the landlord's cost, full stop.**
+That is exactly what the build already defaults to, which is the one piece of
+luck in this: the safe default turned out to be the only lawful option in our
+own state.
+
+Elsewhere it varies, and the shape of the variation matters more than any single
+figure:
+
+    Vermont          banned outright, no exemption
+    Massachusetts    banned for landlords; brokers exempt (254 CMR 7)
+    New Hampshire    allowed, no cap — but disclose in writing first, and
+                     refund the markup to anybody you do not rent to
+    New York         the lesser of actual cost or $20 — and the fee must be
+                     WAIVED entirely if the applicant brings their own report
+                     from the last 30 days
+    New Jersey       $50 cap (2026)
+    Washington DC    $54 (2026)
+    Wisconsin        $25 per credit report
+    California       $65.86 (2026, indexed) and only actual costs plus the
+                     reasonable value of time
+    MN / WA / CO     actual cost only, refundable if the screening is not used
+    Florida          no statutory cap
+
+Two patterns worth building around rather than against. Several states index
+their cap annually, so any figure hardcoded here is wrong next year. And the
+New York rule is not a cap at all but a *portability* rule: an applicant with a
+recent report of their own cannot be charged, which is a feature request, not a
+price.
+
+### New Hampshire, looked up on Eric's instruction
+
+Black Phoenix works both sides of the border, so this one matters as much as
+Massachusetts — and it is the opposite answer with a sting in it.
+
+**Charging the applicant is lawful in New Hampshire. There is no cap.** But
+`RSA 540-A:3 VIII` — amended by 2024 ch. 46:1 and ch. 370:4, both effective
+1 January 2025 — attaches two duties, and they are not optional:
+
+> *"Prior to collecting any fee as part of the rental application or renewal
+> process, the landlord shall clearly disclose, in writing to prospective
+> tenants, the amount of the fee and the requirement for a satisfactory
+> criminal background and credit check, if any."*
+
+> *"If such fee is collected from an applicant, but the unit is not rented to
+> that applicant, the landlord shall return any amount beyond the actual cost
+> of the documented background check, credit check, and/or reasonable
+> administrative costs to the applicant within 30 days of receipt."*
+
+So in New Hampshire the fee is **cost recovery for everybody you turn down.**
+The markup survives only on the applicant who actually gets the unit — unless
+our platform fee itself counts as "reasonable administrative costs", which is
+the one reading that decides whether this is a business in New Hampshire or a
+break-even service. That is a real question for a lawyer and a narrow one.
+
+It also lands squarely on this build. `costCents` is already stored per order,
+which is exactly the "actual cost of the documented background check" the
+refund is measured against — the design happens to support the obligation, but
+nothing performs it yet. Two things are missing:
+
+- **A written disclosure before the charge.** The checkout takes money with no
+  disclosure screen in front of it. New Hampshire requires the amount and
+  whether a satisfactory check is required, in writing, *prior to collecting*.
+- **An automatic refund within thirty days** when an applicant-paid screening
+  belongs to somebody who was not rented to.
+
+The refund is worth distinguishing from the one this plan earlier refused to
+automate. A refund because the provider failed after taking the money is a
+judgement about an error nobody understands yet, and that stays with a person.
+A refund because a statute says a rejected applicant is owed the difference
+within thirty days is mechanical: the trigger is a recorded decision, the
+amount is `priceCents - costCents`, and the deadline is fixed. **That one
+should be automated**, and it belongs on the same clock as the expiry sweep.
+
+**One to watch rather than act on.** `HB 1375` would bar more than one
+application fee from the same prospective tenant in any twelve months,
+regardless of how many units they apply for. As of the latest information it is
+pending in the House Housing Committee and **not law**. If it passes it is a
+real change to the model, because it makes the fee a property of the
+*applicant* across every landlord on the platform rather than of the
+application — which only a platform like this one could even detect. Worth
+re-checking before New Hampshire pricing goes live.
+
+**WHAT IS STILL GENUINELY A LAWYER'S QUESTION, AND IT IS NARROW**
+
+Only this: whether **Black Phoenix** charging the applicant directly — as its
+own service, not as the landlord's fee — escapes § 15B in Massachusetts. My
+reading is that it does not, because it is the landlord's screening either way
+and c. 93A reaches an unfair practice by any business, not only by a lessor;
+and because the only published exemption is for brokers, which we are not.
+That reading is worth one hour of a Massachusetts real-estate lawyer's time
+**only if Eric wants applicant-paid screening in Massachusetts.** If the answer
+is "the landlord pays", which is what the system already does, there is nothing
+left to ask.
+
+**AND NOTHING LEGAL IS HARDCODED, DELIBERATELY**
+
+The table above lives in this document, not in the code. `jurisdictions.tsx`
+already states the reason and it applies exactly: *"a rule this system did not
+learn from a person is a rule it does not have... Shipping pre-loaded ordinances
+would work on day one and rot in silence."* A statutory cap that was right in
+2026 and wrong in 2027 is the same failure. The per-state payer stays data that
+somebody set on purpose, and the code's only built-in rule is the one that
+cannot go stale: an unknown state never charges the applicant.
 
 **3. Adverse action.** When a landlord declines someone because of a report,
 federal law obliges a notice naming the agency and the applicant's rights. The
@@ -987,3 +1109,211 @@ unproven until a real event carries `screening_order_id`.
 
 Neither cron job is scheduled: both migrations remain `.pending`, and the
 retention purge needs `SCREENING_RETENTION_DAYS` on top of that.
+
+---
+
+# PLAN — Phase 5: New Hampshire compliance
+
+Written 2026-10-03 after looking up `RSA 540-A:3 VIII`. Not started; waiting on
+Eric to verify the plan.
+
+Two statutory duties and one latent bug that has to be fixed before either of
+them can work.
+
+## The bug this uncovered, and it has to be first
+
+**Applicant-paid screening currently charges the wrong person.**
+
+`createScreeningCheckout` stamps the applicant's address as `customer_email`,
+and then the route hands the checkout URL back to the **landlord's** browser,
+which redirects *them* to Stripe. So in applicant-paid mode the landlord would
+be the one typing in a card, for a fee the applicant is supposed to pay.
+
+Nobody has hit it because applicant-paid is unreachable today — the order route
+sends no property state, and an unknown state always resolves to the landlord.
+It is latent, not live. But New Hampshire is the first state where
+applicant-paid is both lawful and wanted, so it stops being latent the moment
+this phase ships.
+
+The fix is not a redirect change. The applicant has to be **sent** to the
+payment, which means the whole applicant-paid flow is: order created → the
+applicant is emailed a link → that link shows them the disclosure → they pay →
+the webhook invites them. The landlord's browser never sees a checkout URL for
+a fee they are not paying.
+
+- [ ] Applicant-paid returns no `checkoutUrl` to the landlord. It returns
+      "we have emailed them".
+- [ ] A disclosure-and-pay page addressed by its own token, like the invite.
+- [ ] Landlord-paid keeps today's behaviour exactly: the landlord is the payer,
+      so redirecting them is correct.
+
+## Duty one: disclose in writing, before collecting
+
+> *"Prior to collecting any fee … the landlord shall clearly disclose, in
+> writing to prospective tenants, the amount of the fee and the requirement for
+> a satisfactory criminal background and credit check, if any."*
+
+Two facts, and both have to be on the page the applicant sees before they can
+pay: **the amount**, and **whether a satisfactory criminal background and
+credit check is required** — meaning whether failing it costs them the tenancy.
+That second one is a property of the landlord's own letting policy, not of our
+software, so somebody has to say it. It is asked once per landlord and stored,
+not asked per applicant.
+
+- [ ] A `requiresSatisfactoryCheck` flag on the landlord's screening settings,
+      answered before applicant-paid can be switched on for them.
+- [ ] The disclosure page renders the amount and that answer, from the server.
+- [ ] `disclosedAt`, `disclosedAmountCents` and `disclosureText` stored on the
+      order — the server's own wording, the same discipline as the applicant's
+      consent and the landlord's purpose certification. What we show is what we
+      keep.
+- [ ] **The checkout is refused unless a disclosure was acknowledged.** The
+      statute says prior to collecting, so acknowledging it is a precondition
+      of the Stripe session existing, not a tickbox beside it.
+
+## Duty two: refund the markup within thirty days
+
+> *"If such fee is collected from an applicant, but the unit is not rented to
+> that applicant, the landlord shall return any amount beyond the actual cost
+> of the documented background check, credit check, and/or reasonable
+> administrative costs to the applicant within 30 days of receipt."*
+
+**Why this one gets automated when the provider-failure refund did not.** That
+refund is a judgement about an error nobody has diagnosed yet. This one is
+mechanical: the trigger is a decision already recorded on the order, the amount
+is arithmetic over two stored figures, and the deadline is fixed by statute.
+Leaving it to a person means a missed deadline is a breach.
+
+**The amount, and the one open question inside it.** `priceCents - costCents`
+is the markup. The statute lets the landlord also retain "reasonable
+administrative costs", and whether our platform fee *is* that is the narrow
+lawyer question. So the retained amount is a setting, `retainedAdminCents`,
+**defaulting to zero** — the conservative reading, refunding the whole markup.
+If a lawyer says the fee qualifies, Eric raises the number. The code takes no
+view.
+
+- [ ] `refundDue(order, retainedAdminCents)` in `screeningPricing.ts`, pure and
+      tested. Returns nothing unless the order was applicant-paid, actually
+      paid, and the applicant was not rented to.
+- [ ] A partial Stripe refund against the payment intent, with the order id as
+      the idempotency key.
+- [ ] `refundedAt`, `refundCents` and `refundId` on the order. Never twice.
+- [ ] Issued as soon as the rejection is recorded, with the sweep as the
+      backstop rather than the mechanism — thirty days is the outer limit, not
+      the target.
+
+**An undecided application is not a rejection, and must not be treated as
+one.** The statute turns on the unit not being rented to them, and silence does
+not establish that. An applicant-paid order that is still undecided weeks later
+gets **reported to the landlord**, not refunded on a guess. Refunding early
+would hand money back to somebody about to be approved; refunding never is the
+breach. A person resolves it, and the system makes sure they know it is there.
+
+- [ ] A stale-undecided report for applicant-paid orders, on the same sweep.
+
+## The property's state has to be known
+
+Applicant-paid cannot resolve without it, and that is deliberate. Today nothing
+supplies it.
+
+- [ ] The order route takes the property's state explicitly, chosen in the
+      portal rather than guessed from the applicant's own address — their
+      current address is where they live now, not where the unit is.
+- [ ] Still refuses to charge an applicant when the state is unknown. The
+      existing rule and its tests do not change.
+
+## Not in this phase
+
+**No fifty-state table.** New Hampshire and Massachusetts are where Black
+Phoenix works. Everything learned about New York, California and the rest stays
+in the research section above, as data for whoever sets a payer, for the reason
+`jurisdictions.tsx` already gives.
+
+**HB 1375 is not built for.** Pending, not law. If it passes, one application
+fee per applicant per twelve months across every landlord becomes a real
+feature and a genuinely interesting one, because only a platform can see it.
+
+## Review — phase 5, 2026-10-03
+
+### The bug fixed first, as planned
+
+**Applicant-paid no longer charges the landlord.** The order route used to build
+the Stripe session and hand its URL to whoever called — the landlord — so an
+applicant-paid fee would have been typed in on the landlord's card. Now the
+applicant is *emailed* a link, and the landlord gets back "we have emailed
+them" with the address and the amount. Landlord-paid is untouched: they are the
+payer, so redirecting them is right.
+
+### Disclosure before collection, enforced by ordering
+
+There is no Stripe session until the applicant has seen the disclosure.
+`GET /screening/fee/:token` returns it, `POST …/accept` is what creates the
+checkout. That is not cosmetic: `RSA 540-A:3 VIII` says *prior to collecting
+any fee*, and making the acknowledgement the thing that brings the session into
+existence means there is no path to a charge without a record of what was
+disclosed. `disclosedAt`, `disclosedAmountCents` and `disclosureText` are
+stored on the order — the third time this system keeps the wording it showed,
+after the applicant's consent and the landlord's purpose certification.
+
+**The satisfactory-check question is refused rather than guessed.** Whether a
+satisfactory background and credit check is required is the landlord's letting
+policy, not something the software can derive, so an absent answer is a 400 and
+not a disclosed "no". The portal asks it as an empty-by-default select beside
+the property state, which is also now explicit — the applicant's own address is
+where they live, not where the unit is.
+
+### The refund
+
+Issued the moment a rejection is recorded, with the sweep as a backstop for a
+decision made while Stripe or this server was having a bad minute. Thirty days
+is the outer limit in the statute, not the target.
+
+**Idempotent in two places, because it moves money.** `refundDue` returns zero
+once `refundedAt` is set, and the Stripe call carries
+`Idempotency-Key: screening-refund-{orderId}`. So a decision recorded twice, or
+a sweep overlapping the decision route, cannot refund twice on our side or on
+Stripe's. `stripeReq` gained an optional idempotency-key parameter for this;
+every existing caller is unchanged.
+
+**An unknown cost refunds the whole fee.** We cannot retain a documented cost
+we cannot document, so the arithmetic fails towards the applicant.
+
+**`retainedAdminCents` defaults to zero** and has no UI. Raising it is a legal
+judgement somebody has taken advice on, not a pricing decision.
+
+**A refund is no longer counted as revenue.** `marginOf` subtracts it —
+otherwise New Hampshire earnings would be overstated by the markup on every
+applicant turned down, which is most of them.
+
+**Silence is still not a rejection.** An applicant-paid order left undecided
+past fourteen days emails the landlord once, saying the thirty-day clock
+started when the applicant paid rather than today, and that recording the
+decision issues the refund automatically. Reported, never guessed.
+
+### Checks
+
+    typecheck   app 316, server 87 — both at baseline, nothing in screening
+    tests       1632 pass, 0 fail (13 new; 84 across the screening modules)
+    smoke       COULD NOT RUN
+
+**And the smoke failure finally has its real cause.** A `vite` dev server from
+**2 October** — over a day old — is still listening on port 5177. `smoke.mjs`
+spawns `vite --port 5177 --strictPort`, which cannot bind, so the reporter waits
+for pages that never load. That is what the earlier "hang" was as well, and I
+had wrongly blamed the other session's run for it.
+
+Clearing it needs a process kill, which this session is not permitted to do.
+Two stale processes:
+
+    PID 10620   vite --port 5177 --strictPort      started 2026-10-02 16:43
+    PID 19340   node scripts/smoke.mjs             started 2026-10-03 21:38
+
+Worth fixing properly in the harness, with sign-off, since it is shared
+tooling: take both ports from the environment, and give the reporter a deadline
+so a vite that cannot bind fails loudly instead of hanging.
+
+### Not verified
+
+No payment, no refund, no disclosure page exercised against a real Stripe
+session. This phase is deployed nowhere yet. The refund path in particular has
+never run, and it is the only code in this system that moves money *out*.

@@ -169,6 +169,7 @@ export const navigationSections: NavSection[] = [
       { name: "User Management",     path: "user-management-hub" },
       { name: "Role Management",     path: "user-management-hub?tab=roles" },
       { name: "Module Manager",      path: "module-manager" },
+      { name: "Tenant Screening Fee", path: "screening-settings" },
       { name: "AI Diagnostics",      path: "ai-diagnostics" },
     ],
   },

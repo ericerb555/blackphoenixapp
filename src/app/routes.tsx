@@ -226,6 +226,8 @@ const ExitIntentManager = lazy(() => import("./pages/ExitIntentManager"));
 const EmergencyServicesLandingPage = lazy(() => import("./pages/EmergencyServicesLandingPage"));
 const DIYRepairEncyclopedia = lazy(() => import("./pages/documents/DIYRepairEncyclopedia"));
 const TenantApplication = lazy(() => import("./pages/TenantApplication"));
+const ScreeningFee = lazy(() => import("./pages/ScreeningFee"));
+const ScreeningSettings = lazy(() => import("./pages/ScreeningSettings"));
 
 // ── Re-exports for auth pages (used directly in App.tsx renderPage) ──────────
 export { Login, SignUp, ForgotPassword, ResetPassword, DirectoryLandingPage };
@@ -289,6 +291,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "customer-management-hub":    UnifiedCRMHub,
   "customer-registration":      CustomerRegistrationForm,
   "apply":                      TenantApplication,
+  "screening-fee":              ScreeningFee,
+  "screening-settings":         ScreeningSettings,
   "materials-estimating-hub":   MaterialsCenter,
   "supplier-management-hub":    SupplierManagementHub,
   "hr-employee-hub":            HREmployeeHub,

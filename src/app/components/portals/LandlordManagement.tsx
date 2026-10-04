@@ -725,6 +725,9 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
   const [notice, setNotice] = useState<any>(null);
   const [noticeError, setNoticeError] = useState('');
   const [chargeNotice, setChargeNotice] = useState('');
+  const [propertyState, setPropertyState] = useState('');
+  const [satisfactory, setSatisfactory] = useState('');
+  const [feeNotice, setFeeNotice] = useState('');
 
   // The landlord's own screenings, matched to this application. Loaded here
   // rather than passed in so the modal shows the current state each time it is
@@ -751,7 +754,15 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
       setScreeningBusy(true); setScreeningError('');
       const res = await fetch(`${API}/landlord/applications/${app.id}/screening`, {
         method: 'POST', headers: jsonAuth(session),
-        body: JSON.stringify({ permissiblePurpose: purpose, certified }),
+        body: JSON.stringify({
+          permissiblePurpose: purpose,
+          certified,
+          propertyState,
+          // Sent only when the landlord has actually chosen. The server refuses
+          // to charge an applicant on an unanswered policy question rather than
+          // disclosing a "no" nobody said.
+          ...(satisfactory === '' ? {} : { requiresSatisfactoryCheck: satisfactory === 'yes' }),
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Unable to order the screening');
@@ -760,6 +771,15 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
       // Stripe confirms that to the webhook; coming back to the success page is
       // not what moves the order along.
       if (data.payment?.checkoutUrl) { window.location.href = data.payment.checkoutUrl; return; }
+      // Applicant-paid: nothing opens here. They are emailed a disclosure page,
+      // and no Stripe session exists until they have read it.
+      if (data.payment?.payer === 'applicant') {
+        const amt = `$${((data.payment.amountCents || 0) / 100).toFixed(2)}`;
+        setFeeNotice(data.payment.notified
+          ? `We have emailed ${data.payment.applicantEmail} a ${amt} screening fee to pay. The check runs once they have paid, and anything above the documented cost comes back to them if you do not rent to them.`
+          : 'This applicant pays the screening fee, but there is no email address on their application — you will need to send them the link yourself.');
+        return;
+      }
       if (data.charge && data.charge.charged === false) setChargeNotice(data.charge.notice || '');
     } catch (e: any) { setScreeningError(e.message || 'Unable to order the screening'); }
     finally { setScreeningBusy(false); }
@@ -894,6 +914,31 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
                   identity with the screening partner — their Social Security number is never
                   entered here.
                 </p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>Property state</label>
+                    <input
+                      className={inputCls}
+                      maxLength={2}
+                      placeholder="MA"
+                      value={propertyState}
+                      onChange={(e) => setPropertyState(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Satisfactory check required?</label>
+                    <select className={inputCls} value={satisfactory} onChange={(e) => setSatisfactory(e.target.value)}>
+                      <option value="">Select…</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  The state decides who may be charged — in Massachusetts a landlord may not charge an
+                  applicant at all, so the fee is yours. Where the applicant does pay, they have to be
+                  told the amount and whether a satisfactory check is required before anything is taken.
+                </p>
                 <div className="mt-2">
                   <label className={labelCls}>Why are you ordering this report?</label>
                   <select className={inputCls} value={purpose} onChange={(e) => setPurpose(e.target.value)}>
@@ -912,6 +957,7 @@ function ReviewApplicationModal({ session, app, onClose, onDone }: { session: an
                 </button>
               </>
             )}
+            {feeNotice && <div className="mt-2 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-xs text-teal-200">{feeNotice}</div>}
             {chargeNotice && <div className="mt-2 text-xs text-gray-500">{chargeNotice}</div>}
             {screeningError && <div className="mt-2 text-xs text-rose-400">{screeningError}</div>}
           </div>

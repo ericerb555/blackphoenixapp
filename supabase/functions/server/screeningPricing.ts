@@ -154,6 +154,90 @@ export function chargeRefusalMessage(reason: ChargeRefusal): string {
   }
 }
 
+/* ── the New Hampshire refund ─────────────────────────────────────────────── */
+
+/**
+ * What must go back to an applicant who was not rented to.
+ *
+ * `RSA 540-A:3 VIII`: where an application fee was collected from an applicant
+ * and the unit is not rented to them, anything beyond the actual cost of the
+ * documented background and credit check — plus reasonable administrative costs
+ * — must be returned within thirty days.
+ *
+ * WHY `retainedAdminCents` IS A SETTING AND DEFAULTS TO ZERO
+ *
+ * The statute permits retaining "reasonable administrative costs", and whether
+ * Black Phoenix's own fee counts as that is a genuine question for a
+ * Massachusetts-and-New-Hampshire lawyer rather than something this file should
+ * decide. Zero is the conservative reading: refund the whole markup. If the
+ * answer comes back that the fee qualifies, the number goes up and this
+ * function needs no edit. The code takes no view on the law.
+ *
+ * WHY SILENCE IS NOT A REJECTION
+ *
+ * The duty turns on the unit not being rented to them, and an undecided
+ * application does not establish that. So this returns nothing while the
+ * decision is absent. Refunding early hands money back to somebody about to be
+ * approved; the answer to a stale application is to tell a person about it, not
+ * to guess. See `staleUndecided` below.
+ */
+export function refundDue(
+  order: {
+    payer?: string | null;
+    paidAt?: string | null;
+    decision?: string | null;
+    priceCents?: number | null;
+    costCents?: number | null;
+    refundedAt?: string | null;
+  } | null | undefined,
+  retainedAdminCents = 0,
+): number {
+  if (!order) return 0;
+  // Only money an APPLICANT paid can be owed back to them.
+  if (String(order.payer ?? '') !== 'applicant') return 0;
+  if (!order.paidAt) return 0;
+  // Never twice.
+  if (order.refundedAt) return 0;
+  // Only on a recorded rejection. Silence is not one.
+  if (String(order.decision ?? '').toLowerCase() !== 'rejected') return 0;
+
+  const price = Number(order.priceCents ?? 0);
+  if (!Number.isFinite(price) || price <= 0) return 0;
+
+  const cost = Number(order.costCents ?? 0);
+  const keptCost = Number.isFinite(cost) && cost > 0 ? Math.round(cost) : 0;
+  const admin = Number(retainedAdminCents);
+  const keptAdmin = Number.isFinite(admin) && admin > 0 ? Math.round(admin) : 0;
+
+  // Retaining more than was taken would be a negative refund.
+  const owed = Math.round(price) - keptCost - keptAdmin;
+  return owed > 0 ? owed : 0;
+}
+
+/**
+ * Applicant-paid orders that have been paid for and never decided.
+ *
+ * The companion to the rule above. These are the ones where a refund may well
+ * be owed and the system cannot know it, so they are surfaced rather than
+ * resolved — a landlord who has taken somebody's money and not answered them
+ * is the person who has to act, and the thirty-day clock is already running
+ * from the day the fee was received.
+ */
+export function staleUndecided<T extends { payer?: string | null; paidAt?: string | null; decision?: string | null; refundedAt?: string | null }>(
+  orders: readonly T[] | null | undefined,
+  afterDays: number,
+  nowMs: number = Date.now(),
+): T[] {
+  const cutoff = nowMs - afterDays * 24 * 60 * 60 * 1000;
+  return (orders ?? []).filter((o) => {
+    if (!o || String(o.payer ?? '') !== 'applicant') return false;
+    if (!o.paidAt || o.refundedAt) return false;
+    if (String(o.decision ?? '').trim()) return false;
+    const paid = Date.parse(String(o.paidAt));
+    return Number.isFinite(paid) && paid <= cutoff;
+  });
+}
+
 /**
  * The margin on a set of orders, in cents.
  *
@@ -162,10 +246,11 @@ export function chargeRefusalMessage(reason: ChargeRefusal): string {
  * a cost attached, which would show the business losing money on work it
  * deliberately gave away.
  */
-export function marginOf(orders: ReadonlyArray<{ status?: string; priceCents?: number | null; costCents?: number | null; paidAt?: string | null }>) {
+export function marginOf(orders: ReadonlyArray<{ status?: string; priceCents?: number | null; costCents?: number | null; paidAt?: string | null; refundedAt?: string | null; refundCents?: number | null }>) {
   let revenue = 0;
   let cost = 0;
   let paid = 0;
+  let refunded = 0;
   for (const o of orders ?? []) {
     if (!o?.paidAt) continue;
     const price = Number(o.priceCents ?? 0);
@@ -174,6 +259,18 @@ export function marginOf(orders: ReadonlyArray<{ status?: string; priceCents?: n
     revenue += Math.round(price);
     const c = Number(o.costCents ?? 0);
     if (Number.isFinite(c) && c > 0) cost += Math.round(c);
+    // Money given back under RSA 540-A:3 VIII is not revenue. Counting the
+    // gross and ignoring the refunds would overstate New Hampshire earnings by
+    // exactly the markup on every applicant who was turned down — which is
+    // most of them.
+    const r = Number(o.refundCents ?? 0);
+    if (o.refundedAt && Number.isFinite(r) && r > 0) refunded += Math.round(r);
   }
-  return { paidOrders: paid, revenueCents: revenue, costCents: cost, marginCents: revenue - cost };
+  return {
+    paidOrders: paid,
+    revenueCents: revenue,
+    refundedCents: refunded,
+    costCents: cost,
+    marginCents: revenue - refunded - cost,
+  };
 }

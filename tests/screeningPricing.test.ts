@@ -21,6 +21,8 @@ import {
   chargeFor,
   chargeRefusalMessage,
   marginOf,
+  refundDue,
+  staleUndecided,
   SCREENING_MAX_PRICE_CENTS,
   type ScreeningPricing,
 } from '../supabase/functions/server/screeningPricing.ts';
@@ -125,21 +127,114 @@ test('margin counts only orders that were actually paid', () => {
     { status: 'complete', priceCents: 4500, costCents: 2500, paidAt: null },   // never charged
     { status: 'created', priceCents: 4500, costCents: 2500 },                  // not paid yet
   ]);
-  assert.deepEqual(m, { paidOrders: 1, revenueCents: 4500, costCents: 2500, marginCents: 2000 });
+  assert.deepEqual(m, { paidOrders: 1, revenueCents: 4500, refundedCents: 0, costCents: 2500, marginCents: 2000 });
 });
 
 test('work given away is not a loss', () => {
   // An unpriced order with a cost attached must not show as negative margin.
   const m = marginOf([{ status: 'complete', priceCents: 0, costCents: 2500, paidAt: '2026-10-01T00:00:00.000Z' }]);
-  assert.deepEqual(m, { paidOrders: 0, revenueCents: 0, costCents: 0, marginCents: 0 });
+  assert.deepEqual(m, { paidOrders: 0, revenueCents: 0, refundedCents: 0, costCents: 0, marginCents: 0 });
 });
 
 test('a paid order whose cost is unknown shows full revenue and no cost', () => {
   const m = marginOf([{ status: 'complete', priceCents: 4500, paidAt: '2026-10-01T00:00:00.000Z' }]);
-  assert.deepEqual(m, { paidOrders: 1, revenueCents: 4500, costCents: 0, marginCents: 4500 });
+  assert.deepEqual(m, { paidOrders: 1, revenueCents: 4500, refundedCents: 0, costCents: 0, marginCents: 4500 });
 });
 
 test('an empty or absent list earns nothing without throwing', () => {
-  assert.deepEqual(marginOf([]), { paidOrders: 0, revenueCents: 0, costCents: 0, marginCents: 0 });
-  assert.deepEqual(marginOf(undefined as any), { paidOrders: 0, revenueCents: 0, costCents: 0, marginCents: 0 });
+  assert.deepEqual(marginOf([]), { paidOrders: 0, revenueCents: 0, refundedCents: 0, costCents: 0, marginCents: 0 });
+  assert.deepEqual(marginOf(undefined as any), { paidOrders: 0, revenueCents: 0, refundedCents: 0, costCents: 0, marginCents: 0 });
+});
+
+/* ── the New Hampshire refund (RSA 540-A:3 VIII) ──────────────────────────── */
+
+const paidByApplicant = {
+  payer: 'applicant',
+  paidAt: '2026-10-01T00:00:00.000Z',
+  priceCents: 4500,
+  costCents: 2500,
+};
+
+test('a rejected applicant is owed the markup', () => {
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'rejected' }), 2000);
+});
+
+test('with retained admin costs allowed, less goes back', () => {
+  // The number only moves if a lawyer says our fee is a reasonable
+  // administrative cost. The code takes no view; it just does the arithmetic.
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'rejected' }, 500), 1500);
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'rejected' }, 2000), 0);
+  // Retaining more than was taken is not a negative refund.
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'rejected' }, 99999), 0);
+});
+
+test('an approved applicant is owed nothing', () => {
+  // The duty turns on the unit not being rented to them.
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'approved' }), 0);
+});
+
+test('SILENCE is not a rejection and refunds nothing', () => {
+  // Refunding early hands money back to somebody about to be approved.
+  assert.equal(refundDue({ ...paidByApplicant }), 0);
+  assert.equal(refundDue({ ...paidByApplicant, decision: '' }), 0);
+  assert.equal(refundDue({ ...paidByApplicant, decision: null }), 0);
+});
+
+test('a LANDLORD-paid fee is never refunded to the applicant', () => {
+  // It was not their money.
+  assert.equal(refundDue({ ...paidByApplicant, payer: 'landlord', decision: 'rejected' }), 0);
+});
+
+test('an unpaid order refunds nothing', () => {
+  assert.equal(refundDue({ ...paidByApplicant, paidAt: null, decision: 'rejected' }), 0);
+  assert.equal(refundDue({ ...paidByApplicant, priceCents: 0, decision: 'rejected' }), 0);
+});
+
+test('a refund already issued is never issued again', () => {
+  // The first of two idempotency guards; the Stripe key is the second.
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'rejected', refundedAt: '2026-10-02T00:00:00.000Z' }), 0);
+});
+
+test('the decision is read case-insensitively', () => {
+  assert.equal(refundDue({ ...paidByApplicant, decision: 'REJECTED' }), 2000);
+});
+
+test('a fee at or below documented cost owes nothing back', () => {
+  assert.equal(refundDue({ ...paidByApplicant, costCents: 4500, decision: 'rejected' }), 0);
+  assert.equal(refundDue({ ...paidByApplicant, costCents: 5000, decision: 'rejected' }), 0);
+});
+
+test('an unknown cost means the whole fee goes back', () => {
+  // Fails towards the applicant: we cannot retain a documented cost we cannot
+  // document.
+  assert.equal(refundDue({ ...paidByApplicant, costCents: null, decision: 'rejected' }), 4500);
+});
+
+/* ── the stale-application report ─────────────────────────────────────────── */
+
+const NOW2 = Date.parse('2026-10-20T00:00:00.000Z');
+
+test('an applicant-paid order left undecided is reported after the window', () => {
+  const rows = [{ ...paidByApplicant }];
+  assert.equal(staleUndecided(rows, 14, NOW2).length, 1);
+  assert.equal(staleUndecided(rows, 30, NOW2).length, 0);
+});
+
+test('decided, refunded, landlord-paid and unpaid orders are not reported', () => {
+  assert.equal(staleUndecided([{ ...paidByApplicant, decision: 'rejected' }], 14, NOW2).length, 0);
+  assert.equal(staleUndecided([{ ...paidByApplicant, refundedAt: '2026-10-05T00:00:00.000Z' }], 14, NOW2).length, 0);
+  assert.equal(staleUndecided([{ ...paidByApplicant, payer: 'landlord' }], 14, NOW2).length, 0);
+  assert.equal(staleUndecided([{ ...paidByApplicant, paidAt: null }], 14, NOW2).length, 0);
+});
+
+/* ── refunds come off the revenue figure ──────────────────────────────────── */
+
+test('a refund is not revenue', () => {
+  // Counting the gross would overstate New Hampshire earnings by the markup on
+  // every applicant who was turned down, which is most of them.
+  const m = marginOf([
+    { priceCents: 4500, costCents: 2500, paidAt: '2026-10-01T00:00:00.000Z' },
+    { priceCents: 4500, costCents: 2500, paidAt: '2026-10-01T00:00:00.000Z', refundedAt: '2026-10-09T00:00:00.000Z', refundCents: 2000 },
+  ]);
+  assert.deepEqual(m, { paidOrders: 2, revenueCents: 9000, refundedCents: 2000, costCents: 5000, marginCents: 2000 });
 });
