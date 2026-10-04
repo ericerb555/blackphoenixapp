@@ -521,10 +521,17 @@ export function monthlyFigure(
   entitlementSource: string | null | undefined,
   tier: Partial<PlanTier> | null | undefined,
   held: Array<Partial<PlanAddOn>> = [],
+  /**
+   * Units this account covers, resolved from our own records by
+   * `unitsForAudience`. Zero means "not metered", which is what every caller
+   * that predates metering passes by omission — a tier with no `perUnitCents`
+   * is unaffected either way.
+   */
+  unitsCovered = 0,
 ): MonthlyFigure {
   const source = String(entitlementSource || '').trim();
   if (source === 'subscription' && tier) {
-    return { cents: subscriptionTotalCents(tier, held), basis: 'subscription' };
+    return { cents: subscriptionTotalCents(tier, held, unitsCovered), basis: 'subscription' };
   }
   return { cents: null, basis: source === 'trial' ? 'trial' : 'free' };
 }

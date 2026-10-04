@@ -26,6 +26,7 @@
  * overcharge somebody. Both are worse than saying "nothing recorded".
  */
 import * as kv from "./kv_store.tsx";
+import { sourceForAudience } from "./unitSourceRules.ts";
 
 export interface UnitCount {
   units: number;
@@ -41,6 +42,58 @@ const whole = (v: unknown) => {
 };
 
 /**
+ * A landlord or property-manager portfolio: a list of properties, each with
+ * its own `units`. The two share a shape, so they share a reader.
+ *
+ * A portfolio that cannot be read contributes nothing rather than a guess.
+ */
+async function readPortfolio(kind: string, key: string): Promise<UnitCount["sources"]> {
+  const out: UnitCount["sources"] = [];
+  try {
+    const rows = ((await kv.get(key)) as any[]) || [];
+    for (const property of rows) {
+      const units = whole(property?.units);
+      if (units > 0) {
+        out.push({
+          kind,
+          label: String(property?.name || property?.address || "property").slice(0, 120),
+          units,
+        });
+      }
+    }
+  } catch {
+    // Unreadable means uncounted, not assumed.
+  }
+  return out;
+}
+
+/**
+ * Condo associations this person is attached to.
+ *
+ * `condo_person:{email}` holds the association ids they belong to, which is the
+ * only link from an email to a building here. Read one at a time rather than
+ * scanning every association on the platform: that scan would grow with the
+ * whole customer base to answer a question about one account.
+ */
+async function readCondoAssociations(address: string): Promise<UnitCount["sources"]> {
+  const out: UnitCount["sources"] = [];
+  try {
+    const person = (await kv.get(`condo_person:${address}`)) as any;
+    const ids: string[] = Array.isArray(person?.associations) ? person.associations : [];
+    for (const id of ids.slice(0, 50)) {
+      const assoc = (await kv.get(`condo_assoc:${id}`)) as any;
+      const units = whole(assoc?.unitCount);
+      if (units > 0) {
+        out.push({ kind: "condo_association", label: String(assoc?.name || id).slice(0, 120), units });
+      }
+    }
+  } catch {
+    // Same: unreadable means uncounted, not assumed.
+  }
+  return out;
+}
+
+/**
  * Count the units this account covers, across everything it holds.
  *
  * A person can be a landlord and a property manager at once — the schema
@@ -53,55 +106,11 @@ export async function unitsCovered(email: string): Promise<UnitCount> {
   const address = String(email || "").trim().toLowerCase();
   if (!address) return { units: 0, sources: [], reason: "no account" };
 
-  const sources: UnitCount["sources"] = [];
-
-  /* landlord and property-manager portfolios share a shape */
-  for (const [kind, key] of [
-    ["landlord", `landlord_portfolio:${address}`],
-    ["property_manager", `property_manager_portfolio:${address}`],
-  ] as const) {
-    try {
-      const rows = ((await kv.get(key)) as any[]) || [];
-      for (const property of rows) {
-        const units = whole(property?.units);
-        if (units > 0) {
-          sources.push({
-            kind,
-            label: String(property?.name || property?.address || "property").slice(0, 120),
-            units,
-          });
-        }
-      }
-    } catch {
-      // A portfolio we cannot read contributes nothing rather than a guess.
-    }
-  }
-
-  /**
-   * Condo associations this person is attached to.
-   *
-   * `condo_person:{email}` holds the association ids they belong to, which is
-   * the only link from an email to a building here. Read one at a time rather
-   * than scanning every association on the platform: that scan would grow with
-   * the whole customer base to answer a question about one account.
-   */
-  try {
-    const person = (await kv.get(`condo_person:${address}`)) as any;
-    const ids: string[] = Array.isArray(person?.associations) ? person.associations : [];
-    for (const id of ids.slice(0, 50)) {
-      const assoc = (await kv.get(`condo_assoc:${id}`)) as any;
-      const units = whole(assoc?.unitCount);
-      if (units > 0) {
-        sources.push({
-          kind: "condo_association",
-          label: String(assoc?.name || id).slice(0, 120),
-          units,
-        });
-      }
-    }
-  } catch {
-    // Same: unreadable means uncounted, not assumed.
-  }
+  const sources: UnitCount["sources"] = [
+    ...(await readPortfolio("landlord", `landlord_portfolio:${address}`)),
+    ...(await readPortfolio("property_manager", `property_manager_portfolio:${address}`)),
+    ...(await readCondoAssociations(address)),
+  ];
 
   const units = sources.reduce((sum, s) => sum + s.units, 0);
   return {
@@ -109,6 +118,68 @@ export async function unitsCovered(email: string): Promise<UnitCount> {
     sources,
     reason: units > 0 ? null : "no properties or associations with a unit count are recorded",
   };
+}
+
+/**
+ * The count that prices ONE AUDIENCE's tier — which is not the same question.
+ *
+ * `unitsCovered` above sums every source, and that is right for on-call: one
+ * person may cover a rental house and sit on an association board, and a call
+ * could come from either. A TIER is different. A landlord's plan is priced on
+ * the units they own, and adding in units from an association they happen to be
+ * a board member of would overcharge them for a building they do not own and
+ * cannot sell work on.
+ *
+ * So this reads only the source that belongs to the audience being priced. The
+ * flat ladders — customer, vendor, subcontractor, advertiser — are never metered
+ * and return zero, which `tierMonthlyCents` treats as "charge the floor".
+ *
+ * Investor is the one metered ladder with no source. Its ladder meters
+ * properties in a portfolio and nothing in this platform records an investor's
+ * properties yet, so it returns zero with a reason and bills at its floor. That
+ * is the safe direction to be wrong in, and it is better than counting their
+ * `investment:` records, which are stakes rather than properties.
+ */
+export async function unitsForAudience(email: string, audience: string): Promise<UnitCount> {
+  const address = String(email || '').trim().toLowerCase();
+  if (!address) return { units: 0, sources: [], reason: 'no account' };
+
+  // The mapping lives in unitSourceRules.ts, which has no kv import and can
+  // therefore be tested — see the note there.
+  const { kind, reason } = sourceForAudience(audience);
+  if (kind === null) return { units: 0, sources: [], reason };
+
+  const sources = kind === 'condo_manager'
+    ? await readCondoManagerRoster(address)
+    : kind === 'condo_association'
+      ? await readCondoAssociations(address)
+      : await readPortfolio(kind, `${kind}_portfolio:${address}`);
+
+  const units = sources.reduce((sum, s) => sum + s.units, 0);
+  return {
+    units,
+    sources,
+    reason: units > 0 ? null : `nothing with a unit count is recorded for this ${audience.replace(/_/g, ' ')}`,
+  };
+}
+
+/**
+ * A condo manager's roster: `condo_manager_units:{email}`, one record per unit.
+ *
+ * Deliberately NOT added to `unitsCovered` above. That function prices on-call,
+ * and adding a source to it would change what some existing accounts are charged
+ * for emergency cover without anybody deciding to. Whether a managing company's
+ * roster should count towards their on-call is a real question and it is Eric's,
+ * not one to answer by editing a sum.
+ */
+async function readCondoManagerRoster(address: string): Promise<UnitCount['sources']> {
+  try {
+    const rows = ((await kv.get(`condo_manager_units:${address}`)) as any[]) || [];
+    const count = Array.isArray(rows) ? rows.length : 0;
+    return count > 0 ? [{ kind: 'condo_manager', label: 'association roster', units: count }] : [];
+  } catch {
+    return [];
+  }
 }
 
 /**

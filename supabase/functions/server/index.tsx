@@ -267,7 +267,7 @@ import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
-import { unitsCovered } from "./unitsCovered.tsx";
+import { unitsCovered, unitsForAudience } from "./unitsCovered.tsx";
 import {
   providerIsSellable, providerOf, DEFAULT_SELLABLE_PROVIDERS,
 } from "./sellableProviders.ts";
@@ -14539,10 +14539,25 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
      * judgement lives in `monthlyFigure` so it can be tested; see the note on
      * it for why a trialist gets no number rather than a misleading $0.
      */
+    /**
+     * How many units this account covers, for a tier priced by the door.
+     *
+     * Scoped to the audience being priced, not summed across everything the
+     * person holds — a landlord's plan is priced on the units they own, and
+     * counting units from an association they sit on the board of would
+     * overcharge them for a building they do not own. See `unitsForAudience`.
+     *
+     * Resolved from our own records, never from the request. A tier with no
+     * `perUnitCents` is unaffected, and an account with nothing recorded bills
+     * at the floor rather than at a guess.
+     */
+    const metered = await unitsForAudience(email, audience);
+
     const { cents: monthlyTotalCents, basis: totalBasis } = monthlyFigure(
       entitlement.source,
       priced.tier,
       catalogue.filter((a) => addOns.includes(a.id)),
+      metered.units,
     );
 
     /**
@@ -14579,6 +14594,22 @@ app.get('/make-server-3eae23a6/my-plan', async (c) => {
       available,
       monthlyTotalCents,
       totalBasis,
+      /**
+       * What the metered part of the bill was worked out from.
+       *
+       * A figure that moves because a door was added needs an explanation
+       * attached to it, or the first question about an invoice has no answer.
+       * `sources` names each property or roster that contributed.
+       */
+      metering: priced.tier?.perUnitCents
+        ? {
+          units: metered.units,
+          includedUnits: Number(priced.tier?.includedUnits ?? 0) || 0,
+          perUnitCents: Number(priced.tier?.perUnitCents ?? 0) || 0,
+          sources: metered.sources,
+          reason: metered.reason,
+        }
+        : null,
       portalType: grant?.portalType || null,
       rehearsal,
       stripeMode: rehearsal ? 'test' : activeStripeMode(),

@@ -770,3 +770,77 @@ rendered, 0 threw. 1657 tests pass.
 plans it has built — the landlord portal pairs `PlanBuilderTab` with
 `MaintenancePlanTracker` and this one does not. Left out deliberately to keep
 the change small; worth adding, and it is a one-line mount when wanted.
+
+---
+
+## 19. Review — where a metered tier gets its door count (2026-10-04)
+
+**Why this and not P8.** P8 was next on the list and is blocked. Pointing
+`PricingPage` and `portalUpgradePrices.ts` at the catalogue means checkout starts
+validating against the catalogue — and the catalogue holds one ladder today, so
+every purchase outside it would be refused. That is the exact danger
+`tasks/plan-catalogue-unification.md` names in its ordering note: fill the
+catalogue first, delete the constants last. P8 therefore waits on the seed being
+run and on P6. This was the next piece that needed no decision and no risk: the
+gap left open by the metered ladders, where nothing resolved a unit count so
+every metered tier billed at its floor.
+
+**What was already there.** `unitsCovered(email)` — written for on-call, which is
+priced by units covered. It reads landlord portfolios, property-manager
+portfolios and condo associations, and refuses to guess when it cannot read one.
+It needed extending rather than replacing.
+
+**The mistake it would have been to reuse it as-is.** `unitsCovered` sums every
+source, which is right for on-call: one person may own a rental house and sit on
+an association board, and an emergency could come from either. A tier is a
+different question. A landlord's plan is priced on the units they own, and at the
+property-manager rate of $5.50 a door, one board seat at a hundred-unit block
+would have put $418 a month on a four-unit landlord's invoice.
+
+**What changed.**
+
+- `unitSourceRules.ts` (new) holds the audience → source mapping as a pure
+  module, so the rule that decides a bill can be tested. `unitsCovered.tsx`
+  reaches `kv_store.tsx`, which node's test runner cannot load, so a rule left in
+  there is a rule nothing checks.
+- `unitsForAudience(email, audience)` in `unitsCovered.tsx` reads only the source
+  belonging to the audience being priced. The three existing readers were
+  extracted so both functions share them, and `unitsCovered` itself reads exactly
+  the same three sources it did before — its behaviour is unchanged.
+- A fourth source added for condo managers: `condo_manager_units:{email}`, one
+  record per unit, so the count is the roster length. **Deliberately not added to
+  `unitsCovered`**, because that function prices on-call and adding a source to
+  it would change what some existing accounts pay for emergency cover without
+  anybody deciding to. Whether a managing company's roster should count towards
+  their on-call is a real question and it is Eric's.
+- `monthlyFigure` takes a unit count and passes it through; `GET /my-plan`
+  resolves it with `unitsForAudience` and returns a `metering` block — the count,
+  the included units, the rate, and **which properties contributed**. A figure
+  that moves because a door was added needs an explanation attached, or the first
+  question about an invoice has no answer.
+- `tests/unitSourceRules.test.ts` (new, 7 tests) cross-checks the rules against
+  `AGREED_LADDERS`: every approved ladder has a decided source, a ladder that
+  meters has a source or a stated reason it has none, the flat ladders are never
+  metered, and an audience nobody has decided about is treated as unknown rather
+  than quietly flat.
+
+**Checks.** typecheck app 316 / server 87, both at baseline. smoke 6 affected
+pages rendered, 0 threw. 1664 tests pass.
+
+**Known gaps.**
+
+1. **Investor meters properties and nothing records them.** Its ladder charges
+   per property in the portfolio, and this platform has no investor property
+   record — `investment:` rows are stakes in deals, not buildings, and counting
+   those would bill somebody for holding several positions in one property. So
+   investor bills at its floor, with a reason, until there is something real to
+   count. The test asserts investor is the *only* knowingly unsourced ladder, so
+   a second one cannot slip in quietly.
+2. **Nothing charges from this yet.** `/my-plan` reports the metered figure;
+   Stripe still has no price for any of these tiers (P6). When it does, the
+   per-unit rate becomes a subscription-item quantity, and the quantity has to
+   come from this same resolver rather than from a second count.
+3. **A count that falls should reduce the bill at once and a count that rises
+   should wait for renewal** — the asymmetry proposed in `price-ladders.md`
+   section 4. Nothing implements that yet; today the figure simply reflects
+   whatever the records say when it is read.
