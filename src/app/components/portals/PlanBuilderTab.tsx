@@ -32,7 +32,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 type PortalType =
   | 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor'
-  | 'employee' | 'property_manager' | 'landlord' | 'condo_manager';
+  | 'employee' | 'property_manager' | 'landlord' | 'condo_manager'
+  | 'condo_association';
 
 export interface ApplicationPlanDraft {
   planName: string;
@@ -62,6 +63,16 @@ const PORTAL_ENTITIES: Record<PortalType, EntityType[]> = {
   customer: ['homeowner', 'condo', 'landlord', 'commercial'],
   landlord: ['landlord'],
   condo_manager: ['condo'],
+  /**
+   * The association itself, as distinct from the company that manages it.
+   *
+   * One entity, and only one: an association buys work on the building and the
+   * common areas. Interior work inside a unit is sold to the unit owner, who
+   * reaches us through the customer portal — see `condo-revenue-split`. Listing
+   * `homeowner` here would let a board commit the association's money to work
+   * it has no business paying for.
+   */
+  condo_association: ['condo'],
   property_manager: ['commercial', 'condo', 'landlord'],
   vendor: ['vendor'],
   advertiser: ['advertiser'],

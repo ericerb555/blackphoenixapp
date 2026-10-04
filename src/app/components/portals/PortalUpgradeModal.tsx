@@ -36,7 +36,7 @@ interface MaintenancePlan {
 interface PortalUpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  portalType: 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor' | 'employee' | 'property_manager' | 'landlord' | 'condo_manager';
+  portalType: 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor' | 'employee' | 'property_manager' | 'landlord' | 'condo_manager' | 'condo_association';
   currentTier?: string;
   lockedFeature?: string; // The feature that triggered the modal
 }
@@ -290,7 +290,20 @@ export default function PortalUpgradeModal({
     }
   ];
 
-  const tiers = subscriptionTiers[portalType] || subscriptionTiers.customer;
+  /**
+   * No fallback to the customer ladder.
+   *
+   * This used to read `|| subscriptionTiers.customer`, which meant a portal
+   * with no entry here was shown somebody else's prices — a condo association
+   * offered the homeowner ladder, with a Buy button that would have charged
+   * against it. An empty list and an honest message is the only safe answer to
+   * "we have not published plans for this portal yet".
+   *
+   * These tiers are hardcoded in this file, which is itself the thing P8 of
+   * tasks/marketing-and-monetisation.md removes: the ladder should come from
+   * the catalogue, not from a constant in a modal.
+   */
+  const tiers = subscriptionTiers[portalType] || [];
 
   const beginCheckout = async (planId: string, planName: string, price: string, type: string) => {
     const amount = Number(String(price).replace(/[^0-9.]/g, ''));
@@ -336,6 +349,12 @@ export default function PortalUpgradeModal({
         {/* Subscription Tiers */}
         <div className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Subscription Plans</h3>
+          {tiers.length === 0 && (
+            <div className="mb-8 rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 text-sm text-gray-400">
+              Plans for this portal are not published yet. Send us a message and we
+              will price what you need — nothing here is charged in the meantime.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {tiers.map(tier => (
               <div

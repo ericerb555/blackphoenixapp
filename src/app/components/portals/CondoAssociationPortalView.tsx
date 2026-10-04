@@ -4,6 +4,7 @@ import DealsOffersSection from './DealsOffersSection';
 import OnCallSetup from './OnCallSetup';
 import FeaturedDealsReels from './FeaturedDealsReels';
 import InvestmentTab from './InvestmentTab';
+import PlanBuilderTab from './PlanBuilderTab';
 import { useState, useEffect } from 'react';
 import {
   Building2, Users, DollarSign, Clipboard, Calendar, FileText,
@@ -53,7 +54,7 @@ interface CondoUser {
 }
 
 export default function CondoAssociationPortalView() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'on-call' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'services' | 'units' | 'maintenance' | 'on-call' | 'financials' | 'vendors' | 'documents' | 'approvals' | 'team' | 'investments' | 'deals' | 'revenue-ai' | 'referrals' | 'guide' | 'plan-builder'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [loading, setLoading] = useState(false);
@@ -619,6 +620,10 @@ export default function CondoAssociationPortalView() {
 
     if (canApproveExpenses) {
       baseTabs.push({ id: 'approvals', label: 'Approvals', icon: CheckCircle, visible: true });
+      // Building a maintenance plan commits the association to a monthly cost,
+      // so it sits with the officers who may approve an expense rather than
+      // with every board member or resident.
+      baseTabs.push({ id: 'plan-builder', label: 'Build a Plan', icon: Wrench, visible: true });
     }
 
     if (canViewFinancials) {
@@ -1280,6 +1285,10 @@ export default function CondoAssociationPortalView() {
               <TrendingUp className="w-4 h-4" /> Open Full AI Revenue Analysis →
             </button>
           </div>
+        )}
+
+        {activeTab === 'plan-builder' && (
+          <PlanBuilderTab portalType="condo_association" ownerName={currentUser.name} />
         )}
 
         {activeTab === 'investments' && <InvestmentTab portalType="condo_association" />}

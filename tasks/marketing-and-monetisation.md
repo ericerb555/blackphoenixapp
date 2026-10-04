@@ -551,8 +551,10 @@ approval until you say it may.
 - [ ] **P6. Stripe prices for every rung and every add-on,** live and test,
       written into the catalogue. Subscription items, not separate
       subscriptions.
-- [ ] **P7. Mount the builder in the last three portals** — Condo Association,
-      Sub-Tenant, Territory.
+- [~] **P7. Mount the builder in the last three portals.** Condo Association is
+      done. Sub-Tenant and Territory are deliberately NOT done — see the review
+      at the end of this document; mounting them would offer a product neither
+      is meant to buy.
 - [ ] **P8. Retire the other two price lists.** `portalUpgradePrices.ts` and
       `PricingPage.tsx` read the catalogue. One source, visibly.
 - [ ] **P9. The price watcher,** as a job on the autonomy clock, raising asks to
@@ -718,3 +720,53 @@ catalogue yet — both deliberate.
    door count from our own records yet. Until it does, a metered tier bills at
    its floor. That is the safe direction to fail, and it is the next piece of
    work after the seed.
+
+---
+
+## 18. Review — P7, and why it is one portal rather than three (2026-10-04)
+
+P7 said "mount the builder in the last three portals — Condo Association,
+Sub-Tenant, Territory." One of those three is right. The other two would have
+offered a product the account is not meant to buy, so they are not done, and
+this is the reasoning rather than a quiet omission.
+
+**Condo Association — done.** An association buys work on the building and the
+common areas, which is exactly what the `condo` service catalogue holds. The tab
+is scoped to that single entity on purpose: listing `homeowner` alongside it
+would let a board commit the association's money to work inside somebody's unit,
+which is sold to the unit owner instead (`condo-revenue-split`). The tab is
+visible only to officers who may approve an expense, because building a plan
+commits the association to a monthly cost.
+
+**Sub-Tenant — not done, and should not be.** A tenant does not buy maintenance;
+their landlord is responsible for it, and the tenant portal exists because the
+landlord invited them (`who-invites-which-portal`). A plan builder there would
+invite a tenant to pay for work somebody else owes them. If Eric wants a tenant
+to be able to buy something — an optional extra inside their own unit, say —
+that is a product decision with a question behind it (who approves it, who is
+liable, what happens at move-out), not a mount.
+
+**Territory — not done, for a different reason.** A territory owner is a partner
+buying an exclusive area, not a buyer of maintenance visits. There is no entity
+in the service catalogue that fits them, and the ladder has no agreed figures
+either, because no market comparable for a territory licence could be found. Two
+blockers, both needing Eric rather than code.
+
+**A wrong-price display found and closed on the way.** `PortalUpgradeModal`
+resolved its tiers as `subscriptionTiers[portalType] || subscriptionTiers.customer`
+— so a portal with no entry in that hardcoded table was shown **the homeowner
+ladder**, with working Buy buttons that would have charged against it. Only
+`condo_association` can reach that path today, because every other portal type
+has an entry, which is why it had never been seen. It now shows an empty list
+and says plainly that plans for this portal are not published yet. That table
+being hardcoded in a modal at all is what P8 removes.
+
+**Checks.** typecheck app 316 / server 87, both at baseline — the mount
+initially added two findings (an activeTab union that did not know the new tab,
+and the modal's prop union) and both are fixed rather than absorbed. smoke 352
+rendered, 0 threw. 1657 tests pass.
+
+**Known gap.** The association can build a plan and has no tab that shows the
+plans it has built — the landlord portal pairs `PlanBuilderTab` with
+`MaintenancePlanTracker` and this one does not. Left out deliberately to keep
+the change small; worth adding, and it is a one-line mount when wanted.
