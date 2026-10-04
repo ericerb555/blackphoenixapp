@@ -32,6 +32,8 @@ const PRODUCTS = [
   'tmpl-vendor-contract',
   'tmpl-board-meeting',
   'eb-capital-planning',
+  'eb-condo-board',
+  'bundle-condo-complete',
 ];
 
 function human(bytes) {
