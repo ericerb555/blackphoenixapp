@@ -593,6 +593,11 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'On-Call Portal', path: '/on-call-portal', icon: Bell, color: 'red', description: 'On-call management' },
         { label: 'Code Tracker', path: '/code-tracker', icon: Code, color: 'purple', description: 'Track work request → payment workflow', badge: 'NEW' },
         { label: 'Portal Global Settings', path: '/portal-global-settings', icon: Layers, color: 'purple', description: 'Global portal config' },
+        // Added here rather than in nav.ts, which looks like the sidebar
+        // registry and is not: `navigationSections` is imported by App.tsx and
+        // never used, so an entry there reaches nobody. This is the surface
+        // people actually navigate from.
+        { label: 'Tenant Screening Fee', path: '/screening-settings', icon: DollarSign, color: 'teal', description: 'What a tenant screening costs and who pays it', badge: 'NEW' },
       ]
     }
   ];
