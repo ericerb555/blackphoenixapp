@@ -1717,3 +1717,50 @@ unasked.
 
 Suite 1,611 passing. Typecheck app 316 / server 87, both baselines. Smoke 6
 modals, 0 threw. Deployed.
+
+### Eric's companies are in the directory (2026-10-03)
+
+Eric: *"put my companies in automatically proving there mine with my company
+info."* Both now listed, owned and verified-by-record.
+
+    Black Phoenix Builds        operator            9 categories, 3 towns
+    The Black Phoenix Company   exchange_business   Marketing & Design, 3 towns
+
+Both: `(617) 710-0058`, `https://theblackphoenixcompany.com`, claimed, owned by
+Eric's account, each with a granted `exchange_claim`.
+
+**The stored company info was mostly not publishable, and that is the finding.**
+`/public/branding` holds:
+
+    address   123 Construction Ave, Boston MA 02101   placeholder data
+    website   https://blackphoenixbuilds.com          the retiring domain
+    email     info@blackphoenixbuilds.com             on the retiring domain
+    phone     (617) 710-0058                          real
+
+Copying that onto an indexable public listing would have published a fake
+street address for Eric's own company and pointed residents at a site being
+shut down. He chose phone plus the live domain; **no street address is shown
+and no email is set**, because neither has a value we could stand behind.
+
+**Ownership is recorded honestly.** A granted `exchange_claim` naming Eric as
+both claimant and decider, with the reason written in full: *operator-owned
+business, granted directly by the platform owner, no verification factors were
+issued or answered.* No challenge rows were fabricated. A verification record
+of something that never happened would be the one thing in this system that
+lies, and the whole claim design exists to make that impossible.
+
+**The Black Phoenix Company is `exchange_business`, not a second `operator`.**
+`20261002134000_black_phoenix_catalogue.sql` updates *every* active operator —
+a second one would silently inherit the construction catalogue, the service
+centre and the fifty-mile radius on the next run.
+
+**Two things to know.**
+
+*They share a phone number*, which `dedupeKeyFor` treats as the same business —
+`tel:6177100058`. A future ingest that met that number would merge them. They
+are kept apart today only because they were entered by hand. If they are to
+stay separate listings, one of them needs its own number.
+
+*The Company sits under Marketing & Design*, which is the closest single
+category the taxonomy carries for a platform selling content, reels and
+ecommerce. Changing it is one row.
