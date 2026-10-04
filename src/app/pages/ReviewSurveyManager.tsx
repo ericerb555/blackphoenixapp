@@ -315,7 +315,7 @@ We'd love to hear your thoughts — it only takes 2 minutes and helps us keep im
 Thank you for choosing Black Phoenix Builds. We appreciate your business!
 
 — Eric & the Black Phoenix team
-(603) 555-0100 | blackphoenixbuilds.com`,
+(603) 207-2248 | theblackphoenixcompany.com`,
     },
     {
       key: 'followup',

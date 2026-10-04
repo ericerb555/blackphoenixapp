@@ -46,8 +46,8 @@ export function createDefaultCompanyData() {
   const defaultBranding = {
     company_name: 'The Black Phoenix Company',
     company_tagline: 'Building Dreams, Transforming Spaces',
-    phone: '(617) 710-0058',
-    email: 'info@blackphoenixbuilds.com',
+    phone: '(603) 207-2248',
+    email: 'tbpco@pm.me',
     street_address: '50A Northwestern Drive',
     city: 'Salem',
     state: 'NH',

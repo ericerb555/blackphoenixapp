@@ -1,8 +1,28 @@
 /**
- * Ensure Default Company Exists
+ * The local branding fallback, for a browser that has no company yet.
  *
- * Creates a default company in the database if none exist
- * This ensures branding profile always has a company to load from
+ * IT USED TO INVENT A COMPANY, AND THAT WAS THE BUG
+ *
+ * This inserted a row into `companies` — "The Black Phoenix Company" at
+ * "123 Construction Ave, Boston MA 02101", info@blackphoenixbuilds.com,
+ * (617) 710-0058 — whenever the signed-in user had no company of their own.
+ *
+ * Row-level security on `companies` is "own companies" only, so that check can
+ * never see anybody else's. Every new user therefore manufactured another
+ * fabricated company. Two of them existed by 2026-10-04, with different user
+ * ids and identical invented addresses.
+ *
+ * What made it harmful rather than untidy: `/public/branding` reads that table
+ * with the service role, across all users, taking the NEWEST row. So one
+ * person's placeholder became the whole platform's public identity — the name,
+ * the phone, the address and the website shown to customers. The real company
+ * records, carrying the real Salem address, the real EIN and the real licence
+ * numbers, sat underneath being outranked by a row nobody typed.
+ *
+ * So it no longer writes to the database. If there is genuinely no company,
+ * the server's branding route already has its own default, and CompanySetup is
+ * where a real one gets entered. Inventing an address is the thing this
+ * codebase is most careful not to do everywhere else.
  */
 
 import { supabase } from '../lib/supabase';
@@ -45,42 +65,34 @@ export async function ensureDefaultCompany(): Promise<void> {
       return;
     }
 
-    console.log('📝 [DefaultCompany] No companies found - creating default company...');
+    /*
+      No company row for this user, and that is allowed to be true.
 
-    // Create default company with user_id for RLS
+      Nothing is inserted. The branding below is written to localStorage only,
+      so an unconfigured browser still has a name and colours to render while
+      the server's own default covers the public pages.
+    */
+    console.log('ℹ️ [DefaultCompany] No company for this user — using local branding only, writing nothing');
+
     const defaultCompany = {
-      id: `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      user_id: user.id, // CRITICAL: Required for RLS
       company_name: 'The Black Phoenix Company',
       company_legal_name: 'Black Phoenix Builds',
-      slug: 'black-phoenix-company',
-      email: 'info@blackphoenixbuilds.com',
-      phone: '(617) 710-0058',
-      address_line1: '123 Construction Ave',
-      city: 'Boston',
-      state: 'MA',
-      zip_code: '02101',
-      country: 'USA',
-      website: 'https://blackphoenixbuilds.com',
       primary_color: '#ea580c',
       secondary_color: '#f97316',
-      accent_color: '#fb923c',
-      industry: 'Construction',
-      description: 'Full-service construction and renovation company',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      /*
+        Deliberately blank. These were a fabricated address, a phone number and
+        a retiring domain; an empty field is visibly unset, while an invented
+        one looks answered and gets published.
+      */
+      email: '',
+      phone: '',
+      address_line1: '',
+      city: '',
+      state: '',
+      zip_code: '',
+      country: '',
+      website: '',
     };
-
-    const { error: insertError } = await supabase
-      .from('companies')
-      .insert([defaultCompany]);
-
-    if (insertError) {
-      console.error('❌ [DefaultCompany] Error creating default company:', insertError);
-      return;
-    }
-
-    console.log('✅ [DefaultCompany] Default company created:', defaultCompany.company_name);
 
     // Create branding profile immediately
     const brandingProfile = {
