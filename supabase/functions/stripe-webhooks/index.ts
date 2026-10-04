@@ -412,10 +412,44 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
     }
 
     case 'customer.subscription.deleted': {
+      /**
+       * Record WHAT was cancelled before clearing it.
+       *
+       * Clearing `tierId` is right — `resolveEntitlement` must not see a tier
+       * the account no longer pays for. But clearing it was also the only
+       * record of which rung they had been on, so the moment a subscription
+       * ended the platform lost the ability to answer "what did they leave?"
+       * There was no churn figure for any rung, and no way to build one later,
+       * because the fact had been overwritten rather than aged out.
+       *
+       * Two places, deliberately. `cancelledTierId` on the grant answers it for
+       * this account, which is what somebody looking at one customer wants. The
+       * separate dated record is the history: a grant holds one state and is
+       * overwritten on the next subscription, so counting cancellations per
+       * rung per month needs rows that are never rewritten.
+       *
+       * This is the signal the price watcher's churn rule was written for and
+       * had to be left unset — see `priceWatchJob.ts`.
+       */
+      const leftTierId = String(grant.tierId || '');
+      if (leftTierId) {
+        await kvSet(`subscription_cancellation:${now}:${email}`, {
+          email,
+          audience: grant.portalType || null,
+          tierId: leftTierId,
+          addOnIds: Array.isArray(grant.addOnIds) ? grant.addOnIds : [],
+          stripeSubscriptionId: String(object?.id || '') || null,
+          subscribedAt: grant.subscribedAt || null,
+          cancelledAt: now,
+        });
+      }
+
       await kvSet(key, {
         ...grant,
         email,
         status: 'active',
+        /** Which rung they left, kept so the grant can still answer it. */
+        cancelledTierId: leftTierId || null,
         // Cleared, not overwritten with a level. resolveEntitlement decides
         // what no-subscription means, and it is the only thing that decides it.
         tierId: undefined,

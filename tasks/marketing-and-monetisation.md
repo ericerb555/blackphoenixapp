@@ -1071,3 +1071,54 @@ account with a roster recorded. Nothing bills from it yet — on-call pricing
 reads this count, and no on-call subscription is being charged through it today
 — but when one is, those accounts will see a higher number than they would have
 yesterday, and that is the decision rather than a side effect.
+
+---
+
+## 23. Review — the platform can now say what somebody cancelled (2026-10-04)
+
+A gap found while building the watcher, fixed as its own piece of work because
+it is a real information loss rather than a missing feature.
+
+**What was wrong.** When a subscription ended, the Stripe webhook set
+`tierId: undefined` on the grant. Clearing it is correct — `resolveEntitlement`
+must not see a tier the account no longer pays for — but that field was also the
+only record of which rung they had been on. So the moment a subscription ended,
+the platform lost the ability to answer *"what did they leave?"* There was no
+churn figure for any rung and no way to build one later, because the fact had
+been overwritten rather than aged out.
+
+That is why the price watcher's churn rule had to ship with its signal unset.
+The rule was written and tested against nothing.
+
+**What changed.**
+
+- `customer.subscription.deleted` now records the cancellation before clearing
+  it, in **two places for two different questions**. `cancelledTierId` on the
+  grant answers it for that one account, which is what somebody looking at a
+  customer wants. A dated `subscription_cancellation:{iso}:{email}` row is the
+  history — a grant holds one state and is overwritten by the next
+  subscription, so counting cancellations per rung per month needs rows that are
+  never rewritten.
+- The row carries the audience, the rung, the add-ons that went with it, the
+  Stripe subscription id and when they first subscribed, so a churn question can
+  be answered with specifics rather than a count.
+- `priceWatchJob` reads those rows for the last thirty days and feeds the churn
+  rule. The key is the ISO timestamp, so a row that is too old costs a string
+  comparison rather than a parse.
+
+**Checks.** typecheck app 316 / server 87, both at baseline. smoke 6 affected
+pages, 0 threw. 1706 tests pass.
+
+**Known gaps.**
+
+1. **This is in the OTHER edge function.** `supabase/functions/stripe-webhooks/`
+   deploys separately from the main server, so it needs its own deploy before a
+   single cancellation gets recorded. Until then nothing is lost that was not
+   already being lost, but nothing is gained either.
+2. **It starts from empty.** Cancellations before this ships are not
+   recoverable — the fact was overwritten. The churn rule stays silent until
+   thirty days of real cancellations exist, and with `MIN_SAMPLE` at 8 it needs
+   eight subscribers on a rung before it says anything at all.
+3. **Nothing reads `cancelledTierId` on a screen yet.** It is recorded and
+   nothing displays it. Worth putting on the account view when somebody next
+   needs to answer why an account lapsed.

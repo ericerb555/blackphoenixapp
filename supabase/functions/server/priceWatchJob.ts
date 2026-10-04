@@ -105,6 +105,40 @@ async function tallyGrants(now: number): Promise<Map<string, TierTally>> {
   return out;
 }
 
+/**
+ * Cancellations in the last month, per rung.
+ *
+ * Reads `subscription_cancellation:{iso}:{email}`, written by the Stripe
+ * webhook when a subscription ends. Those rows exist because the grant could
+ * not answer the question: it holds one state and is overwritten by the next
+ * subscription, so a cancellation recorded only there disappears the moment the
+ * account comes back.
+ *
+ * Keyed by ISO timestamp, so the month is readable from the key and a row that
+ * is too old costs one string comparison rather than a parse.
+ */
+async function cancellationsLastMonth(now: number): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const since = new Date(now - 30 * 86400000).toISOString();
+  let rows: any[] = [];
+  try {
+    rows = ((await kv.getByPrefix("subscription_cancellation:")) as any[]) || [];
+  } catch (err) {
+    console.log("[price-watch] could not read the cancellations:", err);
+    return out;
+  }
+  for (const row of rows.filter(Boolean)) {
+    const at = String(row?.cancelledAt || "");
+    if (!at || at < since) continue;
+    const audience = String(row?.audience || "").trim();
+    const tierId = String(row?.tierId || "").trim();
+    if (!audience || !tierId) continue;
+    const key = `${audience}:${tierId}`;
+    out.set(key, (out.get(key) || 0) + 1);
+  }
+  return out;
+}
+
 /** Capacity, from the cohort that owns this rung if one exists. */
 async function capacityFor(audience: string): Promise<{ total?: number; taken?: number }> {
   try {
@@ -138,6 +172,7 @@ async function priceWatchJob(ctx: StoreJobContext): Promise<StoreJobResult> {
   }
 
   const tally = await tallyGrants(now);
+  const cancellations = await cancellationsLastMonth(now);
   const capacityByAudience = new Map<string, { total?: number; taken?: number }>();
 
   const proposals: Proposal[] = [];
@@ -161,17 +196,20 @@ async function priceWatchJob(ctx: StoreJobContext): Promise<StoreJobResult> {
       spotsTotal: capacity.total,
       spotsTaken: capacity.taken,
       subscribers: counts?.subscribers,
+      cancelledLastMonth: cancellations.get(`${audience}:${id}`),
       trialsEnded: counts?.trialsEnded,
       trialsConverted: counts?.trialsConverted,
       /**
-       * Deliberately unset: cancellations, add-on attach, and the labour floor.
+       * Deliberately unset: add-on attach, and the labour floor.
        *
-       * Nothing records a cancellation against a rung yet — the Stripe webhook
-       * clears the tier off the grant, which loses the very fact the churn rule
-       * needs. The labour floor needs quoted hours per rung, which does not
-       * exist either. The rules skip a signal they were not given, so these are
-       * absent rather than estimated: a churn figure invented here would be the
-       * most confident wrong number on the screen.
+       * Add-ons are not purchasable yet, so nothing can have been attached, and
+       * the labour floor needs quoted hours per rung which do not exist. The
+       * rules skip a signal they were not given, so these stay absent rather
+       * than estimated — an invented figure would be the most confident wrong
+       * number on the screen.
+       *
+       * Churn used to be in this list. It is read now, because the webhook
+       * records what was cancelled instead of only that something was.
        */
     };
 
