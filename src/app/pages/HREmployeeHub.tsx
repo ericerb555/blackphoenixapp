@@ -28,6 +28,11 @@ interface Employee {
    * is. See WorkerType in employeeRates.ts.
    */
   workerType?: WorkerType;
+  /**
+   * Which company employs them. Unset means the operator's — never "nobody's",
+   * because a filter that excluded the unset would drop people from rotas.
+   */
+  employerOrgId?: string | null;
   /** What we PAY. Hourly, or ANNUAL when payType is 'salary'. */
   payRate: number;
   /**
@@ -150,6 +155,10 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
     const s = load<Employee[]>('hr_employees', []);
     return s.length ? s : SEED;
   });
+  /** The companies somebody can be employed by, with what their hours cost. */
+  const [employers, setEmployers] = useState<{ id: string; name: string; type: string; laborBurdenPercent: number | null }[]>([]);
+  const [employerFilter, setEmployerFilter] = useState<string>('all');
+
   const [payroll, setPayroll] = useState<PayrollRun[]>(() => {
     const s = load<PayrollRun[]>('hr_payroll', []);
     return s.length ? s : SEED_PAYROLL;
@@ -182,6 +191,18 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return [];
+      // The employer list, so the picker and the burden field have something
+      // real to show. Failure here must not stop employees loading.
+      void (async () => {
+        try {
+          const r = await fetch(`${TIME_API(projectId)}/employers`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const j = await r.json().catch(() => ({}));
+          if (r.ok && j?.success) setEmployers(Array.isArray(j.employers) ? j.employers : []);
+        } catch { /* the hub still works without it */ }
+      })();
+
       const res = await fetch(`${TIME_API(projectId)}/employees`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
@@ -200,6 +221,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           department: String(r.department || 'field'),
           payType: (r.payType === 'salary' ? 'salary' : 'hourly') as PayType,
           workerType: (r.workerType === 'w9' ? 'w9' : 'w2') as WorkerType,
+          employerOrgId: r.employerOrgId ?? null,
           payRate: Number(r.payRate) || 0,
           billRate: Number(r.billRate) || 0,
           status: 'active' as Status,
@@ -355,9 +377,45 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
   const totalHours = active.reduce((s, e) => s + e.hoursThisWeek, 0);
   const periodPay = active.reduce((s, e) => s + (e.payType === 'salary' ? e.payRate / 26 : e.payRate * e.hoursThisPeriod), 0);
 
+  /**
+   * Persist a company's employer burden.
+   *
+   * Saved on blur rather than on every keystroke: the field is a percentage
+   * somebody types a digit at a time, and writing "2" on the way to "20" would
+   * briefly tell the server a wrong number.
+   */
+  async function saveBurden(orgId: string, percent: number | null) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { toast.error('Sign in to change this.'); return; }
+      const res = await fetch(`${TIME_API(projectId)}/employers/${orgId}/burden`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ laborBurdenPercent: percent }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.success === false) throw new Error(json?.error || 'Could not save that.');
+      toast.success(percent === null ? 'Employer burden cleared' : `Employer burden set to ${percent}%`);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not save the employer burden.');
+    }
+  }
+
+  /** The operator, whose people an unset employer belongs to. */
+  const operatorOrgId = employers.find(o => o.type === 'operator')?.id ?? null;
+
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
-    return !q || `${e.firstName} ${e.lastName} ${e.role}`.toLowerCase().includes(q);
+    const matchesSearch = !q || `${e.firstName} ${e.lastName} ${e.role}`.toLowerCase().includes(q);
+    if (!matchesSearch) return false;
+    if (employerFilter === 'all') return true;
+    /*
+      UNSET COUNTS AS THE OPERATOR'S, never as nobody's. Employees predate this
+      field entirely; excluding the unset would empty the list and, worse, is
+      the same mistake that would drop a crew member from a rota.
+    */
+    const theirs = e.employerOrgId ?? operatorOrgId;
+    return theirs === employerFilter;
   });
 
   /**
@@ -390,6 +448,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           phoneNumber: emp.phone || '',
           payType: emp.payType || 'hourly',
           workerType: emp.workerType || 'w2',
+          employerOrgId: emp.employerOrgId ?? null,
           payRate: Number(emp.payRate) || 0,
           billRate: Number(emp.billRate) || 0,
           trades: Array.isArray(emp.trades) ? emp.trades : [],
@@ -442,6 +501,17 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                 </div>
               ))}
               <div>
+                <p className="text-xs text-gray-500 mb-1">Employed by</p>
+                <select value={editing.employerOrgId || ''} onChange={e => setEditing(p => ({ ...p, employerOrgId: e.target.value || null }))}
+                  className="w-full px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
+                  style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  {/* Unset is a real option and reads as the operator's, not as
+                      nobody's — see employerOrgId on Employee. */}
+                  <option value="">Not set</option>
+                  {employers.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+              <div>
                 <p className="text-xs text-gray-500 mb-1">Employment status</p>
                 <select value={editing.workerType || 'w2'} onChange={e => setEditing(p => ({ ...p, workerType: e.target.value as WorkerType }))}
                   className="w-full px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
@@ -453,11 +523,24 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                   just what the record says. No burden multiplier is applied
                   anywhere yet, so a W-2 hour is costed at the bare rate.
                 */}
-                {editing.workerType !== 'w9' && (
-                  <p className="mt-1 text-[11px] text-gray-500">
-                    Costed at the pay rate — employer taxes and workers' comp are not added yet
-                  </p>
-                )}
+                {editing.workerType !== 'w9' && (() => {
+                  const org = employers.find(o => o.id === editing.employerOrgId);
+                  const pct = org?.laborBurdenPercent ?? null;
+                  const base = hourlyCost(editing);
+                  // Shown against a real rate so the percentage is not abstract.
+                  if (pct === null || base === null) {
+                    return (
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        Costed at the pay rate — no employer burden set for this company
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      With {pct}% employer burden, an hour really costs ${(base * (1 + pct / 100)).toFixed(2)}
+                    </p>
+                  );
+                })()}
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Pay Type</p>
@@ -641,6 +724,44 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees…"
                 className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm text-white focus:outline-none"
                 style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={employerFilter} onChange={e => setEmployerFilter(e.target.value)}
+                className="px-3 py-2 rounded-xl text-sm text-white focus:outline-none"
+                style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <option value="all">All companies</option>
+                {employers.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+
+              {/*
+                The employer burden, edited where payroll is. Blank clears it,
+                and cleared means no burden is applied rather than zero being
+                asserted — the difference matters, because one is "we have not
+                said" and the other is "there is none".
+              */}
+              {employerFilter !== 'all' && (() => {
+                const org = employers.find(o => o.id === employerFilter);
+                if (!org) return null;
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Employer burden</span>
+                    <input
+                      type="number" min={0} max={100} step={0.5}
+                      value={org.laborBurdenPercent ?? ''}
+                      placeholder="not set"
+                      onChange={e => {
+                        const v = e.target.value === '' ? null : Number(e.target.value);
+                        setEmployers(prev => prev.map(o => o.id === org.id ? { ...o, laborBurdenPercent: v } : o));
+                      }}
+                      onBlur={() => void saveBurden(org.id, org.laborBurdenPercent)}
+                      className="w-24 px-2 py-2 rounded-xl text-sm text-white focus:outline-none"
+                      style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }} />
+                    <span className="text-xs text-gray-500">
+                      % on W-2 hours{org.laborBurdenPercent === null ? ' — not set, nothing added' : ''}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
             {filtered.map(emp => {
               const open = expanded === emp.id;

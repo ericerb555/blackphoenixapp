@@ -122,3 +122,48 @@ export function hourlyMargin(employee: EmployeeRates | null | undefined): {
   const profit = bill - cost;
   return { cost, bill, profit, percent: (profit / bill) * 100 };
 }
+
+/**
+ * What an hour truly costs once the employer's own costs are counted.
+ *
+ * Eric asked for the burden to be editable, so this is the arithmetic behind
+ * that number. It is deliberately a SEPARATE function from `hourlyCostRate`
+ * rather than a change to it.
+ *
+ * WHY SEPARATE, WHEN FOLDING IT IN WOULD BE TIDIER
+ *
+ * `hourlyCostRate` feeds `jobOutcome`, every margin figure and the
+ * rate-learning loop. Teaching it about burden would change every job's
+ * reported margin at once, including jobs already closed, as a side effect of
+ * adding a settings field. That is a decision with a before and after, not a
+ * refactor. So nothing existing moves until it is wired in on purpose.
+ *
+ * A W-9 CONTRACTOR NEVER CARRIES BURDEN
+ *
+ * Their cost is their rate — no employer FICA, no unemployment insurance, no
+ * workers' compensation. That is what being a contractor means, and it is the
+ * single most important line here: applying burden to a 1099 hour would
+ * overstate cost and understate margin, which is the opposite error but an
+ * error all the same.
+ *
+ * AN UNSET BURDEN CHANGES NOTHING
+ *
+ * Null, empty or unparseable returns the bare rate. Not a guessed 15% — a
+ * plausible default would quietly move every margin in the system, and the
+ * whole reason this is editable is that only Black Phoenix knows the figure.
+ */
+export function burdenedHourlyCost(
+  rates: EmployeeRates | null | undefined,
+  burdenPercent?: number | string | null,
+): number | null {
+  const base = hourlyCostRate(rates);
+  if (base === null) return null;
+
+  // A contractor's cost is their rate. Nothing is added, whatever is set.
+  if (String(rates?.workerType ?? '').toLowerCase() === 'w9') return base;
+
+  const percent = finiteOrNull(burdenPercent);
+  if (percent === null || percent === 0) return base;
+
+  return base * (1 + percent / 100);
+}

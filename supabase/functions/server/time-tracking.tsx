@@ -11,6 +11,13 @@ import { shiftStatus, autoClosePunchOut, blockedFromPayroll, reviewReason, AUTO_
 
 type TimeTrackingVariables = { actor: any; admin: boolean };
 const timeTrackingRouter = new Hono<{ Variables: TimeTrackingVariables }>();
+// Organisations live in Postgres rather than the key-value store, so the
+// employer picker needs a client that can read them.
+const db = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
 const auth = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -375,7 +382,7 @@ timeTrackingRouter.get("/employees/:id", async (c) => {
 timeTrackingRouter.post("/employees", async (c) => {
   try {
     const body = await c.req.json();
-    const { id, name, role, department, phoneNumber, payRate, payType, billRate, workerType, assignedProject, trades } = body;
+    const { id, name, role, department, phoneNumber, payRate, payType, billRate, workerType, employerOrgId, assignedProject, trades } = body;
     const denial = requireEmployeeAccess(c, id);
     if (denial) return denial;
     
@@ -425,6 +432,21 @@ timeTrackingRouter.post("/employees", async (c) => {
       workerType: isAdmin
         ? (String(workerType || existing?.workerType || 'w2').toLowerCase() === 'w9' ? 'w9' : 'w2')
         : (existing?.workerType || 'w2'),
+      /**
+       * Which organisation employs this person.
+       *
+       * Eric: "as long as i can link them to what company." Employees were one
+       * flat list with no company at all, implicitly the operator's.
+       *
+       * UNSET IS NOT EXCLUDED. A reader that filters on this must treat a
+       * missing value as the operator's rather than as nobody's — scoping a
+       * list that was never scoped is how a crew member silently disappears
+       * from a rota, and a van that does not arrive costs more than a wrong
+       * label. Admin-only, like the rates.
+       */
+      employerOrgId: isAdmin
+        ? (employerOrgId ?? existing?.employerOrgId ?? null)
+        : (existing?.employerOrgId ?? null),
       /**
        * What we CHARGE for an hour of their time. Always hourly, whatever the
        * pay type. The gap between this and the cost is the labour margin, which
@@ -1448,3 +1470,77 @@ timeTrackingRouter.post("/tasks/:employeeId/:taskId/status", async (c) => {
 });
 
 export default timeTrackingRouter;
+
+/**
+ * The companies an employee can be employed by, and what their hours cost.
+ *
+ * Eric: "yes editable as long as i can link them to what company."
+ *
+ * Only the organisations that can actually employ somebody — a customer or a
+ * landlord is a household, not an employer, and offering them in a picker
+ * would invite a mis-assignment that nothing downstream would question.
+ */
+timeTrackingRouter.get("/time/employers", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
+
+  const { data, error } = await db
+    .from("organizations")
+    .select("id, name, type, labor_burden_percent")
+    .in("type", ["operator", "exchange_business", "vendor", "subcontractor"])
+    .eq("status", "active")
+    .order("name");
+
+  if (error) {
+    console.error("[time] employers failed:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+
+  return c.json({
+    success: true,
+    employers: (data || []).map((o: any) => ({
+      id: o.id,
+      name: o.name,
+      type: o.type,
+      laborBurdenPercent: o.labor_burden_percent === null ? null : Number(o.labor_burden_percent),
+    })),
+  });
+});
+
+/**
+ * Set what a company's W-2 hour costs on top of the wage.
+ *
+ * Null clears it, and clearing means no burden is applied rather than zero
+ * burden being asserted — the screen says "not set" and the cost is the bare
+ * rate. Nothing here touches existing margin figures: `hourlyCostRate` is
+ * unchanged and `burdenedHourlyCost` is not yet wired into job costing. That
+ * is a separate, deliberate change, because it moves every margin at once.
+ */
+timeTrackingRouter.put("/time/employers/:orgId/burden", async (c) => {
+  const denial = requireAdmin(c);
+  if (denial) return denial;
+
+  const body = await c.req.json().catch(() => ({}));
+  const raw = body?.laborBurdenPercent;
+
+  let value: number | null = null;
+  if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      return c.json({ success: false, error: "Burden must be a percentage between 0 and 100." }, 400);
+    }
+    value = n;
+  }
+
+  const { error } = await db
+    .from("organizations")
+    .update({ labor_burden_percent: value, updated_at: new Date().toISOString() })
+    .eq("id", c.req.param("orgId"));
+
+  if (error) {
+    console.error("[time] burden update failed:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+
+  return c.json({ success: true, laborBurdenPercent: value });
+});
