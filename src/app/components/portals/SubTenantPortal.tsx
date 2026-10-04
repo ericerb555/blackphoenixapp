@@ -81,6 +81,9 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
   const tenantUnit = unitLabel || demoProfile?.unit || '— Unit not set —';
   const tenantAddress = propertyAddress || demoProfile?.address || '— Address not set —';
 
+  /** The referral link, on the live domain and on a route that attributes it. */
+  const referralLink = `https://theblackphoenixcompany.com/signup?ref=${user?.id?.slice(0, 8) || 'demo'}`;
+
   const [tab, setTab] = useState<Tab>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
@@ -782,10 +785,20 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
                 </div>
               </div>
               <p className="text-sm text-gray-300 mb-4">Share your referral link. When a friend signs up for any Black Phoenix service, you both get rewarded.</p>
+              {/*
+                ONE string, built once. It was written out twice — in the input and
+                in the copy handler — so the box could show one link while the
+                button copied another.
+
+                It pointed at blackphoenixbuilds.com/ref/{id}, which was wrong twice:
+                that domain is being retired, and no /ref/ route exists. Signup reads
+                `?ref=` and posts an attribution, so /signup?ref= is the link that
+                actually credits the referral — the same shape ReferralRewards uses.
+              */}
               <div className="flex gap-2">
-                <input readOnly value={`https://blackphoenixbuilds.com/ref/${user?.id?.slice(0, 8) || 'demo'}`}
+                <input readOnly value={referralLink}
                   className="flex-1 bg-[#0A0A0A] border border-[#363636] rounded-lg px-3 py-2 text-sm text-gray-300 outline-none" />
-                <button onClick={() => { navigator.clipboard.writeText(`https://blackphoenixbuilds.com/ref/${user?.id?.slice(0, 8) || 'demo'}`); toast.success('Referral link copied!'); }}
+                <button onClick={() => { navigator.clipboard.writeText(referralLink); toast.success('Referral link copied!'); }}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition">Copy</button>
               </div>
             </div>
