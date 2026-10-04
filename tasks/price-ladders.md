@@ -66,49 +66,118 @@ survive as the subtitle on the rung so an existing vendor recognises their plan.
 
 ---
 
-## 3. The proposal
+## 3. A rung is a base, not a price
 
-Monthly, before add-ons. **Annual = ten months** (two free), which is simple to
-say and close to the 28% the maintenance builder already offers at annual
-frequency.
+Eric's correction to the first draft of this table: *"some of those number will
+be based on doors and features wanted."* So the figure an account pays is
 
-| Audience | Basic | Advanced | Professional | Anchored on |
+    monthly  =  the rung's price at that account's band  +  the add-ons chosen
+
+and a ladder of thirty flat numbers was wrong on its face for any audience whose
+work scales with units. Two consequences before the tables:
+
+**The band is resolved from our records, never from the customer.** A customer
+who types their own door count picks their own price. `PlanAddOn` already does
+this correctly for on-call — the count comes from the platform's own unit
+records — and the tier has to work the same way. An account whose door count
+cannot be established falls to the smallest band and is flagged, rather than
+being given the cheapest price silently.
+
+**"Some" means some.** Only five audiences scale on doors or properties. The
+others scale on something, but not that, and each needs its own axis named:
+
+| Audience | Quantity axis | Banded? |
+|---|---|---|
+| Landlord | units owned | yes |
+| Property manager | doors under management | yes |
+| Condo association | units in the building | yes |
+| Condo manager | total units across associations | yes |
+| Investor | properties in the portfolio | yes |
+| Customer | one property | **no** — flat, add-ons do the rest |
+| Vendor | catalogue listings / locations | later; flat for now |
+| Subcontractor | crew seats | later; flat for now |
+| Advertiser | impressions / placements | later; flat for now |
+| Territory owner | territory size | needs Eric — zips? population? |
+
+Annual is **ten months** (two free) on every figure below.
+
+### The flat ladders
+
+Unchanged from the published prices, and these are complete prices — the
+add-ons a subscriber chooses are what moves them.
+
+| Audience | Basic | Advanced | Professional |
+|---|---|---|---|
+| **Customer** | $29 | $79 | $149 |
+| **Vendor** | $49 | $99 | $199 |
+| **Subcontractor** | $49 | $99 | $199 |
+| **Advertiser** | $199 | $499 | $999 |
+| **Territory owner** | $299 | $599 | $1,199 |
+
+### The banded ladders
+
+The smallest band is the price that was already published, so no existing
+account's bill moves. Each band up is roughly 1.7× the one below, which keeps
+the **per-door** cost falling as an account grows — that is deliberate, and it
+is what makes the big accounts winnable.
+
+**Landlord** — by units owned
+
+| Units | Basic | Advanced | Professional |
+|---|---|---|---|
+| 1–4 | $29 | $79 | $179 |
+| 5–14 | $59 | $149 | $329 |
+| 15–49 | $119 | $279 | $599 |
+| 50+ | $229 | $499 | $1,049 |
+
+**Property manager** — by doors under management
+
+| Doors | Basic | Advanced | Professional | ≈ per door at the top of the band |
 |---|---|---|---|---|
-| **Customer** | **$29** | **$79** | **$149** | 29 / 79 published; a third rung added above |
-| **Landlord** | **$29** | **$79** | **$179** | 29 / 79 published; Professional is the multi-property rung |
-| **Vendor** | **$49** | **$99** | **$199** | 49 live (nobody's bill moves), 99 published, 199 in both |
-| **Subcontractor** | **$49** | **$99** | **$199** | unchanged — already three rungs |
-| **Advertiser** | **$199** | **$499** | **$999** | unchanged — already three rungs |
-| **Property manager** | **$149** | **$299** | **$599** | unchanged, but see the per-door note below |
-| **Condo association** | **$99** | **$249** | **$499** | nothing published; banded by units |
-| **Condo manager** | **$199** | **$399** | **$799** | 199 / 399 published; Professional is the portfolio rung |
-| **Investor** | **$99** | **$299** | **$599** | the published 299 becomes the middle rung |
-| **Territory owner** | **$299** | **$599** | **$1,199** | nothing published; exclusivity is what is being sold |
+| 1–24 | $149 | $299 | $599 | $25.00 |
+| 25–99 | $249 | $449 | $799 | $8.07 |
+| 100–399 | $449 | $799 | $1,399 | $3.51 |
+| 400+ | $799 | $1,399 | $2,399 | $6.00 at 400, $2.40 at 1,000 |
 
-Three things to notice about the shape:
+The per-door column is there to be argued with. A 24-door manager paying $25 a
+door for Professional is paying for a floor rather than for volume, which is
+normal at that size but is also the figure most likely to lose that account —
+it is the one I would most want a real quote compared against.
 
-- **No price falls.** Every figure is at or above what was published for that
-  audience, so no existing subscriber's bill moves and nothing has to be
-  grandfathered on day one.
-- **Two audiences gain an entry rung** (investor at $99, condo association at
-  $99). A ladder whose bottom rung is $299 has no way in, and the trial has to
-  land somewhere when it ends.
-- **Three audiences gain a top rung** (customer $149, landlord $179, condo
-  manager $799). A two-rung ladder has nowhere for a good account to grow,
-  which is the commonest way a subscription business leaves money on the table.
+**Condo association** — by units in the building
 
-### Where the real money is, and it is not the ladder
+| Units | Basic | Advanced | Professional |
+|---|---|---|---|
+| 1–24 | $99 | $249 | $499 |
+| 25–99 | $199 | $449 | $849 |
+| 100+ | $349 | $749 | $1,399 |
 
-Property management and condo work scale with **doors**, not with features. A
-flat $599 is wrong in both directions: too much for a 12-unit manager and far
-too little for 400 doors. That is what the cohort system's `minUsers`/`maxUsers`
-bands are for, and `PlanAddOn` already supports `perUnit` with the count taken
-from our own records rather than the customer's word.
+**Condo manager** — by total units across the associations managed
 
-Proposal: the Professional rung for Property manager, Condo association and
-Condo manager is a **base plus a per-door band**, with the figures above as the
-base at the smallest band. The bands are a separate decision and want real door
-counts in front of them.
+| Units | Basic | Advanced | Professional |
+|---|---|---|---|
+| 1–99 | $199 | $399 | $799 |
+| 100–399 | $399 | $749 | $1,399 |
+| 400+ | $699 | $1,299 | $2,399 |
+
+**Investor** — by properties in the portfolio
+
+| Properties | Basic | Advanced | Professional |
+|---|---|---|---|
+| 1–4 | $99 | $299 | $599 |
+| 5–19 | $199 | $549 | $999 |
+| 20+ | $349 | $899 | $1,599 |
+
+### What this means for the band boundaries
+
+A band boundary is a price cliff, and a cliff is where an account argues. Two
+protections worth building rather than discovering:
+
+- **A band change never takes effect mid-cycle.** The new band applies at the
+  next renewal, so adding a property does not produce an immediate charge.
+- **A band only ever rises on a renewal, and falls immediately.** Losing doors
+  should reduce the bill at once; gaining them should not surprise anybody. That
+  asymmetry costs a little revenue and buys every argument away.
 
 ---
 
@@ -121,7 +190,7 @@ promises something nothing measures is a rung that gets argued about.
 | Axis | Basic | Advanced | Professional |
 |---|---|---|---|
 | Seats / users | 1 | 5 | unlimited (0) |
-| Properties / units / listings | entry cap | raised | unlimited (0) |
+| Units / doors / listings | the band, enforced | the band, enforced | the band, enforced |
 | Documents & storage | core set | full vault | full vault + export |
 | Reporting | standard | advanced | advanced + API |
 | Support | email | priority | named contact |
@@ -138,20 +207,59 @@ Two rules that are not negotiable, both already decided:
 - **Anything with labour in it must clear the employee bill rate.** That is the
   floor the price watcher enforces (`employees-have-a-pay-rate-and-a-bill-rate`).
 
+### The features-wanted half
+
+The ladder is the smaller half of the price. The add-on layer is where "features
+wanted" lives, and it already exists in the catalogue — 24 `plan_addon` records,
+all currently `active: false` with no Stripe price, which is P6's job. Three
+things follow from Eric's correction:
+
+- the **$99 / $199 / $399 maintenance trio** repeated across every audience
+  becomes per-unit or banded add-ons, not rungs (section 2, conflict 2);
+- an add-on that covers units — on-call above all — is priced **per unit from
+  our own count**, so it bands with the tier rather than against it;
+- a Professional rung that includes an add-on uses `includedAddOns`, which
+  already exists, rather than a separate price.
+
 ---
 
-## 5. What I need from Eric
+## 5. Which part of the catalogue holds a band
+
+Worth stating because it changes the order of work. `PlanTier.priceCents` is a
+single number — the tier record cannot express a band. A **cohort** can:
+`basePrice` plus `pricingTiers` banded on `minUsers`/`maxUsers`, which is exactly
+the shape the five banded ladders need, and `planTier.ts` already has the adapter
+that turns a cohort into a tier at a given count.
+
+So the banded audiences are the concrete reason cohorts have to be the store of
+record rather than a reporting layer — it is not an abstract preference. And it
+reorders the plan: **P4 (populate cohorts) comes before P5/P6 for Landlord,
+Property manager, Condo association, Condo manager and Investor.** The five flat
+ladders can go straight into `plan_tier` records and do not have to wait.
+
+---
+
+## 6. What I need from Eric
 
 1. **The vendor conflict** — keep $49 as Basic, or move the whole ladder up to
    the published $99 / $199 / $399 and migrate existing vendors? Keeping $49 is
    my recommendation and it is the only option that moves nobody's bill.
-2. **Any figure in section 3 you want different.** Edit the table; I will not
-   argue with a number you set, and the whole point of anchoring them on
-   published prices is that none of them should be surprising.
-3. **Whether the $99 / $199 / $399 maintenance trio becomes per-unit add-ons**
-   as proposed, or stays as flat add-ons for now.
-4. **Door bands for property management and condo work** — or tell me to draft
-   them and you will correct the numbers.
+2. **The band boundaries, more than the prices.** 1–4 / 5–14 / 15–49 / 50+ for
+   landlords and 1–24 / 25–99 / 100–399 / 400+ for property managers are guesses
+   at where your actual accounts sit. If most of your landlords hold six units,
+   the first boundary is in the wrong place and that matters more than any figure
+   in the table.
+3. **The property-manager floor.** $599 Professional at 24 doors is $25 a door.
+   It is defensible as a floor and it is the number most likely to lose a small
+   manager. Worth checking against a real quote.
+4. **What a territory is counted in** — zip codes? population? towns? It is the
+   one axis I could not infer from the code.
+5. **Whether the $99 / $199 / $399 maintenance trio becomes per-unit add-ons**
+   as proposed, or stays flat for now.
+6. **Anything in the tables you want different.** I will not argue with a number
+   you set; anchoring them on published prices was so that none of them would be
+   a surprise.
 
-Nothing here is built yet. P5 writes these into the catalogue as `plan_tier`
-records and P6 creates the Stripe prices; both wait on this table.
+Nothing here is built yet. P5 writes the flat ladders into the catalogue as
+`plan_tier` records, P4 writes the banded ones as cohorts, and P6 creates the
+Stripe prices. All three wait on this table.
