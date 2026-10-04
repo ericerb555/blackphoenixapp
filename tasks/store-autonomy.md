@@ -1,3 +1,35 @@
+# UNFINISHED — Eric asked to be reminded of this (2026-10-03)
+
+He moved to the marketing plan with this deliberately parked: *"ok remind me of
+this later so we can finish this"*. What is outstanding:
+
+**Waiting on Eric**
+- Both bundle prices. Condo Complete is $149 against $77 of parts; PM Pro is
+  $199 against $156. Two bundles cost MORE than their own contents and all
+  three "SAVE" badges are computed from invented figures. The verifier reports
+  this on every build and deliberately does not pass.
+- Listing corrections: real page counts on all five ebooks (85 to 30, 72 to 27,
+  120 to 29, 58 to 19, 45 to 21), the DIY "with photos" claim that cannot be
+  met, three EPUB claims that are not produced, and the reworded bullets for
+  CDFA, RSA 356-B, RSA 540/540-A and Eversource.
+- The lease pack and the Landlord Starter bundle, both parked on his
+  instruction. The lease pack also still carries the false "Attorney-reviewed"
+  subtitle, which must change before it ships either way.
+- Confirm `CJ_API_KEY` is set as a secret so the plaintext key can come out of
+  `dropshipper_config:providers`.
+- Arm the store clock (Phase 1.5) and switch the jobs on one at a time.
+
+**Mine to do once he answers**
+- Generate the 21 cover images through `/marketplace/generate-image`.
+- Upload the built files to the private bucket and attach them per product,
+  which lifts the Phase 0.2 block and puts them on sale one at a time.
+- Build the three AI reports from property data.
+
+Sixteen of eighteen products are built and verified. Run
+`node scripts/digital-products/build.mjs` then `verify.mjs` to see the state.
+
+---
+
 # PLAN — a store that runs itself, CJ only
 
 Eric, 2026-10-03:
