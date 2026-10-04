@@ -37,6 +37,7 @@ const PRODUCTS = [
   'eb-landlord-ops',
   'bundle-pm-pro',
   'eb-homeowner-guide',
+  'eb-diy-repair',
 ];
 
 function human(bytes) {
