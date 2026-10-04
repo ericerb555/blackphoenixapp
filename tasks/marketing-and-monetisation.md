@@ -534,12 +534,13 @@ approval until you say it may.
 
 - [x] **P1. Recompute the plan price on the server.** DONE — see the review at
       the end of this document.
-- [ ] **P2. Move the service catalogue to the server.** Every item in
-      `maintenancePlans.ts` becomes a `plan_addon` record with its entity
-      scope, skill and frequency multipliers. One migration script, read back
-      and verified.
-- [ ] **P3. The builder reads the catalogue.** `PlanBuilderTab` fetches instead
-      of importing. `PORTAL_ENTITIES` filtering stays. No visual change.
+- [x] **P2. Move the service catalogue to the server.** Done, but NOT as
+      `plan_addon` records — see the review at the end, which explains why that
+      part of this task was wrong. The server is the authority on the catalogue
+      and serves it at `GET /maintenance-catalogue`.
+- [x] **P3. The builder reads the catalogue.** Done. `PlanBuilderTab` fetches,
+      with the bundled copy as its starting value so the tab still works if the
+      request fails. `PORTAL_ENTITIES` filtering unchanged, no visual change.
 - [ ] **P4. Populate cohorts, and derive the catalogue from them.** One cohort
       per audience per rung, with bands. `plan_tier` / `plan_addon` become its
       projection.
@@ -844,3 +845,88 @@ pages rendered, 0 threw. 1664 tests pass.
    should wait for renewal** — the asymmetry proposed in `price-ladders.md`
    section 4. Nothing implements that yet; today the figure simply reflects
    whatever the records say when it is read.
+
+---
+
+## 20. Review — P2 and P3, and a correction to P2 itself (2026-10-04)
+
+**P2 was partly wrong as written, and this is the correction.** It said every
+maintenance service should become a `plan_addon` record. It should not, for two
+reasons found while doing it.
+
+The first is Eric's own ruling: *"no that is an option the subscriptions are
+separate"* — a maintenance plan buys visits from the crews and a portal
+subscription buys features, and they are different products
+(`subscription-shape-three-tiers-plus-addons`). Filing the services as
+subscription add-ons would merge the two things he separated, and the add-on
+layer would then be carrying both "the content centre, $219 a month" and
+"gutter cleaning, per visit".
+
+The second is mechanical. A `plan_addon` record has one `audience`. A service
+has an **entity** — what the plan is built *for* — and the customer portal alone
+builds for homeowner, condo, landlord and commercial. So a single condo service
+would need a copy under `customer` and another under `condo_association`, and
+115 services across the audiences that can reach them is several hundred records
+that all have to be edited together. The entity axis and the audience axis are
+genuinely different things.
+
+**What the task really needed** was the part underneath it: the server being the
+authority on the catalogue, and the builder reading it rather than a copy
+bundled into the browser. That is done.
+
+**What changed.**
+
+- `GET /maintenance-catalogue` (new, in `maintenance-config.tsx`) returns the
+  merged catalogue — generated defaults with the administrator's saved overrides
+  applied — from the same `loadCatalogue` that `pricePlan` uses. One reader, so
+  a quote and a charge cannot come from different copies.
+- It is readable without signing in, deliberately: the public application forms
+  carry the builder and an applicant has no account yet. Nothing in it is a
+  secret — every one of these prices already ships inside the front-end bundle
+  and is on screen to anybody who opens the builder. `/maintenance-config`, the
+  administrator's own saved overrides, stays behind sign-in for reads and staff
+  for writes.
+- The generated server catalogue now carries `description`, `recommended` and
+  `nhSpecific` as well as the money fields, because the builder renders from it
+  now and a service with no description would show as a bare name.
+- `fetchMaintenanceConfig` points at the new route. It had been calling
+  `/maintenance-config` with the anon key alone, which is behind the sign-in
+  wall — so it answered 401 and **every caller silently fell back to the bundled
+  copy**. That is how the builder could show a price the server had never agreed
+  to, and it also means the admin editor's saved overrides have not been reaching
+  anybody. Three call sites are fixed by the one change: the builder, the admin
+  editor and the subscription-plans page.
+- `mergeWithDefaults` now merges the skill, frequency and region lists **field by
+  field on id** instead of replacing them wholesale. This mattered immediately:
+  the server carries only the fields that decide money, so a wholesale swap would
+  have left every technician level with a multiplier and no label, and the
+  selectors in the builder would have rendered as blank buttons.
+- `PlanBuilderTab` fetches the catalogue, keeping the bundled copy as its initial
+  value so the tab renders instantly and still works if the request fails. The
+  arithmetic stays in the browser — a total has to update as somebody ticks a box
+  — but the numbers going into it are the server's now.
+- Preset prices are summed from the catalogue in hand rather than by
+  `presetBaseMonthly`, which read the bundle directly. Without that, an
+  administrator changing a price would have left the three preset cards showing
+  the shipped figure while the à-la-carte list beside them showed the new one.
+
+**Checks.** typecheck app 316 / server 87, both at baseline. smoke 50 affected
+pages rendered, 0 threw. 1664 tests pass.
+
+**Known gaps.**
+
+1. **The new route is not deployed.** Until the edge function is deployed,
+   `fetchMaintenanceConfig` will fail and fall back to the bundled catalogue —
+   which is exactly what happens today, so nothing regresses, but nothing
+   improves either until the deploy.
+2. **Not verified in the running app.** Smoke proves the tab mounts and throws
+   nothing; it does not prove the fetch returns what the builder expects, because
+   the route is not live. Worth opening the builder in a portal after the deploy
+   and confirming the technician-level buttons still carry their labels — that is
+   the thing the field-wise merge above protects, and it is visible in one glance.
+3. **The entity/audience question is still open.** The services live under
+   entities and the ladders live under audiences, and nothing yet maps one to the
+   other. It has not had to: the builder asks for an entity directly. It will
+   matter when a maintenance plan has to bill through Stripe alongside a portal
+   subscription, which is the fourth question in section 15 of
+   `price-ladders.md`.

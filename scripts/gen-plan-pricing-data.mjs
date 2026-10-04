@@ -75,12 +75,20 @@ for (const line of catBlock.split('\n')) {
   if (typeof id !== 'string' || !entity) continue;
   const price = field(line, 'baseMonthlyPrice');
   if (typeof price !== 'number') throw new Error(`${id} has no baseMonthlyPrice`);
+  // The display fields come too, because the builder now reads its catalogue
+  // from the server rather than from the bundle — a service with no description
+  // would render as a bare name in the portal.
+  const recommended = /recommended:\s*true/.test(line);
+  const nhSpecific = /nhSpecific:\s*true/.test(line);
   services[entity].push({
     id,
     name: field(line, 'name') || id,
     category: field(line, 'category') || 'Service',
     unit: field(line, 'unit') || 'per month',
+    description: field(line, 'description') || '',
     baseMonthlyPrice: price,
+    ...(recommended ? { recommended: true } : {}),
+    ...(nhSpecific ? { nhSpecific: true } : {}),
   });
 }
 
@@ -133,7 +141,10 @@ export interface ServerServiceItem {
   name: string;
   category: string;
   unit: string;
+  description: string;
   baseMonthlyPrice: number;
+  recommended?: boolean;
+  nhSpecific?: boolean;
 }
 
 /** Applied to a service's base price. Keys are the ids saved on a plan. */

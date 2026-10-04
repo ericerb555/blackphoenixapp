@@ -137,13 +137,29 @@ export async function loadCatalogue(): Promise<{
       const merged: ServerServiceItem[] = defaults.map((item) => {
         const row = savedById.get(item.id);
         const price = row ? num(row.baseMonthlyPrice) : null;
-        return price === null ? item : { ...item, baseMonthlyPrice: price, name: String(row.name || item.name), category: String(row.category || item.category), unit: String(row.unit || item.unit) };
+        return price === null ? item : {
+          ...item,
+          baseMonthlyPrice: price,
+          name: String(row.name || item.name),
+          category: String(row.category || item.category),
+          unit: String(row.unit || item.unit),
+          description: String(row.description || item.description || ''),
+        };
       });
       for (const row of rows) {
         const id = String(row?.id || '');
         const price = num(row?.baseMonthlyPrice);
         if (!id || price === null || defaults.some((d) => d.id === id)) continue;
-        merged.push({ id, name: String(row.name || id), category: String(row.category || 'Service'), unit: String(row.unit || 'per month'), baseMonthlyPrice: price });
+        merged.push({
+          id,
+          name: String(row.name || id),
+          category: String(row.category || 'Service'),
+          unit: String(row.unit || 'per month'),
+          description: String(row.description || ''),
+          baseMonthlyPrice: price,
+          ...(row.recommended === true ? { recommended: true } : {}),
+          ...(row.nhSpecific === true ? { nhSpecific: true } : {}),
+        });
       }
       services[entity] = merged;
     }

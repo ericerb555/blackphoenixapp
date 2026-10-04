@@ -526,6 +526,19 @@ const PUBLIC_GET_PREFIXES = [
   '/products',
   '/plans',
   '/services-catalog',
+  /**
+   * The maintenance service catalogue the plan builder quotes from.
+   *
+   * Public because the application forms carry the builder and an applicant has
+   * no account yet. Nothing here is a secret: every one of these prices already
+   * ships inside the front-end bundle and is on the screen to anybody who opens
+   * the builder. Reading it is how the price shown and the price charged stay
+   * the same number — see the note on the route.
+   *
+   * NOT '/maintenance-config', which is the admin's saved overrides and stays
+   * behind sign-in for reads and staff for writes.
+   */
+  '/maintenance-catalogue',
   '/marketplace',
   '/flash-sales',
   '/promotions',

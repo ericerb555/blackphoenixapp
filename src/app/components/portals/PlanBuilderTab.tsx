@@ -4,26 +4,40 @@
  * A single reusable tab dropped into every portal. Its centerpiece is an
  * AI-powered plan builder: the user describes their needs in plain language and
  * the OpenAI-backed /plan-builder/generate route recommends a set of real
- * catalog services, a frequency, and a skill level. Pricing is computed locally
- * with the authoritative computePrice() helper so numbers always match the
- * visible catalog. The user can then tweak the selection, see live totals, save
- * the plan, or open the classic subscription-tier upgrade modal.
+ * catalog services, a frequency, and a skill level. The user can then tweak the
+ * selection, see live totals, save the plan, or open the classic
+ * subscription-tier upgrade modal.
+ *
+ * WHERE THE PRICES COME FROM
+ *
+ * The server. The catalogue is fetched from /maintenance-catalogue — the same
+ * loader `pricePlan` uses — with the copy bundled into this app as the starting
+ * value so the tab renders instantly and still works if the request fails.
+ *
+ * This used to read the bundled catalogue and nothing else, and compute the
+ * total here. `POST /plans` now recomputes every total from the server's own
+ * records and refuses a plan it cannot price, so a figure arrived at here is a
+ * quote rather than a decision — and a quote drawn from a different copy of the
+ * catalogue is a quote that can disagree with the invoice. The arithmetic is
+ * still done here, with the same computePrice() helper, because a total has to
+ * update as somebody ticks a box; what changed is that the numbers going into
+ * it are the server's.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity, Layers, PlusCircle, X, List, Info } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import {
-  ENTITY_TYPES,
-  SKILL_LEVELS,
-  FREQUENCY_TIERS,
-  SERVICE_CATALOG,
   computePrice,
   getPresets,
-  presetBaseMonthly,
   type EntityType,
   type PlanPreset,
 } from '../../data/maintenancePlans';
+import {
+  fetchMaintenanceConfig,
+  getDefaultConfig,
+  type MaintenanceConfig,
+} from '../../data/maintenanceConfig';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import { createPlan, listPlans, bridgePlanGiftCards, type PlanRecord } from '../../utils/plansApi';
@@ -115,21 +129,58 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
   const [customRequest, setCustomRequest] = useState('');
   const [pricingCustom, setPricingCustom] = useState(false);
 
+  /**
+   * The catalogue, from the server.
+   *
+   * It starts as the copy bundled into this app so the tab renders instantly
+   * and still works if the request fails, then the server's answer replaces it.
+   * That ordering matters: the server is the authority on price — `POST /plans`
+   * recomputes every total from its own records — so a figure shown here that
+   * came from the bundle alone can disagree with the figure charged. Fetching it
+   * is what makes the quote and the charge the same number.
+   */
+  const [config, setConfig] = useState<MaintenanceConfig>(() => getDefaultConfig());
+  useEffect(() => {
+    let live = true;
+    fetchMaintenanceConfig()
+      .then((next) => { if (live) setConfig(next); })
+      // fetchMaintenanceConfig already falls back to the bundled defaults and
+      // logs; there is nothing useful to tell the customer about it.
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   const availableEntities = (PORTAL_ENTITIES[portalType] || ['homeowner']);
-  const entityConfigs = ENTITY_TYPES.filter(e => availableEntities.includes(e.id));
+  const entityConfigs = config.entityTypes.filter(e => availableEntities.includes(e.id));
   const presets = getPresets(entity);
 
   // Live-tracked active plans for this owner/portal (polled every 15s).
   const [activePlans, setActivePlans] = useState<PlanRecord[]>([]);
 
-  const catalog = SERVICE_CATALOG[entity];
-  const skill = SKILL_LEVELS.find(s => s.id === skillId) || SKILL_LEVELS[1];
-  const frequency = FREQUENCY_TIERS.find(f => f.id === frequencyId) || FREQUENCY_TIERS[0];
+  const catalog = config.catalog[entity] || [];
+  const skillLevels = config.skillLevels;
+  const frequencyTiers = config.frequencyTiers;
+  const skill = skillLevels.find(s => s.id === skillId) || skillLevels[1] || skillLevels[0];
+  const frequency = frequencyTiers.find(f => f.id === frequencyId) || frequencyTiers[0];
 
   const selectedServices = useMemo(
     () => catalog.filter(s => selectedIds.has(s.id)),
     [catalog, selectedIds],
   );
+
+  /**
+   * A preset's base monthly, summed from the catalogue in hand.
+   *
+   * This replaced `presetBaseMonthly`, which read the bundled catalogue
+   * directly — so a preset would have gone on showing the shipped price after
+   * an administrator changed the price of a service inside it, while the
+   * à-la-carte list beside it showed the new one.
+   */
+  const presetBase = (preset: PlanPreset) =>
+    preset.serviceIds.reduce((sum, id) => {
+      const service = catalog.find(s => s.id === id);
+      return sum + (service ? service.baseMonthlyPrice : 0);
+    }, 0);
 
   const monthlyTotal = useMemo(
     () => [...selectedServices, ...customItems].reduce(
@@ -275,8 +326,8 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
               id: s.id, name: s.name, category: s.category,
               baseMonthlyPrice: s.baseMonthlyPrice, unit: s.unit, nhSpecific: s.nhSpecific,
             })),
-            frequencies: FREQUENCY_TIERS.map(f => f.id),
-            skillLevels: SKILL_LEVELS.map(s => s.id),
+            frequencies: frequencyTiers.map(f => f.id),
+            skillLevels: skillLevels.map(s => s.id),
           }),
         },
       );
@@ -480,7 +531,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {presets.map(preset => {
-              const base = presetBaseMonthly(entity, preset);
+              const base = presetBase(preset);
               const price = computePrice(base, skill.multiplier, frequency.multiplier);
               const active = activePresetId === preset.id;
               return (
@@ -530,7 +581,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
             <div className="rounded-xl border border-[#1f1f1f] bg-[#0d0d0d] p-3">
               <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Technician Level</p>
               <div className="flex gap-1">
-                {SKILL_LEVELS.map(s => (
+                {skillLevels.map(s => (
                   <button
                     key={s.id}
                     onClick={() => setSkillId(s.id)}
@@ -546,7 +597,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
             <div className="rounded-xl border border-[#1f1f1f] bg-[#0d0d0d] p-3">
               <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Billing Frequency</p>
               <div className="flex gap-1">
-                {FREQUENCY_TIERS.map(f => (
+                {frequencyTiers.map(f => (
                   <button
                     key={f.id}
                     onClick={() => setFrequencyId(f.id)}

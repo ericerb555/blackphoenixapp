@@ -88,24 +88,63 @@ function mergeWithDefaults(saved: Partial<MaintenanceConfig> | null | undefined)
     entityTypes: Array.isArray(saved.entityTypes) && saved.entityTypes.length
       ? saved.entityTypes
       : base.entityTypes,
-    skillLevels: Array.isArray(saved.skillLevels) && saved.skillLevels.length
-      ? saved.skillLevels
-      : base.skillLevels,
-    frequencyTiers: Array.isArray(saved.frequencyTiers) && saved.frequencyTiers.length
-      ? saved.frequencyTiers
-      : base.frequencyTiers,
-    regions: Array.isArray(saved.regions) && saved.regions.length
-      ? saved.regions
-      : base.regions,
+    skillLevels: mergeById(base.skillLevels, saved.skillLevels),
+    frequencyTiers: mergeById(base.frequencyTiers, saved.frequencyTiers),
+    regions: mergeById(base.regions, saved.regions),
     catalog,
   };
+}
+
+/**
+ * Merge a saved list over the defaults field by field, matching on id.
+ *
+ * These three lists used to be replaced wholesale — if anything was saved, the
+ * whole default list was dropped. That was survivable while the only writer was
+ * the admin editor, which saves complete records. It is not survivable now that
+ * the server supplies them, because the server carries only the fields that
+ * decide money: a wholesale swap would leave every technician level and
+ * frequency with a multiplier and no label, and the selectors in the plan
+ * builder would render as blank buttons.
+ *
+ * So the default supplies the words and the saved record supplies the numbers,
+ * which is the division that actually exists. A saved entry with no matching
+ * default is still kept — an administrator may add a frequency we never shipped.
+ */
+function mergeById<T extends { id: string }>(defaults: T[], saved: unknown): T[] {
+  if (!Array.isArray(saved) || saved.length === 0) return defaults;
+  const byId = new Map<string, any>();
+  for (const row of saved) if (row && typeof row === 'object' && (row as any).id) byId.set(String((row as any).id), row);
+
+  const merged = defaults.map((item) => {
+    const row = byId.get(item.id);
+    return row ? { ...item, ...row } : item;
+  });
+  for (const row of saved as any[]) {
+    const id = String(row?.id || '');
+    if (id && !defaults.some((d) => d.id === id)) merged.push(row as T);
+  }
+  return merged;
 }
 
 // Fetch the saved config from the server, merged over code defaults. Falls back
 // to pure defaults if the server is unreachable or nothing has been saved.
 export async function fetchMaintenanceConfig(): Promise<MaintenanceConfig> {
   try {
-    const res = await fetch(`${SERVER}/maintenance-config`, { headers: authHeaders });
+    /**
+     * `/maintenance-catalogue`, not `/maintenance-config`.
+     *
+     * The old route returned only the administrator's saved overrides, or null,
+     * and it is behind the sign-in wall — while this function sends the anon key
+     * alone, so it answered 401 and every caller silently fell back to the copy
+     * of the catalogue bundled into this app. That is how the builder could show
+     * a price the server had never agreed to.
+     *
+     * The new route returns the merged catalogue from the same loader the server
+     * prices with, so the figure on the screen is the figure that will be
+     * charged. The merge below still runs, because the server carries only the
+     * fields that decide money and a label or an icon still comes from here.
+     */
+    const res = await fetch(`${SERVER}/maintenance-catalogue`, { headers: authHeaders });
     const json = await res.json();
     if (!res.ok || !json?.success) {
       console.log('Failed to load maintenance config, using defaults:', json?.error);

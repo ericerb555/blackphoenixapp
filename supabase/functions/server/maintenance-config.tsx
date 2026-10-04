@@ -1,6 +1,7 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { requireStaff } from "./requireStaff.ts";
+import { loadCatalogue } from "./planPricing.ts";
 
 const router = new Hono();
 
@@ -37,6 +38,52 @@ router.use("/make-server-3eae23a6/subscription-plan-overrides/*", staffForWrites
 // editor writes here; the builder reads it (falling back to code defaults when
 // nothing has been saved yet).
 const CONFIG_KEY = "maintenance_config:default";
+
+/**
+ * GET /maintenance-catalogue — the catalogue the SERVER will price from.
+ *
+ * WHY A SECOND READ ROUTE
+ *
+ * `/maintenance-config` returns only what an administrator has saved, or null,
+ * and leaves the browser to merge that over a copy of the catalogue bundled
+ * into the front end. That is how the plan builder ended up showing prices the
+ * server had never agreed to: two copies, two merge rules, and the browser's
+ * figure was the one that got saved. The server-side recompute closed the money
+ * hole; this closes the display half, so the price somebody is shown is the
+ * price they will be charged.
+ *
+ * It returns the MERGED result — generated defaults with the admin's saved
+ * overrides applied — from the same `loadCatalogue` that `pricePlan` uses. One
+ * reader, so the quote and the charge cannot disagree.
+ *
+ * WHY IT IS READABLE WITHOUT SIGNING IN
+ *
+ * The public application forms carry the plan builder, and an applicant has no
+ * account yet — that is what they are applying for. Nothing here is a secret
+ * either: every one of these prices is already shipped inside the front-end
+ * bundle today and shown on the screen to anybody who opens the builder. What
+ * is deliberately NOT here is anything about an account, a Stripe id, or a
+ * saved plan.
+ */
+router.get("/make-server-3eae23a6/maintenance-catalogue", async (c) => {
+  try {
+    const { services, skill, frequency, region } = await loadCatalogue();
+    return c.json({
+      success: true,
+      config: {
+        catalog: services,
+        // Shaped as the front end's own config: a list of records with an id
+        // and a multiplier, so nothing has to translate between two shapes.
+        skillLevels: Object.keys(skill).map((id) => ({ id, multiplier: skill[id] })),
+        frequencyTiers: Object.keys(frequency).map((id) => ({ id, multiplier: frequency[id] })),
+        regions: Object.keys(region).map((id) => ({ id, priceMultiplier: region[id] })),
+      },
+    });
+  } catch (err) {
+    console.log("Error loading the maintenance catalogue:", err);
+    return c.json({ success: false, error: String(err) }, 500);
+  }
+});
 
 router.get("/make-server-3eae23a6/maintenance-config", async (c) => {
   try {
