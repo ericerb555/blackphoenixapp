@@ -659,3 +659,62 @@ pass, 0 fail.
    already wide enough.
 3. Nothing in the builder charges anybody yet — that is P6. What this change
    buys is that the figure which reaches Stripe will be one we computed.
+
+---
+
+## 17. Review — P5's half, the agreed ladders in code (2026-10-03)
+
+Eric approved the ladders ("looks good"), so they are now in the code rather than
+only in a document. Nothing is on sale and nothing has been written to the live
+catalogue yet — both deliberate.
+
+**What changed.**
+
+- `supabase/functions/server/agreedLadders.ts` (new) holds the nine approved
+  ladders as data, each carrying the market figures it was derived from so the
+  next person to doubt a price can check it instead of re-deriving it.
+- `planTier.ts` gained two audiences, `investor` and `condo_manager`. Both were
+  deliberately absent before — the old importer refused to file them under a
+  near-enough audience, and was right to, since a condo manager and a condo
+  association are different buyers. `territory_owner` is still absent, because
+  no market comparable exists for a territory licence and so there is no agreed
+  figure for it to hold.
+- `planTier.ts` also gained the metered tier shape: `includedUnits` and
+  `perUnitCents` on `PlanTier`, plus `tierMonthlyCents(tier, units)`. A flat
+  `priceCents` cannot express "based on doors", and every platform in the market
+  research charges a floor plus a per-unit rate.
+- **A money bug fixed in passing.** `subscriptionTotalCents` added each add-on's
+  `priceCents` directly, and for a per-unit add-on that is the price of ONE
+  unit — so a hundred-unit association was billed for one. It uses
+  `addOnMonthlyCents` now. Nothing bills through that function yet, which is why
+  it had gone unnoticed; it would have surfaced as a wrong invoice rather than
+  as an error. The two-argument call signature is unchanged, and a test pins it.
+- `POST /plan-catalog/seed-ladders` (new, admin only, `?dry=1` supported) writes
+  the ladders into the catalogue. Same three rules as the older importer:
+  everything lands inactive and with no Stripe price; nothing is overwritten;
+  nothing is guessed.
+- `tests/agreedLadders.test.ts` (new, 15 tests) pins every approved figure
+  literally, checks the rungs are exactly Basic/Advanced/Professional in order,
+  that flat ladders carry no stray per-unit rate, that the floor behaves as a
+  minimum rather than a rate, and that a nonsense unit count cannot bill below
+  the floor.
+
+**Checks.** typecheck app 316 / server 87, both at baseline. 1651 tests pass.
+
+**Known gaps.**
+
+1. **Vendor will be skipped by the seed, by design.** `plan_tier:vendor` already
+   holds Listed, Stocked and Preferred with live Stripe prices, so vendors may be
+   paying against those records. The seed refuses to write a second vendor ladder
+   beside them; renaming and repricing those three is a deliberate act with a
+   migration behind it. That is the one audience the approved table cannot reach
+   without Eric's say-so.
+2. **Nothing has been seeded.** The route exists and has not been run — these are
+   live prices, and `test-before-production` says so. Run it with `?dry=1` first.
+3. **No Stripe prices.** P6. A tier with no Stripe price cannot be bought, which
+   is the safety net under all of the above.
+4. **The metered count has no source yet.** `tierMonthlyCents` takes a unit count
+   and the ladders define what a unit is per audience, but nothing resolves a
+   door count from our own records yet. Until it does, a metered tier bills at
+   its floor. That is the safe direction to fail, and it is the next piece of
+   work after the seed.

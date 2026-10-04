@@ -35,11 +35,27 @@ import { priceFor, type Cohort } from './cohortPricing.ts';
 /** Which portal a tier is sold into. One catalogue per audience. */
 export type Audience =
   | 'vendor' | 'subcontractor' | 'advertiser' | 'customer'
-  | 'content' | 'property_manager' | 'landlord' | 'condo_association';
+  | 'content' | 'property_manager' | 'landlord' | 'condo_association'
+  | 'investor' | 'condo_manager';
 
 export const AUDIENCES: Audience[] = [
   'vendor', 'subcontractor', 'advertiser', 'customer',
   'content', 'property_manager', 'landlord', 'condo_association',
+  /**
+   * Added once Eric approved the ladders in `tasks/price-ladders.md`.
+   *
+   * Both were deliberately absent before: the importer refused to file
+   * `investor` or `condo_manager` under a near-enough audience, and it was
+   * right to. `condo_manager` is the managing company and
+   * `condo_association` is the association itself — different buyers, with
+   * different ladders, and guessing they were the same would have billed one
+   * for the other's plan.
+   *
+   * `territory_owner` is still absent, and that is also deliberate: no market
+   * comparable exists for a territory licence, so it has no agreed figures to
+   * hold yet.
+   */
+  'investor', 'condo_manager',
 ];
 
 export interface PlanTier {
@@ -77,6 +93,34 @@ export interface PlanTier {
   stripePriceIdTest?: string;
   /** Display price in cents, for showing a figure without asking Stripe. */
   priceCents?: number;
+  /**
+   * How many units the price already covers, before metering starts.
+   *
+   * Only meaningful alongside `perUnitCents`. A property manager's Basic rung
+   * is "$72 a month, which includes 24 doors" — `priceCents` is the 7200 and
+   * this is the 24.
+   */
+  includedUnits?: number;
+  /**
+   * What each unit beyond `includedUnits` adds per month, in cents.
+   *
+   * WHY A TIER NEEDS THIS AND NOT ONLY ADD-ONS
+   *
+   * Eric's ruling on the ladders: *"some of those number will be based on
+   * doors and features wanted."* The features are add-ons, which this file
+   * already models. The doors are the tier's own price, and a flat
+   * `priceCents` cannot express them — a four-unit landlord and a
+   * four-hundred-door manager are not on the same plan at the same figure.
+   *
+   * Every platform the pricing was researched against charges exactly this
+   * shape: a monthly minimum plus a rate per unit. See
+   * `tasks/price-ladders.md`.
+   *
+   * The count NEVER comes from the customer. It is resolved from our own
+   * records, the same rule `addOnQuantity` already follows, because an account
+   * that types its own door count sets its own price.
+   */
+  perUnitCents?: number;
   interval?: BillingInterval;
   /**
    * Add-ons this tier includes at no extra cost.
@@ -389,14 +433,55 @@ export function addOnIncludedIn(
 export function subscriptionTotalCents(
   tier: Partial<PlanTier> | null | undefined,
   chosen: Array<Partial<PlanAddOn>> = [],
+  /**
+   * How many units this account covers, resolved from our own records.
+   *
+   * Zero means "not metered", which is the right default: every caller that
+   * existed before metering did passes two arguments, and a tier with no
+   * `perUnitCents` is unaffected either way.
+   */
+  unitsCovered = 0,
 ): number {
-  let total = Math.max(0, Number(tier?.priceCents ?? 0) || 0);
+  let total = tierMonthlyCents(tier, unitsCovered);
   for (const addOn of chosen) {
     if (!addOnAvailableOn(addOn, tier)) continue;
     if (addOnIncludedIn(String(addOn?.id || ''), tier)) continue;
-    total += Math.max(0, Number(addOn?.priceCents ?? 0) || 0);
+    /**
+     * `addOnMonthlyCents`, not `priceCents`.
+     *
+     * For a per-unit add-on `priceCents` is the price of ONE unit, so adding
+     * it raw charged a hundred-unit association for one unit — the exact
+     * failure the comment on `addOnMonthlyCents` warns about. Nothing was
+     * billing through this function yet, which is why it had gone unnoticed.
+     */
+    total += addOnMonthlyCents(addOn, unitsCovered);
   }
   return total;
+}
+
+/**
+ * What the TIER alone costs this month: the floor, plus any metered units.
+ *
+ * A tier with no `perUnitCents` returns its flat price, so this is safe to use
+ * everywhere rather than only on the metered ladders.
+ *
+ * Units below the included count never discount the floor. The floor is a
+ * minimum — that is what every platform in the market research charges, and a
+ * two-door manager paying two-twenty-fourths of $72 would be a price nobody
+ * can run a business on.
+ */
+export function tierMonthlyCents(
+  tier: Partial<PlanTier> | null | undefined,
+  unitsCovered = 0,
+): number {
+  const floor = Math.max(0, Number(tier?.priceCents ?? 0) || 0);
+  const perUnit = Math.max(0, Number(tier?.perUnitCents ?? 0) || 0);
+  if (!perUnit) return floor;
+
+  const included = Math.max(0, Math.floor(Number(tier?.includedUnits ?? 0) || 0));
+  const units = Math.max(0, Math.floor(Number(unitsCovered) || 0));
+  const metered = Math.max(0, units - included);
+  return floor + metered * perUnit;
 }
 
 /**

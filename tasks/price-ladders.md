@@ -170,7 +170,7 @@ units the floor includes.** Every rate is the market average plus 10%.
 | Professional | **$335** | $5.50 | $305 top plans, $5.00/unit |
 
 At 100 doors that is $175 Basic, $442 Advanced, $753 Professional. At 400 doors,
-$579 / $1,402 / $2,403. Both sit inside what AppFolio, Buildium and Yardi charge
+$580 / $1,402 / $2,403. Both sit inside what AppFolio, Buildium and Yardi charge
 at those sizes, which is the check that matters.
 
 **Condo association** — by units in the building

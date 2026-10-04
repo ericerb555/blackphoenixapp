@@ -37,6 +37,7 @@ import {
   type Audience, type PlanAddOn, type PlanTier, type StripeMode,
 } from "./planTier.ts";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
+import { AGREED_LADDERS } from "./agreedLadders.ts";
 import { QUOTE_DISCOUNT_CAP_PERCENT } from "./discounts.ts";
 
 /**
@@ -764,6 +765,110 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-catalog/import", async (c) =>
       : "Everything landed withdrawn and with no Stripe price, so nothing is on sale. "
         + "Edit what you want to keep in the Portal Plans tab, delete the rest, "
         + "and create a price for anything you intend to sell.",
+  });
+});
+
+/**
+ * POST /plan-catalog/seed-ladders — write the ladders Eric approved.
+ *
+ * Separate from `/plan-catalog/import` above, which reads the legacy
+ * `PORTAL_UPGRADE_PRICES` map. That map is superseded: its figures were whatever
+ * had been published before, and the agreed ladders are researched market prices
+ * plus ten percent. Two different sources, two routes; the old one stays until
+ * nothing depends on it.
+ *
+ * The same three rules apply, for the same reasons.
+ *
+ * Everything lands INACTIVE and with no Stripe price, so seeding is not a
+ * decision to sell anything and could not sell anything even by accident.
+ *
+ * Nothing is overwritten. This matters more here than it did for the import:
+ * `plan_tier:vendor` already holds Listed, Stocked and Preferred with live
+ * Stripe prices, so real vendors may be paying against those records. Writing a
+ * second vendor ladder beside them would leave two ladders live for one
+ * audience, which is the problem this whole exercise exists to end — so an
+ * audience that already has tiers is reported and skipped whole, and renaming
+ * what is there is a deliberate act with a migration behind it, not an import.
+ *
+ * Nothing is guessed. `territory_owner` and the content centre have no agreed
+ * figures, so they are absent from `AGREED_LADDERS` rather than seeded with
+ * something plausible.
+ */
+planCatalogRouter.post("/make-server-3eae23a6/plan-catalog/seed-ladders", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ error: "Sign in required." }, 401);
+  if (!who.isAdmin) return c.json({ error: "Only an administrator can seed the catalogue." }, 403);
+
+  const dryRun = c.req.query("dry") === "1";
+  const onlyAudience = (c.req.query("audience") || "").trim();
+
+  const created: any[] = [];
+  const skipped: any[] = [];
+  const now = new Date().toISOString();
+
+  for (const ladder of AGREED_LADDERS) {
+    if (onlyAudience && ladder.audience !== onlyAudience) continue;
+
+    // An audience that already has a ladder is left entirely alone — see the
+    // note above about the vendor tiers that carry live Stripe prices.
+    const existing = await kv.getByPrefix(`plan_tier:${ladder.audience}:`);
+    const held = (existing || []).filter(Boolean);
+    if (held.length) {
+      skipped.push({
+        audience: ladder.audience,
+        why: `already has ${held.length} tier(s) — ${held.map((t: any) => t?.id).filter(Boolean).join(", ")}. `
+          + "Renaming or repricing those moves real subscribers and is a deliberate act, not a seed.",
+      });
+      continue;
+    }
+
+    for (let i = 0; i < ladder.rungs.length; i++) {
+      const rung = ladder.rungs[i];
+      const record: PlanTier = {
+        id: rung.id,
+        audience: ladder.audience,
+        name: rung.name,
+        blurb: rung.blurb,
+        features: [],
+        limits: {},
+        priceCents: rung.priceCents,
+        ...(rung.includedUnits ? { includedUnits: rung.includedUnits } : {}),
+        ...(rung.perUnitCents ? { perUnitCents: rung.perUnitCents } : {}),
+        interval: "month",
+        sortOrder: i,
+        // Withdrawn, and with no Stripe price. Both deliberate.
+        active: false,
+      };
+      if (!dryRun) {
+        await kv.set(TIER(ladder.audience, rung.id), {
+          ...record,
+          marketBasis: ladder.marketBasis,
+          unitNoun: ladder.unitNoun || null,
+          seededFrom: "tasks/price-ladders.md",
+          createdAt: now,
+          updatedBy: who.email,
+        });
+      }
+      created.push({
+        audience: ladder.audience,
+        id: rung.id,
+        priceCents: rung.priceCents,
+        includedUnits: rung.includedUnits || null,
+        perUnitCents: rung.perUnitCents || null,
+      });
+    }
+  }
+
+  console.log(`[PlanCatalog] ${who.email} seeded ${created.length} rungs, skipped ${skipped.length} audience(s)${dryRun ? " (dry run)" : ""}`);
+  return c.json({
+    success: true,
+    dryRun,
+    created,
+    skipped,
+    note: dryRun
+      ? "Nothing was written. This is what seeding would do."
+      : "Every rung landed withdrawn and with no Stripe price, so nothing is on sale. "
+        + "Create a Stripe price for anything you intend to sell, then switch it on.",
   });
 });
 
