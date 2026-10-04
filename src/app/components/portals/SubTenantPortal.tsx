@@ -803,8 +803,8 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
               </div>
               <p className="text-sm text-gray-300 mb-4">Purchase or redeem gift cards for Black Phoenix handyman, maintenance, and home improvement services.</p>
               <div className="flex gap-2">
-                <button className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold transition">Buy a Gift Card</button>
-                <button className="flex-1 py-2.5 border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 rounded-lg text-sm font-bold transition">Redeem a Code</button>
+                <button onClick={() => onNavigate?.('gift-cards')} className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold transition">Buy a Gift Card</button>
+                <button onClick={() => onNavigate?.('gift-cards?tab=redeem')} className="flex-1 py-2.5 border border-orange-500/40 text-orange-400 hover:bg-orange-500/10 rounded-lg text-sm font-bold transition">Redeem a Code</button>
               </div>
             </div>
           </div>

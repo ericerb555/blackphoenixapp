@@ -103,6 +103,30 @@ export default function GiftCards() {
   const [myCards, setMyCards] = useState<GiftCard[]>([]);
   const [activeTab, setActiveTab] = useState<'buy' | 'redeem' | 'mine'>('buy');
   const [redeemCode, setRedeemCode] = useState('');
+
+  /**
+   * Honour ?tab= so other screens can deep-link to a specific tab.
+   *
+   * The tenant portal's 'Redeem a Code' button needs to land on redeem, not on
+   * buy. Same pattern as RewardsPerksHub: the in-app router pushes state
+   * without firing popstate, so it dispatches `app:navigate` and hubs re-read
+   * the URL from that.
+   */
+  useEffect(() => {
+    const syncFromUrl = () => {
+      try {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        if (t === 'buy' || t === 'redeem' || t === 'mine') setActiveTab(t);
+      } catch { /* a tab we do not know is simply ignored */ }
+    };
+    syncFromUrl();
+    window.addEventListener('popstate', syncFromUrl);
+    window.addEventListener('app:navigate', syncFromUrl as EventListener);
+    return () => {
+      window.removeEventListener('popstate', syncFromUrl);
+      window.removeEventListener('app:navigate', syncFromUrl as EventListener);
+    };
+  }, []);
   const [redeemResult, setRedeemResult] = useState<GiftCard | null>(null);
 
   const finalAmount = customAmount ? parseInt(customAmount) : amount;
