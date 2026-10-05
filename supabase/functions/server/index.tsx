@@ -52,8 +52,10 @@ import {
   adverseActionRefusal,
   adverseActionNotice,
   purgeRefusal,
+  auditEventFor,
   SCREENING_MIN_RETENTION_DAYS,
 } from "./screeningOrder.ts";
+import { auditEntry, auditKey, auditMonthPrefix } from "./screeningAudit.ts";
 import {
   chargeFor,
   chargeRefusalMessage,
@@ -10019,6 +10021,26 @@ app.patch('/make-server-3eae23a6/landlord/applications/:id', async (c) => {
         // a draft awaiting a lawyer, and the landlord is told it is owed rather
         // than having something posted in their name.
         adverseAction = refusal ? { owed: false, reason: refusal } : { owed: true, orderId: order.id };
+
+        // An adverse action is the single most consequential thing done with a
+        // consumer report, and the one an audit will ask about by name. Logged
+        // when it becomes owed, with what the landlord said about their own
+        // reasoning.
+        if (!refusal) {
+          await auditScreening({
+            event: 'adverse_action',
+            orderId: order.id,
+            landlordEmail: email,
+            certifiedBy: email,
+            permissiblePurpose: order.permissiblePurpose,
+            provider: order.provider,
+            providerRef: order.providerRef,
+            applicantName: order.applicantName,
+            applicantEmail: order.applicantEmail,
+            propertyState: order.propertyState,
+            note: 'Declined; the landlord recorded the report as a factor.',
+          });
+        }
       }
     } catch (e: any) {
       // A decision must not fail because the screening record could not be
@@ -10231,10 +10253,48 @@ async function advanceOrder(order: any, to: ScreeningState, patch: Record<string
     ...(to === 'complete' && verdict === 'ok' ? { completedAt: now } : {}),
   };
   await kv.set(screeningOrderKey(order.id), next);
+
+  // One place records the outcome, because one place makes the move. A route
+  // that advanced an order without logging it would be a gap nobody could see.
+  const event = verdict === 'ok' ? auditEventFor(to) : null;
+  if (event) {
+    await auditScreening({
+      event,
+      orderId: next.id,
+      landlordEmail: next.landlordEmail,
+      certifiedBy: next.certifiedBy,
+      permissiblePurpose: next.permissiblePurpose,
+      provider: next.provider,
+      providerRef: next.providerRef,
+      applicantName: next.applicantName,
+      applicantEmail: next.applicantEmail,
+      propertyState: next.propertyState,
+      note: event === 'failed' ? next.failureReason : null,
+    });
+  }
+
   return { ok: true as const, order: next, noop: verdict === 'noop' };
 }
 
 const SCREENING_PRICING_KEY = 'screening_pricing';
+
+/**
+ * Write one audit entry. Never throws into the caller.
+ *
+ * A failed audit write must not fail the thing it was describing: refusing to
+ * complete a screening because a log row would not save is the wrong trade,
+ * and the order record still carries the purpose and certifier as a second
+ * source. It is logged loudly instead, because a silent gap in an audit trail
+ * is the one thing an audit trail cannot survive.
+ */
+async function auditScreening(input: Parameters<typeof auditEntry>[0]) {
+  try {
+    const record = auditEntry(input, crypto.randomUUID());
+    await kv.set(auditKey(record), record);
+  } catch (e: any) {
+    console.log(`[screening] AUDIT WRITE FAILED for order ${input?.orderId} (${input?.event}): ${e?.message || e}`);
+  }
+}
 
 // How long an applicant-paid screening may sit undecided before the landlord is
 // told. Two weeks: long enough that it is not chasing an ordinary decision,
@@ -10436,6 +10496,27 @@ app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) 
     const provider = providerFor(DEFAULT_PROVIDER);
     if (!provider) return c.json({ success: false, error: 'No screening provider is configured.' }, 503);
 
+    /**
+     * A landlord may not order a screening that cannot produce a report.
+     *
+     * The `manual` provider exists so this flow can be exercised before any
+     * agency agreement, and that is still useful — but only to staff. For
+     * anybody else an order against it is a promise the system cannot keep:
+     * the status reaches `invited` and stays there, and before this guard they
+     * would also have been charged for it.
+     *
+     * Staff are allowed through so the flow stays testable end to end, and
+     * `chargeFor` refuses to charge a non-live provider regardless of who is
+     * asking — so even a staff test cannot take money for nothing.
+     */
+    if (!provider.live && !actor.admin) {
+      return c.json({
+        success: false,
+        error: 'Tenant screening is not available yet — no screening agency is connected, so no report could be produced. Nothing has been charged.',
+        reason: 'provider_not_live',
+      }, 503);
+    }
+
     const id = `scr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
     let order: any = {
@@ -10468,13 +10549,30 @@ app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) 
     await kv.set(screeningOrderKey(id), order);
     await kv.set(landlordOrdersKey(email), [id, ...existingIds].slice(0, 500));
 
+    // The audit entry is written when the report is REQUESTED, not when it
+    // arrives. A pull that was asked for and failed is still a pull somebody
+    // made against an applicant, and it is the one an audit most wants to see.
+    await auditScreening({
+      event: 'requested',
+      orderId: id,
+      landlordEmail: email,
+      certifiedBy: email,
+      permissiblePurpose: String(body.permissiblePurpose),
+      provider: provider.name,
+      applicantName: application.name,
+      applicantEmail: application.email,
+      propertyState: body.propertyState,
+    });
+
     // Is there a fee, and whose? The price comes from the server's own settings
     // and never from the request; the state decides the payer. An unpriced
     // system — which is the state of it until somebody publishes a figure —
     // falls through to inviting at no charge, exactly as it did before money
     // existed here.
     const pricing = await kv.get(SCREENING_PRICING_KEY) as any;
-    const decision = chargeFor(pricing, body.propertyState);
+    // `provider.live` is passed, not assumed: no money is taken for a report
+    // that cannot be produced, whoever is asking.
+    const decision = chargeFor(pricing, body.propertyState, provider.live);
 
     if (decision.charge) {
       try {
@@ -10879,6 +10977,37 @@ app.put('/make-server-3eae23a6/staff/screening/pricing', async (c) => {
     await kv.set(SCREENING_PRICING_KEY, pricing);
     return c.json({ success: true, pricing });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to save the screening fee.' }, 500); }
+});
+
+/**
+ * Staff: every consumer report requested in a month.
+ *
+ * This is the route that answers an audit, which is why it reads by month
+ * rather than paging everything: the question is always "show me the pulls in
+ * this period". Staff only, and it returns metadata — who pulled, under what
+ * purpose, about whom — and never a report, because none is stored.
+ *
+ * It survives the retention purge on purpose. The purge deletes finished
+ * orders; these entries are a separate prefix with their own life, so a
+ * year-old audit question is still answerable after the orders behind it are
+ * long gone.
+ */
+app.get('/make-server-3eae23a6/staff/screening/audit', async (c) => {
+  try {
+    if (!(await isStaffRequest(c))) return c.json({ success: false, error: 'Staff access is required.' }, 403);
+    const month = String(c.req.query('month') || '').trim() || new Date().toISOString().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month) && month !== 'unknown') {
+      return c.json({ success: false, error: 'Month must be in the form YYYY-MM.' }, 400);
+    }
+    const rows = await kv.getByPrefix(auditMonthPrefix(month));
+    const entries = rows
+      .map((r: any) => r?.value)
+      .filter(Boolean)
+      .sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+    const byEvent: Record<string, number> = {};
+    for (const e of entries) byEvent[String(e.event)] = (byEvent[String(e.event)] || 0) + 1;
+    return c.json({ success: true, month, count: entries.length, byEvent, entries });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to read the audit log.' }, 500); }
 });
 
 /**

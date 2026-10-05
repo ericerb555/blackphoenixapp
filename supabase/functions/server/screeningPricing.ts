@@ -64,7 +64,8 @@ export type ChargeRefusal =
   | 'no_pricing'
   | 'disabled'
   | 'unpriced'
-  | 'price_out_of_bounds';
+  | 'price_out_of_bounds'
+  | 'provider_not_live';
 
 /**
  * One flat shape rather than a discriminated union, and not by preference.
@@ -126,7 +127,27 @@ export function payerFor(
 export function chargeFor(
   pricing: ScreeningPricing | null | undefined,
   state: string | null | undefined,
+  providerLive = true,
 ): ChargeDecision {
+  /**
+   * NOTHING IS CHARGED FOR A REPORT THAT CANNOT BE PRODUCED.
+   *
+   * Checked before the price, before the switch, before anything, because this
+   * is the one refusal that exists to prevent taking money for nothing.
+   *
+   * It is here rather than only in the route because of how the hole appeared:
+   * phase 2 built the fee, phase 3 (a real agency) was not built, and the only
+   * `provider.live` checks were on the report link and the staff-advance route.
+   * So a fee could be taken while the configured provider was `manual`, which
+   * issues no invitation and produces no report by design — the landlord pays
+   * and the order sits at `invited` for ever.
+   *
+   * A guard in one route would have been enough until somebody added a second
+   * route that charges. A guard in the function that decides every charge is
+   * enough for ever.
+   */
+  if (providerLive === false) return NO_CHARGE('provider_not_live');
+
   if (!pricing) return NO_CHARGE('no_pricing');
   if (pricing.enabled === false) return NO_CHARGE('disabled');
 
@@ -151,6 +172,8 @@ export function chargeRefusalMessage(reason: ChargeRefusal): string {
       return 'Screening fees are switched off, so this screening is being ordered at no charge.';
     case 'price_out_of_bounds':
       return `The configured screening fee is not a usable amount (over $${(SCREENING_MAX_PRICE_CENTS / 100).toFixed(2)}), so nothing has been charged. Correct it in the screening settings.`;
+    case 'provider_not_live':
+      return 'No screening agency is connected yet, so no report can be produced and nothing has been charged.';
   }
 }
 

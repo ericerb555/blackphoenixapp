@@ -77,6 +77,21 @@ const ALLOWED: Readonly<Record<ScreeningState, readonly ScreeningState[]>> = {
 export type TransitionVerdict = 'ok' | 'noop' | 'refused';
 
 /**
+ * The audit events a state change should record, if any.
+ *
+ * Kept here rather than in the route so the mapping is testable and so there is
+ * one answer to "which transitions are audit-worthy". Only the terminal facts
+ * are logged — a report arrived, or it did not. The intermediate steps are
+ * operational noise, and an audit trail diluted with them is harder to read,
+ * not more complete.
+ */
+export function auditEventFor(to: ScreeningState): 'completed' | 'failed' | null {
+  if (to === 'complete') return 'completed';
+  if (to === 'failed') return 'failed';
+  return null;
+}
+
+/**
  * Whether an order may move from one state to another.
  *
  * `noop` rather than `refused` for a move to the state it is already in, because

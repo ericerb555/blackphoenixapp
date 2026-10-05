@@ -238,3 +238,40 @@ test('a refund is not revenue', () => {
   ]);
   assert.deepEqual(m, { paidOrders: 2, revenueCents: 9000, refundedCents: 2000, costCents: 5000, marginCents: 2000 });
 });
+
+/* ── nothing is charged for a report that cannot be produced ──────────────── */
+
+test('a provider that is not live is never charged for, whatever the price says', () => {
+  // The hole this closes: phase 2 built the fee, phase 3 (a real agency) was
+  // not, and a landlord could pay $45 for an order that sits at `invited` for
+  // ever because the `manual` provider produces nothing.
+  const verdict = chargeFor(priced, 'MA', false);
+  assert.deepEqual(verdict, { charge: false, reason: 'provider_not_live', payer: null, amountCents: 0, costCents: 0 });
+});
+
+test('it is checked before the price, the switch and the bounds', () => {
+  // So the reason reported is the real one. "Your fee is misconfigured" would
+  // send somebody to fix the wrong thing.
+  assert.equal(chargeFor({ ...priced, enabled: false }, 'MA', false).reason, 'provider_not_live');
+  assert.equal(chargeFor({ ...priced, priceCents: 0 }, 'MA', false).reason, 'provider_not_live');
+  assert.equal(chargeFor({ ...priced, priceCents: 999999 }, 'MA', false).reason, 'provider_not_live');
+  assert.equal(chargeFor(null, 'MA', false).reason, 'provider_not_live');
+});
+
+test('a live provider charges exactly as before', () => {
+  // The default is true, so every existing caller and test is unaffected.
+  assert.equal(chargeFor(priced, 'MA', true).charge, true);
+  assert.equal(chargeFor(priced, 'MA').charge, true);
+});
+
+test('only a literal false blocks the charge', () => {
+  // An absent or undefined flag must not silently stop charging — that would
+  // turn a missing argument into a free screening.
+  assert.equal(chargeFor(priced, 'MA', undefined).charge, true);
+});
+
+test('the refusal explains itself to a landlord', () => {
+  const message = chargeRefusalMessage('provider_not_live');
+  assert.ok(message.includes('agency'));
+  assert.ok(message.toLowerCase().includes('nothing has been charged'));
+});

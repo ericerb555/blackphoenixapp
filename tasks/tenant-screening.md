@@ -1317,3 +1317,222 @@ so a vite that cannot bind fails loudly instead of hanging.
 No payment, no refund, no disclosure page exercised against a real Stripe
 session. This phase is deployed nowhere yet. The refund path in particular has
 never run, and it is the only code in this system that moves money *out*.
+
+---
+
+# PLAN — Phase 6: the consumer-initiated report
+
+Written 2026-10-04 on Eric's instruction, after he proposed the architecture:
+*"we should link the report agency and they they submit it to us?"* Not started;
+waiting on him to verify the plan.
+
+The point of this variant is that **it needs nobody's permission.** The
+applicant buys their own report from a bureau and authorises release to a named
+landlord; the bureau is the applicant's supplier, not ours. So it can ship
+without the agency agreement that phase 3 waits on, and it produces real
+reports on real applicants this week rather than this quarter.
+
+## Say the uncomfortable part first
+
+**This variant cannot be fully automated, and that is inherent rather than a
+gap to close later.** The report is delivered by the bureau to the landlord,
+outside this system. Nothing machine-readable tells us it arrived. So the order
+reaches `complete` because the **landlord says it did**, not because a webhook
+said so.
+
+Everything else here is automatic — the request, the applicant's instructions,
+the chasing, the decision record, the adverse-action notice. But the one step
+that matters is a person pressing a button, and no amount of design removes it
+without the agency relationship that phase 3 is for.
+
+That is worth building anyway, because the alternative today is nothing at all.
+It also means the two variants are complements rather than competitors: this one
+is a free feature of the landlord portal, and the hosted one is the paid product.
+
+## It must never be charged for
+
+Today ordering a screening charges whatever `screening_pricing` says — $45 at
+the time of writing. **A consumer-initiated request has no cost of goods to us
+and must bypass pricing entirely**, or a landlord is billed $45 for a report
+the applicant bought from Experian. That is the single worst bug this phase
+could ship, so it is the first item.
+
+- [ ] A `kind` on the order: `agency` (today's behaviour) or `consumer`.
+- [ ] `chargeFor` is never consulted for a `consumer` order. No price, no
+      checkout, no disclosure page, no refund — none of it applies.
+- [ ] `marginOf` ignores them, so free work does not appear in revenue.
+
+## The flow
+
+- [ ] A second button beside *Order screening*: **"Ask the applicant for their
+      own report"**.
+- [ ] The applicant is emailed a page — a sibling of the fee disclosure, same
+      token shape — explaining what to obtain, from where, and that it must be
+      released to the landlord by the bureau rather than sent as a file.
+- [ ] The landlord later records **received**: which bureau, the reference the
+      bureau gave, and the date. That moves the order to `complete`.
+- [ ] The existing chase sweep reminds the landlord of a request still
+      outstanding after a fortnight, the way it already reports stale
+      applicant-paid orders.
+
+## What we will not accept, and this is the whole integrity of it
+
+**A file the applicant sends is not a report.** A PDF or a screenshot can be
+edited in a minute, and a system that accepts one is a system that can be lied
+to about somebody's credit. The acceptable forms are a release the bureau makes
+to the landlord's own bureau account, or a verifiable link issued by the
+bureau — never an upload.
+
+- [ ] No upload field. Deliberately absent, with a line on the page saying why.
+- [ ] The recorded reference is stored as **landlord-asserted** and labelled
+      that way wherever it is shown. We did not verify it and must not imply we
+      did.
+
+## Adverse action needs the agency per order, not per provider
+
+`adverseActionRefusal` currently reads the agency from the provider, because
+with one agency per platform that was the same thing. Here the bureau is
+whichever one the applicant happened to use, so the disclosure block has to
+come off the order.
+
+- [ ] `agency` resolves from the order first, falling back to the provider.
+- [ ] The bureau's legal name, address and phone come from a small
+      **staff-editable record** rather than a table in the source. Three
+      bureaus is stable data, but it is still somebody else's facts, and
+      `jurisdictions.tsx` already argues why those rot in silence when
+      hardcoded.
+- [ ] The notice is refused, as now, when the agency is unknown — a notice
+      naming no agency cannot tell somebody where their file is.
+
+## Still worth doing even though phase 3 is better
+
+Because it answers the question Eric actually asked — where is the report —
+with "in your hands, this week", instead of "after an agreement". And because
+**New York already obliges a landlord to accept an applicant's own recent
+report and waive the fee**, so this capability is required there regardless of
+whether it is ever the headline product.
+
+## Not in this phase
+
+**No bureau integration.** No API, no webhook, no deep link that assumes a
+particular bureau's parameters. If the landlord has their own Experian Connect
+account they can paste their request link into the applicant's page, and that
+is the extent of it. Anything cleverer is phase 3 wearing a disguise.
+
+**No fee of any kind**, including a handling fee. In Massachusetts an applicant
+cannot be charged, and charging a landlord for a report somebody else bought is
+not a product.
+
+## Review
+
+*(To be completed when the work is done.)*
+
+---
+
+# PLAN — Phase 3 proper: a real agency, over an API
+
+Written 2026-10-04. **This supersedes Phase 6**, which was the workaround for
+not having an agency. Eric asked whether we can link a company and get the
+result directly with the applicant's consent. We can; that is the normal way
+this is done, and consent is the mechanism that makes it lawful.
+
+Phase 6 is set aside rather than deleted. It stays relevant for one reason:
+**New York obliges a landlord to accept an applicant's own recent report and
+waive the fee**, so the capability is required there eventually regardless.
+
+## The gate is smaller than this plan has been claiming
+
+Every version of this document has described the blocker as "a consumer
+reporting agency agreement", which sounds like a negotiation. It is closer to
+an application form. Two providers sell exactly this as a product:
+
+    Tenant Alert — Resident Screening API    all three bureaus, intake,
+                                             ordering, status, results
+                                             NO MINIMUMS, NO STARTUP FEES
+    AAOA — Enterprise API                    POST /v1/screenings
+                                             GET  /v1/reports
+                                             pitched at 50–1,000+ units
+
+**Start with Tenant Alert.** The AAOA enterprise product is sized for portfolios
+of fifty units upward, and this platform has six portal accounts. No minimum and
+no startup fee is the difference between trying this and budgeting for it.
+
+## The wholesale cost figure in production is wrong
+
+`screening_pricing` currently says `costCents: 1500`. Published aggregator
+pricing works out around **$20 a report for a standard package and $30 for a
+premium one** — an AAOA example prices 184 standard screenings at $3,680 and 62
+premium at $1,860.
+
+That matters beyond the margin being overstated. **In New Hampshire the refund
+is price minus documented cost**, so an understated cost means refunding more
+than the law requires — at $45 and a true $25 cost we would hand back $30 where
+$20 was owed. The figure has to be the real invoice, not an estimate, and it
+should be corrected the moment a rate card exists.
+
+- [ ] Correct `costCents` from the signed rate card, not from a guess.
+
+## What they require, and what is already built
+
+Their onboarding checklist is almost exactly phases 0 to 3:
+
+    written applicant consent                 BUILT   wording + timestamp
+    permissible purpose, certified per pull   BUILT   closed list + certifier
+    adverse action with dispute instructions  DRAFT   needs the lawyer pass
+    logged queries, audit-ready records       PARTIAL see below
+    end-user credentialing + agreement        NOT STARTED — the real gate
+    sandbox integration before live           NOT STARTED
+
+So the compliance work is done, which was not luck: it is what the statutes
+required anyway.
+
+- [ ] **A proper audit log.** Today the order carries who certified what and
+      when, which is most of it, but there is no append-only record of *every
+      pull* independent of the order it belongs to. An audit asks "show me every
+      consumer report you requested in March"; a KV scan over orders is an
+      answer that degrades as orders are purged. This wants its own record with
+      its own retention, longer than the order's.
+
+## The one consequential decision: we become a reseller
+
+If the report returns **to our API call**, we are handling consumer-report data
+and we are no longer merely a conduit. In FCRA terms that is a reseller, with
+duties of its own: data security, dispute handling, audit trails, and the breach
+exposure that comes with the most sensitive record in the system.
+
+This is how every property-technology platform works, so it is not exotic — but
+it is a real change in what Black Phoenix is, and it should be a decision rather
+than a side effect of an integration.
+
+**The mitigation that keeps nearly all of the benefit: pass through, never
+persist.** Receive the result, hand the landlord a short-lived link, write
+nothing down but the reference. The code is already shaped for it — `reportUrl`
+is fetched per request and never cached, and there is no field on the order that
+could hold a report.
+
+- [ ] The provider returns a link or a short-lived stream, and no handler ever
+      writes a report body to the key-value store. A test that asserts the
+      stored order contains no report field after a complete cycle.
+
+## The build, once sandbox keys exist
+
+- [ ] One provider file implementing `createOrder`, `fetchStatus`, `reportUrl`
+      and the `agency` disclosure block. Nothing outside it learns the
+      provider's name.
+- [ ] Their webhook, routed by metadata the way the Stripe one already is.
+- [ ] Sandbox and live keys as edge-function secrets, with the provider refusing
+      to run against live keys while a sandbox flag is set.
+- [ ] Flip `DEFAULT_PROVIDER` from `manual` once a sandbox order completes
+      end to end.
+
+## What can be built before any credentials
+
+Enough to be worth doing now:
+
+- [ ] The audit log, which is required by every provider and useful regardless.
+- [ ] The no-persistence test, which pins a property we want true for ever.
+- [ ] The cost figure corrected to a real number when the rate card arrives.
+
+## Review
+
+*(To be completed when the work is done.)*
