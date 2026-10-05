@@ -26,7 +26,9 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { evidenceFor, propertyFor, detailFor } from "./propertyReportData.ts";
-import { propertyHealthReport } from "./propertyReportContent.ts";
+import { propertyHealthReport, capitalPlanReport } from "./propertyReportContent.ts";
+import * as kv from "./kv_store.tsx";
+import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { reportToHtml } from "./reportHtml.ts";
 import { offerFor, canSell, capitalPlanBasis, reportSpec } from "./propertyReportRules.ts";
 
@@ -153,6 +155,47 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/property-h
 
   const detail = await detailFor(who.email, propertyId);
   const report = propertyHealthReport(detail, evidence);
+  return c.html(reportToHtml(report));
+});
+
+/**
+ * GET /property-reports/:propertyId/capital-plan/view — the ten-year plan.
+ *
+ * THE RATES ARE OURS, AND THE REPORT SAYS WHICH
+ *
+ * This is the line in the plan that says the capital plan is costed "through
+ * our own labour and materials catalogue, which is the thing no competitor can
+ * copy". `resolveLaborRates` answers with the rates an administrator has
+ * published, or the standards when none have been — and it reports which, so
+ * the document can say so rather than implying a precision it does not have.
+ *
+ * Both are read through the same resolvers the estimator uses, so a line in
+ * this plan and a quote for that line are priced by the same arithmetic.
+ */
+reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/capital-plan/view", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const propertyId = String(c.req.param("propertyId") || "").trim();
+  const evidence = await evidenceFor(who.email, propertyId);
+  const verdict = canSell("capital-plan", evidence);
+  if (!verdict.ok) {
+    return c.json({
+      success: false,
+      error: `There is not enough recorded about this property yet: ${verdict.blocker}.`,
+      requirements: verdict.requirements,
+    }, 409);
+  }
+
+  const [detail, ratesRaw, pricingRaw] = await Promise.all([
+    detailFor(who.email, propertyId),
+    kv.get("labor_rates:global").catch(() => null),
+    kv.get("pricing_config:global").catch(() => null),
+  ]);
+  const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
+  const { settings } = resolvePricing(pricingRaw);
+
+  const report = capitalPlanReport(detail, evidence, rates, settings, !ratesAreStandard);
   return c.html(reportToHtml(report));
 });
 

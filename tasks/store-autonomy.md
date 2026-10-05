@@ -913,3 +913,98 @@ which is accurate and still not worth $79.
   because the gate and the document had to exist before any of that could be
   wired. That is the next piece, and it is the same `marketplace_product` path
   the other sixteen products use.
+
+---
+
+## Review — the 10-Year Capital Plan (2026-10-04)
+
+The $129 product, and the one the plan singled out as needing care: costed
+*"through our own labour and materials catalogue, which is the thing no
+competitor can copy"*.
+
+### It really is costed through our own rates
+
+Each line is our hourly rate for the trade times the hours the work takes, plus
+materials at our category markup, plus the overhead and profit our quotes carry
+— read through `resolveLaborRates` and `resolvePricing`, the same resolvers the
+estimator uses. So a line in this plan and a quote for that line are priced by
+the same arithmetic and cannot disagree.
+
+**And the document says which rates it used.** When an administrator has
+published rates, it says these are the rates our crews are billed out at,
+corrected against jobs we have finished. When none have been published it says
+so instead. A plan that mixed the two silently would be the competitor's product
+with our logo on it.
+
+Every component maps to one of the thirteen trades we hold a rate for, and a
+test fails if one names a trade that does not exist. A trade with no rate falls
+back to general labouring rather than to zero — low and visible beats absent and
+silently free.
+
+### Two defects the rendered sample caught, which the tests had not
+
+Both found by reading the document rather than by a passing suite, which is why
+the sample gets rendered.
+
+**Everything landed in one year.** A 1962 duplex has nearly every component past
+its nominal life, so the first version produced a "ten-year plan" that was a
+single line: sixteen components, $208,919, all in 2026. Nobody replaces the
+kitchen, roof, siding, plumbing and heating in the same twelve months, and an
+owner shown that reads the whole document as not applying to them.
+
+Overdue work is now **sequenced** across five years — safety first, because an
+alarm or a failed boiler is not a budgeting question; then what was inspected
+and found worst, because somebody looked at it; then the building envelope,
+since water getting in makes everything behind it worse; then cheapest first, so
+a year's budget clears more lines rather than fewer. The same property now reads
+as seven years of work totalling $149,650 at **$1,250 a month**, with the failed
+boiler first. The cost moves with the schedule, too: pushing a replacement out
+four years and still quoting today's price would under-fund it by four years of
+inflation, and that error only surfaces when the money is short.
+
+**A line contradicted itself.** A kitchen inspected and found *good* showed
+nothing left, because the condition was applied as a multiplier to the
+building's age and a 64-year-old building swamped it — while the line's own note
+said its life had been "extended". Adjacent columns disagreeing is worse than
+being approximate.
+
+So an observation now sets remaining life **directly**, as a share of the
+component's own life: excellent 85%, good 60%, fair 30%, poor 10%, failed none.
+Observations outrank arithmetic; arithmetic fills the gaps. On the same property
+the inspection now genuinely moves eight of sixteen lines, and the roof found
+poor sits at three years rather than at the building's age.
+
+### What it refuses to pretend to know
+
+Nothing records when a roof went on — only `yearBuilt`. Every line is therefore
+marked **Seen** or **Assumed**, the chapter says how many of each, and the
+caveat tells the owner the one thing that would improve it: *"where a component
+has been replaced and we were not told, its real remaining life is longer than
+this plan shows — tell us the year and the plan changes."* A whole chapter gives
+the reasoning for every line, so an owner can disagree with a component rather
+than with the document.
+
+Quantities come from the property record, and where it is silent the fallback is
+the smallest sensible one rather than an average — an under-count shows in the
+total, an over-count charges somebody for a house they do not have. The roof is
+the footprint plus a pitch allowance rather than the floor area, because a
+two-storey 2,400 sq ft house does not have 2,400 sq ft of roof.
+
+### Checks
+
+typecheck app 316 / server 87, both at baseline. smoke 6 affected pages, 0
+threw. 1768 tests pass, 32 of them on this arithmetic alone. Samples at
+`dist/digital-products/sample-capital-plan.html` and
+`sample-property-health.html` — both worth opening, since reading the document
+is what caught both defects above.
+
+### Still open
+
+- **Revenue Opportunity** is the last of the three without a document. It has a
+  gate, and it needs market rent comparables — `market_rent:{address}` records
+  exist, which is where it should start.
+- **Nothing charges for a report.** No Stripe product, no purchase, no delivery.
+  Both documents are reachable by the owner of the property because the gate and
+  the document had to exist first.
+- **Neither document is deployed.** The server function needs a deploy before
+  either route answers.

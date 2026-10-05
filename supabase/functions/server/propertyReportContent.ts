@@ -31,6 +31,7 @@
  */
 import type { PropertyDetail } from './propertyReportData.ts';
 import type { PropertyEvidence } from './propertyReportRules.ts';
+import { buildCapitalPlan, type PlanInput, type CapitalPlan } from './capitalPlanRules.ts';
 
 export interface Block {
   t: 'h2' | 'h3' | 'p' | 'bullets' | 'numbers' | 'checks' | 'callout' | 'table' | 'fields' | 'rule' | 'break';
@@ -241,6 +242,194 @@ export function propertyHealthReport(detail: PropertyDetail, evidence: PropertyE
       ['Property', String(property.name || property.address || '—')],
       ['Produced', now.toISOString().slice(0, 10)],
       ['Built from', `${evidence.completedInspections} completed ${evidence.completedInspections === 1 ? 'inspection' : 'inspections'}, ${evidence.distinctAreas} areas, ${detail.jobs.length} jobs`],
+    ],
+    chapters,
+  };
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * The 10-Year Capital Plan
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+
+/**
+ * Condition by inspected area, lower-cased, newest assessment winning.
+ *
+ * The capital plan matches components to areas by keyword, so what it needs is
+ * a flat map rather than the inspection structure.
+ */
+export function conditionsFrom(detail: PropertyDetail): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const area of detail.areas) {
+    const key = area.name.toLowerCase();
+    if (!(key in out)) out[key] = area.condition;
+  }
+  return out;
+}
+
+export function capitalPlanReport(
+  detail: PropertyDetail,
+  evidence: PropertyEvidence,
+  rates: PlanInput['rates'],
+  settings: PlanInput['settings'],
+  ratesAreOurs: boolean,
+  now = new Date(),
+): Report {
+  const property = detail.property || {};
+  const thisYear = now.getFullYear();
+  const age = thisYear - (evidence.yearBuilt || thisYear);
+  const plan: CapitalPlan = buildCapitalPlan({
+    property: {
+      units: Number(property.units) || 1,
+      squareFootage: Number(property.squareFootage) || 0,
+      bathrooms: Number(property.bathrooms) || 0,
+      yearBuilt: evidence.yearBuilt,
+    },
+    conditions: conditionsFrom(detail),
+    rates,
+    settings,
+    thisYear,
+  });
+
+  const chapters: Chapter[] = [];
+
+  /* ── What it is built on ──────────────────────────────────────────────── */
+  chapters.push({
+    title: 'What this plan is built on',
+    blocks: [
+      {
+        t: 'p',
+        text: 'Every component this property is likely to replace, when it is likely to need replacing, and what that will cost — priced through our own trade rates rather than a national average. '
+          + `The building was put up in ${evidence.yearBuilt}, which makes it ${age} years old.`,
+      },
+      {
+        t: 'fields',
+        pairs: [
+          ['Property', String(property.name || property.address || '—')],
+          ['Built', String(evidence.yearBuilt)],
+          ['Units', String(Number(property.units) || 1)],
+          ['Floor area', Number(property.squareFootage)
+            ? `${Number(property.squareFootage).toLocaleString('en-US')} sq ft`
+            : 'not recorded — the sizes below are derived from the unit count'],
+          ['Components planned', String(plan.components.length)],
+          ['Inspected', `${plan.seenCount} of ${plan.components.length} confirmed by inspection`],
+        ],
+      },
+      {
+        t: 'callout',
+        heading: `${plan.seenCount} lines were seen, ${plan.assumedCount} are assumed from the building's age`,
+        body: 'Nothing on record says when each component was last replaced, so each one starts as old as the building and only an inspection moves it. '
+          + 'Every line below is marked accordingly. Where a component has been replaced and we were not told, its real remaining life is longer than this plan shows — '
+          + 'tell us the year and the plan changes.',
+      },
+    ],
+  });
+
+  /* ── The next ten years ───────────────────────────────────────────────── */
+  chapters.push({
+    title: 'The next ten years, year by year',
+    blocks: plan.byYear.length
+      ? [
+        { t: 'p', text: `${dollars(plan.tenYearTotal)} falls due across the next ten years, at today's prices grown three per cent a year. Years with nothing due are left out.` },
+        {
+          t: 'table',
+          head: ['Year', 'What is due', 'Cost'],
+          rows: plan.byYear.map((y) => [String(y.year), y.items.join(', '), dollars(y.total)]),
+        },
+        {
+          t: 'callout',
+          heading: `Set aside ${dollars(plan.monthlyReserve)} a month`,
+          body: `That is ${dollars(plan.tenYearTotal)} spread across ten years, rounded up to the nearest ten dollars. `
+            + 'A monthly figure is a decision somebody can act on; an annual total is a figure people argue with.',
+        },
+      ]
+      : [{ t: 'p', text: 'Nothing is due within the next ten years on this plan. Every component is either recently replaced or has life left beyond the window, and the full schedule below shows when each one lands.' }],
+  });
+
+  /* ── Every component ──────────────────────────────────────────────────── */
+  chapters.push({
+    title: 'Every component, and when it lands',
+    blocks: [
+      {
+        t: 'p',
+        text: 'Soonest first. "Seen" means an inspection looked at it; "assumed" means its age is the building’s age, because nothing has looked yet.'
+          + (plan.overdueCount
+            ? ' ' + plan.overdueCount + (plan.overdueCount === 1 ? ' component is' : ' components are')
+              + ' already past their nominal life, so the plan sequences them across the first five years rather than stacking them into one year'
+              + ' — safety first, then what was inspected and found worst, then the building envelope.'
+            : ''),
+      },
+      {
+        t: 'table',
+        head: ['Component', 'Qty', 'Life', 'Age', 'Left', 'Due', 'Cost today', 'When due', 'Basis'],
+        rows: plan.components.map((c) => [
+          c.name,
+          `${c.quantity.toLocaleString('en-US')} ${c.unit}`,
+          `${c.usefulLife}y`,
+          `${c.effectiveAge}y`,
+          `${c.remainingLife}y`,
+          String(c.scheduledYear || c.dueYear),
+          dollars(c.costToday),
+          dollars(c.costWhenDue),
+          c.basisOfAge === 'seen' ? `Seen — ${c.condition}` : 'Assumed',
+        ]),
+      },
+    ],
+  });
+
+  /* ── Why each line says what it says ─────────────────────────────────── */
+  chapters.push({
+    title: 'Why each line says what it says',
+    blocks: [
+      { t: 'p', text: 'The reasoning behind every remaining life, so you can disagree with a specific line rather than with the plan.' },
+      { t: 'bullets', items: plan.components.map((c) => `${c.name} — ${c.note}`) },
+    ],
+  });
+
+  /* ── How it was costed ───────────────────────────────────────────────── */
+  chapters.push({
+    title: 'How these costs were worked out',
+    blocks: [
+      {
+        t: 'p',
+        text: ratesAreOurs
+          ? 'Each line is our own hourly rate for the trade, times the hours the work takes, plus materials at our own markup, plus the overhead and profit our quotes carry. These are the rates our crews are billed out at — corrected against jobs we have actually finished, not taken from a national table.'
+          : 'Each line is our standard rate for the trade, times the hours the work takes, plus materials at our standard markup, plus overhead and profit. No custom rates have been published for this account yet, so these are our published standards rather than figures corrected against finished jobs.',
+      },
+      {
+        t: 'table',
+        head: ['Component', 'Hours', 'Rate', 'Labour', 'Materials', 'Quoted today'],
+        rows: plan.components.map((c) => [
+          c.name,
+          String(c.labourHours),
+          `${dollars(c.hourlyRate)}/hr`,
+          dollars(c.labourCost),
+          dollars(c.materialCost),
+          dollars(c.costToday),
+        ]),
+      },
+      {
+        t: 'p',
+        text: `Materials carry our category markup, then ${settings.overheadPercentage} per cent overhead and ${settings.profitMargin} per cent profit — the same arithmetic as a quote for the work, so a line here and a quote for that line will not disagree. New Hampshire has no sales tax, so there is no tax line.`,
+      },
+      {
+        t: 'callout',
+        heading: 'What this plan is not',
+        body: 'It is not a quote, and it is not an engineer’s condition survey. It is what the work would cost at our rates if it were done today, and when the arithmetic says it is likely to be needed. '
+          + 'Ask us to quote any line and the figure will be built from these same rates, against the actual component rather than its category.',
+      },
+    ],
+  });
+
+  return {
+    title: '10-Year Capital Plan',
+    subtitle: String(property.name || property.address || 'Your property'),
+    meta: [
+      ['Property', String(property.name || property.address || '—')],
+      ['Produced', now.toISOString().slice(0, 10)],
+      ['Basis', `${plan.seenCount} inspected, ${plan.assumedCount} from the building's age`],
+      ['Ten-year total', dollars(plan.tenYearTotal)],
     ],
     chapters,
   };
