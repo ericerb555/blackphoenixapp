@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { useCompanyInfo } from '../lib/hooks/useCompanyInfo';
 import { MessageCircle, X, Send, User, Bot, Phone, Mail, ChevronDown, Minimize2, Maximize2, CheckCircle } from 'lucide-react';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 
@@ -70,7 +71,17 @@ const AI_RESPONSES: Record<string, string> = {
   insurance: "Yes — we're fully licensed and insured in New Hampshire. We carry general liability and workers' compensation insurance. We're happy to provide a certificate of insurance before any job starts.",
 };
 
-function aiReply(text: string): string {
+/**
+ * The fallback reply, which hands out a phone number.
+ *
+ * The number is PASSED IN rather than written here. It used to say
+ * "(603) 555-0100" — a placeholder, given to members of the public on a widget
+ * whose whole purpose is to get them to make contact. Where no number is
+ * configured the sentence is simply left out, because a chat that invites
+ * somebody to ring a number that does not exist is worse than one that asks
+ * them to leave their details.
+ */
+function aiReply(text: string, companyPhone?: string | null): string {
   const t = text.toLowerCase();
   if (/estimate|quote|bid|price it|how much/.test(t)) return AI_RESPONSES.estimate;
   if (/service|offer|do you do|can you|what do/.test(t)) return AI_RESPONSES.services;
@@ -81,7 +92,8 @@ function aiReply(text: string): string {
   if (/warrant|guarantee/.test(t)) return AI_RESPONSES.warranty;
   if (/insur|licensed|bonded/.test(t)) return AI_RESPONSES.insurance;
   if (/^hi|^hello|^hey|^good/.test(t)) return AI_RESPONSES.hi;
-  return "Great question! I want to make sure you get the right answer. Let me connect you with our team — can you leave your name and best contact number? Someone will reach out within a few hours. Or call us directly at (603) 555-0100.";
+  const base = "Great question! I want to make sure you get the right answer. Let me connect you with our team — can you leave your name and best contact number? Someone will reach out within a few hours.";
+  return companyPhone ? `${base} Or call us directly at ${companyPhone}.` : base;
 }
 
 function recordChatLead(email: string, name: string) {
@@ -100,6 +112,8 @@ function recordChatLead(email: string, name: string) {
 }
 
 export default function LiveChatWidget() {
+  /* One source of truth for the company's own number — see useCompanyInfo. */
+  const company = useCompanyInfo();
   const [config] = useState(getConfig);
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -166,7 +180,7 @@ export default function LiveChatWidget() {
       return;
     }
 
-    const reply = aiReply(msg);
+    const reply = aiReply(msg, company.phone);
     addMsg('bot', reply);
 
     if (/schedule|call|reach|contact|number|name/.test(reply.toLowerCase()) && leadStep === 'none') {
