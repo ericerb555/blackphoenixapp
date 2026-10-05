@@ -772,6 +772,22 @@ const PUBLIC_POST_PATHS = [
    */
   '/store/cron-tick',
   '/autopilot/cron-tick',
+  /**
+   * The dead-man's switch, and the fourth time this trap has come up.
+   *
+   * `/store/watchdog` guards the same secret as `/store/cron-tick` through the
+   * same `expectedSecret()` and the same constant-time compare — but it was not
+   * listed here, so a pg_cron post carrying only the anon key would have been
+   * answered 401 "Sign in required." by this gate before the route's own check
+   * ran.
+   *
+   * Which is worse for this route than for any of the others above. A watchdog
+   * that cannot be reached does not report that it cannot be reached: the clock
+   * could stop and the thing whose whole job is to notice would be silent for
+   * exactly the same reason. Found while arming the clock on 2026-10-04, by
+   * going to schedule it.
+   */
+  '/store/watchdog',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
