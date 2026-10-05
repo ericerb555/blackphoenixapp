@@ -32,6 +32,7 @@
 import type { PropertyDetail } from './propertyReportData.ts';
 import type { PropertyEvidence } from './propertyReportRules.ts';
 import { buildCapitalPlan, type PlanInput, type CapitalPlan } from './capitalPlanRules.ts';
+import { analyseRevenue, type MarketRent, type UnitRent } from './revenueRules.ts';
 
 export interface Block {
   t: 'h2' | 'h3' | 'p' | 'bullets' | 'numbers' | 'checks' | 'callout' | 'table' | 'fields' | 'rule' | 'break';
@@ -430,6 +431,156 @@ export function capitalPlanReport(
       ['Produced', now.toISOString().slice(0, 10)],
       ['Basis', `${plan.seenCount} inspected, ${plan.assumedCount} from the building's age`],
       ['Ten-year total', dollars(plan.tenYearTotal)],
+    ],
+    chapters,
+  };
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * The Revenue Opportunity Report
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+export function revenueReport(
+  detail: PropertyDetail,
+  evidence: PropertyEvidence,
+  rents: { units: UnitRent[]; totalUnits: number; limitation: string | null },
+  market: MarketRent,
+  now = new Date(),
+): Report {
+  const property = detail.property || {};
+  const analysis = analyseRevenue(rents.units, market, rents.totalUnits);
+  const fetched = String(market.fetchedAt || '').slice(0, 10);
+
+  const chapters: Chapter[] = [];
+
+  /* ── The one number ──────────────────────────────────────────────────── */
+  chapters.push({
+    title: 'What this property earns, against what comparable units earn',
+    blocks: [
+      {
+        t: 'p',
+        text: `${analysis.units.length} ${analysis.units.length === 1 ? 'unit is' : 'units are'} let here, bringing in `
+          + `${dollars(analysis.monthlyRentNow)} a month. Comparable units in this area are estimated at `
+          + `${dollars(market.rent)} each.`,
+      },
+      {
+        t: 'fields',
+        pairs: [
+          ['Property', String(property.name || property.address || '—')],
+          ['Units', `${rents.totalUnits} recorded, ${analysis.units.length} let`],
+          ['Rent now', `${dollars(analysis.monthlyRentNow)} a month`],
+          ['At the estimate', `${dollars(analysis.monthlyRentAtMarket)} a month`],
+          ['Market estimate', `${dollars(market.rent)} per unit`],
+          ['Comparables', market.comparableCount ? `${market.comparableCount} used` : 'count not recorded'],
+          ['Estimate dated', fetched || 'not recorded'],
+        ],
+      },
+      /**
+       * The headline leads with whichever number is bigger, and on a property
+       * with an empty unit that is never the rent gap.
+       *
+       * Rendering a sample made the point: a duplex with one unit empty and a
+       * $325 monthly rent gap headlined "$3,900 a year" while $21,600 a year
+       * sat unearned in the vacancy. Both figures were in the document and the
+       * recommendations led with the vacancy — but an owner skimming reads the
+       * callout, and a callout that names the smaller number has buried the
+       * finding.
+       */
+      {
+        t: 'callout',
+        heading: analysis.vacancyCostMonthly > analysis.gapMonthly
+          ? `${dollars(analysis.vacancyCostMonthly * 12)} a year is sitting in ${analysis.vacantCount === 1 ? 'an empty unit' : `${analysis.vacantCount} empty units`}`
+          : analysis.gapMonthly > 0
+            ? `${dollars(analysis.gapAnnual)} a year, if every unit reached the estimate`
+            : 'Nothing is let below the comparable rent',
+        body: analysis.vacancyCostMonthly > analysis.gapMonthly
+          ? `${dollars(analysis.vacancyCostMonthly)} a month at the ${dollars(market.rent)} estimate`
+            + (analysis.gapMonthly > 0
+              ? `, against ${dollars(analysis.gapAnnual)} a year in rent gaps on the let units. Occupancy is the larger of the two by ${dollars(analysis.vacancyCostMonthly * 12 - analysis.gapAnnual)} a year, so it is what this report puts first.`
+              : '. Every let unit is already at or above the comparable rent, so occupancy is the whole opportunity here.')
+          : analysis.gapMonthly > 0
+            ? `That is ${dollars(analysis.gapMonthly)} a month across ${analysis.below.length} ${analysis.below.length === 1 ? 'unit' : 'units'}. `
+              + 'It is a ceiling rather than a forecast: the chapter on what to do first says which part of it is worth chasing and what chasing it risks.'
+            : 'Every let unit is at or above the estimate for comparable units, and nothing is empty. That is worth knowing with the same confidence as a gap would be.',
+      },
+      { t: 'p', text: analysis.confidenceNote },
+    ],
+  });
+
+  /* ── Unit by unit ────────────────────────────────────────────────────── */
+  chapters.push({
+    title: 'Unit by unit',
+    blocks: [
+      {
+        t: 'table',
+        head: ['Unit', 'Rent now', 'Estimate', 'Gap / month', 'Gap / year', 'Where it sits'],
+        rows: analysis.units.map((u) => [
+          u.label,
+          dollars(u.rent),
+          dollars(u.market),
+          u.gapMonthly > 0 ? dollars(u.gapMonthly) : u.gapMonthly < 0 ? `+${dollars(-u.gapMonthly)} over` : 'level',
+          u.gapMonthly > 0 ? dollars(u.gapAnnual) : '—',
+          u.positionInRange === null ? 'no range' : `${Math.round(u.positionInRange * 100)}% through the range`,
+        ]),
+      },
+      { t: 'bullets', items: analysis.units.map((u) => `${u.label} — ${u.verdict}`) },
+      ...(rents.limitation ? [{ t: 'callout' as const, heading: 'What this is measured from', body: rents.limitation }] : []),
+    ],
+  });
+
+  /* ── What to do first ────────────────────────────────────────────────── */
+  chapters.push({
+    title: 'What to do first, and what it risks',
+    blocks: [
+      {
+        t: 'p',
+        text: 'In order. Occupancy before price, because an empty unit costs more than any rent gap — and every rent increase below carries what one vacant month would cost, because that is the number that decides whether it is worth taking.',
+      },
+      { t: 'numbers', items: analysis.recommendations },
+      {
+        t: 'callout',
+        heading: 'Why this report does not simply tell you to raise the rent',
+        body: 'A sitting tenant who leaves over an increase costs a month empty, a turnover clean, a listing and a screening. '
+          + 'In most New Hampshire rentals that is more than a year of the increase. So the advice here is to move rents at renewal rather than mid-tenancy, '
+          + 'and to leave a gap under fifty dollars alone.',
+      },
+    ],
+  });
+
+  /* ── Where the market figure came from ───────────────────────────────── */
+  chapters.push({
+    title: 'Where the market figure came from',
+    blocks: [
+      {
+        t: 'p',
+        text: `An automated rent valuation for this address${market.comparableCount ? `, drawn from ${market.comparableCount} comparable lettings` : ''}`
+          + `${fetched ? `, dated ${fetched}` : ''}. The estimate is ${dollars(market.rent)} with a range of `
+          + `${dollars(Number(market.rangeLow) || market.rent)} to ${dollars(Number(market.rangeHigh) || market.rent)}.`,
+      },
+      {
+        t: 'p',
+        text: 'The range is printed because it is the honest part. An estimate quoted alone reads as a market rate, which is a stronger claim than an automated valuation can make — '
+          + 'and this report refuses to be produced at all when the range is too wide to price a unit against.',
+      },
+      {
+        t: 'callout',
+        heading: 'What this report is not',
+        body: 'It is not an appraisal, and it is not a letting agent’s opinion of your specific unit. It compares your recorded rents against an automated estimate for the address, '
+          + 'and says where the difference is large enough to be worth acting on. A unit with a renovated kitchen or a parking space may sit above its estimate for good reason.',
+      },
+    ],
+  });
+
+  return {
+    title: 'Revenue Opportunity Report',
+    subtitle: String(property.name || property.address || 'Your property'),
+    meta: [
+      ['Property', String(property.name || property.address || '—')],
+      ['Produced', now.toISOString().slice(0, 10)],
+      ['Rent now', `${dollars(analysis.monthlyRentNow)} a month`],
+      ['Biggest opportunity', analysis.vacancyCostMonthly > analysis.gapMonthly
+        ? `${dollars(analysis.vacancyCostMonthly * 12)} a year in vacancy`
+        : analysis.gapMonthly > 0 ? `${dollars(analysis.gapAnnual)} a year in rent gaps` : 'none'],
     ],
     chapters,
   };

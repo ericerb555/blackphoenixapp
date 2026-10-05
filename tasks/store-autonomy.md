@@ -1008,3 +1008,92 @@ is what caught both defects above.
   the document had to exist first.
 - **Neither document is deployed.** The server function needs a deploy before
   either route answers.
+
+---
+
+## Review — the Revenue Opportunity Report (2026-10-04)
+
+The last of the three. All three now have a gate, an arithmetic module and a
+document.
+
+### The comparison is the product, so it gates on the comparison
+
+The listing promises *"what your units earn now, what comparable units earn, and
+where the gap is worth closing"*. The middle clause is the whole thing: a
+revenue report with no market figure is the rent the owner already knows,
+printed on headed paper.
+
+So this one has **two gates**. `canSell` answers the half that lives in the
+property's own records — are there units, is a rent recorded. The market
+estimate is not a property record at all, it is a cached valuation keyed by
+address, so the view route checks it separately through `marketIsUsable`, which
+refuses three ways:
+
+- no estimate on file;
+- an estimate with **no range**, because an unqualified number presented as a
+  market rate is a stronger claim than an automated valuation can make;
+- a range wider than half the estimate, because a midpoint of $1,200–$2,500
+  cannot price a unit.
+
+The refusal names the fix: open the market rent panel in the portal, which
+fetches a current estimate. The report route deliberately does **not** fetch —
+`POST /landlord/market-rent` is what pays RentCast, and a document opened ten
+times would otherwise cost ten times as much to produce as it did once.
+
+### The range decides how strongly it speaks
+
+Confidence comes from the width of the range, not from the headline: tight is
+"worth acting on", moderate is "a direction rather than a target", wide is "not
+something to set a rent from without a local opinion". The report prints the
+actual range every time, because that is the honest part.
+
+### A rent rise is not free money, and the report says so
+
+Every rent recommendation carries **what one vacant month costs** beside it,
+because that is the figure that decides whether the increase is worth taking —
+a $300 gap on a $1,500 unit needs five months of the increase to pay for a
+tenant leaving over it. The advice is to move rents at renewal rather than
+mid-tenancy, and gaps under fifty dollars are explicitly left alone rather than
+dressed up as opportunities.
+
+A unit already let above the estimate is told so plainly, and the market total
+never counts a unit *down* to the estimate — subtracting would turn a unit let
+$200 over into $200 of "lost revenue".
+
+### The flaw the rendered sample caught
+
+The headline named the wrong number. A duplex with one unit empty and a $325
+monthly rent gap headlined **"$3,900 a year"** while **$21,600 a year** sat
+unearned in the vacancy. Both figures were in the document and the
+recommendations already led with the vacancy — but an owner skimming reads the
+callout, and a callout naming the smaller number has buried the finding.
+
+The headline now leads with whichever is larger and says so explicitly:
+*"$21,600 a year is sitting in an empty unit … occupancy is the larger of the
+two by $17,700 a year, so it is what this report puts first."* All three cases
+were checked by rendering them — one unit empty, fully let with gaps, and fully
+let at market.
+
+### The limitation it states rather than works around
+
+A tenancy record carries a unit string and no `propertyId`, so per-unit rents
+can only be attributed to a building for a landlord who owns exactly one
+property. Everybody else is analysed from the rent on the property record, and
+the report says which of the two it used. Returning every tenant against one
+building would have produced a $99 report full of other buildings' rents.
+
+### Checks
+
+typecheck app 316 / server 87, both at baseline. smoke 6 affected pages, 0
+threw. 1793 tests pass — 20 on this arithmetic. Sample at
+`dist/digital-products/sample-revenue.html`.
+
+### What remains on the reports
+
+- **Nothing charges for one.** No Stripe product, no purchase, no delivery. All
+  three documents are reachable by the owner of the property, because the gate
+  and the document had to exist before billing could be wired to them.
+- **Not deployed.** The server function needs a deploy before any of the three
+  routes answers.
+- **No portal surface.** `GET /property-reports/:propertyId` returns what can be
+  bought and what the rest still need; nothing renders it yet.

@@ -25,8 +25,9 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { evidenceFor, propertyFor, detailFor } from "./propertyReportData.ts";
-import { propertyHealthReport, capitalPlanReport } from "./propertyReportContent.ts";
+import { evidenceFor, propertyFor, detailFor, rentsFor, marketRentFor } from "./propertyReportData.ts";
+import { propertyHealthReport, capitalPlanReport, revenueReport } from "./propertyReportContent.ts";
+import { marketIsUsable } from "./revenueRules.ts";
 import * as kv from "./kv_store.tsx";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { reportToHtml } from "./reportHtml.ts";
@@ -196,6 +197,59 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/capital-pl
   const { settings } = resolvePricing(pricingRaw);
 
   const report = capitalPlanReport(detail, evidence, rates, settings, !ratesAreStandard);
+  return c.html(reportToHtml(report));
+});
+
+/**
+ * GET /property-reports/:propertyId/revenue-opportunity/view
+ *
+ * TWO GATES, BECAUSE THE PRODUCT HAS TWO HALVES
+ *
+ * `canSell` answers the half that lives in the property's own records: are
+ * there units, and is a rent recorded. The other half is the market estimate,
+ * which is not a property record at all — it is a cached valuation keyed by
+ * address — so it is checked here.
+ *
+ * It is checked rather than worked around because the comparison IS the
+ * product: the listing promises "what comparable units earn, and where the gap
+ * is". A revenue report with no market figure is the rent the owner already
+ * knows, and `marketIsUsable` also refuses an estimate with no range or one so
+ * wide that a midpoint means nothing.
+ *
+ * The refusal names the fix. The market figure is fetched by the market-rent
+ * widget in the landlord portal, which is also what pays for the API call —
+ * this route deliberately does not fetch, because a document opened ten times
+ * would otherwise cost ten times as much to produce as it did once.
+ */
+reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/revenue-opportunity/view", async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const propertyId = String(c.req.param("propertyId") || "").trim();
+  const evidence = await evidenceFor(who.email, propertyId);
+  const verdict = canSell("revenue-opportunity", evidence);
+  if (!verdict.ok) {
+    return c.json({
+      success: false,
+      error: `There is not enough recorded about this property yet: ${verdict.blocker}.`,
+      requirements: verdict.requirements,
+    }, 409);
+  }
+
+  const detail = await detailFor(who.email, propertyId);
+  const address = String(detail.property?.address || "");
+  const market = await marketRentFor(address);
+  const usable = marketIsUsable(market);
+  if (!usable.ok) {
+    return c.json({
+      success: false,
+      error: `This report compares your rents against comparable lettings, and ${usable.reason}.`,
+      fix: "Open the market rent panel in your landlord portal for this address, which fetches a current estimate. The report can then be produced.",
+    }, 409);
+  }
+
+  const rents = await rentsFor(who.email, propertyId);
+  const report = revenueReport(detail, evidence, rents, market);
   return c.html(reportToHtml(report));
 });
 

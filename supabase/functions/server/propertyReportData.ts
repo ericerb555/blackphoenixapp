@@ -250,3 +250,88 @@ export async function detailFor(email: string, propertyId: string): Promise<Prop
 
   return out;
 }
+
+/**
+ * The rents behind the Revenue Opportunity Report, and the market figure.
+ *
+ * TENANTS CANNOT BE ATTRIBUTED TO A BUILDING IN GENERAL
+ *
+ * `landlord_tenants:{email}` carries a unit string and no `propertyId`, so for
+ * a landlord with several properties there is no way to say which tenants live
+ * here — see the long note in `evidenceFor`. The same restriction applies: the
+ * tenant rents are used only when the landlord owns exactly one property, and
+ * everybody else is analysed from the rent on the property record. Returning
+ * every tenant against one building would produce a $99 report full of other
+ * buildings' rents.
+ */
+export async function rentsFor(email: string, propertyId: string): Promise<{
+  units: Array<{ label: string; rent: number; tenant?: string | null }>;
+  totalUnits: number;
+  /** Why the per-unit detail is thin, when it is. */
+  limitation: string | null;
+}> {
+  const address = lower(email);
+  const property = await propertyFor(address, propertyId);
+  if (!property) return { units: [], totalUnits: 0, limitation: 'no such property' };
+
+  const totalUnits = whole(property.units) || 1;
+
+  let portfolioSize = 1;
+  try {
+    const portfolio = ((await kv.get(`landlord_portfolio:${address}`)) as any[]) || [];
+    portfolioSize = portfolio.filter(Boolean).length;
+  } catch { portfolioSize = 1; }
+
+  if (portfolioSize === 1) {
+    try {
+      const tenants = ((await kv.get(`landlord_tenants:${address}`)) as any[]) || [];
+      const let_ = (Array.isArray(tenants) ? tenants : [])
+        .filter(Boolean)
+        .filter((t: any) => money(t?.rent) > 0)
+        .map((t: any) => ({
+          label: String(t?.unit || '').trim() || 'unit',
+          rent: money(t.rent),
+          tenant: String(t?.name || '') || null,
+        }));
+      if (let_.length) return { units: let_, totalUnits: Math.max(totalUnits, let_.length), limitation: null };
+    } catch (err) {
+      console.log("[property-reports] could not read the tenants:", err);
+    }
+  }
+
+  const own = money(property.monthlyRent);
+  if (own > 0) {
+    return {
+      units: [{ label: String(property.name || 'the property'), rent: own }],
+      totalUnits,
+      limitation: portfolioSize > 1
+        ? 'A tenancy record does not say which property it belongs to, so with more than one property in the portfolio this report uses the rent recorded on the property itself rather than a figure per unit.'
+        : 'No tenancy carries a rent yet, so this report uses the rent recorded on the property itself.',
+    };
+  }
+
+  return { units: [], totalUnits, limitation: 'no rent is recorded for this property' };
+}
+
+/**
+ * The cached market rent for an address.
+ *
+ * Read-only, deliberately. `POST /landlord/market-rent` is what fetches from
+ * RentCast and pays for the call; a report route that fetched would bill an API
+ * call every time somebody opened the document, and a report opened ten times
+ * would cost ten times as much to produce as it did the first time.
+ *
+ * So a missing figure is an answer, not a reason to go and get one — the
+ * landlord fetches it from the market-rent widget in their portal, and the
+ * report says so.
+ */
+export async function marketRentFor(propertyAddress: string): Promise<any | null> {
+  const key = String(propertyAddress || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!key) return null;
+  try {
+    return (await kv.get(`market_rent:${key}`)) || null;
+  } catch (err) {
+    console.log("[property-reports] could not read the market rent:", err);
+    return null;
+  }
+}
