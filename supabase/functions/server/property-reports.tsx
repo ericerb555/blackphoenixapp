@@ -31,7 +31,8 @@ import { marketIsUsable } from "./revenueRules.ts";
 import * as kv from "./kv_store.tsx";
 import { resolveLaborRates, resolvePricing } from "./pricingDefaults.ts";
 import { reportToHtml } from "./reportHtml.ts";
-import { offerFor, canSell, capitalPlanBasis, reportSpec } from "./propertyReportRules.ts";
+import { offerFor, canSell, capitalPlanBasis, reportSpec, PROPERTY_REPORTS_ADD_ON_ID } from "./propertyReportRules.ts";
+import { checkAddOn } from "./addOnAccess.tsx";
 
 const reportsRouter = new Hono();
 
@@ -52,6 +53,32 @@ async function actor(c: any) {
   const { data: { user }, error } = await admin().auth.getUser(token);
   if (error || !user?.email) return null;
   return { email: String(user.email).toLowerCase() };
+}
+
+
+/**
+ * Does this account hold the reports add-on?
+ *
+ * Eric's ruling: the reports are sold as one subscription add-on rather than
+ * three one-off purchases. So access is a question about the subscription, not
+ * about a purchase record — and `checkAddOn` already answers it the way every
+ * other extra is answered, including the case where a tier includes it at no
+ * charge and the grant therefore does not list it.
+ *
+ * Enforced on the DOCUMENT routes rather than on the offer route. A landlord
+ * should always be able to see what the reports are, what they cost and what
+ * their property still needs — hiding that would lose the sale this add-on
+ * exists to make. What the add-on buys is the document itself.
+ */
+async function reportsAddOnOrRefusal(email: string) {
+  const verdict = await checkAddOn(email, PROPERTY_REPORTS_ADD_ON_ID);
+  if (verdict.held) return null;
+  return {
+    success: false,
+    error: "Property reports are part of the Property Reports add-on, which this account does not hold.",
+    addOnId: PROPERTY_REPORTS_ADD_ON_ID,
+    fix: "Add it from the Plans and Add-ons panel in your portal; it covers every property on the account.",
+  };
 }
 
 /**
@@ -81,6 +108,16 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId", async (c
     basis: report.id === "capital-plan" ? capitalPlanBasis(evidence) : null,
   }));
 
+  /**
+   * Whether the add-on is held is reported here but NOT enforced here.
+   *
+   * The panel needs it to show "included in your plan" against an open report
+   * instead of a button that answers 402 when pressed — and somebody who does
+   * not hold it still sees what the reports are and what their property needs,
+   * because that is the pitch.
+   */
+  const entitlement = await checkAddOn(who.email, PROPERTY_REPORTS_ADD_ON_ID);
+
   return c.json({
     success: true,
     // Null when the property is not theirs OR does not exist — deliberately
@@ -89,6 +126,12 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId", async (c
     evidence,
     reports,
     available: reports.filter((r) => r.available).length,
+    addOn: {
+      id: PROPERTY_REPORTS_ADD_ON_ID,
+      held: entitlement.held,
+      // One add-on covers every property on the account.
+      covers: "every property on this account",
+    },
   });
 });
 
@@ -143,6 +186,9 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/property-h
   const who = await actor(c);
   if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
 
+  const refusal = await reportsAddOnOrRefusal(who.email);
+  if (refusal) return c.json(refusal, 402);
+
   const propertyId = String(c.req.param("propertyId") || "").trim();
   const evidence = await evidenceFor(who.email, propertyId);
   const verdict = canSell("property-health", evidence);
@@ -176,6 +222,9 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/property-h
 reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/capital-plan/view", async (c) => {
   const who = await actor(c);
   if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const refusal = await reportsAddOnOrRefusal(who.email);
+  if (refusal) return c.json(refusal, 402);
 
   const propertyId = String(c.req.param("propertyId") || "").trim();
   const evidence = await evidenceFor(who.email, propertyId);
@@ -224,6 +273,9 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/capital-pl
 reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/revenue-opportunity/view", async (c) => {
   const who = await actor(c);
   if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const refusal = await reportsAddOnOrRefusal(who.email);
+  if (refusal) return c.json(refusal, 402);
 
   const propertyId = String(c.req.param("propertyId") || "").trim();
   const evidence = await evidenceFor(who.email, propertyId);

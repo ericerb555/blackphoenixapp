@@ -37,7 +37,7 @@ import {
   type Audience, type PlanAddOn, type PlanTier, type StripeMode,
 } from "./planTier.ts";
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
-import { AGREED_LADDERS } from "./agreedLadders.ts";
+import { AGREED_LADDERS, AGREED_ADD_ONS } from "./agreedLadders.ts";
 import { QUOTE_DISCOUNT_CAP_PERCENT } from "./discounts.ts";
 
 /**
@@ -856,6 +856,43 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-catalog/seed-ladders", async 
         includedUnits: rung.includedUnits || null,
         perUnitCents: rung.perUnitCents || null,
       });
+    }
+  }
+
+  /**
+   * The add-ons, one record per audience they are offered to.
+   *
+   * Same three rules as the rungs above: inactive, no Stripe price, and an id
+   * that already exists is left alone. Unlike a ladder these are seeded even
+   * when the audience already has tiers — an add-on sits beside a ladder rather
+   * than replacing one, so finding tiers there is not a reason to skip it.
+   */
+  for (const addOn of AGREED_ADD_ONS) {
+    for (const audience of addOn.audiences) {
+      const key = ADDON(audience, addOn.id);
+      if (await kv.get(key)) {
+        skipped.push({ audience, why: `the ${addOn.id} add-on already exists here — left alone` });
+        continue;
+      }
+      if (!dryRun) {
+        await kv.set(key, {
+          id: addOn.id,
+          audience,
+          name: addOn.name,
+          blurb: addOn.blurb,
+          features: [],
+          limits: {},
+          priceCents: addOn.priceCents,
+          interval: "month",
+          sortOrder: 0,
+          active: false,
+          marketBasis: addOn.marketBasis,
+          seededFrom: "tasks/store-autonomy.md D.8",
+          createdAt: now,
+          updatedBy: who.email,
+        });
+      }
+      created.push({ audience, id: addOn.id, as: "add-on", priceCents: addOn.priceCents });
     }
   }
 

@@ -182,3 +182,56 @@ export function agreedAudiences(): Audience[] {
 export function ladderFor(audience: string): AgreedLadder | null {
   return AGREED_LADDERS.find((l) => l.audience === audience) || null;
 }
+
+/**
+ * The add-ons that are sold on top of a rung, as data.
+ *
+ * Same shape and the same rules as the ladders above: seeded inactive, never
+ * overwritten, and with no Stripe price — so nothing here can be sold until
+ * somebody deliberately prices and publishes it.
+ */
+export interface AgreedAddOn {
+  id: string;
+  name: string;
+  blurb: string;
+  priceCents: number;
+  /** The audiences it is offered to. One record is written per audience. */
+  audiences: string[];
+  marketBasis: string;
+}
+
+export const AGREED_ADD_ONS: AgreedAddOn[] = [
+  {
+    id: 'property-reports',
+    name: 'Property Reports',
+    blurb:
+      'The Property Health Report, the Revenue Opportunity Report and the 10-Year Capital Plan, '
+      + 'generated from your own records, for every property on the account.',
+    /**
+     * $39 a month, and the reasoning rather than the number is the part worth
+     * keeping.
+     *
+     * Eric ruled on 2026-10-06 that the reports are an add-on rather than three
+     * one-off sales of $79, $99 and $129. Those one-off prices are the anchor a
+     * buyer compares against: the cheapest single report is $79, so a monthly
+     * figure has to sit well under it or nobody converts — and it has to cover
+     * every property, which is what makes it worth more than one report to
+     * anybody holding more than one building.
+     *
+     * $39 pays for itself against a single report inside two months and earns
+     * more than the one-off from any account that keeps it past that. For a
+     * four-property landlord it is under $10 a property a month.
+     *
+     * This is NOT market+10%, because no comparable product exists to average:
+     * a reserve study is a $2,500 one-off engagement and a letting agent's rent
+     * opinion is free with a mandate. Eric's rule assumes a market to measure,
+     * and saying so is better than dressing a judgement up as research.
+     */
+    priceCents: 3900,
+    audiences: ['landlord', 'property_manager', 'condo_association', 'condo_manager', 'investor'],
+    marketBasis:
+      'No comparable monthly product to average. Anchored instead on the one-off prices these '
+      + 'same reports were specified at ($79 / $99 / $129): the add-on must sit well under the '
+      + 'cheapest of them to convert, and covers every property rather than one.',
+  },
+];

@@ -16,7 +16,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AGREED_LADDERS, ladderFor, agreedAudiences } from '../supabase/functions/server/agreedLadders.ts';
+import { AGREED_LADDERS, ladderFor, agreedAudiences, AGREED_ADD_ONS } from '../supabase/functions/server/agreedLadders.ts';
+import { REPORTS, PROPERTY_REPORTS_ADD_ON_ID, REPORT_ADD_ON_AUDIENCES } from '../supabase/functions/server/propertyReportRules.ts';
 import { AUDIENCES, tierMonthlyCents, subscriptionTotalCents, type PlanAddOn } from '../supabase/functions/server/planTier.ts';
 
 /** The table as Eric approved it: audience → [basic, advanced, professional] in dollars. */
@@ -195,4 +196,59 @@ test('calling the total the old way, with two arguments, is unchanged', () => {
   const tier = { id: 'basic', audience: 'customer', priceCents: 1400 } as any;
   const flat: Partial<PlanAddOn> = { id: 'content', audience: 'customer', priceCents: 2000 };
   assert.equal(subscriptionTotalCents(tier, [flat]), 3400);
+});
+
+// ─── The add-ons ────────────────────────────────────────────────────────────
+
+test('the reports are ONE add-on, not three', () => {
+  // Eric's ruling: "make it an add on". Selling the three separately would make
+  // a landlord choose between reports about their own building — a choice with
+  // no good answer — and triple the catalogue for no extra revenue, because
+  // somebody who wants the capital plan wants the health report too.
+  const reports = AGREED_ADD_ONS.filter((a) => a.id === PROPERTY_REPORTS_ADD_ON_ID);
+  assert.equal(reports.length, 1);
+  assert.equal(AGREED_ADD_ONS.length, 1, 'only the reports add-on is defined so far');
+});
+
+test('the add-on is offered to every audience that holds properties', () => {
+  const addOn = AGREED_ADD_ONS.find((a) => a.id === PROPERTY_REPORTS_ADD_ON_ID)!;
+  assert.deepEqual(
+    [...addOn.audiences].sort(),
+    [...REPORT_ADD_ON_AUDIENCES].sort(),
+    'the seed and the gate disagree about who can be offered it',
+  );
+  // And nobody who holds no property: a vendor has nothing to report on.
+  for (const audience of ['vendor', 'subcontractor', 'advertiser', 'customer']) {
+    assert.ok(!addOn.audiences.includes(audience), `${audience} holds no properties`);
+  }
+});
+
+test('every audience it is offered to is one the catalogue knows', () => {
+  // An add-on seeded against an audience AUDIENCES does not contain could never
+  // be read back, so it would be sold and then silently not held.
+  for (const addOn of AGREED_ADD_ONS) {
+    for (const audience of addOn.audiences) {
+      assert.ok(AUDIENCES.includes(audience as any), `${audience} is not a catalogue audience`);
+    }
+  }
+});
+
+test('the add-on costs less than the cheapest report it replaces', () => {
+  // The conversion test. These were specified as $79 / $99 / $129 one-offs, so
+  // a monthly figure at or above the cheapest of them gives somebody who wants
+  // one report no reason to subscribe.
+  const addOn = AGREED_ADD_ONS.find((a) => a.id === PROPERTY_REPORTS_ADD_ON_ID)!;
+  const cheapestReport = Math.min(...REPORTS.map((r) => r.priceCents));
+  assert.ok(addOn.priceCents < cheapestReport,
+    `${addOn.priceCents} is not below the cheapest report at ${cheapestReport}`);
+  assert.ok(addOn.priceCents > 0);
+});
+
+test('the add-on records why its price is not market+10%', () => {
+  // No comparable monthly product exists to average — a reserve study is a
+  // $2,500 one-off and a letting agent's rent opinion is free with a mandate.
+  // Saying so beats dressing a judgement up as research.
+  const addOn = AGREED_ADD_ONS.find((a) => a.id === PROPERTY_REPORTS_ADD_ON_ID)!;
+  assert.ok(addOn.marketBasis.length > 40);
+  assert.match(addOn.marketBasis, /No comparable/i);
 });

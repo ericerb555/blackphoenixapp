@@ -74,6 +74,40 @@ export const REPORTS: ReportSpec[] = [
   },
 ];
 
+/**
+ * The one add-on that unlocks all three reports.
+ *
+ * Eric's ruling on 2026-10-06, choosing between a one-off sale per report, an
+ * add-on, and inclusion in the top rung: *"make it an add on"*.
+ *
+ * The reasoning that makes it the right shape, worth keeping next to the code:
+ * a generated report is only worth buying again once the property's records
+ * have changed, so a landlord who inspects annually would buy one every year or
+ * two. As a one-off it earns almost nothing per customer and has to be sold
+ * again every time; as an add-on it earns continuously and is worth MORE the
+ * more properties somebody holds, which is the customer worth keeping.
+ *
+ * ONE ADD-ON, NOT THREE
+ *
+ * Selling the three separately would make a landlord choose between reports
+ * about their own building, which is a choice with no good answer — and it
+ * would triple the catalogue for no extra revenue, because somebody who wants
+ * the capital plan wants the health report too.
+ *
+ * ALL PROPERTIES, NOT ONE
+ *
+ * This is what settles the question a one-off sale could not: whether buying
+ * "Property Health" once unlocks it for a portfolio of forty. Holding the
+ * add-on covers every property the account owns, and the gates below still
+ * decide, per property, whether there is enough recorded to produce anything.
+ */
+export const PROPERTY_REPORTS_ADD_ON_ID = 'property-reports';
+
+/** The audiences that hold properties, and so can be offered it. */
+export const REPORT_ADD_ON_AUDIENCES = [
+  'landlord', 'property_manager', 'condo_association', 'condo_manager', 'investor',
+];
+
 export function reportSpec(id: string): ReportSpec | null {
   return REPORTS.find((r) => r.id === id) || null;
 }

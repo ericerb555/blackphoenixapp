@@ -17,10 +17,16 @@
  * it is written to read as "here is what would unlock this" rather than "no".
  * A gate that only refuses loses the customer who was one step away.
  *
- * It does not sell anything yet. Nothing charges for a report — there is no
- * Stripe product and no purchase — so an available report opens its document
- * directly. When billing arrives this is where the price goes, which is why the
- * price is already displayed.
+ * HOW IT IS SOLD, AND WHY NO PRICE APPEARS PER REPORT
+ *
+ * Eric ruled on 2026-10-06 that the three are one subscription add-on covering
+ * every property on the account, rather than three one-off purchases. So the
+ * price belongs to the add-on, not to a report, and showing $79 beside the
+ * Property Health Report would be advertising a product that is not for sale.
+ *
+ * A report this property qualifies for, on an account without the add-on, says
+ * "Ready to generate" rather than "Locked" — the work of qualifying is already
+ * done, and that is the thing worth converting on.
  */
 import { useEffect, useState } from 'react';
 import { FileText, Check, Lock, LoaderCircle, ExternalLink, AlertCircle } from 'lucide-react';
@@ -31,7 +37,6 @@ interface Requirement { met: boolean; need: string; have: string }
 interface ReportOffer {
   id: string;
   title: string;
-  priceCents: number;
   blurb: string;
   available: boolean;
   blocker: string | null;
@@ -39,12 +44,11 @@ interface ReportOffer {
   basis?: { caveat?: string } | null;
 }
 
-const money = (cents: number) => `$${Math.round(cents / 100)}`;
-
 export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
   const [reports, setReports] = useState<ReportOffer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [addOn, setAddOn] = useState<{ held: boolean } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -61,6 +65,7 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
         if (!live) return;
         if (!res.ok || !json?.success) { setError(json?.error || 'Could not read what is available.'); return; }
         setReports(Array.isArray(json.reports) ? json.reports : []);
+        setAddOn(json.addOn || null);
       } catch {
         if (live) setError('Could not reach the server.');
       }
@@ -118,11 +123,11 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
                     ? <Check className="h-4 w-4 flex-shrink-0 text-teal-400" />
                     : <Lock className="h-4 w-4 flex-shrink-0 text-gray-500" />}
                   {report.title}
-                  <span className="text-xs font-normal text-gray-500">{money(report.priceCents)}</span>
+
                 </p>
                 <p className="mt-1 text-xs text-gray-400">{report.blurb}</p>
               </div>
-              {report.available && token && (
+              {report.available && token && addOn?.held && (
                 <a
                   href={`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-reports/${encodeURIComponent(propertyId)}/${report.id}/view`}
                   target="_blank"
@@ -131,6 +136,16 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
                 >
                   <ExternalLink className="h-3.5 w-3.5" /> Open
                 </a>
+              )}
+              {/*
+                Ready, but the account does not hold the add-on. Said as "ready
+                to generate" rather than "locked": the work of qualifying is
+                already done and that is the thing worth converting on.
+              */}
+              {report.available && !addOn?.held && (
+                <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-teal-500/30 px-3 py-1.5 text-xs font-semibold text-teal-300">
+                  Ready to generate
+                </span>
               )}
             </div>
 
@@ -172,10 +187,20 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
         panel that showed a price beside an Open button without saying so would
         read as a thing somebody had already bought.
       */}
-      <p className="mt-3 text-xs text-gray-600">
-        Prices are set but not yet chargeable — an available report opens straight
-        away while billing is being wired up.
-      </p>
+      {/*
+        One add-on covers all three reports on every property, which is the
+        whole shape of the thing and is easy to miss from a per-property panel.
+      */}
+      {addOn?.held ? (
+        <p className="mt-3 text-xs text-teal-400/80">
+          Included in your plan through the Property Reports add-on, which covers every property on this account.
+        </p>
+      ) : (
+        <p className="mt-3 text-xs text-gray-500">
+          Reports are part of the <span className="font-semibold text-gray-300">Property Reports</span> add-on —
+          one subscription covering all three reports on every property you hold. Add it from Plans &amp; Add-ons.
+        </p>
+      )}
     </div>
   );
 }
