@@ -128,27 +128,48 @@ async function fetchTown(lat: number, lng: number, radiusMetres: number): Promis
   return Array.isArray(payload?.elements) ? payload.elements : [];
 }
 
-/** Find the listing this candidate already is, if we have it. */
-async function findExisting(sb: any, candidate: ListingCandidate) {
+/**
+ * Find the listing this candidate already is, if we have it.
+ *
+ * A SHARED PHONE MEANS THE SAME BUSINESS. A SHARED NAME DOES NOT.
+ *
+ * This matched on name alone, and the first real run showed what that costs:
+ * Pelham now holds a Dunkin', a Subway, a McDonald's and a Supercuts, and
+ * Salem has its own of each. Name-only matching would have found Pelham's and
+ * skipped Salem's — quietly refusing to list a real business because a
+ * different branch of the same chain was already in the directory.
+ *
+ * `dedupeKeyFor` already says the key is phone, or name PLUS postcode. The
+ * postcode is the part that was missing here, and `organizations` does not
+ * store one — so the territory stands in for it. Two businesses of the same
+ * name in the same town are the same business; in different towns they are
+ * not.
+ */
+async function findExisting(sb: any, candidate: ListingCandidate, territorySlug: string) {
+  const COLUMNS = "id, name, phone, website, license_number, claim_state, listing_source";
+
   // Phone first, exactly as `dedupeKeyFor` reasons: two sources rarely agree
   // on an address and almost always agree on a number.
   if (candidate.phone) {
     const { data } = await sb
       .from("organizations")
-      .select("id, name, phone, website, license_number, claim_state, listing_source")
+      .select(COLUMNS)
       .eq("phone", candidate.phone)
       .limit(1)
       .maybeSingle();
     if (data) return data;
   }
 
-  const { data } = await sb
+  // Same name AND already in this territory.
+  const { data: sameName } = await sb
     .from("organizations")
-    .select("id, name, phone, website, license_number, claim_state, listing_source")
+    .select(`${COLUMNS}, organization_territory!inner(territory_slug)`)
     .eq("name", candidate.name)
+    .eq("organization_territory.territory_slug", territorySlug)
     .limit(1)
     .maybeSingle();
-  return data ?? null;
+
+  return sameName ?? null;
 }
 
 /** A slug nothing else is using. */
@@ -245,7 +266,7 @@ export async function ingestTerritory(
   outcome.uncategorised = deduped.filter((c) => !c.categorySlug).length;
 
   for (const candidate of deduped) {
-    const existing = await findExisting(sb, candidate);
+    const existing = await findExisting(sb, candidate, territory.slug);
     const patch = mergeListing(existing, candidate);
 
     if (existing && Object.keys(patch).length === 0) {
