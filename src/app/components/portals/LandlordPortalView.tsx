@@ -29,6 +29,7 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import PropertyAIEnterprise from '../../pages/PropertyAIEnterprise';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
+import { PropertyReportsPanel } from '../property/PropertyReportsPanel';
 import { LandlordDashboardMetrics, LandlordRentCollection, LandlordRenewals, LandlordApplications, LandlordDocumentVault } from './LandlordManagement';
 import { enrichLandlordProperty } from '../../lib/services/propertyRecordsService';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
@@ -677,6 +678,9 @@ export default function LandlordPortalView() {
                 </div>}
                 <div className="mt-4">
                   <PropertyRecordsPanel address={p.address} parcel={p.parcel} geometry={p.parcelGeometry} recordsUpdatedAt={p.recordsUpdatedAt} onRefresh={() => enrichProperty(p.id)} />
+                </div>
+                <div className="mt-4">
+                  <PropertyReportsPanel propertyId={p.id} />
                 </div>
               </div>;
             })}
