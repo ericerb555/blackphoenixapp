@@ -80,9 +80,35 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
   car_repair: "mechanic",
   car_parts: "mechanic",
   hairdresser: "haircut",
-  beauty: "manicure",
-  doityourself: "handyman",
-  hardware: "handyman",
+  /**
+   * `shop=beauty` is DELIBERATELY unmapped.
+   *
+   * It read as "manicure" and therefore filed everything under Nail Salons.
+   * The first real Salem run showed what that catches: Medusa Body Piercing,
+   * Buff City Soap and Bella Viaggio Salon & Spa — three for three, none of
+   * them a nail salon. OSM uses `beauty` for piercing studios, waxing, soap
+   * shops and spas as readily as for nails.
+   *
+   * So it resolves to nothing and the listing is left unassigned, which is
+   * visible and fixable. A wrong category produces no leads, no complaint and
+   * a cancellation six months later — the fault the ingest rules exist to
+   * avoid.
+   */
+  beauty: "",
+  /**
+   * `doityourself` and `hardware` are DELIBERATELY unmapped, for the same
+   * reason as `beauty` above.
+   *
+   * They read as "handyman" and so filed The Home Depot, Harbor Freight Tools
+   * and the local hardware shop under Handyman. Those are RETAILERS; Handyman
+   * is a service category, and somebody looking for a person to hang a door
+   * would have found a warehouse store.
+   *
+   * The taxonomy carries no hardware or building-supply category, so these
+   * list unassigned until it does.
+   */
+  doityourself: "",
+  hardware: "",
   florist: "planting & beds",
   funeral_directors: "",
   // office=*

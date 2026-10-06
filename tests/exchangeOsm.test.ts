@@ -61,6 +61,23 @@ test('a tag mapped deliberately to nothing stays nothing', () => {
   // somewhere adjacent would be worse than leaving it unassigned.
   assert.equal(tradeWordsFor({ amenity: 'pharmacy' }), null);
   assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), null);
+
+  /*
+    Retailers and beauty shops, all learned from a real run.
+
+    `beauty` read as "manicure" and filed Medusa Body Piercing, Buff City Soap
+    and Bella Viaggio Salon & Spa under Nail Salons — three for three wrong.
+    `hardware` and `doityourself` read as "handyman" and filed Lowe's, The
+    Home Depot and Harbor Freight Tools under a SERVICE category, where
+    somebody looking for a person to hang a door would find them.
+
+    The taxonomy carries no category for either, so unassigned is the honest
+    answer. A wrong category produces no leads, no complaint, and a
+    cancellation six months later.
+  */
+  assert.equal(tradeWordsFor({ shop: 'beauty' }), null);
+  assert.equal(tradeWordsFor({ shop: 'hardware' }), null);
+  assert.equal(tradeWordsFor({ shop: 'doityourself' }), null);
 });
 
 test('craft wins over shop, which wins over amenity', () => {
@@ -94,7 +111,8 @@ test('a real Pelham element becomes a record with nothing added', () => {
 
   const record = osmToRegistryRecord(element, PELHAM) as any;
   assert.equal(record.name, 'Bridge Street Hardware');
-  assert.equal(record.businessType, 'handyman');
+  // A hardware shop is a RETAILER, not a handyman. See OSM_TRADE_WORDS.
+  assert.equal(record.businessType, null);
   assert.equal(record.address, '12 Bridge Street');
   assert.equal(record.city, 'Pelham');
   assert.equal(record.state, 'NH');
