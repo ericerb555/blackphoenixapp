@@ -155,3 +155,44 @@ test('every mapped audience is one the catalogue could answer for', () => {
     assert.ok(known.includes(audience), `${audience} is not a catalogue audience`);
   }
 });
+
+// ─── Ids that cannot be renamed ─────────────────────────────────────────────
+
+test('a tier declares its rung when its id cannot say', () => {
+  // The vendor ladder is listed / stocked / preferred and a paying subscriber's
+  // feature_grant points at "stocked". Renaming that id to "advanced" would
+  // orphan the grant and drop a paying account to the free floor, silently. So
+  // the id stays and the record declares which rung it is.
+  const tiers = catalogue({
+    vendor: [
+      { id: 'listed', rung: 'basic', priceCents: 4900 },
+      { id: 'stocked', rung: 'advanced', priceCents: 11600 },
+      { id: 'preferred', rung: 'professional', priceCents: 43900 },
+    ],
+  });
+  assert.equal(applyCatalogue(plan({ tier: 'starter' }), tiers).plan.regularPrice, 49);
+  assert.equal(applyCatalogue(plan({ tier: 'professional' }), tiers).plan.regularPrice, 116);
+  assert.equal(applyCatalogue(plan({ tier: 'enterprise' }), tiers).plan.regularPrice, 439);
+});
+
+test('the rung wins over an id that happens to collide', () => {
+  // Belt and braces: if an audience ever held both a record whose id is
+  // "advanced" and one that DECLARES itself advanced, the declaration is the
+  // deliberate statement and the id is a coincidence.
+  const tiers = catalogue({
+    vendor: [
+      { id: 'advanced', priceCents: 9900 },
+      { id: 'stocked', rung: 'advanced', priceCents: 11600 },
+    ],
+  });
+  assert.equal(applyCatalogue(plan({ tier: 'professional' }), tiers).plan.regularPrice, 116);
+});
+
+test('a ladder seeded under the agreed names still matches on its id alone', () => {
+  // Everything the seed writes uses basic/advanced/professional as the id and
+  // carries no rung. That path must keep working.
+  const tiers = catalogue({ customer: [{ id: 'advanced', priceCents: 2500 }] });
+  const result = applyCatalogue(plan({ category: 'customer', tier: 'professional' }), tiers);
+  assert.equal(result.fromCatalogue, true);
+  assert.equal(result.plan.regularPrice, 25);
+});

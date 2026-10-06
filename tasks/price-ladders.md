@@ -52,6 +52,34 @@ that and should simply stay, so nobody's bill moves at the bottom of the ladder.
 The four-rung $99 / $199 / $399 / $799 list is superseded — it was never wired to
 Stripe and cannot be bought.
 
+### SETTLED, 2026-10-06 — keep the $49 Basic
+
+Eric: *"keep the $49 vendor basic"*. Applied to the live records, and what was
+**not** changed is the substance of it.
+
+**The ids stay** `listed` / `stocked` / `preferred`. `feature_grant.tierId`
+points at them and one account is paying on `stocked` with a live Stripe
+subscription, so renaming an id would leave `resolveEntitlement` finding no tier
+and drop a paying account to the free floor — silently, at the moment of the
+rename. `PlanTier` gained a `rung` field instead: the record declares which rung
+it is, and anything mapping the ladder matches on that, falling back to the id
+for every ladder seeded under the agreed names.
+
+**The prices stay** $49 / $79 / $199. `priceCents` is display; `stripePriceId`
+is what bills. Editing the figure to $116 without creating a new Stripe Price
+would make the catalogue advertise one price while Stripe charged another, and
+nobody would notice until a customer compared a page with a statement.
+
+**What did change:** the display names are now Basic / Advanced / Professional,
+each tagged with its rung, each former name kept at the front of its blurb so an
+existing vendor still recognises their plan.
+
+**Still outstanding for vendor:** Advanced $79 → $116 and Professional
+$199 → $439 each need a new Stripe Price created and attached. After that, new
+subscriptions pay the new figure and the existing `stocked` subscriber keeps
+their $79 price until deliberately migrated — the guardrail in section 12.
+
+
 **2. Every audience has an identical $99 / $199 / $399 "maintenance" trio.**
 Forty-two rows of it in `PORTAL_UPGRADE_PRICES`. A landlord with four units and
 a property manager with four hundred doors paying the same $99 cannot be right,

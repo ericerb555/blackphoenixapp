@@ -53,6 +53,14 @@ export const AUDIENCE_FOR_CATEGORY: Record<string, string> = {
 
 export interface CatalogueTier {
   id: string;
+  /**
+   * Which rung this record is, when its id does not say.
+   *
+   * The vendor ladder is `listed` / `stocked` / `preferred` and its ids
+   * cannot be renamed — a paying subscriber's grant points at one of them. So
+   * the rung is matched first and the id only as a fallback.
+   */
+  rung?: string;
   priceCents?: number;
   name?: string;
   active?: boolean;
@@ -103,7 +111,11 @@ export function applyCatalogue(
   const rung = RUNG_FOR_TIER[String(plan.tier)];
   if (!audience || !rung) return { plan, fromCatalogue: false };
 
-  const tier = (tiersByAudience[audience] || []).find((t) => String(t?.id) === rung);
+  // Rung first, id second. A ladder seeded under the agreed names has no rung
+  // field and matches on its id; one that kept older ids declares its rung.
+  const published = tiersByAudience[audience] || [];
+  const tier = published.find((t) => String(t?.rung || '') === rung)
+    || published.find((t) => String(t?.id) === rung);
   const cents = Number(tier?.priceCents) || 0;
   // A withdrawn tier, or one with no price, has nothing to say about what this
   // plan costs — and treating zero as a price would publish a free plan.

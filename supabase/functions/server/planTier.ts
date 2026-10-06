@@ -91,6 +91,23 @@ export interface PlanTier {
    * Two fields, and the server picks by the mode of the key it is holding.
    */
   stripePriceIdTest?: string;
+  /**
+   * Which rung of the Basic / Advanced / Professional ladder this is.
+   *
+   * SEPARATE FROM `id` ON PURPOSE, AND THE REASON IS LOAD-BEARING
+   *
+   * `feature_grant.tierId` points at the id. The vendor ladder shipped as
+   * `listed` / `stocked` / `preferred` and has a paying subscriber on
+   * `stocked`, so renaming those ids to match the agreed ladder would orphan
+   * their grant: `resolveEntitlement` would find no tier and drop a paying
+   * account to the free floor, silently, at the moment of the rename.
+   *
+   * So the id never moves. This says which rung the record IS, which is what
+   * anything mapping the ladder should match on — the public pricing page's
+   * bridge among them. A record with no rung falls back to its id, which is
+   * correct for every ladder seeded under the agreed names.
+   */
+  rung?: 'basic' | 'advanced' | 'professional';
   /** Display price in cents, for showing a figure without asking Stripe. */
   priceCents?: number;
   /**
