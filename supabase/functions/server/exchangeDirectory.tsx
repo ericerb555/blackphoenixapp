@@ -347,21 +347,83 @@ exchangeDirectory.get("/exchange/category/:slug", async (c) => {
 
     if (!category) return c.json({ success: false, error: "No such category." }, 404);
 
+    /**
+     * The town, checked against the real list before anything is done with it.
+     *
+     * It used to be read and then passed only to the demand ledger, where it
+     * lands in `exchange_demand_event.territory_slug` — a foreign key to
+     * `exchange_territory`. The ledger writer swallows its own failures by
+     * design, so a slug that is not a real town lost the demand row without a
+     * sound. `exchangeTowns.ts` keeps a closed set on the client for exactly
+     * that reason; the server was taking the client's word for it, which is
+     * never the right place to check.
+     *
+     * An unknown town answers 404 rather than an empty list, for the same
+     * reason `must` exists in this file: an empty directory and a broken
+     * request must never be the same answer.
+     */
+    if (territory) {
+      const town = must(
+        await sb
+          .from("exchange_territory")
+          .select("slug")
+          .eq("slug", territory)
+          .maybeSingle(),
+        "exchange_territory",
+      );
+      if (!town) return c.json({ success: false, error: "No such town." }, 404);
+    }
+
     // Holding a category brings every service under it, so a page for a
     // service leaf lists the businesses that hold its parent.
     const holdingId = category.parent_id ?? category.id;
 
-    const rows = must(
-      await sb
-        .from("organization_category")
-        .select(`org_id, organizations ( ${PUBLIC_LISTING_COLUMNS} )`)
-        .eq("category_id", holdingId),
-      "organization_category",
-    ) ?? [];
+    /**
+     * The listings, in this category and — when one is named — in this town.
+     *
+     * THE TOWN FILTER WAS MISSING ENTIRELY. The parameter arrived, was read
+     * into a local, and reached nothing but the demand ledger. Measured
+     * against production on 2026-10-06, `restaurants` answered 49 for Pelham,
+     * 49 for Salem and 49 for Manchester — which has no listings at all. The
+     * real answers are 11, 38 and 0. With one town live the bug was invisible,
+     * because unfiltered and Pelham were the same set; Salem made it show.
+     *
+     * Rooted at `organizations` rather than at `organization_category`, so
+     * that BOTH filters sit one level deep in the embed rather than one of
+     * them being nested two deep behind the other. `!inner` is what makes an
+     * embed a join rather than a decoration — without it the filter would
+     * narrow the embedded rows and keep every parent.
+     *
+     * The territory embed is added only when a town is named, because an
+     * unconditional `!inner` would silently drop any listing that has no
+     * territory row at all.
+     */
+    const embeds = [`organization_category!inner ( category_id )`];
+    if (territory) embeds.push(`organization_territory!inner ( territory_slug )`);
 
+    let query = sb
+      .from("organizations")
+      .select([PUBLIC_LISTING_COLUMNS, ...embeds].join(", "))
+      .eq("organization_category.category_id", holdingId);
+
+    if (territory) {
+      query = query.eq("organization_territory.territory_slug", territory);
+    }
+
+    const rows = must(await query, "organizations") ?? [];
+
+    /**
+     * Deduplicated by id, because a join can repeat a parent.
+     *
+     * The type and status check stays here rather than moving into the query:
+     * `PUBLIC_ORG_TYPES` is the rule that keeps a customer, a landlord or a
+     * condo association out of a public page, and it is worth having in one
+     * obvious place that every route in this file reads the same way.
+     */
+    const seen = new Set<string>();
     const listings = rows
-      .map((r: any) => r.organizations)
       .filter((o: any) => o && o.status === "active" && PUBLIC_ORG_TYPES.includes(String(o.type)))
+      .filter((o: any) => (seen.has(String(o.id)) ? false : (seen.add(String(o.id)), true)))
       .map((o: any) => publicListing(o, [{ slug: category.slug, name: category.name }]));
 
     // Every search is a demand signal, and the ones that found nothing are
