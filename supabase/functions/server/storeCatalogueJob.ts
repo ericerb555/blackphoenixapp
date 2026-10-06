@@ -26,7 +26,7 @@
 import * as kv from "./kv_store.tsx";
 import { Hono } from "npm:hono@4";
 import { registerStoreJob, askForGuidance, withdrawAsk, type StoreJobContext, type StoreJobResult } from "./storeAutonomy.ts";
-import { fetchCJVariantSnapshot, storedOrSecretKey as cjKey } from "./cjdropshipping.tsx";
+import { fetchCJVariantSnapshot, storedOrSecretKey as cjKey, CJ_ACCESS_DISABLED } from "./cjdropshipping.tsx";
 import * as config from "./dropshipper-config.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import {
@@ -155,7 +155,28 @@ async function catalogueJob(ctx: StoreJobContext): Promise<StoreJobResult> {
       facts = await fetchCJVariantSnapshot(apiKey, String(product.providerProductId || ""), await knownVid(sku));
       checked += 1;
     } catch (error: any) {
-      problems.push(`${sku}: ${String(error?.message || error).slice(0, 160)}`);
+      const message = String(error?.message || error);
+      /**
+       * CJ has switched API access off for the account.
+       *
+       * Stop the sweep rather than repeating the same failure against every
+       * remaining product. Before this, a disabled account produced 123
+       * identical errors, of which the heartbeat showed five — so the real
+       * problem arrived as a wall of noise with no instruction in it, and
+       * nothing reached the queue a person actually reads.
+       *
+       * It is one ask, raised once, because it is one problem with one fix and
+       * that fix is on CJ's dashboard rather than here.
+       */
+      if (message.startsWith(CJ_ACCESS_DISABLED)) {
+        await askAboutDisabledAccess(message);
+        return {
+          ran: false,
+          detail: `CJ has switched API access off for the account, so nothing could be checked. ${checked}/${all.length} done before it stopped — raised in the queue.`,
+          counts: { checked, delisted, relisted, repriced, asked: asked + 1, unknown },
+        };
+      }
+      problems.push(`${sku}: ${message.slice(0, 160)}`);
       continue;
     }
 
@@ -378,6 +399,53 @@ storeCatalogueRouter.put(`${PREFIX}/store/catalogue/policy`, async (c) => {
 });
 
 /** Registered explicitly, not by import side effect. */
+/**
+ * One ask for a disabled CJ account, with the fix in it.
+ *
+ * Deliberately NOT a question with alternatives to weigh. Every other ask in
+ * this system offers a choice because there is a judgement to make; this one
+ * has exactly one answer — somebody has to turn API access back on at CJ — so
+ * what it provides is the link, the error code, and a way to say "done, try
+ * again" or "stop asking".
+ *
+ * `askIsWellFormed` requires at least two choices, which is the right rule:
+ * an ask with one option is a notification wearing a question's clothes. These
+ * two are real, though. "I have fixed it" is what makes the next tick retry
+ * instead of waiting for the dedupe to lapse, and "leave the store alone" is a
+ * genuine alternative for somebody who has decided to stop selling CJ goods
+ * rather than chase the account.
+ */
+async function askAboutDisabledAccess(message: string): Promise<void> {
+  await askForGuidance({
+    job: "catalogue",
+    dedupeKey: "cj-access-disabled",
+    question: "CJ has switched API access off for the account. Can you turn it back on?",
+    because:
+      "Every product check comes back with CJ error 1600014. The API key still authenticates normally — a fresh token was issued and the account shows its full points allowance unused — so this is a setting on the CJ account rather than a key, a token or anything this server can change.",
+    wouldHaveDone:
+      "Nothing. No stock level and no cost can be read while this stands, so the catalogue is not being checked and no product will go off sale or change price. Orders cannot be forwarded to CJ either.",
+    choices: [
+      {
+        key: "fixed",
+        label: "I have turned it back on — try again",
+        consequence: "The catalogue is checked on the next tick, and this question closes.",
+      },
+      {
+        key: "leave-it",
+        label: "Leave the store alone for now",
+        consequence: "Nothing is checked and nothing changes price. Ask again when CJ is sorted.",
+      },
+    ],
+    detail: [
+      ["Where to fix it", "cjdropshipping.com/my.html#/authorize/APIStores — My CJ, then Authorization, then API Stores"],
+      ["CJ's error code", "1600014"],
+      ["What CJ said", message.replace(`${CJ_ACCESS_DISABLED}: `, "").slice(0, 300)],
+      ["What still works", "Authentication. The key is valid; only the data endpoints are refused."],
+      ["If CJ gives no way to re-enable it", "Their support can say why 1600014 is set — quote the code and the requestId from a failed call."],
+    ],
+  });
+}
+
 export function registerStoreCatalogueJob(): void {
   registerStoreJob("catalogue", catalogueJob);
 }

@@ -28,6 +28,14 @@ const PROVIDER_ID = "cjdropshipping";
 const INVENTORY_KEY_PREFIX = "dropshipper_inventory";
 const TOKEN_KEY = "cj:access_token"; // KV cache of the CJ access token
 const API_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
+/**
+ * The two CJ failures that need opposite handling live in cjErrors.ts, which
+ * is pure and therefore tested — see the note there for why telling them
+ * apart matters. Re-exported so modules already importing from this file do
+ * not have to know where the rule moved to.
+ */
+export { CJ_ACCESS_DISABLED, CJ_ACCESS_DISABLED_CODE } from "./cjErrors.ts";
+import { isAccessDisabled, isStaleToken, CJ_ACCESS_DISABLED as DISABLED_MARKER } from "./cjErrors.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -233,13 +241,32 @@ async function cjFetch(
     return cjFetch(apiKey, path, init, _retried, _rateRetries + 1);
   }
 
-  // CJ signals an expired/invalid token via code 1600xx or a message about the
-  // access token. Re-auth once and retry.
-  const looksLikeAuthError =
-    res.status === 401 ||
-    data?.code === 1600100 ||
-    /access[- ]?token/i.test(String(data?.message || ""));
-  if (looksLikeAuthError && !_retried) {
+  /**
+   * CJ has switched API access off for the whole account.
+   *
+   * Checked BEFORE the token branch below, and deliberately without a retry.
+   * Code 1600014 is not an expired token — it is a setting on the CJ account,
+   * under My CJ → Authorization → API Stores. Proved on 2026-10-06 by minting a
+   * fresh token and calling `/product/variant/query` thirty seconds later: the
+   * auth endpoint answered 200 with 50,000 points unused, and the product
+   * endpoint still answered 1600014.
+   *
+   * So re-authenticating cannot fix it, and falling through to the token branch
+   * below would spend one pointless auth call per request — 123 of them on a
+   * single catalogue sweep. Thrown with a distinct prefix instead, which is what
+   * `storeCatalogueJob` matches on to raise an ask rather than filing 123
+   * identical errors in the heartbeat.
+   */
+  if (isAccessDisabled(data)) {
+    throw new Error(
+      `${DISABLED_MARKER}: ${data?.message || "CJ has disabled API access for this account."}`,
+    );
+  }
+
+  // An expired or invalid token: re-auth once and retry. `isStaleToken` excludes
+  // the disabled-account case handled above, so it cannot claim it — which is
+  // the confusion that spent a pointless auth call on each of 123 products.
+  if (isStaleToken(data, res.status) && !_retried) {
     await getAccessToken(apiKey, true); // force refresh
     return cjFetch(apiKey, path, init, true, _rateRetries);
   }
