@@ -24,6 +24,7 @@ import {
   type PlanCategory,
 } from '../config/subscriptionPlans';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { applyCatalogue, audiencesFor, type CatalogueTier } from '../config/catalogueBridge';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -66,6 +67,15 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
   // over the catalog so a saved change is still there after a reload.
   const [planOverrides, setPlanOverrides] = useState<Record<string, any>>({});
   const [savingPlan, setSavingPlan] = useState(false);
+  /**
+   * What the catalogue publishes, by audience.
+   *
+   * The catalogue is what Stripe bills against, so where it has a price that
+   * price is the true one and the figure shipped in subscriptionPlans.ts is a
+   * default. Empty until something is published, and an empty result changes
+   * nothing — see catalogueBridge.
+   */
+  const [catalogueTiers, setCatalogueTiers] = useState<Record<string, CatalogueTier[]>>({});
 
   const applyOverride = (plan: SubscriptionPlan): SubscriptionPlan => {
     const ov = planOverrides[plan.id];
@@ -81,10 +91,52 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
     };
   };
 
+  /**
+   * Catalogue first, then the owner's manual override.
+   *
+   * That order matters: an administrator who has deliberately typed a price for
+   * one plan should keep it, even once the catalogue publishes a figure for the
+   * same rung. The catalogue replaces the SHIPPED default, not a human decision.
+   */
   const filteredPlans = useMemo(
-    () => getPlansByCategory(activeCategory).map(applyOverride),
-    [activeCategory, planOverrides],
+    () => getPlansByCategory(activeCategory)
+      .map((plan) => applyCatalogue(plan as any, catalogueTiers).plan as unknown as SubscriptionPlan)
+      .map(applyOverride),
+    [activeCategory, planOverrides, catalogueTiers],
   );
+
+
+  /**
+   * Read the published ladder for the categories on screen.
+   *
+   * Anonymous on purpose: this component renders the public pricing page, so it
+   * cannot depend on a session. /public/plan-tiers returns only tiers that are
+   * on sale and strips both Stripe price ids before answering.
+   *
+   * A failure is silent by design. If the catalogue cannot be reached the page
+   * shows the prices it ships with, which is a working pricing page rather than
+   * an error — and before anything is published that is every price anyway.
+   */
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const wanted = audiencesFor(subscriptionPlans as any);
+      const found: Record<string, CatalogueTier[]> = {};
+      await Promise.all(wanted.map(async (audience) => {
+        try {
+          const res = await fetch(`${SERVER}/public/plan-tiers?audience=${encodeURIComponent(audience)}`, {
+            headers: { Authorization: `Bearer ${publicAnonKey}` },
+          });
+          const json = await res.json();
+          if (res.ok && json?.success && Array.isArray(json.tiers)) found[audience] = json.tiers;
+        } catch {
+          // Shipped prices stand.
+        }
+      }));
+      if (live && Object.keys(found).length) setCatalogueTiers(found);
+    })();
+    return () => { live = false; };
+  }, []);
 
   // Load owner-defined per-tier feature entitlements once.
   useEffect(() => {

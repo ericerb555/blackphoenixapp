@@ -909,4 +909,52 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-catalog/seed-ladders", async 
   });
 });
 
+/**
+ * GET /public/plan-tiers — the published ladder, for a page nobody has signed
+ * in to.
+ *
+ * WHY A SECOND READ ROUTE RATHER THAN OPENING THE FIRST
+ *
+ * `/plan-tiers` is behind the sign-in wall, and should stay there: it answers
+ * for administrators too, returning withdrawn tiers so they can be put back.
+ * The public pricing page needs the opposite — only what is actually on sale,
+ * to somebody with no account, which is the whole point of a pricing page.
+ *
+ * WHAT IT WILL NOT RETURN
+ *
+ * Withdrawn tiers, and anything about Stripe. `publicTier` strips both price
+ * ids before this ever sees the record, so the page learns that a tier is
+ * purchasable without learning what it bills against.
+ *
+ * It is safe to read anonymously because a price is a thing we publish. These
+ * figures are meant to be on a public page; that is what they are for.
+ *
+ * The path carries its own permission: `/public/` is already a blanket public
+ * prefix in index.tsx, so no entry was added to PUBLIC_GET_PREFIXES. A second
+ * entry for a path the list already covers is noise in a list that decides who
+ * reaches what, and noise there is how a real entry stops being read.
+ */
+planCatalogRouter.get("/make-server-3eae23a6/public/plan-tiers", async (c) => {
+  const audience = readAudience(c.req.query("audience"));
+  if (!audience) {
+    return c.json({ success: false, error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
+  }
+
+  try {
+    const rows = ((await kv.getByPrefix(`plan_tier:${audience}:`)) as PlanTier[] || []).filter(Boolean);
+    const onSale = rows.filter((t) => t.active !== false);
+    onSale.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || String(a.name).localeCompare(String(b.name)));
+    return c.json({
+      success: true,
+      audience,
+      tiers: onSale.map((t) => publicTier(t, activeMode())),
+    });
+  } catch (err) {
+    console.log("[PlanCatalog] public read failed:", err);
+    // An empty list rather than a 500: a pricing page that cannot reach the
+    // catalogue should fall back to what it ships with, not show an error.
+    return c.json({ success: true, audience, tiers: [] });
+  }
+});
+
 export default planCatalogRouter;
