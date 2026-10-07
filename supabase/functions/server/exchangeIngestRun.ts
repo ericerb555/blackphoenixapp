@@ -40,7 +40,9 @@ import { safeFetch } from "./outboundGuard.ts";
 import {
   osmToRegistryRecord,
   osmCoordinates,
-  overpassQuery,
+  overpassClassQueries,
+  truncatedClasses,
+  dedupeOsmElements,
   belongsToTerritory,
   OSM_ATTRIBUTION,
   type OverpassElement,
@@ -73,6 +75,13 @@ export interface IngestOutcome {
   filled: number;
   untouched: number;
   uncategorised: number;
+  /**
+   * Feature classes that came back at their query's limit, and so may have
+   * been cut short. Empty is the normal and expected answer; anything in here
+   * means the town should be re-run over a smaller radius, because the
+   * directory it produced is short by an unknown amount.
+   */
+  truncated: string[];
   attribution: string;
   dryRun: boolean;
   error?: string;
@@ -97,14 +106,14 @@ async function aliasIndex(sb: any): Promise<Map<string, string>> {
 }
 
 /**
- * Ask Overpass for one town.
+ * Ask Overpass one question.
  *
  * Through `safeFetch`, which revalidates every redirect hop — the endpoint is
  * ours to choose rather than attacker-supplied, so this is belt and braces
  * rather than the main defence, and it also gives us the size ceiling for
  * free.
  */
-async function fetchTown(lat: number, lng: number, radiusMetres: number): Promise<OverpassElement[]> {
+async function askOverpass(query: string): Promise<OverpassElement[]> {
   const result = await safeFetch(OVERPASS, {
     method: "POST",
     headers: {
@@ -112,7 +121,7 @@ async function fetchTown(lat: number, lng: number, radiusMetres: number): Promis
       "User-Agent": USER_AGENT,
       Accept: "application/json",
     },
-    body: new URLSearchParams({ data: overpassQuery(lat, lng, radiusMetres) }).toString(),
+    body: new URLSearchParams({ data: query }).toString(),
   });
 
   if (!result.ok || !result.body) {
@@ -126,6 +135,42 @@ async function fetchTown(lat: number, lng: number, radiusMetres: number): Promis
 
   const payload = JSON.parse(result.body);
   return Array.isArray(payload?.elements) ? payload.elements : [];
+}
+
+/**
+ * Ask Overpass for one town, one feature class at a time.
+ *
+ * WHY NOT ONE QUERY. `out ... 800` caps the COMBINED result, so a single query
+ * makes the four classes compete for one allowance and drops the overflow
+ * silently — no flag, no warning, HTTP 200, well-formed JSON. Manchester lost
+ * 431 of its 1231 features that way and produced a directory a third short
+ * that looked completely normal, because every listing in it was real. See
+ * `overpassClassQueries`.
+ *
+ * A class that comes back AT its limit is reported through `truncated`, which
+ * `ingestTerritory` passes up into the outcome. That is the only signal
+ * truncation gives, and a run that hides it is the bug all over again.
+ */
+async function fetchTown(
+  lat: number,
+  lng: number,
+  radiusMetres: number,
+): Promise<{ elements: OverpassElement[]; truncated: string[] }> {
+  const counts: Record<string, number> = {};
+  const collected: OverpassElement[] = [];
+
+  // Sequentially, not in parallel: this is a shared free endpoint and four
+  // simultaneous queries from one caller is not the courtesy its terms ask
+  // for.
+  for (const { className, query } of overpassClassQueries(lat, lng, radiusMetres)) {
+    const elements = await askOverpass(query);
+    counts[className] = elements.length;
+    collected.push(...elements);
+  }
+
+  // A feature can answer two classes — a bakery that bakes on site is both
+  // `shop` and `craft` — so identity is OSM's own type and id.
+  return { elements: dedupeOsmElements(collected), truncated: truncatedClasses(counts) };
 }
 
 /**
@@ -212,6 +257,7 @@ export async function ingestTerritory(
     territory: territorySlug,
     found: 0, outsideTerritory: 0, notListable: 0, duplicates: 0,
     created: 0, filled: 0, untouched: 0, uncategorised: 0,
+    truncated: [],
     attribution: OSM_ATTRIBUTION,
     dryRun: options.dryRun,
   };
@@ -230,12 +276,13 @@ export async function ingestTerritory(
   }
 
   const aliases = await aliasIndex(sb);
-  const elements = await fetchTown(
+  const { elements, truncated } = await fetchTown(
     Number(territory.center_lat),
     Number(territory.center_lng),
     options.radiusMetres ?? 6000,
   );
   outcome.found = elements.length;
+  outcome.truncated = truncated;
 
   const town = { name: territory.name, state: territory.state, territorySlug: territory.slug };
   const candidates: ListingCandidate[] = [];
@@ -320,13 +367,32 @@ export async function ingestTerritory(
     if (candidate.categorySlug && created?.id) {
       const { data: category } = await sb
         .from("exchange_category")
-        .select("id")
+        .select("id, parent_id")
         .eq("slug", candidate.categorySlug)
         .maybeSingle();
 
-      if (category?.id) {
+      /**
+       * A BUSINESS HOLDS A CATEGORY, NEVER A SERVICE UNDER ONE.
+       *
+       * The alias table can resolve a phrase to a service leaf: "lawyer"
+       * resolves to `family-law`, whose parent is `lawyers`. Inserting the
+       * leaf is refused by `exchange_org_category_guard` with "a business
+       * holds categories, not individual services" — and because the insert
+       * is the last thing done for that listing, the row went in and its
+       * category did not.
+       *
+       * Found compiling Manchester, which has eleven law offices: every one
+       * of them resolved to the service. Taking the parent is the same rule
+       * the read path already applies in reverse — a category page lists the
+       * businesses holding its parent (`holdingId` in exchangeDirectory) — so
+       * this makes the write agree with the read instead of relying on the
+       * alias table only ever naming top-level categories.
+       */
+      const holdingId = category?.parent_id ?? category?.id;
+
+      if (holdingId) {
         await sb.from("organization_category")
-          .insert({ org_id: created.id, category_id: category.id });
+          .insert({ org_id: created.id, category_id: holdingId });
       }
     }
 

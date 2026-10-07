@@ -225,6 +225,34 @@ export function osmCoordinates(
 }
 
 /**
+ * The four kinds of feature a listing can be compiled from.
+ *
+ * Kept as named clauses rather than inlined into one query string, because
+ * each one is asked for separately — see `overpassClassQueries` below for why
+ * that matters. `["name"]` on every clause because an unnamed feature cannot
+ * become a listing, and filtering server-side is politer to a shared free
+ * endpoint than downloading them and throwing them away.
+ */
+const OVERPASS_CLAUSES: Record<string, (at: string) => string> = {
+  shop: (at) => `nwr(around:${at})["shop"]["name"];`,
+  craft: (at) => `nwr(around:${at})["craft"]["name"];`,
+  office: (at) =>
+    `nwr(around:${at})["office"~"^(lawyer|accountant|estate_agent|insurance|it|company|financial|financial_advisor|employment_agency|architect|surveyor|engineer|tax_advisor|advertising_agency|graphic_design|moving_company|property_management|construction_company)$"]["name"];`,
+  amenity: (at) =>
+    `nwr(around:${at})["amenity"~"^(restaurant|cafe|bar|pub|fast_food|pharmacy|veterinary)$"]["name"];`,
+};
+
+/** The feature classes, in the order they are asked for. */
+export const OVERPASS_CLASSES = Object.keys(OVERPASS_CLAUSES);
+
+function around(lat: number, lng: number, radiusMetres: number): string {
+  const r = Math.max(Math.min(Math.round(radiusMetres), 25_000), 500);
+  return `${r},${lat.toFixed(6)},${lng.toFixed(6)}`;
+}
+
+const capped = (limit: number) => Math.max(Math.min(Math.round(limit), 2000), 1);
+
+/**
  * The Overpass query for one town.
  *
  * A radius around a point rather than a named area: `area["name"="Pelham"]`
@@ -232,23 +260,110 @@ export function osmCoordinates(
  * is inconsistent — and every town already has a centre stored on
  * `exchange_territory`, which is ours and known good.
  *
- * `["name"]` on every clause because an unnamed feature cannot become a
- * listing, and filtering server-side is politer to a shared free endpoint than
- * downloading them and throwing them away.
+ * ONE QUERY FOR ALL FOUR CLASSES, WHICH IS WHY IT IS NO LONGER USED TO INGEST
+ * A TOWN. `out ... 800` caps the COMBINED set, so the four classes compete for
+ * one allowance and the overflow is dropped with no error and no marker. Use
+ * `overpassClassQueries` instead; this is kept because a single query is the
+ * right thing for a spot check and because it is what the cap tests describe.
  */
 export function overpassQuery(lat: number, lng: number, radiusMetres: number, limit = 800): string {
-  const r = Math.max(Math.min(Math.round(radiusMetres), 25_000), 500);
-  const n = Math.max(Math.min(Math.round(limit), 2000), 1);
-  const at = `${r},${lat.toFixed(6)},${lng.toFixed(6)}`;
+  const at = around(lat, lng, radiusMetres);
+  const clauses = OVERPASS_CLASSES.map((k) => `  ${OVERPASS_CLAUSES[k](at)}`).join("\n");
 
   return `[out:json][timeout:90];
 (
-  nwr(around:${at})["shop"]["name"];
-  nwr(around:${at})["craft"]["name"];
-  nwr(around:${at})["office"~"^(lawyer|accountant|estate_agent|insurance|it|company|financial|financial_advisor|employment_agency|architect|surveyor|engineer|tax_advisor|advertising_agency|graphic_design|moving_company|property_management|construction_company)$"]["name"];
-  nwr(around:${at})["amenity"~"^(restaurant|cafe|bar|pub|fast_food|pharmacy|veterinary)$"]["name"];
+${clauses}
 );
-out center tags ${n};`;
+out center tags ${capped(limit)};`;
+}
+
+/**
+ * One query per feature class, so no class can be starved by another.
+ *
+ * WHY THIS EXISTS, WITH THE RECEIPT
+ *
+ * Manchester was ingested with the single combined query above and produced a
+ * plausible-looking 570 listings. It was short. Asked class by class with
+ * `out count`, six kilometres around the city centre holds:
+ *
+ *     shop      785
+ *     craft      29
+ *     office     94
+ *     amenity   323
+ *     ------------
+ *     total    1231
+ *
+ * The combined query's `out center tags 800` returned the first 800 of those
+ * 1231 and said nothing at all about the other 431. Overpass does not warn
+ * when `out` truncates — there is no flag in the response, the HTTP status is
+ * 200, and the JSON is well formed. Pelham (121 features) and Salem (438) were
+ * both under the cap, so two correct runs came first and the cap looked like a
+ * generous ceiling rather than a live constraint.
+ *
+ * That is this project's most expensive failure shape, again: a system
+ * reporting success while quietly doing part of the job. A town's directory
+ * being a third short is not visible by looking at it — the listings that are
+ * there are all real.
+ *
+ * Four queries, each with its own allowance, means the largest class in
+ * Manchester uses 785 of its 2000. The caller is still responsible for
+ * noticing a class that comes back AT its limit, because that is the only
+ * signal truncation gives: see `truncatedClasses`.
+ */
+export function overpassClassQueries(
+  lat: number,
+  lng: number,
+  radiusMetres: number,
+  limit = 2000,
+): { className: string; query: string }[] {
+  const at = around(lat, lng, radiusMetres);
+  const n = capped(limit);
+
+  return OVERPASS_CLASSES.map((className) => ({
+    className,
+    query: `[out:json][timeout:90];
+(
+  ${OVERPASS_CLAUSES[className](at)}
+);
+out center tags ${n};`,
+  }));
+}
+
+/**
+ * Which classes came back at their limit, and so may have been truncated.
+ *
+ * Exactly-at-the-limit is not proof of truncation — a class with precisely
+ * 2000 features would look identical — but it is the only signal available,
+ * and treating it as suspect is the right direction to be wrong in. A caller
+ * that ignores this is back to compiling a town that is quietly short.
+ */
+export function truncatedClasses(
+  counts: Record<string, number>,
+  limit = 2000,
+): string[] {
+  const n = capped(limit);
+  return Object.keys(counts).filter((k) => counts[k] >= n);
+}
+
+/**
+ * The same feature arriving twice, reduced to once.
+ *
+ * Asking class by class makes this necessary: a feature tagged both `shop` and
+ * `craft` — a bakery that bakes on site, say — answers to two of the four
+ * queries. Identity is OSM's own type and id, which is stable and is the only
+ * thing here that cannot be two different places by coincidence.
+ */
+export function dedupeOsmElements(elements: OverpassElement[]): OverpassElement[] {
+  const seen = new Set<string>();
+  const out: OverpassElement[] = [];
+
+  for (const element of elements ?? []) {
+    const key = `${element?.type ?? "?"}/${element?.id ?? "?"}`;
+    if (key === "?/?" || seen.has(key)) continue;
+    seen.add(key);
+    out.push(element);
+  }
+  return out;
 }
 
 /**

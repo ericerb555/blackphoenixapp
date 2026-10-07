@@ -32,6 +32,10 @@ import {
   osmToRegistryRecord,
   osmCoordinates,
   overpassQuery,
+  overpassClassQueries,
+  truncatedClasses,
+  dedupeOsmElements,
+  OVERPASS_CLASSES,
   belongsToTerritory,
   OSM_ATTRIBUTION,
   type OverpassElement,
@@ -217,6 +221,84 @@ test('the radius and the limit are clamped', () => {
   assert.ok(overpassQuery(42, -71, 999_999).includes('around:25000'));
   assert.ok(overpassQuery(42, -71, 1).includes('around:500'));
   assert.ok(overpassQuery(42, -71, 6000, 99_999).includes('out center tags 2000'));
+});
+
+/* ── one query per class, which is how a town is really asked for ─────── */
+
+test('each feature class is asked for separately, with its own allowance', () => {
+  /*
+    WHY THIS MATTERS, WITH THE RECEIPT
+
+    `out ... N` caps the COMBINED result, so one query makes the four classes
+    compete for a single allowance. Six kilometres around Manchester holds 785
+    shops, 29 crafts, 94 offices and 323 amenities — 1231 features. The old
+    combined query asked for 800 of them and said nothing whatever about the
+    other 431: no flag, no warning, HTTP 200, well-formed JSON. The town's
+    directory came out a third short and looked completely normal, because
+    every listing in it was real.
+  */
+  const queries = overpassClassQueries(42.9956, -71.4548, 6000);
+  assert.deepEqual(queries.map((q) => q.className), OVERPASS_CLASSES);
+  assert.equal(queries.length, 4);
+
+  for (const { query } of queries) {
+    // Exactly one clause each — that is the whole point of splitting them.
+    const clauses = query.split('\n').filter((l) => l.trim().startsWith('nwr'));
+    assert.equal(clauses.length, 1);
+    assert.ok(clauses[0].includes('["name"]'), clauses[0]);
+    assert.ok(query.includes('around:6000,42.995600,-71.454800'));
+    // The default allowance is the ceiling, because a class is now alone in it.
+    assert.ok(query.includes('out center tags 2000'));
+  }
+
+  // Between them they still ask for everything the combined query did.
+  const all = queries.map((q) => q.query).join('\n');
+  for (const tag of ['["shop"]', '["craft"]', '"office"~', '"amenity"~']) {
+    assert.ok(all.includes(tag), tag);
+  }
+});
+
+test('the class queries clamp their radius and limit too', () => {
+  assert.ok(overpassClassQueries(42, -71, 999_999)[0].query.includes('around:25000'));
+  assert.ok(overpassClassQueries(42, -71, 1)[0].query.includes('around:500'));
+  assert.ok(
+    overpassClassQueries(42, -71, 6000, 99_999)[0].query.includes('out center tags 2000'),
+  );
+});
+
+test('a class that came back at its limit is reported as suspect', () => {
+  // At the limit is not proof of truncation — a class with exactly 2000
+  // features looks identical — but it is the only signal Overpass gives, and
+  // treating it as suspect is the right direction to be wrong in.
+  assert.deepEqual(
+    truncatedClasses({ shop: 785, craft: 29, office: 94, amenity: 323 }),
+    [],
+  );
+  assert.deepEqual(truncatedClasses({ shop: 2000, craft: 29 }), ['shop']);
+  assert.deepEqual(truncatedClasses({ shop: 800, craft: 800 }, 800), ['shop', 'craft']);
+});
+
+test('a feature answering two classes is kept once', () => {
+  // A bakery that bakes on site is both `shop` and `craft`, so it comes back
+  // from two of the four queries. Identity is OSM's own type and id: the only
+  // thing here that cannot be two different places by coincidence.
+  const bakery = { type: 'node', id: 1, tags: { shop: 'bakery', name: 'Rise' } };
+  const deduped = dedupeOsmElements([
+    bakery,
+    { type: 'node', id: 2, tags: { name: 'Other' } },
+    { ...bakery },
+    // Same id, different element type, genuinely a different feature.
+    { type: 'way', id: 1, tags: { name: 'A building' } },
+  ] as OverpassElement[]);
+
+  assert.deepEqual(deduped.map((e) => `${e.type}/${e.id}`), ['node/1', 'node/2', 'way/1']);
+});
+
+test('an element with no identity is dropped rather than guessed at', () => {
+  // Without a type and id there is no way to tell a repeat from a new
+  // feature, and a listing compiled from one could not be traced back.
+  assert.deepEqual(dedupeOsmElements([{ tags: { name: 'Nowhere' } }] as OverpassElement[]), []);
+  assert.deepEqual(dedupeOsmElements([] as OverpassElement[]), []);
 });
 
 /* ── the licence ──────────────────────────────────────────────────────── */
