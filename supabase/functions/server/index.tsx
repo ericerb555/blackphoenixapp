@@ -272,6 +272,7 @@ import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { unitsCovered, unitsForAudience } from "./unitsCovered.tsx";
+import { orderSpend, maySpend } from "./storeSpendGuard.ts";
 import {
   providerIsSellable, providerOf, DEFAULT_SELLABLE_PROVIDERS,
 } from "./sellableProviders.ts";
@@ -19174,7 +19175,7 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
  * and is not fine for an unattended job, where the failure mode is a loop that
  * empties the CJ balance before anybody notices.
  */
-async function runFulfillmentSweep(reason: string, limit?: number): Promise<{ examined: number; forwarded: number; failed: number; errors: string[]; orderIds: string[]; deferred?: number }> {
+async function runFulfillmentSweep(reason: string, limit?: number, spendCeiling?: number): Promise<{ examined: number; forwarded: number; failed: number; errors: string[]; orderIds: string[]; deferred?: number; spent?: number; heldForSpend?: number }> {
   const waiting = (((await kv.getByPrefix('store:order:')) || []) as any[]).filter(orderAwaitsFulfillment);
   const cap = Number.isFinite(limit as number) && (limit as number) > 0 ? Math.floor(limit as number) : waiting.length;
   const orders = waiting.slice(0, cap);
@@ -19184,7 +19185,64 @@ async function runFulfillmentSweep(reason: string, limit?: number): Promise<{ ex
   const errors: string[] = [];
   const orderIds: string[] = [];
 
+  /**
+   * The money ceiling, which until 2026-10-07 was decoration.
+   *
+   * `maxSpendPerTick` was declared as "a hard stop on money committed to
+   * suppliers in one tick", validated on write, reported by the status route
+   * under `ceilings`, and handed to every job on its context — and read by none
+   * of them. Twenty-five orders a tick was the only real limit, whatever they
+   * cost. See `storeSpendGuard.ts` for the arithmetic and why an unknown cost
+   * falls back to the sale price rather than to zero.
+   *
+   * Costs are read once for every SKU on this sweep rather than per order, so
+   * enforcing a ceiling does not cost a read per line.
+   */
+  const ceiling = Number(spendCeiling) > 0 ? Number(spendCeiling) : 0;
+  let spent = 0;
+  let heldForSpend = 0;
+  const costBySku: Record<string, { cost?: number; shippingCost?: number }> = {};
+
+  const skuOf = (item: any) => String(item?.sku || item?.SKU || item?.id || item?.productId || '');
+
+  if (ceiling > 0) {
+    const skus = new Set<string>();
+    for (const order of orders) {
+      for (const item of (Array.isArray(order.items) ? order.items : [])) {
+        const sku = skuOf(item);
+        if (sku) skus.add(sku);
+      }
+    }
+    for (const sku of skus) {
+      try {
+        const raw = await kv.get(`dropshipper_inventory:${sku}`);
+        const rec = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (rec) costBySku[sku] = { cost: Number(rec.cost) || 0, shippingCost: Number(rec.shippingCost) || 0 };
+      } catch {
+        // Left unknown on purpose: the guard then falls back to the sale price,
+        // which over-states what we pay, so the ceiling binds sooner.
+      }
+    }
+  }
+
   for (const order of orders) {
+    if (ceiling > 0) {
+      const lines = (Array.isArray(order.items) ? order.items : []).map((it: any) => ({
+        sku: skuOf(it),
+        quantity: Number(it?.quantity ?? it?.qty ?? 1) || 1,
+        price: Number(it?.price ?? it?.unitPrice ?? 0) || 0,
+      }));
+      const verdict = maySpend(spent, orderSpend(lines, costBySku).dollars, ceiling);
+      if (!verdict.allowed) {
+        // Held rather than failed: nothing is wrong with the order, the tick has
+        // simply run out of budget. It is first in the queue on the next one.
+        heldForSpend += 1;
+        errors.push(`${order.id}: held — ${verdict.reason}`);
+        continue;
+      }
+      spent = verdict.spentAfter;
+    }
+
     const outcome = await forwardStoreOrderToSupplier(order);
     if (outcome.success) {
       forwarded += 1;
@@ -19205,8 +19263,8 @@ async function runFulfillmentSweep(reason: string, limit?: number): Promise<{ ex
     lastRunErrors: errors.slice(0, 10),
   });
 
-  console.log(`[fulfillment sweep:${reason}] examined=${orders.length} forwarded=${forwarded} failed=${failed}${deferred ? ` deferred=${deferred}` : ''}`);
-  return { examined: orders.length, forwarded, failed, errors, orderIds, deferred };
+  console.log(`[fulfillment sweep:${reason}] examined=${orders.length} forwarded=${forwarded} failed=${failed}${deferred ? ` deferred=${deferred}` : ''}${ceiling > 0 ? ` spent=$${spent.toFixed(2)}/${ceiling}` : ''}${heldForSpend ? ` heldForSpend=${heldForSpend}` : ''}`);
+  return { examined: orders.length, forwarded, failed, errors, orderIds, deferred, spent, heldForSpend };
 }
 
 /**
@@ -19221,13 +19279,25 @@ async function runFulfillmentSweep(reason: string, limit?: number): Promise<{ ex
  * fields, and raises the same staff alert on a paid order that did not ship.
  */
 registerStoreJob('fulfil', async (ctx) => {
-  const result = await runFulfillmentSweep(`cron:${ctx.runId}`, ctx.maxOrdersPerTick);
+  const result = await runFulfillmentSweep(`cron:${ctx.runId}`, ctx.maxOrdersPerTick, ctx.maxSpendPerTick);
   if (result.examined === 0) {
     return { ran: false, detail: 'No paid order is waiting to be sent to a supplier.' };
   }
   const bits = [`${result.examined} examined`, `${result.forwarded} forwarded`];
   if (result.failed) bits.push(`${result.failed} failed`);
   if (result.deferred) bits.push(`${result.deferred} left for the next tick (ceiling ${ctx.maxOrdersPerTick})`);
+  /**
+   * The money ceiling, said out loud in the heartbeat.
+   *
+   * A sweep that quietly stopped spending would look identical to a quiet night,
+   * and the difference matters: orders are sitting unforwarded with customers
+   * waiting. So both the spend and anything held for it are reported.
+   */
+  if (result.heldForSpend) {
+    bits.push(`${result.heldForSpend} held at the $${ctx.maxSpendPerTick} spend ceiling ($${(result.spent ?? 0).toFixed(2)} committed)`);
+  } else if (result.spent) {
+    bits.push(`$${result.spent.toFixed(2)} committed of $${ctx.maxSpendPerTick}`);
+  }
   return {
     ran: true,
     detail: bits.join(', '),
