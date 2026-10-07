@@ -29,6 +29,8 @@
  * customer can be told honestly where a number came from.
  */
 
+import { matchStandardMaterial } from './standardMaterialPrices.ts';
+
 export interface CatalogItem {
   vendorId?: string;
   vendorName?: string;
@@ -193,6 +195,14 @@ export interface RepricedMaterial {
   offerId: string;
   productId: string;
   vendorId: string;
+  /**
+   * Which entry in the standard price book priced this line, when one did.
+   *
+   * Serves the same purpose as `offerId` does for a catalogue price: a
+   * `standard` figure is reviewable only if you can tell which figure it was.
+   * Empty for every other source.
+   */
+  standardId?: string;
 }
 
 export function repriceMaterial(
@@ -222,9 +232,40 @@ export function repriceMaterial(
     };
   }
 
-  // No catalogue match. The model's number is the only one available, so it is
-  // kept and marked — but the company's markup still applies, because that part
-  // is a real business rule regardless of where the base cost came from.
+  /**
+   * No vendor sells it. The standard price book is consulted next.
+   *
+   * This is the middle rung the materials side never had: labour has gone
+   * `your-rate` → `standard` → `estimated` since it was written, and
+   * `PriceSource` has carried `'standard'` all along, but a material was
+   * either a catalogue hit or the model's guess. With 11 catalogue items in
+   * production that meant nearly every line was a guess, re-made from scratch
+   * on each quote — the same stud could be $3 on Monday and $9 on Tuesday.
+   *
+   * A book price is NOT dressed up as a vendor's: it keeps its own label, no
+   * vendor name and no offer id, and the repricing summary counts it apart
+   * from the company's own figures.
+   */
+  const standard = matchStandardMaterial(material);
+  if (standard) {
+    return {
+      unitCost: withMarkup(standard.price),
+      source: 'standard',
+      // Deliberately blank. Attributing a reference figure to a vendor who
+      // never quoted it is the one thing this must not do.
+      vendor: '',
+      priceAsOf: null,
+      modelUnitCost,
+      offerId: '',
+      productId: '',
+      vendorId: '',
+      standardId: standard.id,
+    };
+  }
+
+  // Not in the book either. The model's number is the only one available, so it
+  // is kept and marked — but the company's markup still applies, because that
+  // part is a real business rule regardless of where the base cost came from.
   return {
     unitCost: withMarkup(modelUnitCost),
     source: 'estimated',
@@ -277,6 +318,12 @@ export function repriceLabor(
 export interface RepriceSummary {
   materialsPriced: number;
   materialsFromCatalogue: number;
+  /**
+   * Lines priced from the standard material book rather than from a vendor.
+   * Reported apart from `materialsFromCatalogue` because the two are different
+   * claims: one is a price somebody published, the other a reference figure.
+   */
+  materialsAtStandardPrices: number;
   laborPriced: number;
   laborAtYourRates: number;
   laborAtStandardRates: number;
@@ -332,7 +379,16 @@ export function repriceEstimate(
       ...m,
       unitCost: priced.unitCost,
       totalCost: round2(purchasedQty * priced.unitCost),
-      vendor: priced.vendor || m?.vendor || '',
+      /**
+       * A standard-book price carries NO vendor, and must not inherit one.
+       *
+       * The fallback chain reaches `m.vendor` — the vendor the model invented
+       * while guessing — so without the guard a reference figure from this
+       * repository would go out attributed to a supplier who never quoted it.
+       * That is a worse lie than the guess it replaced: the number looks
+       * sourced.
+       */
+      vendor: priced.source === 'standard' ? '' : (priced.vendor || m?.vendor || ''),
       priceSource: priced.source,
       priceAsOf: priced.priceAsOf,
       modelUnitCost: priced.modelUnitCost,
@@ -345,6 +401,9 @@ export function repriceEstimate(
         vendorId: priced.vendorId,
         offerId: priced.offerId,
         productId: priced.productId,
+        // Which standard book entry, when that is what priced it. A reference
+        // figure is only reviewable if the record says which figure it was.
+        standardId: priced.standardId || '',
         priceAsOf: priced.priceAsOf,
         at: new Date().toISOString(),
       },
@@ -415,9 +474,20 @@ export function repriceEstimate(
   };
 
   const materialMoney = materials.reduce((s: number, m: any) => s + (Number(m.totalCost) || 0), 0);
-  const catalogueMoney = materials
-    .filter((m: any) => m.priceSource === 'catalogue')
+  const materialMoneyWhere = (src: PriceSource) => materials
+    .filter((m: any) => m.priceSource === src)
     .reduce((s: number, m: any) => s + (Number(m.totalCost) || 0), 0);
+  const catalogueMoney = materialMoneyWhere('catalogue');
+  /**
+   * Materials priced from the standard book.
+   *
+   * Counted alongside standard LABOUR rates, and for the same reason: it is
+   * not a guess, so it belongs in `confidence` — but it is not Eric's figure
+   * either, so it must stay out of `onYourFigures`. Folding it into the latter
+   * would make the quote claim his authority for a number from a file in this
+   * repository, which is the whole thing the source labels exist to prevent.
+   */
+  const standardMaterialMoney = materialMoneyWhere('standard');
   const laborMoney = labor.reduce((s: number, l: any) => s + (Number(l.totalCost) || 0), 0);
   const moneyWhere = (src: PriceSource) => labor
     .filter((l: any) => l.rateSource === src)
@@ -429,11 +499,12 @@ export function repriceEstimate(
   // Weighted by money, not by line count: ten cheap screws priced from the
   // catalogue should not make a quote look solid when the cabinetry is a guess.
   const confidence = total > 0
-    ? round2((catalogueMoney + yourRateMoney + standardRateMoney) / total)
+    ? round2((catalogueMoney + standardMaterialMoney + yourRateMoney + standardRateMoney) / total)
     : 0;
   const onYourFigures = total > 0 ? round2((catalogueMoney + yourRateMoney) / total) : 0;
 
   const fromCatalogue = materials.filter((m: any) => m.priceSource === 'catalogue').length;
+  const materialsAtStandard = materials.filter((m: any) => m.priceSource === 'standard').length;
   const atYourRates = labor.filter((l: any) => l.rateSource === 'your-rate').length;
   const atStandard = labor.filter((l: any) => l.rateSource === 'standard').length;
 
@@ -444,7 +515,28 @@ export function repriceEstimate(
   // mean the sentence that keeps standard rates from reading as Eric's own
   // figures is the one that almost never appears.
   const leansOnStandards = confidence - onYourFigures > 0.005;
-  const remainder = confidence < 0.8 ? ' The rest is estimated.' : '';
+  /**
+   * "Everything else", not "the rest" — the sentence below already spends a
+   * "the rest" on the standard portion, and two of them in one sentence
+   * contradict each other: "47% your own, the rest standard material prices.
+   * The rest is estimated." Both cannot be the rest.
+   */
+  const remainder = confidence < 0.8 ? ' Everything else is estimated.' : '';
+
+  /**
+   * What the standard part of this quote actually is.
+   *
+   * It used to be only labour, so the sentence could say "standard trade
+   * rates" and be exactly true. Materials can now be priced from the standard
+   * book as well, and a quote whose standard portion is entirely material
+   * prices would have been described as resting on trade rates — a small
+   * inaccuracy in the one sentence whose whole job is being accurate about
+   * where the numbers came from.
+   */
+  const standardBits: string[] = [];
+  if (standardRateMoney > 0) standardBits.push('standard trade rates');
+  if (standardMaterialMoney > 0) standardBits.push('standard material prices');
+  const standardWhat = standardBits.join(' and ') || 'standard figures';
 
   // Written so it never overclaims. A quote priced from the standard table is
   // defensible and should say exactly that, rather than borrowing the authority
@@ -459,14 +551,15 @@ export function repriceEstimate(
       ? `${pc(confidence)}% of this quote is priced from your own catalogue and rates.`
       : `${pc(confidence)}% is priced from your own catalogue and rates.${remainder} Add vendor prices to raise it.`;
   } else if (onYourFigures > 0) {
-    note = `${pc(confidence)}% is priced from real figures — ${pc(onYourFigures)}% your own, the rest standard trade rates.${remainder} Saving your own rates makes more of it yours.`;
+    note = `${pc(confidence)}% is priced from real figures — ${pc(onYourFigures)}% your own, the rest ${standardWhat}.${remainder} Saving your own rates makes more of it yours.`;
   } else {
-    note = `${pc(confidence)}% is priced from standard trade rates, not the model's guesses — but none of it is your own figures yet.${remainder} Save your rates and vendor prices to make this quote yours.`;
+    note = `${pc(confidence)}% is priced from ${standardWhat}, not the model's guesses — but none of it is your own figures yet.${remainder} Save your rates and vendor prices to make this quote yours.`;
   }
 
   const summary: RepriceSummary = {
     materialsPriced: materials.length,
     materialsFromCatalogue: fromCatalogue,
+    materialsAtStandardPrices: materialsAtStandard,
     laborPriced: labor.length,
     laborAtYourRates: atYourRates,
     laborAtStandardRates: atStandard,

@@ -166,7 +166,12 @@ function assembleEstimate(
       // "Supply House" only when nothing real is known. A repriced line brings
       // the actual vendor with it, and the fallback name must never sit on a
       // quote as though it were a supplier somebody chose.
-      supplier: m.vendor || 'Supply House',
+      //
+      // A line priced from the standard book says so instead. It deliberately
+      // carries no vendor, so it would otherwise land on the fallback and read
+      // as though a supplier had quoted it — which is the one thing a
+      // reference figure must never look like.
+      supplier: m.vendor || (m.priceSource === 'standard' ? 'Standard price — no vendor yet' : 'Supply House'),
       // Provenance carried through from repricing. Rebuilding the line without
       // these would drop the very labels that let a quote show which figures
       // are real, which is the point of repricing at all.

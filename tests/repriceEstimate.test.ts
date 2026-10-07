@@ -181,3 +181,121 @@ test('nonsense in a settings percentage becomes zero, not a clamped maximum', ()
   assert.equal(estimate.overheadPercent, 0);
   assert.equal(estimate.profitPercent, 0);
 });
+
+/* ── the standard price book as the middle rung ───────────────────────────── */
+
+/*
+  Materials used to have two outcomes: a catalogue hit or the model's guess.
+  With 11 catalogue items in production that meant nearly every line was a
+  guess, re-made from scratch on every quote. The standard book is the rung
+  labour always had — `PriceSource` has carried 'standard' since it was
+  written and only labour ever used it.
+
+  What these assert is mostly about what a `standard` line must NOT claim.
+*/
+
+test('a material no vendor sells falls to the standard book, labelled as such', () => {
+  const { estimate, summary } = repriceEstimate(
+    { materials: [{ name: 'OSB sheathing 7/16', quantity: 10, unit: 'sheet', unitCost: 99 }], labor: [] },
+    { catalog: [], rates: [], settings: { materialMarkup: 0 } },
+  );
+
+  const line = estimate.materials[0];
+  assert.equal(line.priceSource, 'standard');
+  assert.equal(line.unitCost, 19.85, "the book's figure, not the model's 99");
+  assert.equal(line.modelUnitCost, 99, 'what the model thought is kept for comparison');
+  assert.equal(summary.materialsAtStandardPrices, 1);
+  assert.equal(summary.materialsFromCatalogue, 0);
+});
+
+test('a real vendor price still beats the book', () => {
+  // The book is a floor to stand on, never a substitute for a price somebody
+  // actually published.
+  const { estimate, summary } = repriceEstimate(
+    { materials: [{ name: 'OSB sheathing 7/16', quantity: 1, unit: 'sheet', unitCost: 99 }], labor: [] },
+    {
+      catalog: [{ vendorId: 'V1', vendorName: 'Granite State', name: 'OSB sheathing 7/16', price: 21.5, isActive: true }],
+      rates: [],
+      settings: { materialMarkup: 0 },
+    },
+  );
+
+  assert.equal(estimate.materials[0].priceSource, 'catalogue');
+  assert.equal(estimate.materials[0].unitCost, 21.5);
+  assert.equal(summary.materialsFromCatalogue, 1);
+  assert.equal(summary.materialsAtStandardPrices, 0);
+});
+
+test('a standard price never carries a vendor, not even the one the model invented', () => {
+  // THE IMPORTANT ONE. The vendor fallback chain reaches the model's own
+  // invented supplier name, so without the guard a reference figure from this
+  // repository would go out attributed to a company that never quoted it —
+  // a worse lie than the guess it replaced, because the number looks sourced.
+  const { estimate } = repriceEstimate(
+    {
+      materials: [{
+        name: 'Thinset mortar', quantity: 4, unit: 'bag', unitCost: 30,
+        vendor: 'Totally Real Supply Co',
+      }],
+      labor: [],
+    },
+    { catalog: [], rates: [], settings: { materialMarkup: 0 } },
+  );
+
+  assert.equal(estimate.materials[0].priceSource, 'standard');
+  assert.equal(estimate.materials[0].vendor, '');
+  assert.equal(estimate.materials[0].pricedFrom.vendor, '');
+  assert.equal(estimate.materials[0].pricedFrom.offerId, '');
+  assert.equal(estimate.materials[0].pricedFrom.standardId, 'tile-thinset', 'traceable to the figure');
+});
+
+test('the markup applies to a book price like any other cost', () => {
+  const { estimate } = repriceEstimate(
+    { materials: [{ name: 'Thinset mortar', quantity: 1, unit: 'bag', unitCost: 99 }], labor: [] },
+    { catalog: [], rates: [], settings: { materialMarkup: 20 } },
+  );
+  assert.equal(estimate.materials[0].unitCost, 21.60, '18.00 plus 20%');
+});
+
+test('a book price counts as defensible but never as the company\'s own', () => {
+  // The distinction the whole labelling scheme exists for: `confidence` says
+  // "not a guess", `onYourFigures` says "Eric set this". A book price is the
+  // first and not the second.
+  const { summary } = repriceEstimate(
+    { materials: [{ name: 'Thinset mortar', quantity: 1, unit: 'bag', unitCost: 99 }], labor: [] },
+    { catalog: [], rates: [], settings: { materialMarkup: 0 } },
+  );
+
+  assert.equal(summary.confidence, 1, 'all of it is priced from a real figure');
+  assert.equal(summary.onYourFigures, 0, 'and none of it is his');
+  assert.match(summary.note, /standard material prices/);
+  assert.match(summary.note, /none of it is your own figures yet/);
+});
+
+test('the note names trade rates and material prices separately', () => {
+  // It used to say "standard trade rates" whatever the standard part was. A
+  // quote whose standard portion is entirely materials would have been
+  // described as resting on labour rates.
+  const materialsOnly = repriceEstimate(
+    { materials: [{ name: 'Thinset mortar', quantity: 1, unit: 'bag', unitCost: 9 }], labor: [] },
+    { catalog: [], rates: [], settings: { materialMarkup: 0 } },
+  ).summary;
+  assert.match(materialsOnly.note, /standard material prices/);
+  assert.doesNotMatch(materialsOnly.note, /trade rates/);
+
+  const both = repriceEstimate(
+    {
+      materials: [{ name: 'Thinset mortar', quantity: 1, unit: 'bag', unitCost: 9 }],
+      labor: [{ role: 'Carpentry', hours: 1, hourlyRate: 50 }],
+    },
+    {
+      catalog: [],
+      // A rate that MATCHES, from the standard table rather than Eric's own —
+      // which is what makes the labour line 'standard' instead of 'estimated'.
+      rates: [{ id: 'carpentry', category: 'Carpentry', hourlyRate: 65 }],
+      settings: { materialMarkup: 0 },
+      ratesAreStandard: true,
+    },
+  ).summary;
+  assert.match(both.note, /standard trade rates and standard material prices/);
+});
