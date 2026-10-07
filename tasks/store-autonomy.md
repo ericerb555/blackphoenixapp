@@ -1097,3 +1097,62 @@ threw. 1793 tests pass — 20 on this arithmetic. Sample at
   routes answers.
 - **No portal surface.** `GET /property-reports/:propertyId` returns what can be
   bought and what the rest still need; nothing renders it yet.
+
+---
+
+## Review — the clock, verified rather than assumed (2026-10-07)
+
+### The watchdog works, which had been claimed and not checked
+
+Arming it was recorded as done, and the dead-man's switch had never been seen to
+fire. It has:
+
+    12:07  200  {"success":true,"verdict":"alive","minutesSince":6.90}
+    11:07  200  {"success":true,"verdict":"alive","minutesSince":6.93}
+
+So the `PUBLIC_POST_PATHS` fix works in production — the route is reachable, the
+secret is accepted, and the verdict is right: roughly seven minutes since the
+last tick of a fifteen-minute clock.
+
+**A trap worth writing down.** `cron.job_run_details` showed `succeeded` for
+every watchdog run from the moment it was scheduled, including the hours before
+it could possibly have worked. That status only means `net.http_post` was
+queued; it says nothing about what the HTTP call answered. The reply lives in
+`net._http_response`, and that is the only place that can tell a working
+watchdog from a scheduled one. A green row in the cron table is not evidence.
+
+### A third of the scheduled calls were recording a timeout
+
+Found by looking, not by anything reporting it:
+
+    13:07  Timeout of 5000 ms reached     <- a watchdog run
+    12:00  Timeout of 5000 ms reached (x2)
+    11:30  Timeout of 5000 ms reached
+    11:15  Timeout of 5000 ms reached
+
+pg_net defaults to five seconds. A tick runs 1.5–2.4s normally and reached
+**14 seconds** when the catalogue job was making 123 CJ calls. Every one of those
+ticks completed — the heartbeat holds the runs — so nothing was lost.
+
+**Why it still mattered.** A timed-out request records **no status code**. So a
+genuine 401 or 500 would be indistinguishable from a slow success, in the exact
+table somebody would open to find out why the clock had stopped. The guidance
+"silence is not success" applies to the monitoring as much as to the job: a log
+full of failures that are not failures is how a real one goes unnoticed.
+
+Both jobs now pass `timeout_milliseconds := 30000` — comfortably past the slowest
+observed tick without letting a wedged request sit for minutes. Job 2, the
+compliance reminder, still uses the default; it posts one short request and has
+never timed out, so it was left alone rather than changed on spec.
+
+### Where the clock stands
+
+| Job | State |
+|---|---|
+| `heartbeat` | on, cannot be switched off |
+| `watch` | on — reconciling, nothing stuck |
+| `track` | on — idle, no supplier orders in flight |
+| `catalogue` | on, policy set (35% floor / 10% band) — blocked by CJ error 1600014 |
+| `fulfil` | off. Order count AND spend now both capped — see the spend-guard review |
+| `price-watch` | off — nothing to watch until the catalogue is seeded |
+
