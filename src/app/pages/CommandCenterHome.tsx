@@ -40,7 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, X, TrendingUp, AlertTriangle, DollarSign, Briefcase,
   Users, HardHat, FileWarning, Pin, PinOff, ArrowRight, Loader2, ChevronRight,
-  ClipboardList, UserPlus, CheckCircle2, WifiOff,
+  ClipboardList, UserPlus, CheckCircle2, WifiOff, FileText,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';
@@ -59,6 +59,11 @@ export interface CommandCenterHomeProps {
   /** The company mark, shown beside the name. */
   companyLogo?: string | null;
   onNavigate: (path: string, tab?: string) => void;
+  /**
+   * Opens the quote estimator. Optional, so this screen still renders for any
+   * caller that does not offer it — the action simply does not appear.
+   */
+  onCreateQuote?: () => void;
   summary: {
     totalRevenue: number;
     openInvoiceTotal?: number;
@@ -115,7 +120,7 @@ function delinquentFrom(invoices: any[]) {
 }
 
 export default function CommandCenterHome({
-  tabCategories, companyName, companyLogo, onNavigate, summary, metricsError,
+  tabCategories, companyName, companyLogo, onNavigate, onCreateQuote, summary, metricsError,
 }: CommandCenterHomeProps) {
   const [query, setQuery] = useState('');
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -422,6 +427,35 @@ export default function CommandCenterHome({
       </div>
 
       <main className="mx-auto max-w-[1600px] px-6 py-6">
+        {/* ── Start something ─────────────────────────────────────────────
+            First thing on the page, because quoting is the first thing in the
+            business. It used to be on the Operations tab of the layout this
+            screen replaced, so it was unreachable from here at all.
+
+            Styled as the pinned tiles below are, deliberately: this screen's
+            look is signed off and a new shape for one button would stand out
+            as a mistake rather than as emphasis. */}
+        <div className="mb-4 flex flex-wrap gap-2.5">
+          {onCreateQuote && (
+            <button
+              type="button" onClick={onCreateQuote}
+              className="flex items-center gap-2 rounded-xl border border-orange-500/40 bg-gradient-to-br from-orange-600/20 to-orange-700/10 text-left font-semibold transition hover:border-orange-500/70 hover:brightness-125"
+              style={{ padding: '10px 14px' }}
+            >
+              <FileText className="h-5 w-5 shrink-0 text-orange-400" />
+              <span className="text-sm">Create a quote</span>
+            </button>
+          )}
+          <button
+            type="button" onClick={() => onNavigate('/unified-project-pipeline')}
+            className="flex items-center gap-2 rounded-xl border border-[#2A2A2A] bg-[#141414] text-left font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+            style={{ padding: '10px 14px' }}
+          >
+            <TrendingUp className="h-5 w-5 shrink-0 text-gray-400" />
+            <span className="text-sm">Quotes in progress</span>
+          </button>
+        </div>
+
         {/* ── The numbers ──────────────────────────────────────────────────
             Tinted like the portals' cards rather than flat grey boxes. */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

@@ -712,23 +712,46 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
    */
   if (!classicLayout) {
     return (
-      <CommandCenterHome
-        tabCategories={tabCategories}
-        companyName={companyName}
-        companyLogo={companyLogo}
-        onNavigate={handleNavigation}
-        summary={{
-          totalRevenue,
-          openInvoiceTotal,
-          activeJobsCount,
-          customersCount,
-          teamCount,
-          pendingWorkRequests,
-          pendingApplications,
-          chartData: revenueData,
-        }}
-        metricsError={metricsError}
-      />
+      <>
+        <CommandCenterHome
+          tabCategories={tabCategories}
+          companyName={companyName}
+          companyLogo={companyLogo}
+          onNavigate={handleNavigation}
+          /**
+           * Starting a quote from the screen people actually land on.
+           *
+           * The AI estimator — write a description, get an itemised quote —
+           * was reachable ONLY from the classic layout's Operations tab, which
+           * this screen replaced as the default. So the flow existed, had been
+           * worked on repeatedly, and could not be got to without knowing to
+           * append `?classic=1`. Eric found that the way anybody would: "i
+           * dont have that button?"
+           *
+           * Wired as a callback rather than a route because the estimator is a
+           * modal that belongs to this page's state. Navigating somewhere to
+           * reach it would mean a second copy of it.
+           */
+          onCreateQuote={() => setShowStartQuote(true)}
+          summary={{
+            totalRevenue,
+            openInvoiceTotal,
+            activeJobsCount,
+            customersCount,
+            teamCount,
+            pendingWorkRequests,
+            pendingApplications,
+            chartData: revenueData,
+          }}
+          metricsError={metricsError}
+        />
+        {/*
+          Rendered here as well as in the classic layout below. The classic
+          copy sits after an early return, so on this screen the button would
+          have set the state and nothing would have opened.
+        */}
+        {showStartQuote && <StartQuoteModal onClose={() => setShowStartQuote(false)} />}
+      </>
     );
   }
 

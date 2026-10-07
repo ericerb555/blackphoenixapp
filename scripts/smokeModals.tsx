@@ -34,6 +34,7 @@
  */
 import { QuotePricingBasisBanner } from '../src/app/components/quotes/QuotePricingBasisBanner';
 import { UnpricedSendDialog } from '../src/app/components/quotes/UnpricedSendDialog';
+import CommandCenterHome from '../src/app/pages/CommandCenterHome';
 import CreateInvoiceModal from '../src/app/components/invoices/CreateInvoiceModal';
 import InvoicePreviewModal from '../src/app/components/invoices/InvoicePreviewModal';
 import { ProjectDetailsModal } from '../src/app/components/ProjectDetailsModal';
@@ -201,6 +202,39 @@ export const modalMap: Record<string, () => JSX.Element> = {
       reason="This quote was built by the demo generator, so none of its prices are real."
       onCancel={noop}
       onSendAnyway={noop}
+    />
+  ),
+
+  /*
+    The command centre's own "Create a quote" action.
+
+    Mounted directly, because the page that normally renders this screen sits
+    behind the sign-in gate — so neither /dashboard nor the page target can
+    show whether the button is there. That is exactly how it came to be
+    missing in the first place: the quote estimator lived only on the classic
+    layout's Operations tab, the new home replaced it as the default, and
+    nothing anywhere could tell you the button was gone.
+
+    Thin props on purpose: no modules to pin, no revenue, and the invoice
+    fetch will fail without a session, which is the worst honest case.
+  */
+  'modal:command-center-quote-action': () => (
+    <CommandCenterHome
+      tabCategories={[]}
+      companyName="Black Phoenix"
+      onNavigate={noop}
+      onCreateQuote={noop}
+      summary={{ totalRevenue: 0, activeJobsCount: 0, customersCount: 0, teamCount: 0 }}
+    />
+  ),
+
+  /** The same screen for a caller that offers no estimator — no action shown. */
+  'modal:command-center-no-quote-action': () => (
+    <CommandCenterHome
+      tabCategories={[]}
+      companyName="Black Phoenix"
+      onNavigate={noop}
+      summary={{ totalRevenue: 0, activeJobsCount: 0, customersCount: 0, teamCount: 0 }}
     />
   ),
 
