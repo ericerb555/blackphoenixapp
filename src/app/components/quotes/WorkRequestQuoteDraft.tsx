@@ -44,7 +44,17 @@ interface Draft {
   generatedAt?: string;
   spent?: boolean;
   cached?: boolean;
-  priceSummary?: any;
+  /**
+   * What the server says about which of this draft's figures are real.
+   * Written by `repriceEstimate` and returned by `/quote-draft/:id`; rendered
+   * below in place of the generic caveat.
+   */
+  priceSummary?: {
+    note?: string;
+    confidence?: number;
+    onYourFigures?: number;
+    settingsAreStandard?: boolean;
+  } | null;
 }
 
 const money = (n: unknown) =>
@@ -139,8 +149,25 @@ export default function WorkRequestQuoteDraft({ workRequestId }: Props) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#2A2A2A] pt-3">
+        {/*
+          The server's own account of which figures are real, rather than a
+          generic reassurance.
+
+          `repriceEstimate` writes this sentence and is careful with it: it
+          separates the company's own catalogue prices and rates from standard
+          trade rates, and says outright when none of a quote is the company's
+          own figures yet. The route has always returned it as `priceSummary`
+          and this screen declared the field and rendered nothing, so the one
+          sentence that could be checked reached nobody. Rendered as written —
+          paraphrasing it here would put a second wording of the same truth on
+          the screen, and the screen's copy is the one nobody maintains.
+
+          The generic line still stands in when repricing failed and no note
+          was sent, because claiming more than that would be the original bug.
+        */}
         <p className="text-[11px] text-gray-500">
-          A starting point, not a quote — real prices where we have them, labelled estimates where we do not.
+          {draft?.priceSummary?.note?.trim() ||
+            'A starting point, not a quote — real prices where we have them, labelled estimates where we do not.'}
         </p>
         <button
           onClick={() => load(true)}

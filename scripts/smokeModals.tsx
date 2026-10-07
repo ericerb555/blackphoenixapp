@@ -32,6 +32,7 @@
  * still honest. It is mounted in its own error boundary like any page, so a
  * throw is reported rather than taking the batch down.
  */
+import { QuotePricingBasisBanner } from '../src/app/components/quotes/QuotePricingBasisBanner';
 import CreateInvoiceModal from '../src/app/components/invoices/CreateInvoiceModal';
 import InvoicePreviewModal from '../src/app/components/invoices/InvoicePreviewModal';
 import { ProjectDetailsModal } from '../src/app/components/ProjectDetailsModal';
@@ -140,4 +141,46 @@ export const modalMap: Record<string, () => JSX.Element> = {
       onConvertToContract={noop}
     />
   ),
+
+  /*
+    The pricing-basis banner, once per basis.
+
+    Thin on purpose, in the spirit of the note above: each of these carries the
+    basis and NOTHING else. A quote whose repricing failed has a basis and no
+    `priceSummary`, and that is the record the banner has to survive — reading
+    `.note` off a null summary is exactly the shape of failure this harness
+    exists to catch.
+  */
+  'modal:quote-basis-demo': () => (
+    <QuotePricingBasisBanner quote={{ pricingBasis: 'offline-demo' }} />
+  ),
+
+  'modal:quote-basis-heuristic': () => (
+    <QuotePricingBasisBanner quote={{ pricingBasis: 'server-heuristic' }} />
+  ),
+
+  /** Repricing failed, so there is a basis and no note to show. */
+  'modal:quote-basis-no-note': () => (
+    <QuotePricingBasisBanner quote={{ pricingBasis: 'estimator', priceSummary: null }} />
+  ),
+
+  /** The normal case: the server's own sentence, rendered as written. */
+  'modal:quote-basis-estimator': () => (
+    <QuotePricingBasisBanner
+      quote={{
+        pricingBasis: 'estimator',
+        priceSummary: {
+          note:
+            '62% is priced from standard trade rates, not the model’s guesses — but none of it is ' +
+            'your own figures yet. The rest is estimated. Save your rates and vendor prices to make this quote yours.',
+          confidence: 0.62,
+          onYourFigures: 0,
+          settingsAreStandard: true,
+        },
+      }}
+    />
+  ),
+
+  /** A quote saved before the basis existed says nothing rather than guessing. */
+  'modal:quote-basis-legacy': () => <QuotePricingBasisBanner quote={{}} />,
 };

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { generateDemoQuote } from '../../lib/demoQuoteGenerator';
+import { QuotePricingBasisBanner } from './QuotePricingBasisBanner';
 import { QuoteToContractEditor } from '../QuoteToContractEditor';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
@@ -83,7 +84,37 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
       //    unreachable, so the button always produces something usable.
       let generated: any = null;
       let generatedByAI = false;
-      let aiMeta: { confidence?: string; summary?: string; assumptions?: string[]; regionalNote?: string } = {};
+      /**
+       * Whether the SERVER produced these numbers, which is not the same
+       * question as whether the model did.
+       *
+       * `runEstimator` answers `usedAI: false` when the model or its key is
+       * unavailable and it falls back to `heuristicEstimate` — the server's own
+       * deterministic estimate, which is not repriced and carries no summary,
+       * but is still a world away from the local demo generator. Deriving the
+       * basis from `usedAI` alone would have labelled that legitimate server
+       * estimate as demo figures.
+       */
+      let fromServer = false;
+      let aiMeta: {
+        confidence?: string;
+        summary?: string;
+        assumptions?: string[];
+        regionalNote?: string;
+        /**
+         * What the server says about which of this quote's figures are real.
+         *
+         * `repriceEstimate` replaces the model's prices with the vendor
+         * catalogue's and the model's rates with the company's, marks every
+         * line `catalogue`, `your-rate` or `estimated`, and writes a sentence
+         * that deliberately never overclaims. The route returns it as
+         * `priceSummary` and this screen used to drop it on the floor, so the
+         * one sentence telling the truth about a quote's numbers reached
+         * nobody. It is rendered as written — a reassuring sentence of our own
+         * would defeat the point of it.
+         */
+        priceSummary?: { note?: string; confidence?: number; onYourFigures?: number; settingsAreStandard?: boolean } | null;
+      } = {};
 
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -121,12 +152,14 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
               profitAmount: data.profitAmount,
               contingencyAmount: data.contingencyAmount,
             };
+            fromServer = true;
             generatedByAI = !!data.usedAI;
             aiMeta = {
               confidence: data.confidence,
               summary: data.projectSummary,
               assumptions: data.assumptions,
               regionalNote: data.regionalNote,
+              priceSummary: data.priceSummary ?? null,
             };
           }
         } else {
@@ -164,6 +197,33 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         aiSummary: aiMeta.summary,
         aiAssumptions: aiMeta.assumptions,
         aiRegionalNote: aiMeta.regionalNote,
+
+        /**
+         * WHICH ENGINE PRICED THIS, RECORDED RATHER THAN ANNOUNCED ONCE.
+         *
+         * When `/auto-generate-quote` is unreachable or answers non-OK, the
+         * fallback below produces a complete, itemised, sendable-looking quote
+         * out of `generateDemoQuote` — demo figures. The only thing that ever
+         * said so was a toast reading "(offline mode)", and nothing was
+         * stored: once it faded, a demo quote and a real estimate were
+         * identical on every screen that showed them, including the pipeline
+         * board and the quotes list. Somebody who missed the toast could send
+         * demo numbers to a customer.
+         *
+         * So the basis travels with the quote. It is persisted through the
+         * pipeline item, which carries this whole object.
+         *
+         *   estimator         the model's takeoff, repriced by the server
+         *   server-heuristic  the server's deterministic fallback, not repriced
+         *   offline-demo      the local demo generator; the server never answered
+         */
+        pricingBasis: (fromServer
+          ? generatedByAI
+            ? 'estimator'
+            : 'server-heuristic'
+          : 'offline-demo') as 'estimator' | 'server-heuristic' | 'offline-demo',
+        priceSummary: aiMeta.priceSummary ?? null,
+
         generatedAt: new Date().toISOString(),
         approvalStatus: 'pending' as const,
       };
@@ -238,15 +298,25 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
 
       setWorkRequest(request);
       setPhase('editor');
-      toast.success(
-        generatedByAI ? 'AI estimate ready — review and refine it below.' : 'Estimate ready (offline mode) — review below.',
-        {
+      const lineCount = `${quote.materials.length} materials · ${quote.labor.length} labor items`;
+
+      if (quote.pricingBasis === 'offline-demo') {
+        // Not a success. The quote exists and is demo figures, and the banner
+        // in the editor says so for as long as it is open — a toast is not a
+        // place to put something somebody must not forget.
+        toast.warning('Demo figures — the estimator could not be reached.', {
           id: 'start-quote',
-          description: `${quote.materials.length} materials · ${quote.labor.length} labor items${
-            aiMeta.confidence ? ` · confidence: ${aiMeta.confidence}` : ''
-          }.`,
-        },
-      );
+          description: `${lineCount}. Do not send this to a customer before repricing it.`,
+        });
+      } else {
+        toast.success(
+          generatedByAI ? 'Estimate ready — review and refine it below.' : 'Estimate ready (offline estimator) — review below.',
+          {
+            id: 'start-quote',
+            description: `${lineCount}${aiMeta.confidence ? ` · confidence: ${aiMeta.confidence}` : ''}.`,
+          },
+        );
+      }
     } catch (error: any) {
       console.error('Failed to generate quote in StartQuoteModal:', error);
       toast.error(error?.message || 'Could not generate the quote. Please try again.', { id: 'start-quote' });
@@ -257,13 +327,16 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
 
   if (phase === 'editor' && workRequest) {
     return (
-      <QuoteToContractEditor
-        workRequest={workRequest}
-        onClose={onClose}
-        onSave={(updated) => setWorkRequest(updated)}
-        onSendToCustomer={() => {}}
-        onConvertToContract={() => {}}
-      />
+      <>
+        <QuotePricingBasisBanner quote={workRequest.quote} />
+        <QuoteToContractEditor
+          workRequest={workRequest}
+          onClose={onClose}
+          onSave={(updated) => setWorkRequest(updated)}
+          onSendToCustomer={() => {}}
+          onConvertToContract={() => {}}
+        />
+      </>
     );
   }
 
