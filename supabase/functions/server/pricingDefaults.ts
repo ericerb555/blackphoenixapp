@@ -138,18 +138,87 @@ export function resolveLaborRates(saved: any): { rates: StandardRate[]; usingSta
   return { rates: STANDARD_LABOR_RATES, usingStandards: true };
 }
 
-export function resolvePricing(saved: any): { settings: typeof STANDARD_PRICING; usingStandards: boolean } {
+/**
+ * The markups Eric saved on the labour rates screen, in the shape this file
+ * speaks.
+ *
+ * WHY THIS TRANSLATION EXISTS
+ *
+ * There are two places the company's margins can be saved and they do not
+ * agree on names. The pricing settings route writes `pricing_config:global`
+ * as `{ config: { materialMarkup, laborMarkup, profitMargin, … } }`. The
+ * labour rates screen writes `labor_rates:global` as
+ * `{ laborRates, profitSettings: { materialsMarkup, laborMarkup,
+ * overheadPercentage, targetProfitMargin } }` — note `materialsMarkup` plural
+ * and `targetProfitMargin`, neither of which any reader of
+ * `pricing_config:global` was ever going to find.
+ *
+ * On 2026-10-07 production had the second and not the first: Eric's rates and
+ * his margins were saved together on 27 September, `pricing_config:global` had
+ * never been written, and so every quote built from a description was using
+ * the STANDARD markups — 30% on materials where he had set 20%, no labour
+ * markup where he had set 15%, 15% profit where he had set 20%. The
+ * blueprint quote path read `profitSettings` directly and therefore priced the
+ * same job differently from the description path, which is the sort of
+ * disagreement that only ever surfaces as an argument with a customer.
+ *
+ * So the saved profit settings are translated once, here, and used by every
+ * caller rather than by whichever one remembered.
+ */
+function fromProfitSettings(profitSettings: any): Record<string, number> | null {
+  if (!profitSettings || typeof profitSettings !== 'object') return null;
+
+  const num = (value: unknown) => {
+    const n = Number(value);
+    // Zero is a real answer — "no labour markup" is a decision Eric can make —
+    // so only a non-finite or negative value is treated as unset.
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+
+  const mapped: Record<string, number> = {};
+  const materialMarkup = num(profitSettings.materialsMarkup ?? profitSettings.materialMarkup);
+  const laborMarkup = num(profitSettings.laborMarkup);
+  const overheadPercentage = num(profitSettings.overheadPercentage);
+  const profitMargin = num(profitSettings.targetProfitMargin ?? profitSettings.profitMargin);
+
+  if (materialMarkup !== undefined) mapped.materialMarkup = materialMarkup;
+  if (laborMarkup !== undefined) mapped.laborMarkup = laborMarkup;
+  if (overheadPercentage !== undefined) mapped.overheadPercentage = overheadPercentage;
+  if (profitMargin !== undefined) mapped.profitMargin = profitMargin;
+
+  return Object.keys(mapped).length ? mapped : null;
+}
+
+/**
+ * The company's pricing settings.
+ *
+ * `saved` is the `pricing_config:global` record. `savedRates` is the
+ * `labor_rates:global` record, whose `profitSettings` are used ONLY to fill
+ * gaps the first does not cover — the dedicated settings record wins wherever
+ * it has an opinion, because that is the screen built for the purpose.
+ */
+export function resolvePricing(
+  saved: any,
+  savedRates?: any,
+): { settings: typeof STANDARD_PRICING; usingStandards: boolean } {
   const config = saved?.config;
+  const fromRates = fromProfitSettings(savedRates?.profitSettings);
+
   // An object with nothing in it is not a decision — it is an empty record, and
   // treating it as one would price every job at zero markup.
-  if (config && typeof config === 'object' && Object.keys(config).length > 0) {
+  const hasConfig = config && typeof config === 'object' && Object.keys(config).length > 0;
+
+  if (hasConfig || fromRates) {
     return {
       settings: {
         ...STANDARD_PRICING,
-        ...config,
+        // Rates-screen margins first, so the dedicated settings record
+        // overrides them field by field rather than all or nothing.
+        ...(fromRates || {}),
+        ...(hasConfig ? config : {}),
         materialMarkupByCategory: {
           ...STANDARD_PRICING.materialMarkupByCategory,
-          ...(config.materialMarkupByCategory || {}),
+          ...((hasConfig && config.materialMarkupByCategory) || {}),
         },
       },
       usingStandards: false,

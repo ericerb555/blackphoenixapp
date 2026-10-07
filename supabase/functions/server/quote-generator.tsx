@@ -244,9 +244,30 @@ function assembleEstimate(
 
   const directCost = round2(materialsSubtotal + laborSubtotal + additionalCostsSubtotal);
 
-  const overheadPercent = Math.max(0, Math.min(0.4, Number(raw?.overheadPercent) || 0.10));
-  const profitPercent = Math.max(0, Math.min(0.4, Number(raw?.profitPercent) || 0.10));
-  const contingencyPercent = Math.max(0, Math.min(0.4, Number(raw?.contingencyPercent) || 0.05));
+  /**
+   * ALL THREE ARE FRACTIONS, AND AN EXPLICIT ZERO IS AN ANSWER.
+   *
+   * `|| 0.10` replaced a deliberate zero with the default, because zero is
+   * falsy. That is not hypothetical: `repriceEstimate` passes the company's
+   * own figures through here, and a company that sets no labour markup or —
+   * the real case — NO SALES TAX, which is correct for New Hampshire, had
+   * that decision overwritten. The tax line below defaulted to 8% on every
+   * repriced quote in a state with none.
+   *
+   * `pickFraction` distinguishes "not given" from "given as zero". The clamps
+   * stay: they are a guard against a model returning something absurd, and
+   * they are also what made the percent/fraction mix-up invisible for so
+   * long — 10 and 15 both clamped quietly to 0.4.
+   */
+  const pickFraction = (value: unknown, fallback: number, ceiling: number): number => {
+    const n = Number(value);
+    const chosen = Number.isFinite(n) ? n : fallback;
+    return Math.max(0, Math.min(ceiling, chosen));
+  };
+
+  const overheadPercent = pickFraction(raw?.overheadPercent, 0.10, 0.4);
+  const profitPercent = pickFraction(raw?.profitPercent, 0.10, 0.4);
+  const contingencyPercent = pickFraction(raw?.contingencyPercent, 0.05, 0.4);
 
   const overheadAmount = round2(directCost * overheadPercent);
   const profitAmount = round2(directCost * profitPercent);
@@ -285,7 +306,10 @@ function assembleEstimate(
 
   // Sales tax on materials only (accurate for most US construction contracts),
   // and only on the materials we are actually supplying.
-  const taxRate = Math.max(0, Math.min(0.15, Number(raw?.taxRatePercent) || 0.08));
+  // A fraction, and zero means zero — New Hampshire has no sales tax, and the
+  // old `|| 0.08` turned that correct answer into an 8% line on every repriced
+  // quote. `pickFraction` is defined above with the reasoning.
+  const taxRate = pickFraction(raw?.taxRatePercent, 0.08, 0.15);
   const taxableMaterials = Math.max(0, round2(materialsSubtotal - creditsSubtotal));
   const taxAmount = round2(taxableMaterials * taxRate);
 

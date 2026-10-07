@@ -98,3 +98,86 @@ test('a partial word match is refused', () => {
 test('an empty catalogue is a miss rather than a crash', () => {
   assert.equal(matchCatalogItem({ name: 'anything', sku: 'X' }, []), null);
 });
+
+/* ── the units the assembler expects ──────────────────────────────────────── */
+
+/*
+  WHY THESE EXIST
+
+  `repriceEstimate` hands three fields to `assembleEstimate`, which reads them
+  as FRACTIONS and clamps them — overhead and profit at 0.4, tax at 0.15. The
+  company's settings hold PERCENTAGES, which is how every other reader uses
+  them (`capitalPlanRules` computes `base * (1 + overheadPercentage / 100)`).
+
+  Passing 10 and 15 straight across meant `Math.min(0.4, 10)` — so every
+  repriced quote carried 40% overhead and 40% profit instead of 10% and 15%,
+  and a representative job came out at 1.88x direct cost instead of 1.35x.
+  Nothing looked wrong: an expensive quote reads as an expensive quote.
+
+  Measured against production's own saved settings on 2026-10-07, not deduced.
+*/
+
+import { repriceEstimate } from '../supabase/functions/server/repriceEstimate.ts';
+
+/** Eric's figures, exactly as production holds them. */
+const HIS_SETTINGS = {
+  materialMarkup: 20,
+  laborMarkup: 15,
+  overheadPercentage: 10,
+  profitMargin: 20,
+  taxRate: 0,
+};
+
+const bareEstimate = () => ({
+  materials: [{ name: 'OSB sheathing', quantity: 10, unitCost: 25, unit: 'sheet' }],
+  labor: [{ role: 'Carpentry', hours: 10, hourlyRate: 60 }],
+});
+
+test('overhead and profit are handed over as fractions, not percentages', () => {
+  const { estimate } = repriceEstimate(bareEstimate(), {
+    catalog: [],
+    rates: [{ id: 'carpentry', category: 'Carpentry', hourlyRate: 70 }],
+    settings: HIS_SETTINGS,
+  });
+
+  // 10% and 20%, not 10 and 20 — which the assembler would clamp to 0.4 each.
+  assert.equal(estimate.overheadPercent, 0.10);
+  assert.equal(estimate.profitPercent, 0.20);
+
+  // The thing that actually went wrong, asserted as the assembler would do it.
+  assert.equal(Math.min(0.4, estimate.overheadPercent), 0.10, 'must not hit the ceiling');
+  assert.equal(Math.min(0.4, estimate.profitPercent), 0.20, 'must not hit the ceiling');
+});
+
+test('no sales tax stays no sales tax', () => {
+  // New Hampshire has none, `STANDARD_PRICING.taxRate` is 0 on purpose, and a
+  // wrong tax line is worse than none.
+  const { estimate } = repriceEstimate(bareEstimate(), {
+    catalog: [],
+    rates: [],
+    settings: HIS_SETTINGS,
+  });
+  assert.equal(estimate.taxRatePercent, 0);
+});
+
+test('a real tax rate is converted rather than passed through', () => {
+  // A job in Massachusetts, set deliberately. 6.25% must arrive as 0.0625 —
+  // as a percentage it would clamp to the 0.15 ceiling and charge 15%.
+  const { estimate } = repriceEstimate(bareEstimate(), {
+    catalog: [],
+    rates: [],
+    settings: { ...HIS_SETTINGS, taxRate: 6.25 },
+  });
+  assert.equal(estimate.taxRatePercent, 0.0625);
+  assert.equal(Math.min(0.15, estimate.taxRatePercent), 0.0625);
+});
+
+test('nonsense in a settings percentage becomes zero, not a clamped maximum', () => {
+  const { estimate } = repriceEstimate(bareEstimate(), {
+    catalog: [],
+    rates: [],
+    settings: { ...HIS_SETTINGS, overheadPercentage: -5, profitMargin: 'twenty' as any },
+  });
+  assert.equal(estimate.overheadPercent, 0);
+  assert.equal(estimate.profitPercent, 0);
+});

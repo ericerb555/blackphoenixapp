@@ -243,7 +243,10 @@ reportsRouter.get("/make-server-3eae23a6/property-reports/:propertyId/capital-pl
     kv.get("pricing_config:global").catch(() => null),
   ]);
   const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
-  const { settings } = resolvePricing(pricingRaw);
+  // `ratesRaw` too: the margins Eric saved on the labour rates screen live on
+  // that record, and a capital plan priced differently from a quote for the
+  // same work is a disagreement a customer finds before we do.
+  const { settings } = resolvePricing(pricingRaw, ratesRaw);
 
   const report = capitalPlanReport(detail, evidence, rates, settings, !ratesAreStandard);
   return c.html(reportToHtml(report));

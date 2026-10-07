@@ -3981,7 +3981,16 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
   }));
 
   const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
-  const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw);
+  /**
+   * `ratesRaw` is passed as well, because the margins Eric actually saved live
+   * on it. The labour rates screen writes `profitSettings` alongside the rates
+   * and nothing on this path ever read them, so a quote built from a
+   * description used the standard 30% materials markup where he had set 20%,
+   * no labour markup where he had set 15%, and 15% profit where he had set
+   * 20% — while the blueprint path, which does read them, priced the same job
+   * differently. See `resolvePricing`.
+   */
+  const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw, ratesRaw);
 
   /**
    * What our own finished jobs say about how long each trade takes.
@@ -5612,9 +5621,19 @@ app.post('/make-server-3eae23a6/labor-rates/save', async (c) => {
 app.get('/make-server-3eae23a6/pricing-config/get', async (c) => {
   try {
     const stored = await kv.get('pricing_config:global') as any;
+    /**
+     * Read with the labour rates record as well, so this screen shows the
+     * settings that are ACTUALLY IN FORCE.
+     *
+     * Without it the screen reported the standard markups while quotes were
+     * being priced with the margins saved on the rates screen — the screen
+     * whose job is to tell Eric what his settings are would have been the one
+     * place that did not know.
+     */
+    const ratesRecord = await kv.get('labor_rates:global').catch(() => null) as any;
     // Same reasoning as the rates: standards until the company sets its own, and
     // the caller is told which it received.
-    const { settings, usingStandards } = resolvePricing(stored);
+    const { settings, usingStandards } = resolvePricing(stored, ratesRecord);
     return c.json({ success: true, config: settings, usingStandards, lastSaved: stored?.lastSaved || null });
   } catch (error: any) {
     return c.json({ success: false, error: error.message || 'Unable to load pricing settings.' }, 500);

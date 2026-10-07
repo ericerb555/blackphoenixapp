@@ -368,13 +368,50 @@ export function repriceEstimate(
     };
   });
 
+  /**
+   * PERCENTAGES OUT OF THE SETTINGS, FRACTIONS INTO THE ASSEMBLER.
+   *
+   * These three fields are consumed by `assembleEstimate` in
+   * quote-generator.tsx, which reads them as FRACTIONS and clamps them:
+   *
+   *     overheadPercent  Math.min(0.4, …)
+   *     profitPercent    Math.min(0.4, …)
+   *     taxRatePercent   Math.min(0.15, …)
+   *
+   * The company's settings hold PERCENTAGES — `overheadPercentage: 10`,
+   * `profitMargin: 15` — which is how they are used everywhere else
+   * (`capitalPlanRules` computes `base * (1 + overheadPercentage / 100)`, and
+   * the property report prints "10 per cent overhead"). Handing 10 and 15
+   * straight across meant both clamped to the ceiling, so EVERY repriced
+   * quote carried 40% overhead and 40% profit on top of direct cost instead
+   * of 10% and 15%. Measured on 2026-10-07, not deduced: the repricer emitted
+   * 10 and 15, and `Math.min(0.4, 10)` is 0.4.
+   *
+   * It never looked absurd on screen, which is why it lasted — a quote at
+   * 1.85× direct cost reads as an expensive quote, not a broken one.
+   *
+   * So the conversion happens here, at the boundary, and the units are named
+   * in the field comment so the next person does not have to measure it again.
+   */
+  const asFraction = (percent: unknown): number => {
+    const n = Number(percent);
+    return Number.isFinite(n) && n >= 0 ? n / 100 : 0;
+  };
+
   const repriced = {
     ...estimate,
     materials,
     labor,
-    overheadPercent: Number(settings?.overheadPercentage ?? estimate?.overheadPercent ?? 0) || 0,
-    profitPercent: Number(settings?.profitMargin ?? estimate?.profitPercent ?? 0) || 0,
-    taxRatePercent: Number(settings?.taxRate ?? estimate?.taxRatePercent ?? 0) || 0,
+    /** Fraction of direct cost, e.g. 0.10 for Eric's 10% overhead. */
+    overheadPercent: asFraction(settings?.overheadPercentage ?? estimate?.overheadPercent ?? 0),
+    /** Fraction of direct cost. */
+    profitPercent: asFraction(settings?.profitMargin ?? estimate?.profitPercent ?? 0),
+    /**
+     * Fraction of taxable materials. Zero is the correct answer in New
+     * Hampshire and has to survive as zero — see the note on the assembler's
+     * defaulting, which used to turn it into 8%.
+     */
+    taxRatePercent: asFraction(settings?.taxRate ?? estimate?.taxRatePercent ?? 0),
   };
 
   const materialMoney = materials.reduce((s: number, m: any) => s + (Number(m.totalCost) || 0), 0);
