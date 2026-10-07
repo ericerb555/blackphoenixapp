@@ -56,7 +56,8 @@ import {
   RefreshCw,
   CalendarDays,
   ChevronRight,
-  CircleDot
+  CircleDot,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -68,6 +69,7 @@ import {
   Material,
 } from '../lib/services/materialsHubService';
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
+import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
@@ -264,6 +266,13 @@ export function QuoteToContractEditor({
     };
   };
   
+  /**
+   * Set when the server refuses to send an unpriced quote without being told
+   * to. Holds the server's own reason, so the dialog does not invent a second
+   * wording of it. Null means nothing is being asked.
+   */
+  const [unpricedSend, setUnpricedSend] = useState<{ reason: string; basis: string } | null>(null);
+
   const [activeTab, setActiveTab] = useState<'quote' | 'bidding' | 'approval'>('quote');
   const [quoteEditTab, setQuoteEditTab] = useState<'materials' | 'labor' | 'process'>('materials');
   const [editMode, setEditMode] = useState(false);
@@ -958,8 +967,17 @@ export function QuoteToContractEditor({
     }
   };
 
-  // Send quote to customer for approval
-  const handleSendToCustomer = async () => {
+  /**
+   * Send quote to customer for approval.
+   *
+   * `acknowledgedUnpriced` is passed only on a deliberate retry. The route
+   * refuses an unpriced quote without it and answers 409 with
+   * `UNPRICED_QUOTE_NEEDS_ACKNOWLEDGEMENT`, which becomes the dialog below
+   * rather than an error toast — the quote is sendable, it just should not go
+   * out unnoticed. Eric asked for the option to send or not; this is where he
+   * takes it.
+   */
+  const handleSendToCustomer = async (acknowledgedUnpriced = false) => {
     if (inviteToApp && !(invitePhone.trim() || workRequest.customerPhone)) {
       toast.error('A phone number is required to invite this customer to the app.');
       return;
@@ -974,10 +992,22 @@ export function QuoteToContractEditor({
           body: JSON.stringify({
             customerEmail: workRequest.customerEmail,
             customerName: workRequest.customerName,
-            message: 'Please review and approve this quote.'
+            message: 'Please review and approve this quote.',
+            ...(acknowledgedUnpriced ? { acknowledgedUnpriced: true } : {}),
           }),
         }
       );
+
+      if (response.status === 409) {
+        const refusal = await response.json().catch(() => ({} as any));
+        if (refusal?.code === 'UNPRICED_QUOTE_NEEDS_ACKNOWLEDGEMENT') {
+          setUnpricedSend({
+            reason: String(refusal.error || 'This quote was not priced from your own figures.'),
+            basis: String(refusal.pricingBasis || ''),
+          });
+          return;
+        }
+      }
 
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -997,6 +1027,7 @@ export function QuoteToContractEditor({
           });
         }
         onSendToCustomer(workRequest);
+        setUnpricedSend(null);
       } else {
         throw new Error('Failed to send quote');
       }
@@ -2192,8 +2223,16 @@ export function QuoteToContractEditor({
                 {/* Actions */}
                 {currentQuote.approvalStatus === 'pending' && (
                   <div className="flex items-center gap-3">
+                    {/*
+                      The handler is WRAPPED rather than passed by reference. A
+                      bare `onClick={handleSendToCustomer}` hands the click
+                      event in as the first argument, and a MouseEvent is
+                      truthy — so every send would have arrived
+                      pre-acknowledged and the unpriced gate would never once
+                      have fired.
+                    */}
                     <button
-                      onClick={handleSendToCustomer}
+                      onClick={() => handleSendToCustomer()}
                       disabled={loading}
                       className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-black border border-[#ea580c]/50 hover:border-[#ea580c] hover:shadow-[0_0_15px_rgba(234,88,12,0.5)] text-[#ea580c] rounded-lg font-semibold transition-all disabled:opacity-50"
                     >
@@ -2425,6 +2464,27 @@ export function QuoteToContractEditor({
             />
           </div>
         </div>
+      )}
+
+      {/*
+        Sending a quote that was never priced from real figures.
+
+        The server refused and said why; this asks rather than reports, because
+        the quote IS sendable and the decision is Eric’s. Lives in its own
+        component so the smoke harness can mount it — a dialog that only
+        appears on a 409 from a staff-authenticated route is otherwise
+        unreachable by any check, which is how an unrenderable dialog would
+        reach production looking fine.
+      */}
+      {unpricedSend && (
+        <UnpricedSendDialog
+          reason={unpricedSend.reason}
+          customerName={workRequest.customerName}
+          customerEmail={workRequest.customerEmail}
+          sending={loading}
+          onCancel={() => setUnpricedSend(null)}
+          onSendAnyway={() => handleSendToCustomer(true)}
+        />
       )}
     </>
   );

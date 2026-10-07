@@ -235,6 +235,43 @@ function normalizeDoc(input: any) {
       ? input.status : "draft",
     /** The signature that goes with an approval, preserved for the same reason. */
     signature: input.signature ?? null,
+
+    /**
+     * WHAT PRICED THIS QUOTE, AND WHAT THE SERVER SAID ABOUT IT.
+     *
+     * Listed here for the same reason as `jobId` and `workRequestId` above:
+     * this function rebuilds the record field by field, so anything unnamed is
+     * dropped on the next save. That matters more than usual for these two,
+     * because `send-to-customer` reads `pricingBasis` to decide whether a send
+     * needs Eric's explicit acknowledgement. A basis that survived creation
+     * and vanished on the first edit would silently switch that gate off, and
+     * the quote most likely to be edited before sending is the one somebody is
+     * fixing up.
+     *
+     *   estimator         the model's takeoff, repriced against the catalogue
+     *   server-heuristic  the server's deterministic fallback, not repriced
+     *   offline-demo      the local demo generator; demo figures
+     *
+     * Absent is a real and permitted value: every quote saved before this
+     * existed has none, and absence means unknown rather than unpriced.
+     */
+    pricingBasis: ["estimator", "server-heuristic", "offline-demo"].includes(input.pricingBasis)
+      ? input.pricingBasis
+      : "",
+    priceSummary: input.priceSummary ?? null,
+
+    /**
+     * That somebody chose to send this knowing it was not priced from real
+     * figures.
+     *
+     * Always null here, and restored from the STORED record by the caller
+     * below. `normalizeDoc` is handed `{...existing, ...input}`, so a value
+     * read off its argument could have come from the request body — and this
+     * field is the record of a decision an administrator made, which a client
+     * must never be able to assert for itself. Written only by
+     * `send-to-customer`.
+     */
+    unpricedSendAcknowledged: null as null | { by: string; at: string; basis: string },
     createdAt: String(input.createdAt || new Date().toISOString()),
     updatedAt: new Date().toISOString(),
   };
@@ -301,6 +338,15 @@ quotesRouter.post("/make-server-3eae23a6/quotes", async (c) => {
     const number = carried || await mintQuoteNumber();
 
     const doc = normalizeDoc({ ...(existing || {}), ...input, number });
+
+    /**
+     * An acknowledgement already on record survives the save.
+     *
+     * Restored from `existing` rather than from the normaliser's argument, so
+     * it can only ever have been written by `send-to-customer`. A client
+     * sending one in the body is ignored.
+     */
+    doc.unpricedSendAcknowledged = (existing as any)?.unpricedSendAcknowledged ?? null;
 
     /**
      * The job this quote belongs to.

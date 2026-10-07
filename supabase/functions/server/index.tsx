@@ -20023,7 +20023,82 @@ app.post('/make-server-3eae23a6/subscriptions/:id/renew', async (c) => { try { c
 // ── SUBCONTRACTOR BIDDING ────────────────────────────────────────────────────
 app.get('/make-server-3eae23a6/quotes/:id/bids', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); return c.json({ success: true, bids: (await kv.get(`quote_bids:${c.req.param('id')}`)) || [] }); });
 app.post('/make-server-3eae23a6/quotes/:id/request-bids', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const body = await c.req.json(); const request = { id: `bid_request_${crypto.randomUUID()}`, quoteId: quote.id, workRequestId: body.workRequestId || null, status: 'requested', requestedAt: new Date().toISOString(), requestedBy: actor.user.email }; const requests = (await kv.get(`quote_bid_requests:${quote.id}`)) || []; await kv.set(`quote_bid_requests:${quote.id}`, [...requests, request]); return c.json({ success: true, request }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
-app.post('/make-server-3eae23a6/quotes/:id/send-to-customer', async (c) => { try { const actor = await financialActor(c); if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403); const quote = await kv.get(`quote:${c.req.param('id')}`) as any; if (!quote) return c.json({ error: 'Quote not found.' }, 404); const sent = { ...quote, status: 'sent', sentAt: new Date().toISOString(), sentBy: actor.user.email, updatedAt: new Date().toISOString() }; await kv.set(`quote:${quote.id}`, sent); return c.json({ success: true, quote: sent }); } catch (error: any) { return c.json({ error: error.message }, 500); } });
+/**
+ * A quote that was never priced from real figures may still be sent — but only
+ * on purpose.
+ *
+ * Eric asked for "the option to send or not to", which is a choice rather than
+ * a block. So this refuses an unpriced send that arrives without an explicit
+ * acknowledgement, and records the acknowledgement when it comes. The editor
+ * turns the refusal into a dialog naming what is wrong, with Send anyway and
+ * Cancel.
+ *
+ * WHY THE CHECK IS HERE AND NOT ONLY IN THE DIALOG
+ *
+ * A dialog is a prompt, not an enforcement — anything that can reach this route
+ * can skip it. Putting the refusal on the route is what makes "sent demo
+ * figures by accident" impossible while leaving "sent them deliberately"
+ * available and, because the acknowledgement is stored, auditable afterwards.
+ *
+ * WHAT IS GATED, AND WHAT DELIBERATELY IS NOT
+ *
+ *   offline-demo       gated — the local demo generator ran; these are examples
+ *   server-heuristic   gated — the server's fallback; never repriced
+ *   estimator          NOT gated; it went through `repriceEstimate` and its
+ *                      banner already states how much of it is real
+ *   absent             NOT gated; every quote saved before `pricingBasis`
+ *                      existed has none, and absence means unknown rather than
+ *                      unpriced. Treating it as unpriced would have made every
+ *                      existing quote unsendable without warning.
+ */
+const UNPRICED_BASES = ['offline-demo', 'server-heuristic'];
+
+app.post('/make-server-3eae23a6/quotes/:id/send-to-customer', async (c) => {
+  try {
+    const actor = await financialActor(c);
+    if (!actor.admin) return c.json({ error: 'Administrator access is required.' }, 403);
+
+    const quote = await kv.get(`quote:${c.req.param('id')}`) as any;
+    if (!quote) return c.json({ error: 'Quote not found.' }, 404);
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const basis = String(quote?.pricingBasis || '');
+    const unpriced = UNPRICED_BASES.includes(basis);
+    const acknowledged = body?.acknowledgedUnpriced === true;
+
+    if (unpriced && !acknowledged) {
+      // A distinct code rather than a sentence, so the editor can tell this
+      // apart from a real failure and ask instead of reporting an error.
+      return c.json({
+        success: false,
+        code: 'UNPRICED_QUOTE_NEEDS_ACKNOWLEDGEMENT',
+        pricingBasis: basis,
+        error: basis === 'offline-demo'
+          ? 'This quote was built by the demo generator, so none of its prices are real.'
+          : 'This quote came from the fallback estimator and was not priced against your catalogue or rates.',
+      }, 409);
+    }
+
+    const now = new Date().toISOString();
+    const sent = {
+      ...quote,
+      status: 'sent',
+      sentAt: now,
+      sentBy: actor.user.email,
+      // Recorded only when it actually applied, so the field never suggests
+      // somebody waved through a quote that was properly priced.
+      unpricedSendAcknowledged: unpriced
+        ? { by: actor.user.email, at: now, basis }
+        : (quote.unpricedSendAcknowledged ?? null),
+      updatedAt: now,
+    };
+
+    await kv.set(`quote:${quote.id}`, sent);
+    return c.json({ success: true, quote: sent });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
 
 // ── QUOTE UPDATE + PUBLIC SIGNING (by-token) ─────────────────────────────────
 // Editing a quote's line items from the Quote → Contract editor.

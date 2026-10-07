@@ -258,6 +258,17 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             items: [...quote.materials, ...quote.labor],
             notes: request.description,
             status: 'draft',
+            /**
+             * Stored, because the send gate reads it.
+             *
+             * `POST /quotes/:id/send-to-customer` refuses an unpriced send
+             * without an explicit acknowledgement, and it decides that from
+             * the quote's own stored `pricingBasis`. Keeping the basis only in
+             * the pipeline item would leave the gate looking at a quote record
+             * that never knew what priced it.
+             */
+            pricingBasis: quote.pricingBasis,
+            priceSummary: quote.priceSummary,
             workRequestId: request.id,
             total: quote.totalCost,
           }),

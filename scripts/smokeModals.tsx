@@ -33,6 +33,7 @@
  * throw is reported rather than taking the batch down.
  */
 import { QuotePricingBasisBanner } from '../src/app/components/quotes/QuotePricingBasisBanner';
+import { UnpricedSendDialog } from '../src/app/components/quotes/UnpricedSendDialog';
 import CreateInvoiceModal from '../src/app/components/invoices/CreateInvoiceModal';
 import InvoicePreviewModal from '../src/app/components/invoices/InvoicePreviewModal';
 import { ProjectDetailsModal } from '../src/app/components/ProjectDetailsModal';
@@ -183,4 +184,35 @@ export const modalMap: Record<string, () => JSX.Element> = {
 
   /** A quote saved before the basis existed says nothing rather than guessing. */
   'modal:quote-basis-legacy': () => <QuotePricingBasisBanner quote={{}} />,
+
+  /*
+    The "send it anyway?" dialog.
+
+    It appears only on a 409 from a staff-authenticated route, so nothing else
+    in this project can reach it — which is exactly why it lives in its own
+    component and is mounted here. A dialog nobody can render is a dialog that
+    reaches production looking fine.
+
+    The customer fields are deliberately absent: an unassigned quote has
+    neither, and the sentence about who it goes to has to survive that.
+  */
+  'modal:unpriced-send': () => (
+    <UnpricedSendDialog
+      reason="This quote was built by the demo generator, so none of its prices are real."
+      onCancel={noop}
+      onSendAnyway={noop}
+    />
+  ),
+
+  /** The same dialog mid-send, and with a customer to name. */
+  'modal:unpriced-send-sending': () => (
+    <UnpricedSendDialog
+      reason="This quote came from the fallback estimator and was not priced against your catalogue or rates."
+      customerName="Dana Whitfield"
+      customerEmail="dana@example.com"
+      sending
+      onCancel={noop}
+      onSendAnyway={noop}
+    />
+  ),
 };
