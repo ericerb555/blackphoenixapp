@@ -39,6 +39,7 @@ import {
 import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import { AGREED_LADDERS, AGREED_ADD_ONS } from "./agreedLadders.ts";
 import { QUOTE_DISCOUNT_CAP_PERCENT } from "./discounts.ts";
+import { retiredTierAudience } from "./retiredAudiences.ts";
 
 /**
  * Which Stripe mode this server sells in, from the key's own prefix.
@@ -203,6 +204,16 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-tiers/:audience", async (c) =
 
   const audience = readAudience(c.req.param("audience"));
   if (!audience) return c.json({ error: "Unknown audience." }, 400);
+
+  /**
+   * Some audiences no longer sell a tier at all, and `content` is one.
+   *
+   * Checked here rather than left to the person editing, because the three
+   * retired `plan_tier:content:*` records still exist and look exactly like
+   * three tiers awaiting a Stripe price. See `retiredAudiences.ts`.
+   */
+  const retired = retiredTierAudience(audience);
+  if (retired.retired) return c.json({ error: retired.reason }, 400);
 
   const body = await c.req.json().catch(() => ({}));
   const tier = readTier(body, audience);
@@ -938,6 +949,18 @@ planCatalogRouter.get("/make-server-3eae23a6/public/plan-tiers", async (c) => {
   const audience = readAudience(c.req.query("audience"));
   if (!audience) {
     return c.json({ success: false, error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
+  }
+
+  /**
+   * A retired audience offers nothing publicly, whatever its rows say.
+   *
+   * This is the half that matters: the write refusal above can be stepped
+   * around by a direct KV edit or a future migration, and this cannot. A
+   * `plan_tier:content:*` record flipped to `active` still reaches no pricing
+   * page.
+   */
+  if (retiredTierAudience(audience).retired) {
+    return c.json({ success: true, audience, tiers: [] });
   }
 
   try {

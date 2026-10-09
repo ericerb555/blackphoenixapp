@@ -1122,3 +1122,79 @@ pages, 0 threw. 1706 tests pass.
 3. **Nothing reads `cancelledTierId` on a screen yet.** It is recorded and
    nothing displays it. Worth putting on the account view when somebody next
    needs to answer why an account lapsed.
+
+---
+
+## Review 24 — the content centre is in the catalogue twice (2026-10-09)
+
+### What was found
+
+The ruling of 2026-09-28 — the content centre is an add-on bought on top of a
+portal, not a portal of its own — **was carried out.** Eighteen `plan_addon`
+records exist in production: Solo, Studio and Agency across vendor,
+subcontractor, advertiser, condo_association, property_manager and landlord, at
+$79 / $199 / $499, all inactive, none with a Stripe price. Verified in the live
+KV table, not assumed from the code.
+
+What the ruling did not do is remove the three tiers it replaced:
+
+    plan_tier:content:solo     Solo      $79    active: false   no Stripe price
+    plan_tier:content:studio   Studio    $199   active: false   no Stripe price
+    plan_tier:content:agency   Agency    $499   active: false   no Stripe price
+
+Nothing points at them. Zero `feature_grant` records on the `content` audience,
+zero naming `solo`/`studio`/`agency` as a tier id, zero cohort members, and no
+record anywhere in the table whose value mentions `plan_tier:content`. They are
+genuinely orphaned and nobody is paying on them.
+
+### Why that was still worth acting on
+
+Because `content` is a full member of the `Audience` union, and has to be — the
+rows exist, and the types that read the catalogue must be able to describe
+what is in it. Removing the union member would make them unreadable rather than
+unsellable, which is the wrong direction.
+
+So `POST /plan-tiers/content` was accepting edits. Nothing stopped an
+administrator tidying the catalogue from setting `active: true` on Studio and
+publishing a $199 portal subscription for a portal no account can be on. It
+would have looked like finishing an unfinished job: three rungs, correct prices,
+one flag unset.
+
+And the price watcher was reading them. Its only filter was `priceCents > 0`,
+which all three pass, so a withdrawn product was being treated as a live rung —
+and any ask it raised about moving those prices would have arrived in the queue
+reading exactly like a real one.
+
+### The change
+
+`retiredAudiences.ts`, a pure module with nine tests, plus three call sites:
+
+| Where | What it does now |
+|---|---|
+| `POST /plan-tiers/:audience` | 400, naming the three add-on ids to use instead |
+| `GET /public/plan-tiers` | empty list for a retired audience, whatever the rows say |
+| `priceWatchJob` | skips a retired audience's rungs |
+
+The public read is the half that matters. A refusal on the write path alone
+leaves the hazard one direct KV edit or one future migration away; the read path
+cannot be stepped around, so a row flipped to `active` by hand still reaches no
+pricing page.
+
+Two decisions in it worth recording. The refusal is keyed on the **audience**,
+not on the three rows, because the rows are the thing that might be edited. And
+an **unknown** audience is deliberately *not* treated as retired — `readAudience`
+already rejects anything outside the union before this is reached, and reading
+"unknown" as "retired" would refuse every audience added in future until
+somebody found the file. The lookup uses `hasOwnProperty`, so `constructor` and
+`__proto__` are not refused with the content-centre sentence either.
+
+### Left for Eric
+
+**The three rows themselves.** Deleting live catalogue records is his call, not a
+side effect of a guard, and the guard is what makes them harmless either way —
+so it was worth having regardless of whether they go. Nothing references them,
+no Stripe price is attached, and `contentAddOns.ts` already records
+`sourceTierId` on each add-on so the lineage survives the deletion. It is three
+`DELETE /plan-tiers/content/:id` calls, or three KV deletes, whenever he says.
+
+Typecheck app 316 / server 87, both on baseline. Smoke: 15 modals, 0 threw.

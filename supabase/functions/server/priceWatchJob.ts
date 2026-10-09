@@ -30,6 +30,7 @@
  */
 import * as kv from "./kv_store.tsx";
 import { registerStoreJob, askForGuidance, withdrawAsk, type StoreJobContext, type StoreJobResult } from "./storeAutonomy.ts";
+import { retiredTierAudience } from "./retiredAudiences.ts";
 import {
   proposalsFor, summarise, DEFAULT_GUARDRAILS,
   type PriceSignals, type Proposal,
@@ -182,6 +183,15 @@ async function priceWatchJob(ctx: StoreJobContext): Promise<StoreJobResult> {
     if (!audience || !id) continue;
     // A rung nobody can buy is not worth an opinion about its price.
     if (!(Number(tier?.priceCents) > 0)) continue;
+    /**
+     * Nor is a ladder that has been retired as a portal.
+     *
+     * The three `plan_tier:content:*` records still carry $79, $199 and $499,
+     * so without this the watcher would treat a withdrawn product as a live
+     * rung and could propose moving a price that sells nothing — and the ask
+     * would arrive in the queue reading exactly like a real one.
+     */
+    if (retiredTierAudience(audience).retired) continue;
 
     if (!capacityByAudience.has(audience)) capacityByAudience.set(audience, await capacityFor(audience));
     const capacity = capacityByAudience.get(audience) || {};
