@@ -18,6 +18,7 @@
 import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
+import { applyMargins } from './quoteMargins.ts';
 
 const quoteRouter = new Hono();
 
@@ -247,39 +248,6 @@ function assembleEstimate(
   const laborSubtotal = round2(labor.reduce((s: number, l: any) => s + l.totalCost, 0));
   const additionalCostsSubtotal = round2(additionalCosts.reduce((s: number, a: any) => s + a.amount, 0));
 
-  const directCost = round2(materialsSubtotal + laborSubtotal + additionalCostsSubtotal);
-
-  /**
-   * ALL THREE ARE FRACTIONS, AND AN EXPLICIT ZERO IS AN ANSWER.
-   *
-   * `|| 0.10` replaced a deliberate zero with the default, because zero is
-   * falsy. That is not hypothetical: `repriceEstimate` passes the company's
-   * own figures through here, and a company that sets no labour markup or —
-   * the real case — NO SALES TAX, which is correct for New Hampshire, had
-   * that decision overwritten. The tax line below defaulted to 8% on every
-   * repriced quote in a state with none.
-   *
-   * `pickFraction` distinguishes "not given" from "given as zero". The clamps
-   * stay: they are a guard against a model returning something absurd, and
-   * they are also what made the percent/fraction mix-up invisible for so
-   * long — 10 and 15 both clamped quietly to 0.4.
-   */
-  const pickFraction = (value: unknown, fallback: number, ceiling: number): number => {
-    const n = Number(value);
-    const chosen = Number.isFinite(n) ? n : fallback;
-    return Math.max(0, Math.min(ceiling, chosen));
-  };
-
-  const overheadPercent = pickFraction(raw?.overheadPercent, 0.10, 0.4);
-  const profitPercent = pickFraction(raw?.profitPercent, 0.10, 0.4);
-  const contingencyPercent = pickFraction(raw?.contingencyPercent, 0.05, 0.4);
-
-  const overheadAmount = round2(directCost * overheadPercent);
-  const profitAmount = round2(directCost * profitPercent);
-  const contingencyAmount = round2(directCost * contingencyPercent);
-
-  const preTaxTotal = round2(directCost + overheadAmount + profitAmount + contingencyAmount);
-
   /**
    * Credits — material the customer supplied themselves.
    *
@@ -309,23 +277,43 @@ function assembleEstimate(
 
   const creditsSubtotal = round2(credits.reduce((sum: number, c: any) => sum + c.amount, 0));
 
-  // Sales tax on materials only (accurate for most US construction contracts),
-  // and only on the materials we are actually supplying.
-  // A fraction, and zero means zero — New Hampshire has no sales tax, and the
-  // old `|| 0.08` turned that correct answer into an 8% line on every repriced
-  // quote. `pickFraction` is defined above with the reasoning.
-  const taxRate = pickFraction(raw?.taxRatePercent, 0.08, 0.15);
-  const taxableMaterials = Math.max(0, round2(materialsSubtotal - creditsSubtotal));
-  const taxAmount = round2(taxableMaterials * taxRate);
-
   /**
-   * Not clamped at zero.
+   * Everything above direct cost, in one place.
    *
-   * A quote whose credits exceed the work is a real situation and it should
-   * be visible, not rounded away into "nothing to pay". Somebody has to look
-   * at it and decide.
+   * `applyMargins` lives in `quoteMargins.ts` rather than here, because the
+   * percent-versus-fraction fault that put 40% overhead and 40% profit on
+   * every repriced quote lived in exactly this arithmetic — and this file is
+   * a `.tsx`, which the test runner cannot load. The one calculation that
+   * decides what a customer is charged was the one that could not be tested.
+   *
+   * Everything passed in is a FRACTION. The repricer converts the company's
+   * percentages at its own boundary.
    */
-  const totalCost = round2(preTaxTotal + taxAmount - creditsSubtotal);
+  const margins = applyMargins({
+    materialsSubtotal,
+    laborSubtotal,
+    additionalCostsSubtotal,
+    creditsSubtotal,
+    overheadPercent: raw?.overheadPercent,
+    profitPercent: raw?.profitPercent,
+    contingencyPercent: raw?.contingencyPercent,
+    taxRatePercent: raw?.taxRatePercent,
+  });
+
+  const {
+    directCost,
+    overheadPercent, overheadAmount,
+    profitPercent, profitAmount,
+    contingencyPercent, contingencyAmount,
+    preTaxTotal,
+    taxRate, taxAmount,
+    /**
+     * Not clamped at zero. A quote whose credits exceed the work is a real
+     * situation and should be visible rather than rounded away into
+     * "nothing to pay" — somebody has to look at it and decide.
+     */
+    totalCost,
+  } = margins;
 
   return {
     materials,
