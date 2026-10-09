@@ -7,6 +7,8 @@
 
 import { Hono } from 'npm:hono@4';
 import { rateForRole, rateForTrade, blueprintPricing } from './blueprintRates.ts';
+import { resolvePricing } from './pricingDefaults.ts';
+import { applyMargins } from './quoteMargins.ts';
 import { blueprintTakeoff } from './blueprintTakeoff.ts';
 import { mergeServerCatalogue, findTask } from './serverCatalogue.ts';
 import { resolveCatalogue } from './rateLearning.ts';
@@ -97,6 +99,18 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
      */
     const savedPricing = await kv.get('labor_rates:global');
     const { rates: rateCard, usingStandards, profitSettings } = blueprintPricing(savedPricing);
+
+    /**
+     * The markups, overhead, margin and tax, from the same resolver every
+     * other quoting path uses.
+     *
+     * Both records are read because they are both places the company's
+     * margins can be saved and they do not agree on field names — see
+     * `resolvePricing`. Reading only one is how this route came to apply no
+     * overhead, no profit, and an 8.75% sales tax in a state without one.
+     */
+    const pricingConfig = await kv.get('pricing_config:global').catch(() => null);
+    const { settings: pricingSettings } = resolvePricing(pricingConfig, savedPricing);
 
     console.log('[Quote from Blueprint] Rate card:', rateCard.length, 'trades,',
       usingStandards ? 'STANDARD figures' : "the company's own");
@@ -258,17 +272,64 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
       });
     }
 
-    // Calculate totals
     const laborTotal = quoteLaborItems.reduce((sum, item) => sum + item.total, 0);
     const materialsSubtotal = quoteMaterials.reduce((sum, item) => sum + item.total, 0);
-    
+
     // Apply materials markup if configured
     const materialsMarkup = profitSettings?.materialsMarkup || 0;
     const materialsTotal = materialsSubtotal * (1 + materialsMarkup / 100);
-    
-    const subtotal = laborTotal + materialsTotal;
-    const tax = subtotal * 0.0875; // 8.75% default tax rate
-    const total = subtotal + tax;
+
+    /**
+     * THE SAME ARITHMETIC AS EVERY OTHER QUOTE, AND IT USED NOT TO BE.
+     *
+     * What this did before, in three lines:
+     *
+     *     const subtotal = laborTotal + materialsTotal;
+     *     const tax = subtotal * 0.0875;   // 8.75% default tax rate
+     *     const total = subtotal + tax;
+     *
+     * Three faults in it, all costing money in the same direction:
+     *
+     * NO OVERHEAD AND NO PROFIT. A blueprint quote was labour plus marked-up
+     * materials plus tax. Nothing carried the business, and nothing was earned
+     * on the job — it quoted at cost. The description path applies Eric's 10%
+     * overhead and 20% profit, so the same work quoted from a drawing came out
+     * roughly a quarter cheaper than quoted from a description, with the whole
+     * difference being the margin.
+     *
+     * A SALES TAX THAT DOES NOT EXIST. 8.75% hardcoded, in New Hampshire,
+     * which has none. `STANDARD_PRICING.taxRate` is 0 deliberately and says so
+     * in a comment. It is also the sort of number the company might change,
+     * which is the last thing that should be typed into a route.
+     *
+     * TAX ON THE LABOUR. Even where sales tax applies it is on materials, not
+     * on hours. This charged it on the whole subtotal.
+     *
+     * So the figures now come from `applyMargins` — one copy, shared with the
+     * assembler, asserted to the penny in `tests/quoteMargins.test.ts` — and
+     * the settings from `resolvePricing`, which is what the description path
+     * and the capital plan read. A quote and a capital plan for the same work
+     * must not disagree.
+     *
+     * Contingency is deliberately zero here rather than the assembler's 5%
+     * default. There it is a figure the model judges per job; a takeoff
+     * measured off a drawing has no such figure, and inventing one would add
+     * cost nobody decided on.
+     */
+    const margins = applyMargins({
+      materialsSubtotal: materialsTotal,
+      laborSubtotal: laborTotal,
+      additionalCostsSubtotal: 0,
+      creditsSubtotal: 0,
+      overheadPercent: Number(pricingSettings.overheadPercentage ?? 0) / 100,
+      profitPercent: Number(pricingSettings.profitMargin ?? 0) / 100,
+      contingencyPercent: 0,
+      taxRatePercent: Number(pricingSettings.taxRate ?? 0) / 100,
+    });
+
+    const subtotal = margins.directCost;
+    const tax = margins.taxAmount;
+    const total = margins.totalCost;
 
     // Save quote to KV store
     const quote = {
@@ -284,6 +345,19 @@ quoteFromBlueprintRouter.post('/generate-from-blueprint', async (c) => {
         materialsMarkup,
         materialsTotal,
         subtotal,
+        /**
+         * Broken out, because a quote that shows a total without showing the
+         * overhead and profit inside it cannot be checked by the person
+         * sending it — and these two were absent from this path entirely
+         * until now. Percentages are stored alongside the amounts so a figure
+         * can still be explained after the settings have moved on.
+         */
+        overheadPercent: margins.overheadPercent,
+        overhead: margins.overheadAmount,
+        profitPercent: margins.profitPercent,
+        profit: margins.profitAmount,
+        preTaxTotal: margins.preTaxTotal,
+        taxRate: margins.taxRate,
         tax,
         total
       },
