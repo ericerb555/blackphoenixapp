@@ -1,0 +1,15 @@
+{
+  "comment": [
+    "The standing typecheck findings, per config. `scripts/precommit.mjs` fails",
+    "when a count goes ABOVE one of these and tells you to lower it when a count",
+    "comes in below — a backlog that only ever ratchets down.",
+    "",
+    "Lower these in the same commit that removes the findings. Raising one is a",
+    "deliberate act and should be explained in the commit message; if it needs",
+    "raising to get a change in, the change has added type errors."
+  ],
+  "typecheck": {
+    "app": 316,
+    "server": 87
+  }
+}
