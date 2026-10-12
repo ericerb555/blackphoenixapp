@@ -374,6 +374,48 @@ export function RoleSwitcher() {
               </button>
             </div>
 
+            {/*
+              Phoenix Exchange — public pages, and deliberately NOT a role.
+              
+              There is no Exchange customer portal to switch into, because the
+              customer side has no account: the Exchange is permanently free
+              for residents and its browse surface is built to be readable by
+              somebody with no login at all — that is the whole free-traffic
+              plan, since a paywalled directory cannot be found by a search
+              engine. So "the customer view" IS the resident view below, and
+              these are links rather than role switches.
+              
+              Styled as the Storefront block above, which is the same kind of
+              thing: public surfaces reached from the switcher for convenience.
+            */}
+            <div className="p-3 border-t border-zinc-800 bg-[#0A0A0A] space-y-2">
+              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Phoenix Exchange</p>
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange'); }}
+                className="w-full px-3 py-2.5 flex items-center gap-3 rounded-lg bg-orange-600/15 border border-orange-500/30 hover:bg-orange-600/25 transition-all"
+              >
+                <MapPin className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-white">Resident View</p>
+                  <p className="text-xs text-zinc-400">What a customer sees — no account needed</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange-claim'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <KeyRound className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Claim a listing (business owner)</p>
+              </button>
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange-claim-review'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <UserCheck className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Claim review queue (staff)</p>
+              </button>
+            </div>
+
             <div className="p-3 border-t border-zinc-800 bg-[#0A0A0A]">
               <p className="text-xs text-zinc-500 text-center">
                 Current: <span className="font-semibold text-white">{getRoleDisplayName(user.role)}</span>
