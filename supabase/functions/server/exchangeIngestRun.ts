@@ -76,6 +76,11 @@ export interface IngestOutcome {
   untouched: number;
   uncategorised: number;
   /**
+   * Listings already in the directory that gained a category this run,
+   * because one now exists that did not when they were compiled.
+   */
+  categorised: number;
+  /**
    * Feature classes that came back at their query's limit, and so may have
    * been cut short. Empty is the normal and expected answer; anything in here
    * means the town should be re-run over a smaller radius, because the
@@ -85,6 +90,79 @@ export interface IngestOutcome {
   attribution: string;
   dryRun: boolean;
   error?: string;
+}
+
+/**
+ * The category a business may actually hold, for a slug that might name a
+ * service under one.
+ *
+ * A BUSINESS HOLDS A CATEGORY, NEVER A SERVICE UNDER ONE. The alias table can
+ * resolve a phrase to a service leaf: "lawyer" resolves to `family-law`,
+ * whose parent is `lawyers`. Inserting the leaf is refused by
+ * `exchange_org_category_guard` with "a business holds categories, not
+ * individual services" — and because that insert was the last thing done for a
+ * listing, the organisation row went in and its category did not.
+ *
+ * Found compiling Manchester, which has eleven law offices: every one resolved
+ * to the service. Taking the parent is the same rule the read path already
+ * applies in reverse, since a category page lists the businesses holding its
+ * parent (`holdingId` in exchangeDirectory). One copy, used by both the
+ * create and the fill paths.
+ */
+async function holdingCategoryId(sb: any, slug: string): Promise<string | null> {
+  const { data } = await sb
+    .from("exchange_category")
+    .select("id, parent_id")
+    .eq("slug", slug)
+    .maybeSingle();
+  return (data?.parent_id ?? data?.id) ?? null;
+}
+
+/**
+ * Give an existing listing the category it could not have had.
+ *
+ * WHY THIS EXISTS
+ *
+ * The runner filled missing COLUMNS on a listing it had seen before and never
+ * touched its categories. That was invisible until the taxonomy grew: on
+ * 2026-10-12 a Shops & Retail section was added, and 595 of 1,090 compiled
+ * listings — every shop in the directory — were sitting uncategorised because
+ * when they were compiled there was nowhere to put a shop. Re-running the
+ * ingest would have found them all, filled nothing, and reported them
+ * untouched.
+ *
+ * It adds only. A listing that already holds a category keeps it, because a
+ * person may have corrected it by hand and a re-run must never overrule that.
+ */
+async function fillMissingCategory(
+  sb: any,
+  orgId: string,
+  categorySlug: string | null,
+  dryRun: boolean,
+): Promise<boolean> {
+  if (!categorySlug) return false;
+
+  const { data: already } = await sb
+    .from("organization_category")
+    .select("org_id")
+    .eq("org_id", orgId)
+    .limit(1);
+  if (already?.length) return false;
+
+  const holdingId = await holdingCategoryId(sb, categorySlug);
+  if (!holdingId) return false;
+  if (dryRun) return true;
+
+  const { error } = await sb
+    .from("organization_category")
+    .insert({ org_id: orgId, category_id: holdingId });
+  // A guard refusal or a race must not end the town, and must not be counted
+  // as a success either.
+  if (error) {
+    console.error(`[exchange] could not categorise ${orgId}:`, error.message);
+    return false;
+  }
+  return true;
 }
 
 /** The alias table as the resolver `toListing` expects. */
@@ -256,7 +334,7 @@ export async function ingestTerritory(
   const outcome: IngestOutcome = {
     territory: territorySlug,
     found: 0, outsideTerritory: 0, notListable: 0, duplicates: 0,
-    created: 0, filled: 0, untouched: 0, uncategorised: 0,
+    created: 0, filled: 0, untouched: 0, uncategorised: 0, categorised: 0,
     truncated: [],
     attribution: OSM_ATTRIBUTION,
     dryRun: options.dryRun,
@@ -316,6 +394,17 @@ export async function ingestTerritory(
     const existing = await findExisting(sb, candidate, territory.slug);
     const patch = mergeListing(existing, candidate);
 
+    if (existing) {
+      /**
+       * Before anything else, because a listing with nothing else to fill
+       * returns early below — and a missing category is the most likely thing
+       * to be missing on a listing compiled before its category existed.
+       */
+      if (await fillMissingCategory(sb, existing.id, candidate.categorySlug, options.dryRun)) {
+        outcome.categorised += 1;
+      }
+    }
+
     if (existing && Object.keys(patch).length === 0) {
       // Claimed, or owned by a human, or nothing to add. All three mean leave
       // it exactly as it is.
@@ -365,31 +454,7 @@ export async function ingestTerritory(
     }
 
     if (candidate.categorySlug && created?.id) {
-      const { data: category } = await sb
-        .from("exchange_category")
-        .select("id, parent_id")
-        .eq("slug", candidate.categorySlug)
-        .maybeSingle();
-
-      /**
-       * A BUSINESS HOLDS A CATEGORY, NEVER A SERVICE UNDER ONE.
-       *
-       * The alias table can resolve a phrase to a service leaf: "lawyer"
-       * resolves to `family-law`, whose parent is `lawyers`. Inserting the
-       * leaf is refused by `exchange_org_category_guard` with "a business
-       * holds categories, not individual services" — and because the insert
-       * is the last thing done for that listing, the row went in and its
-       * category did not.
-       *
-       * Found compiling Manchester, which has eleven law offices: every one
-       * of them resolved to the service. Taking the parent is the same rule
-       * the read path already applies in reverse — a category page lists the
-       * businesses holding its parent (`holdingId` in exchangeDirectory) — so
-       * this makes the write agree with the read instead of relying on the
-       * alias table only ever naming top-level categories.
-       */
-      const holdingId = category?.parent_id ?? category?.id;
-
+      const holdingId = await holdingCategoryId(sb, candidate.categorySlug);
       if (holdingId) {
         await sb.from("organization_category")
           .insert({ org_id: created.id, category_id: holdingId });
