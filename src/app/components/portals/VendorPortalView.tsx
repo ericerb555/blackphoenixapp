@@ -2,7 +2,7 @@ import PortalFeatureGuide from './PortalFeatureGuide';
 import { MessagesTab, MessagesBell, MessagesTabBadge, usePortalMessages } from './PortalMessagesSystem';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Package, DollarSign, TrendingUp, ShoppingCart, FileText, Clock,
   CheckCircle, AlertTriangle, BarChart3, Users, Calendar, Star,
@@ -89,6 +89,13 @@ export default function VendorPortalView() {
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [vendorLinked, setVendorLinked] = useState<boolean | null>(null);
   const [linkReason, setLinkReason] = useState('');
+  /**
+   * The vendor's own record and the signed-in email, both straight from
+   * `/vendor/me`. They were already in the response and were being thrown
+   * away — see the note above `vendorInfo`.
+   */
+  const [vendorRecord, setVendorRecord] = useState<any>(null);
+  const [vendorEmail, setVendorEmail] = useState('');
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [vendorLoading, setVendorLoading] = useState(true);
 
@@ -104,6 +111,8 @@ export default function VendorPortalView() {
         setVendorLinked(Boolean(me?.linked));
         setLinkReason(String(me?.reason || ''));
         setVendorId(me?.vendorId || null);
+        setVendorRecord(me?.vendor || null);
+        setVendorEmail(String(me?.email || '').toLowerCase());
 
         // The server scopes this to the caller, so no id is passed — asking for
         // "all purchase orders" as a vendor returns only that vendor's.
@@ -305,18 +314,56 @@ export default function VendorPortalView() {
     }
   };
 
-  // Mock vendor data — pulled from RoleSwitcher demo profile if present
-  const _demoProfile = (() => { try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; } })();
-  const vendorInfo = {
-    name: _demoProfile?.company || 'Premier Building Supplies Co.',
-    email: _demoProfile?.email || 'sandra@premierbuild.com',
-    phone: _demoProfile?.phone || '(972) 555-0142',
-    accountManager: _demoProfile?.name || 'Sandra Lee',
-    memberSince: 'March 2022',
-    totalOrders: 342,
-    activeOrders: 15,
-    rating: 4.8
-  };
+  /**
+   * Who this portal says you are — from the server's answer about you.
+   *
+   * WHAT THIS REPLACES
+   *
+   * A hardcoded company. Every vendor who signed in was shown
+   * "Premier Building Supplies Co. · Sandra Lee · sandra@premierbuild.com",
+   * with 342 orders, a 4.8 rating and "member since March 2022" — none of it
+   * theirs, and in most cases none of it anybody's. The object was read first
+   * from `localStorage.getItem('demo_role_profile')`, which is the same shape
+   * of bug as the subscription tier that used to live in `localStorage`:
+   * account facts taken from a place the browser controls, with an invented
+   * fallback when it was empty.
+   *
+   * It was not only cosmetic. This name is passed as `ownerName` into the plan
+   * builder, the plan tracker and the investments tab, and as `submitterName`
+   * into reel submission — so a real vendor's plan and a real vendor's reel
+   * were being **recorded against a company that does not exist.**
+   *
+   * `/vendor/me` was already returning `vendor` (the record) and `email` (the
+   * signed-in address) in the same response the portal was reading for
+   * `linked` and `vendorId`. Both were discarded. Now they are not.
+   *
+   * WHAT IS GONE AND NOT REPLACED
+   *
+   * `accountManager`, `rating`, `totalOrders`, `activeOrders` and
+   * `memberSince`. No vendor record carries any of them — there is no such
+   * field on either record shape — so there is nothing to read and nothing
+   * honest to put there. The last four were never rendered anyway;
+   * `accountManager` was, in the header and in the plan tracker, and it is now
+   * the company name instead of a person nobody employs.
+   *
+   * FAILING CLOSED
+   *
+   * An account not linked to a vendor record gets its own email address, never
+   * a company name. An unlinked account is a real state — the portal already
+   * shows `linkReason` for it — and the honest label for somebody we cannot
+   * identify as a company is the address they signed in with.
+   */
+  const vendorInfo = useMemo(() => {
+    const company = String(vendorRecord?.name || '').trim();
+    const email = String(
+      vendorRecord?.email || vendorRecord?.contactEmail || vendorEmail || session?.user?.email || '',
+    ).trim().toLowerCase();
+    return {
+      name: company || email || 'Your vendor account',
+      email,
+      phone: String(vendorRecord?.phone || '').trim(),
+    };
+  }, [vendorRecord, vendorEmail, session?.user?.email]);
 
   // Revenue data
   // Revenue by month, from the purchase orders actually raised against this
@@ -425,7 +472,13 @@ export default function VendorPortalView() {
                 </div>
                 Vendor Portal
               </h1>
-              <p className="text-gray-400 mt-1">{vendorInfo.name} · {vendorInfo.accountManager} · {vendorInfo.email}</p>
+              {/* Only the parts that exist. The middle of this line used to be
+                  an account manager nobody employs. */}
+              <p className="text-gray-400 mt-1">
+                {[vendorInfo.name, vendorInfo.email !== vendorInfo.name ? vendorInfo.email : '', vendorInfo.phone]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
             </div>
             <div className="flex items-center gap-3">
               {/* This was a Bell that opened notification *preferences* — an
@@ -1056,7 +1109,8 @@ export default function VendorPortalView() {
           />
         )}
 
-        {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.accountManager} />}
+        {/* Was `vendorInfo.accountManager` — a hardcoded "Sandra Lee". */}
+        {activeTab === 'plan-tracker' && <MaintenancePlanTracker portalRole="vendor" ownerName={vendorInfo.name} />}
         {activeTab === 'plan-builder' && (
           <div className="space-y-6">
             <PlanBuilderTab portalType="vendor" ownerName={vendorInfo.name} currentTier={subscriptionTier} />

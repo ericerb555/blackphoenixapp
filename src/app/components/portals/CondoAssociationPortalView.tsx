@@ -124,6 +124,43 @@ export default function CondoAssociationPortalView() {
    */
   const [realAssociation, setRealAssociation] = useState<any>(null);
 
+  /**
+   * The association's real roster, for the Team tab.
+   *
+   * That tab used to list two hardcoded people — "Robert Martinez, Board
+   * President, robert@harborview.com" and "Lisa Anderson, Property Manager,
+   * lisa@propertymanagement.com" — to every board that opened it. Neither
+   * exists, and listing somebody as your board president implies they hold
+   * access they do not.
+   *
+   * `GET /condo/associations/:id/members` already returns the real grants and
+   * enforces its own authorisation: it refuses with 403 unless the caller's
+   * standing allows `members`. So an empty roster here means either no members
+   * or no permission, and in both cases showing nothing is the correct answer.
+   */
+  const [roster, setRoster] = useState<any[] | null>(null);
+  const [rosterError, setRosterError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!session?.access_token || !membership?.associationId) { setRoster(null); return; }
+    (async () => {
+      try {
+        const res = await fetch(
+          `${CONDO_API}/condo/associations/${encodeURIComponent(membership.associationId)}/members`,
+          { headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' } },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setRoster(Array.isArray(data?.members) ? data.members : []);
+        setRosterError(res.ok ? '' : String(data?.error || 'The roster could not be loaded.'));
+      } catch {
+        if (!cancelled) { setRoster([]); setRosterError('Could not reach the server.'); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.access_token, membership?.associationId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -410,22 +447,40 @@ export default function CondoAssociationPortalView() {
 
   // The real association wins over anything else. The sample below is only
   // reached when this account belongs to no association yet.
+  /**
+   * Which association this screen is about.
+   *
+   * The real one when the server knows of one. Otherwise **nothing named**, and
+   * that is the part that changed: this used to fall through to a hardcoded
+   * "Harborview Condo Association, 1250 Waterfront Drive, Miami, FL 33139, 240
+   * units, 4 buildings". A comment above `realAssociation` claimed a member of
+   * no association got an honest empty state instead of somebody else's
+   * building in Miami. It did not — `loadCondoData()` runs on mount for
+   * everybody and calls `loadDemoData()` unconditionally, so `condoData` was
+   * always the Miami demo and the fallback always had something to show.
+   *
+   * Platform staff keep it, because previewing the portal is what the demo
+   * association is for and they know what they are looking at. Everybody else
+   * gets blank fields rather than a stranger's address: `PropertyRecordsPanel`
+   * will not look up records for an empty address, which is the correct
+   * outcome when we do not know the building.
+   */
   const associationInfo = realAssociation
     ? {
         ...realAssociation,
         totalUnits: Number(realAssociation.unitCount) || 0,
         buildings: Number(realAssociation.buildings) || 0,
       }
-    : condoData || {
-    name: 'Harborview Condo Association',
-    address: '1250 Waterfront Drive, Miami, FL 33139',
-    totalUnits: 240,
-    buildings: 4,
-    president: 'Robert Martinez',
-    manager: 'Lisa Anderson',
-    phone: '(305) 555-7890',
-    email: 'info@harborviewcondo.com'
-  };
+    : canPreviewRoles
+      ? (condoData || { name: 'Harborview Condo Association (sample)', address: '', totalUnits: 0, buildings: 0, phone: '', email: '' })
+      : {
+          name: 'No association linked to this account yet',
+          address: '',
+          totalUnits: 0,
+          buildings: 0,
+          phone: '',
+          email: '',
+        };
 
   // Budget allocation data
   const budgetData = [
@@ -527,32 +582,29 @@ export default function CondoAssociationPortalView() {
   }));
 
   // Vendor contracts
-  const vendors = [
-    {
-      name: 'Green Lawn Care',
-      service: 'Landscaping',
-      monthlyFee: 4500,
-      contractEnd: '2024-12-31',
-      rating: 4.8,
-      status: 'active'
-    },
-    {
-      name: 'CleanPro Services',
-      service: 'Janitorial',
-      monthlyFee: 6200,
-      contractEnd: '2024-09-30',
-      rating: 4.9,
-      status: 'active'
-    },
-    {
-      name: 'SecureWatch',
-      service: 'Security',
-      monthlyFee: 8500,
-      contractEnd: '2025-03-31',
-      rating: 4.7,
-      status: 'active'
-    }
-  ];
+  /**
+   * THERE ARE NO VENDOR CONTRACTS TO SHOW, AND NONE MAY BE INVENTED.
+   *
+   * Three were hardcoded here and shown to every board that could see
+   * financials: Green Lawn Care at $4,500 a month, CleanPro Services at $6,200,
+   * SecureWatch at $8,500, with ratings and contract end dates in 2024 and
+   * 2025 — all already past. Presented under the heading "Active Vendor
+   * Contracts" with an ACTIVE badge, as the association's own commitments.
+   *
+   * That is worse than a fabricated review. A board reading its own portal was
+   * being told it had $19,200 a month of contracts it does not have, two of
+   * them expired, against vendors it has never engaged. It is the kind of
+   * number somebody budgets from or questions a treasurer about.
+   *
+   * Unlike the vendor portal's identity, there is nothing being discarded here
+   * that could be shown instead: the condo server has routes for associations,
+   * members, standing and consent, and **none for vendor contracts**. No such
+   * record exists anywhere. So the honest render is an empty state, and the
+   * feature has to be built before it can display anything.
+   */
+  const vendors: Array<{
+    name: string; service: string; monthlyFee: number; contractEnd: string; rating?: number; status: string;
+  }> = [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -972,14 +1024,23 @@ export default function CondoAssociationPortalView() {
               <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-lg font-bold text-white">Active Vendor Contracts</h2>
-                  <button
-                    onClick={() => setActiveTab('vendors')}
-                    className="text-orange-400 hover:text-orange-300 text-sm font-semibold flex items-center gap-1"
-                  >
-                    View All
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  {vendors.length > 0 && (
+                    <button
+                      onClick={() => setActiveTab('vendors')}
+                      className="text-orange-400 hover:text-orange-300 text-sm font-semibold flex items-center gap-1"
+                    >
+                      View All
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
+                {/* Nothing is recorded, so nothing is claimed. See the note on `vendors`. */}
+                {vendors.length === 0 && (
+                  <p className="text-sm text-gray-500">
+                    No vendor contracts are recorded for this association yet. When contract tracking
+                    is available, the vendors you engage and what they cost will appear here.
+                  </p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {vendors.map((vendor, i) => (
                     <div key={i} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4 hover:border-orange-500/30 transition">
@@ -1144,34 +1205,50 @@ export default function CondoAssociationPortalView() {
             </h2>
             <p className="text-gray-400 mb-6">Manage board members, property manager, and resident access.</p>
 
+            {/*
+              The real roster, from GET /condo/associations/:id/members.
+              This list was two hardcoded strangers — see the note on `roster`.
+            */}
             <div className="space-y-4">
-              <div className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-semibold">Robert Martinez</h3>
-                    <p className="text-sm text-gray-400">robert@harborview.com</p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeColor('board_president')}`}>
-                    Board President
-                  </span>
-                </div>
-              </div>
+              {roster === null && (
+                <p className="text-sm text-gray-500">Loading your roster…</p>
+              )}
 
-              <div className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-semibold">Lisa Anderson</h3>
-                    <p className="text-sm text-gray-400">lisa@propertymanagement.com</p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeColor('property_manager')}`}>
-                    Property Manager
-                  </span>
+              {roster !== null && roster.length === 0 && (
+                <div className="border border-dashed border-[#2A2A2A] rounded-lg p-6 text-center">
+                  <p className="text-gray-300 font-semibold mb-1">
+                    {rosterError ? 'This roster could not be shown' : 'Nobody has been added yet'}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {rosterError || 'Board members, your property manager and resident accounts will appear here once they are added.'}
+                  </p>
                 </div>
-              </div>
+              )}
 
-              <button className="w-full py-3 border-2 border-dashed border-[#2A2A2A] rounded-lg text-gray-400 hover:text-white hover:border-orange-500/30 transition font-semibold">
-                + Invite Team Member
-              </button>
+              {(roster || []).map((member: any) => {
+                const role = String(member?.role || '') as UserRole;
+                return (
+                  <div key={String(member?.email || member?.id)} className="bg-[#0A0A0A] rounded-lg border border-[#2A2A2A] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-white font-semibold truncate">{member?.name || member?.email}</h3>
+                        {member?.name && <p className="text-sm text-gray-400 truncate">{member.email}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* A pending invitation is not the same as access. */}
+                        {member?.status && member.status !== 'active' && (
+                          <span className="px-2 py-1 rounded-lg text-xs font-semibold border bg-gray-500/10 text-gray-400 border-gray-500/20">
+                            {String(member.status)}
+                          </span>
+                        )}
+                        <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeColor(role)}`}>
+                          {getRoleDisplayName(role)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
