@@ -72,3 +72,78 @@ simply does not match and the listing keeps no category.
 back and was refused. The fetcher now waits properly, pauses between queries
 and saves after each one, so a refusal late in the run does not discard the
 work already done.
+
+## Review
+
+**45% browsable → 81.6%.** 889 of 1,090 listings now appear on a category
+page, up from 495.
+
+    Pelham      52    25 -> 46    48% -> 88.5%
+    Salem      143    59 -> 130   41% -> 90.9%
+    Manchester 895   411 -> 713   46% -> 79.7%
+    ALL      1,090   495 -> 889   45% -> 81.6%
+
+Verified through the public API signed out, and every row sums exactly against
+its three towns — auto repair 103 = 8 + 7 + 88, hair salons 63 = 7 + 3 + 53,
+clothing 54 = 0 + 9 + 45, and so on across ~50 populated categories.
+
+The new retail section carries real listings in all but one of its twenty
+categories: clothing 54, phones & electronics 25, furniture 23, florists &
+gifts 19, sporting goods 17, hardware 16, pharmacy 13, liquor & tobacco 13,
+jewelry 12, discount 11, books & music 14, department stores 8, pet supplies 8,
+eyewear 8, garden & farm 5, toys 4, thrift 4, beauty 4, office supplies 3.
+Convenience & Gas is the largest at 62.
+
+Seven previously unreachable categories also filled: dry cleaning 16, lawyers
+11, insurance 11, bakeries 9, real estate 7, printing 7, storage 1.
+
+### How the backfill was done
+
+No OSM id was stored when these were compiled, but `service_lat`/`service_lng`
+were written from the feature's own coordinates at six decimal places, so each
+listing could be matched back to its feature by exact position. That assumption
+was tested against two known rows in production before anything was written.
+
+Resolution went through `osmToRegistryRecord` and `assignCategory` — the same
+two functions the ingest uses — rather than a second implementation that could
+drift. 23 features resolved to a SERVICE and were lifted to its parent
+category, which is the rule the database guard enforces: a business holds a
+category, never a service under one.
+
+**It fills only what is missing.** The first generated SQL would have added a
+second category to listings that already held one; that was caught and a
+`not exists` guard added before any of it was applied, matching the
+server-side `fillMissingCategory`. Bridge Street Hardware is the case in
+point — its wrong `handyman` row was deleted deliberately last week, and it
+gained `hardware-building` because it had none, not because a script outvoted
+a decision.
+
+Overpass rate-limited hard after the day's compiles, so the twelve town-class
+queries took about an hour with backoff. The fetcher saved after each one and
+the backfill was applied in three passes as data arrived — Pelham and Salem
+first, then Manchester's shops, crafts and offices, then its amenities. The
+`not exists` guard is what made running it in pieces safe.
+
+### What the remaining 201 are
+
+Not a gap to close by pushing harder. Sampling them, they are businesses whose
+OSM tag has no honest destination in the taxonomy:
+
+  - **car dealerships** (Mercedes-Benz, Stanley Mitsubishi, Nault's Power
+    Sports) — `shop=car`. Auto Repair is a different trade and filing a
+    dealership there would be the Lowe's-under-Handyman mistake again.
+  - **tyre shops** (Tire Warehouse, John & Son's Tire Service) — defensible as
+    auto repair, but `shop=tyres` is a retailer and it is a judgement call
+    rather than an obvious one.
+  - **nail salons and tattoo studios** (Queen City Nails, Masterpiece Tattoo,
+    Bulletproof Tiger) — `shop=beauty`, still deliberately unmapped because
+    OSM uses that one tag for nail bars, waxing, spas and soap shops alike.
+  - **funeral homes** (McHugh, Phaneuf) — `shop=funeral_directors`, unmapped
+    since the beginning; there is no category.
+  - **tailors, sign shops, precision engineering, investment firms** — one-offs
+    with no category each.
+
+Each of these is a deliberate "unmapped" rather than an oversight, and every
+one of them is a decision worth making separately rather than guessing at in
+bulk. Adding categories for car dealers, tyres, nail salons and funeral homes
+would take the figure past 90%, and that is a taxonomy decision for Eric.
