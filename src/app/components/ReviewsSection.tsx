@@ -13,15 +13,27 @@ import { toast } from 'sonner@2.0.3';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
-// Placeholder reviews shown before real ones load
-const PLACEHOLDER_REVIEWS = [
-  { id: 'p1', customerName: 'Sarah M.', rating: 5, reviewText: 'Black Phoenix transformed our kitchen completely. The team was professional, clean, and finished ahead of schedule. The quality of work is outstanding.', serviceType: 'Kitchen Renovation', createdAt: '2026-05-15' },
-  { id: 'p2', customerName: 'James T.', rating: 5, reviewText: 'Called them for emergency trash removal and they were there within hours. Fair pricing and they left the place spotless. Will definitely use again.', serviceType: 'Trash Removal', createdAt: '2026-05-22' },
-  { id: 'p3', customerName: 'Maria L.', rating: 5, reviewText: "Had our bathroom remodeled and it looks like a luxury spa now. Eric's team communicated every step. Could not be happier with the results.", serviceType: 'Bathroom Remodel', createdAt: '2026-06-01' },
-  { id: 'p4', customerName: 'David K.', rating: 5, reviewText: 'The handyman service fixed 8 things around the house in one afternoon. Very knowledgeable and reasonably priced. Already booked them again.', serviceType: 'Handyman Services', createdAt: '2026-06-08' },
-  { id: 'p5', customerName: 'Angela R.', rating: 4, reviewText: 'Great experience overall. The quote was accurate and they stuck to it. Project took a day longer than expected but the final result was worth it.', serviceType: 'Home Renovation', createdAt: '2026-06-10' },
-  { id: 'p6', customerName: 'Chris P.', rating: 5, reviewText: 'Highly recommend Black Phoenix for property management. They handle everything professionally and keep us updated. Best company we\'ve worked with.', serviceType: 'Property Management', createdAt: '2026-06-12' },
-];
+/**
+ * THERE ARE NO PLACEHOLDER REVIEWS, AND THERE MUST NOT BE.
+ *
+ * This section used to ship six of them — Sarah M. on her kitchen, James T. on
+ * emergency trash removal, Maria L. on a bathroom "like a luxury spa now" —
+ * five stars each, with service types and dates through May and June 2026.
+ * They were shown whenever `GET /reviews` came back empty or failed, which is
+ * every visit: production holds zero approved reviews. So the company's own
+ * home page carried six invented customer endorsements, under a heading that
+ * called them "verified reviews from real customers".
+ *
+ * Nobody wrote them. They were not real customers, they were not verified, and
+ * attributing an opinion to a named person who never gave it is not a
+ * placeholder — it is a fabricated testimonial on a public marketing page.
+ *
+ * An empty state is the honest answer, and it is a better one: the section
+ * already carries a working "Leave a Review" form, so nothing here is shown
+ * until a real customer writes something and an administrator approves it
+ * (submissions land `status: 'pending'` and `GET /reviews` only returns
+ * `approved` to the public — that part was always right).
+ */
 
 interface Review { id: string; customerName: string; rating: number; reviewText: string; serviceType?: string; createdAt: string; response?: string; }
 
@@ -38,15 +50,18 @@ export default function ReviewsSection() {
     fetch(`${SERVER}/reviews`, { headers: { Authorization: `Bearer ${publicAnonKey}` } })
       .then(r => r.ok ? r.json() : { reviews: [] })
       .then(data => {
-        if (data.reviews?.length > 0) setReviews(data.reviews);
-        else setReviews(PLACEHOLDER_REVIEWS);
+        setReviews(Array.isArray(data.reviews) ? data.reviews : []);
       })
-      .catch(() => setReviews(PLACEHOLDER_REVIEWS));
+      .catch(() => setReviews([]));
   }, []);
 
   const displayed = reviews.slice(currentPage * perPage, currentPage * perPage + perPage);
   const totalPages = Math.ceil(reviews.length / perPage);
-  const avgRating = reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : '5.0';
+  // No reviews means no average. The old fallback was the string '5.0', which
+  // rendered a perfect score beside five filled stars on an empty section.
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+    : null;
 
   const submitReview = async () => {
     if (!form.name.trim() || !form.text.trim()) { toast.error('Please add your name and review'); return; }
@@ -74,13 +89,54 @@ export default function ReviewsSection() {
 
         {/* Header */}
         <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            {[1,2,3,4,5].map(i => <Star key={i} className="w-6 h-6 text-yellow-400 fill-yellow-400" />)}
-            <span className="text-2xl font-bold text-white ml-2">{avgRating}</span>
-          </div>
+          {/*
+            The stars show the real average or nothing at all. They used to be
+            five hardcoded filled stars, rendered regardless of what anybody
+            had said.
+          */}
+          {avgRating && (
+            <div className="flex items-center justify-center gap-2 mb-3">
+              {[1,2,3,4,5].map(i => (
+                <Star
+                  key={i}
+                  className={`w-6 h-6 ${i <= Math.round(Number(avgRating)) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-700'}`}
+                />
+              ))}
+              <span className="text-2xl font-bold text-white ml-2">{avgRating}</span>
+            </div>
+          )}
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">What Our Customers Say</h2>
-          <p className="text-gray-400">{reviews.length}+ verified reviews from real customers</p>
+          {/*
+            "N+ verified reviews from real customers" was false three times
+            over: the count was of invented records, nothing verifies a
+            reviewer, and they were not customers. What IS true is that an
+            administrator approves every review before it appears, so that is
+            what this says.
+          */}
+          <p className="text-gray-400">
+            {reviews.length > 0
+              ? `${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'}, each read and approved before publishing`
+              : 'No reviews yet — if we have worked for you, yours would be the first'}
+          </p>
         </div>
+
+        {/* Nothing yet — say so, and point at the form rather than filling the gap. */}
+        {reviews.length === 0 && (
+          <div className="border border-dashed border-[#2A2A2A] rounded-2xl py-12 px-6 text-center mb-8">
+            <Quote className="w-8 h-8 text-orange-500/40 mx-auto mb-4" />
+            <p className="text-gray-300 font-semibold mb-1">This space is for our customers, not for us</p>
+            <p className="text-sm text-gray-500 max-w-md mx-auto">
+              Every review here is written by somebody we have worked for and read before it
+              is published. There are none yet.
+            </p>
+            <button
+              onClick={() => setShowForm(true)}
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white text-sm font-bold rounded-full transition shadow-lg shadow-orange-500/20"
+            >
+              <Plus className="w-4 h-4" /> Leave the first review
+            </button>
+          </div>
+        )}
 
         {/* Review Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
@@ -131,8 +187,9 @@ export default function ReviewsSection() {
           ))}
         </div>
 
-        {/* Pagination + Leave Review */}
-        <div className="flex items-center justify-between">
+        {/* Pagination + Leave Review. Hidden when empty — the empty state above
+            already carries the only button that makes sense there. */}
+        <div className={`flex items-center justify-between ${reviews.length === 0 ? 'hidden' : ''}`}>
           <div className="flex items-center gap-2">
             <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-30 flex items-center justify-center transition">
               <ChevronLeft className="w-4 h-4 text-white" />

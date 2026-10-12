@@ -17,26 +17,27 @@ export interface StoreReview {
   date: string;
 }
 
-const SEED_REVIEWS: StoreReview[] = [
-  { id: 's1', productId: 'p1', author: 'Marcus T.', rating: 5, title: "Best headphones I've owned", body: 'Crystal clear sound and the noise cancellation is incredible. Battery lasts way longer than advertised. Fast shipping too!', verified: true, helpful: 34, date: 'Jul 2, 2026' },
-  { id: 's2', productId: 'p1', author: 'Riley H.', rating: 5, title: 'Great value', body: 'Paid way less than similar ones at the mall. Comfortable for 4+ hour sessions. My coworkers keep asking where I got them.', verified: true, helpful: 21, date: 'Jun 28, 2026' },
-  { id: 's3', productId: 'p1', author: 'Devon M.', rating: 4, title: 'Solid pick', body: 'Very happy with these. Minor gripe: the ear cushions could be a touch softer, but honestly minor.', verified: false, helpful: 8, date: 'Jun 15, 2026' },
-  { id: 's4', productId: 'p2', author: 'Sarah K.', rating: 5, title: 'My water bottle is life', body: 'Keeps my coffee hot until 2pm and my water ice cold all day. No leaks whatsoever. Absolutely love it.', verified: true, helpful: 47, date: 'Jul 5, 2026' },
-  { id: 's5', productId: 'p2', author: 'Jordan B.', rating: 5, title: 'Bought 3 for my family', body: 'Such good quality for the price. The lid screws on perfectly. All three still going strong after daily use.', verified: true, helpful: 29, date: 'Jun 30, 2026' },
-  { id: 's6', productId: 'p3', author: 'Priya S.', rating: 5, title: 'Transformed my living room', body: 'The colors are so vivid and the app is super easy. My kids love changing the scenes. Worth every penny.', verified: true, helpful: 18, date: 'Jul 1, 2026' },
-  { id: 's7', productId: 'p4', author: 'Chris L.', rating: 5, title: 'Handles everything I throw at it', body: "Been using this on a kitchen remodel and it hasn't let me down once. Battery life is excellent, drills through anything.", verified: true, helpful: 22, date: 'Jun 20, 2026' },
-  { id: 's8', productId: 'p5', author: 'Taylor N.', rating: 5, title: 'Best mat for my home practice', body: "Non-slip is real — I was sliding off my old mat constantly. This one grips even when I'm sweaty. Love the thickness too.", verified: true, helpful: 15, date: 'Jul 3, 2026' },
-  { id: 's9', productId: 'p6', author: 'Morgan F.', rating: 5, title: 'Changed how I cook', body: 'Use it every single day. Fries come out perfect, and cleanup is so easy. Already recommended to 3 friends who all bought one.', verified: true, helpful: 61, date: 'Jun 25, 2026' },
-  { id: 's10', productId: 'p7', author: 'Blake M.', rating: 4, title: 'Soft and true to size', body: 'Really comfortable hoodie, the material is thick but not heavy. Colors are exactly as shown. My go-to now.', verified: true, helpful: 12, date: 'Jul 6, 2026' },
-  { id: 's11', productId: 'p8', author: 'Jamie R.', rating: 5, title: '360 sound is real', body: 'Took it camping — the audio filled the whole site. Waterproof claim is legit too, had it out in the rain. Impressive battery.', verified: true, helpful: 33, date: 'Jun 22, 2026' },
-  { id: 's12', productId: 'p9', author: 'Avery J.', rating: 5, title: 'Tastes great, feel the difference', body: 'Been taking these every morning for 6 weeks. Noticeably fewer sick days. Great flavor, not chalky at all.', verified: true, helpful: 19, date: 'Jul 4, 2026' },
-  { id: 's13', productId: 'p10', author: 'Parker C.', rating: 5, title: 'Clicky and satisfying', body: 'Typing feels incredible. The RGB is bright without being distracting. Compact layout means more desk space. Huge upgrade.', verified: true, helpful: 25, date: 'Jun 18, 2026' },
-];
+/**
+ * THERE ARE NO SEED REVIEWS, AND THERE MUST NOT BE.
+ *
+ * Thirteen shipped here — Marcus T. on headphones, Sarah K. whose 'water
+ * bottle is life', Morgan F. who had 'already recommended to 3 friends who all
+ * bought one' — with named authors, helpful counts, dates through June and July
+ * 2026, and twelve of the thirteen flagged `verified: true`.
+ *
+ * Nobody wrote any of them, and 'verified' is a claim that the reviewer bought
+ * the product. They rendered on the public store's product detail and quick
+ * view, and ReviewsDashboard aggregated them, so they also appeared on our own
+ * dashboard as though they were real customer feedback to read.
+ *
+ * The empty state below (`reviews.length === 0`) was already written and was
+ * simply unreachable, because the seeds always filled the list.
+ */
 
 export function getStoreReviews(productId: string): StoreReview[] {
   const stored = localStorage.getItem(STORAGE_KEY);
   const user: StoreReview[] = stored ? JSON.parse(stored) : [];
-  return [...user.filter(r => r.productId === productId), ...SEED_REVIEWS.filter(r => r.productId === productId)];
+  return user.filter(r => r.productId === productId);
 }
 
 export function getStoreRating(productId: string): { avg: number; count: number } {

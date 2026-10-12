@@ -1198,3 +1198,193 @@ no Stripe price is attached, and `contentAddOns.ts` already records
 `DELETE /plan-tiers/content/:id` calls, or three KV deletes, whenever he says.
 
 Typecheck app 316 / server 87, both on baseline. Smoke: 15 modals, 0 threw.
+
+### Deployed and verified in production, 2026-10-12
+
+`supabase functions deploy make-server-3eae23a6` by name — never a bare deploy,
+which ships every function in config.toml and once re-exposed 509 retired
+routes. No `--no-verify-jwt`, for the reason recorded in af30da28.
+
+**The verification that counted, and the one that did not.** `GET
+/public/plan-tiers?audience=content` returning an empty list proves nothing on
+its own: all three rows are `active: false`, so the old code returned an empty
+list too. So `plan_tier:content:studio` was set `active: true` in production,
+the route was called again — still empty — and the flag was put straight back.
+That is the only check that distinguishes the guard from the flag. It was safe
+to run because no Stripe price exists on those rows, so `isPurchasable` fails
+closed and nothing was buyable even while it was listed, and no screen requests
+the `content` audience.
+
+A second, independent sign the build shipped: `GET /maintenance-catalogue`
+answers 200 where it did not exist before this batch.
+
+The deploy also carried the rest of the undeployed pile — the server-side plan
+repricing in `plans.tsx`, the `staffForWrites` check on the maintenance config
+writes, the fulfilment spend ceiling, the `rung` field, the catalogue bridge and
+the reports add-on gating. Route sweep afterwards: health, maintenance-catalogue,
+exchange/taxonomy and public/plan-tiers all 200; plans and store/autonomy/status
+both 401 with an anon key, which is the fail-closed answer.
+
+---
+
+## Review 25 — invented facts on a live storefront (2026-10-12)
+
+### What was wrong
+
+The digital storefront is routed at four public URLs — `/store`, `/shop`,
+`/digital-store`, `/digital-products` — and `GET /marketplace/products` returns
+an empty list in production, so every visitor falls through to the hardcoded
+`DEFAULT_PRODUCTS`. What they were being shown:
+
+**Twenty-one invented star ratings.** Every product carried a hardcoded 4.6 to
+4.9 and a review count up to 321, rendered as filled stars with "(321 reviews)"
+beside them. Production holds **zero review records and zero digital-product
+orders** — checked, not assumed. None of it was real.
+
+**A false legal claim.** The NH Lease Agreement Template Pack, $49, was sold as
+*"Attorney-reviewed, RSA 540-compliant lease templates"* with *"All reviewed for
+RSA 540 compliance."* The product's own first page is a warning callout reading
+*"These templates are provided for educational purposes and as a starting point
+only. Every lease should be reviewed by a licensed NH attorney before use."*
+The listing and the document contradicted each other, and the listing was the
+false one. It appeared in **four** files, because the product list is
+copy-pasted: `DigitalStorefront`, `PropertyMarketplace`, `AdCreator`,
+`MarketplaceAdmin`.
+
+**Two unearned rank badges.** `TOP RATED` on a product with no ratings, and
+`BESTSELLER` on one with no orders — the same class of invented fact as the
+stars, in the same four files.
+
+### Why this was finishing a job rather than starting one
+
+The decision had already been made and documented in this repository. From
+`DigitalProductPage.tsx`:
+
+> Every one of these products shipped with 4.8 to 4.9 stars and seventeen to
+> forty-one reviews against zero orders, invented by the same seed that wrote
+> the descriptions. Five stars nobody gave is worse than no stars at all.
+
+`DigitalProductPage` and `PropertyMarketplace` were both corrected — ratings
+zeroed, display gated behind `Number(reviews) > 0`. `DigitalStorefront` was
+missed, and it is the one actually serving `/store`. So this applies the
+existing rule to the surface that still broke it, rather than deciding anything
+new.
+
+### The change
+
+- 21 `rating`/`reviews` pairs zeroed in `DigitalStorefront`.
+- Both render sites gated on `Number(reviews) > 0`, matching the other two
+  surfaces. Nothing renders until a real buyer leaves a review, and the zeroes
+  left in the data cannot produce a star.
+- The lease pack subtitle and description now say what is true: drafted to
+  RSA 540, a starting point, with a licensed NH attorney to review before use —
+  and state plainly that no lawyer has reviewed them. Fixed in all four files.
+- `TOP RATED` and `BESTSELLER` removed from all four files. What is left is
+  factual: `AI-POWERED` and `INTERACTIVE` describe capability, `SAVE $12/$15/$23`
+  is arithmetic.
+
+**What this looks like afterwards:** product cards and the detail pane lose
+their star rows on `/store` and `/shop`. That is the intended outcome, and it is
+how `/marketplace` has already looked since it was corrected.
+
+### Left alone, deliberately, but worth knowing
+
+**`popular: true`** is kept. It never renders as a word — it selects the three
+featured products, the cart upsell, and an orange bar — so it is internal
+curation, not a claim to a customer.
+
+**The urgency booster** is `enabled: false` everywhere and is yours to switch
+on, so it was not touched. But know what it does before you do: the countdown is
+re-seeded from the configured minutes **once per visit**, so every visitor gets
+a fresh timer and the deadline is not a real one. The default message is *"Flash
+deal ends soon — prices go back up when the timer hits zero"*, and prices do not
+go back up. Switching it on as written would be a false statement to every
+shopper. `stockScarcity` is fine by comparison — it only fires on a real `stock`
+number.
+
+Typecheck app 316 / server 87, both on baseline. Smoke: 4 changed files reach 27
+pages, 42 rendered, 0 threw.
+
+---
+
+## Review 26 — nineteen fabricated testimonials, two of them on the home page (2026-10-12)
+
+The storefront ratings in review 25 were not the whole of it. Sweeping for the
+same class of invented fact found two more sets, both with **named people
+attributed opinions they never gave**, which is a different and worse thing than
+an invented star average.
+
+### The home page
+
+`ReviewsSection` renders at `DirectoryLandingPage:1768`, and that page serves
+`/`, `home`, `landing` and `landing-page` — the public site. It shipped six
+placeholder reviews, displayed whenever `GET /reviews` returned nothing:
+
+> Sarah M., five stars, Kitchen Renovation — "Black Phoenix transformed our
+> kitchen completely… the quality of work is outstanding."
+
+and five more: James T. on emergency trash removal, Maria L. on a bathroom "like
+a luxury spa now", David K., Angela R., Chris P. Service types, dates through
+May and June 2026, four and five stars.
+
+`GET /reviews` returns `{"success":true,"reviews":[]}` in production — checked
+live. Production holds zero review records of any status. So that fallback was
+not a fallback; it was **what the home page showed every visitor**, under a
+heading reading *"{N}+ verified reviews from real customers"* — false three
+times over in one sentence — above five hardcoded filled stars and the string
+`'5.0'`, which was the literal default when there was nothing to average.
+
+### The store
+
+`StoreReviews` shipped thirteen more — Marcus T. on headphones, Sarah K. whose
+"water bottle is life", Morgan F. who had "already recommended to 3 friends who
+all bought one" — with helpful counts, dates, and **twelve of the thirteen
+flagged `verified: true`**, which is specifically a claim that the reviewer
+bought the product. They rendered on the public store's product detail and quick
+view, and `ReviewsDashboard` aggregated them, so they also filled our own
+moderation dashboard with feedback nobody had left.
+
+An empty state (`reviews.length === 0`, "No reviews yet — be the first!") was
+already written in that component and was simply unreachable, because the seeds
+always filled the list.
+
+### What was changed
+
+Both seed arrays are gone, replaced by a comment saying what was there and why
+it must not come back. `ReviewsSection` now shows a real average or no stars at
+all, counts only real reviews, and renders an empty state that says the space is
+for customers and carries the existing "Leave the first review" button.
+Pagination hides when there is nothing to page.
+
+The heading no longer claims verification. What it says instead is true and is
+actually the better line: **each review is read and approved before publishing.**
+
+### The server was already right
+
+Worth recording, because it is the half that was done properly. `POST /reviews`
+stores `status: 'pending'`; `GET /reviews` returns only `approved` to anybody who
+is not an admin; `PATCH /reviews/:id` requires an administrator to approve or
+hide. So the moderation path matches
+`tenant-published-content-needs-approval` and no stranger can publish to the
+home page. The fabrication was entirely in the client's fallback.
+
+### Found and NOT fixed — the next candidate
+
+Demo data inside authenticated portals, which is the same class but a distinct
+job:
+
+- `VendorPortalView` falls back to `totalOrders: 342`, `rating: 4.8`,
+  `memberSince: 'March 2022'`, `sandra@premierbuild.com`. A real vendor who
+  signed up last week is shown three years of history and 342 orders **as their
+  own account**.
+- `CondoAssociationPortalView` hardcodes three vendors — Green Lawn Care,
+  CleanPro Services, SecureWatch — with monthly fees, ratings and contract end
+  dates in 2024 and 2025, presented to a board as their contracts.
+
+This is the `localStorage` subscription-tier shape again: a portal telling a
+paying account facts about itself that came from nowhere. It wants doing, and it
+is bigger than a copy fix, so it is named here rather than started.
+
+Typecheck app 316 / server 87, both on baseline. Smoke: 6 changed files reach 36
+pages including the landing page, public store and both review screens; 51
+rendered, 0 threw.
