@@ -6,12 +6,54 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { loadPublicBranding } from './loadPublicBranding';
 // The real logo, bundled with the app so it survives deploys AND is always the
 // correct artwork (the previous GitHub-hosted URL pointed at the wrong image).
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
 // Permanent logo URL — the bundled phoenix asset (hashed & served by the build).
 const PERMANENT_LOGO_URL = phoenixLogo;
+
+/**
+ * Published branding for a signed-out visitor.
+ *
+ * WHY THIS GOES THROUGH THE PUBLIC ENDPOINT
+ *
+ * This used to read `kv_store_57095a78` directly with `.single()`, in two
+ * identical copies. The row it wants does exist, but RLS correctly gives the
+ * anon role nothing back — and PostgREST answers 406 when `.single()` matches
+ * no row. So every signed-out page load fired a request that could only ever
+ * fail:
+ *
+ *     406  /rest/v1/kv_store_57095a78?select=*&key=eq.public_branding_profile
+ *
+ * It was wrapped in a try/catch, so nothing broke and branding quietly fell
+ * back to defaults. That is why it survived: the only visible trace was a red
+ * line in a console nobody had open. It was found while walking the Phoenix
+ * Exchange in a browser, which is a surface built entirely for signed-out
+ * visitors — so this fired on every single view of it.
+ *
+ * `loadPublicBranding` asks `/public/branding` on the server, which is built
+ * for exactly this and answers 200 to the anon key. The KV table is not
+ * readable by a visitor and should not be: it holds everything.
+ */
+async function applyPublicBranding(): Promise<boolean> {
+  try {
+    const branding = await loadPublicBranding();
+    if (!branding) return false;
+    if (!branding.logo_url && !branding.logo_primary && !branding.logoPrimary) return false;
+
+    localStorage.setItem('company_branding_profile', JSON.stringify(branding));
+    window.dispatchEvent(new Event('brandingUpdated'));
+    console.log('✅ [AutoSync] Loaded public branding for visitor:',
+      branding.company_name || branding.businessName || '(unnamed)');
+    return true;
+  } catch {
+    // The loader already swallows network failure and returns null; this is
+    // only here so a storage refusal cannot take the caller down with it.
+    return false;
+  }
+}
 
 function applyLogoImmediately() {
   // ALWAYS write the phoenix logo — no conditions, no skipping
@@ -126,13 +168,20 @@ export async function autoSyncBranding(): Promise<void> {
           }
         }
 
-        // SECOND: Try kv_store table for branding profile
+        // SECOND: Try kv_store table for branding profile.
+        //
+        // `maybeSingle` rather than `single`: PostgREST answers 406 when
+        // `single` matches no row, and a user who has never published branding
+        // has no row. The result was a failed request on every load for them
+        // too — the same fault as the visitor path above, just quieter because
+        // it needed somebody signed in to see it. Absent is an answer here,
+        // not an error.
         console.log('🔍 [AutoSync] Checking KV store for branding data...');
         const { data: kvData, error: kvError } = await supabase
           .from('kv_store_57095a78')
           .select('*')
           .eq('key', `company_branding_profile_${user.id}`)
-          .single();
+          .maybeSingle();
 
         if (!kvError && kvData && kvData.value) {
           console.log('✅ [AutoSync] Found branding in KV store');
@@ -151,53 +200,16 @@ export async function autoSyncBranding(): Promise<void> {
         console.log('ℹ️ [AutoSync] No authentication - public visitor mode');
         console.log('🔍 [AutoSync] Checking for published public branding...');
 
-        // For public visitors, try to load published branding
-        try {
-          const { data: publicBranding, error: publicError } = await supabase
-            .from('kv_store_57095a78')
-            .select('*')
-            .eq('key', 'public_branding_profile')
-            .single();
-
-          if (!publicError && publicBranding && publicBranding.value) {
-            const branding = publicBranding.value;
-            if (branding.logo_url || branding.logo_primary || branding.logoPrimary) {
-              localStorage.setItem('company_branding_profile', JSON.stringify(branding));
-              window.dispatchEvent(new Event('brandingUpdated'));
-              console.log('✅ [AutoSync] Loaded public branding for visitor');
-              console.log('✅ [AutoSync] Company:', branding.company_name || branding.brandName);
-              return;
-            }
-          }
-        } catch (publicError) {
-          console.log('⚠️ [AutoSync] Could not load public branding');
-        }
+        // For public visitors, try the published branding on the server.
+        if (await applyPublicBranding()) return;
 
         console.log('ℹ️ [AutoSync] No public branding available');
       }
     } catch (authError) {
       console.log('ℹ️ [AutoSync] Auth check failed - public visitor mode');
 
-      // Try public branding even if auth check fails
-      try {
-        const { data: publicBranding, error: publicError } = await supabase
-          .from('kv_store_57095a78')
-          .select('*')
-          .eq('key', 'public_branding_profile')
-          .single();
-
-        if (!publicError && publicBranding && publicBranding.value) {
-          const branding = publicBranding.value;
-          if (branding.logo_url || branding.logo_primary || branding.logoPrimary) {
-            localStorage.setItem('company_branding_profile', JSON.stringify(branding));
-            window.dispatchEvent(new Event('brandingUpdated'));
-            console.log('✅ [AutoSync] Loaded public branding for visitor');
-            return;
-          }
-        }
-      } catch (publicError) {
-        console.log('⚠️ [AutoSync] Could not load public branding');
-      }
+      // Same path when the auth check itself failed: still a visitor.
+      if (await applyPublicBranding()) return;
     }
 
     // If we get here, no logo was found in database
