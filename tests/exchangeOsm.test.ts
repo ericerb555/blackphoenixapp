@@ -69,7 +69,8 @@ test('a tag mapped deliberately to nothing stays nothing', () => {
   // three an honest destination on 2026-10-12, so they moved to the retail
   // tests below. What is left here is what is still genuinely ambiguous or
   // genuinely absent from the taxonomy.
-  assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), null);
+  // `funeral_directors` lived here too, unmapped since the ingest was
+  // written. It has a category as of 2026-10-12 and moved to the tests below.
 
   /*
     Retailers and beauty shops, all learned from a real run.
@@ -449,7 +450,6 @@ test('the tags with no honest destination are still unmapped', () => {
   // No carpentry category exists. General Contracting is a different trade and
   // Handyman is the mistake that put Lowe's under odd jobs.
   assert.equal(tradeWordsFor({ craft: 'carpenter' }), null);
-  assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), null);
 });
 
 test('categories that existed but could not be reached now can be', () => {
@@ -461,4 +461,68 @@ test('categories that existed but could not be reached now can be', () => {
   assert.equal(tradeWordsFor({ shop: 'copyshop' }), 'copy shop');
   assert.equal(tradeWordsFor({ shop: 'storage_rental' }), 'self storage');
   assert.equal(tradeWordsFor({ office: 'insurance' }), 'insurance');
+});
+
+/* ── the four groups that had nowhere to go, and the beauty subtag ────────── */
+
+test('the four groups now resolve', () => {
+  // Counted across the three towns on 2026-10-12: 66 vehicle dealerships, 11
+  // tyre shops, 10 tattoo studios, 9 funeral homes. Every one had been left
+  // unmapped on purpose, because a dealership is not Auto Repair — that is the
+  // Lowe's-under-Handyman mistake in a different coat — and for the other
+  // three there was no category at all.
+  assert.equal(tradeWordsFor({ shop: 'car' }), 'car dealer');
+  assert.equal(tradeWordsFor({ shop: 'motorcycle' }), 'motorcycle dealer');
+  assert.equal(tradeWordsFor({ shop: 'boat' }), 'boat dealer');
+  assert.equal(tradeWordsFor({ shop: 'tyres' }), 'tires');
+  assert.equal(tradeWordsFor({ shop: 'tattoo' }), 'tattoo');
+  assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), 'funeral home');
+});
+
+test('a car dealership is not a mechanic', () => {
+  // The two tags sit next to each other in the data — 61 dealerships and 122
+  // repair shops — and conflating them would put Mercedes-Benz of Manchester
+  // in front of somebody whose brakes are grinding.
+  assert.notEqual(tradeWordsFor({ shop: 'car' }), tradeWordsFor({ shop: 'car_repair' }));
+  assert.equal(tradeWordsFor({ shop: 'car_repair' }), 'mechanic');
+});
+
+test('shop=massage is unambiguous where shop=beauty is not', () => {
+  assert.equal(tradeWordsFor({ shop: 'massage' }), 'massage');
+  assert.equal(tradeWordsFor({ shop: 'beauty' }), null);
+});
+
+test('the beauty subtag settles what the bare tag cannot', () => {
+  /*
+    54 features carry `shop=beauty` across the three towns. 13 say
+    `beauty=nails`, 2 say `beauty=tanning`, 2 are spas — and 34 say nothing at
+    all. Those 34 include Top Nails, Buff City Soap, Sun Tan City and Medusa
+    Body Piercing: a nail bar, a soap shop, a tanning salon and a piercing
+    studio under one tag.
+
+    So the subtag is read where it exists and the bare tag stays unmapped.
+  */
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'nails' }), 'manicure');
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'spa' }), 'massage');
+
+  // OSM's semicolon convention, first recognised value wins: a nail bar that
+  // also does waxing is a nail bar.
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'nails;waxing' }), 'manicure');
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'spa;hair' }), 'massage');
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'eyelash;nails;waxing' }), 'manicure');
+
+  // Subtags we carry nothing for leave it unmapped rather than reaching for
+  // the nearest category. `tanning` is the live example: two of them, and no
+  // tanning category.
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'tanning' }), null);
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: 'waxing;eyelash' }), null);
+  assert.equal(tradeWordsFor({ shop: 'beauty', beauty: '' }), null);
+});
+
+test('a subtag never overrides a tag that already resolves cleanly', () => {
+  // Only `shop=beauty` consults it. Letting a stray `beauty=` key redirect a
+  // hairdresser or a pharmacy would be a second, quieter way for the map to
+  // disagree with itself.
+  assert.equal(tradeWordsFor({ shop: 'hairdresser', beauty: 'nails' }), 'haircut');
+  assert.equal(tradeWordsFor({ amenity: 'pharmacy', beauty: 'spa' }), 'pharmacy');
 });

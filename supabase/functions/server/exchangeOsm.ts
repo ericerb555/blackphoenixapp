@@ -102,10 +102,15 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
    * them a nail salon. OSM uses `beauty` for piercing studios, waxing, soap
    * shops and spas as readily as for nails.
    *
-   * So it resolves to nothing and the listing is left unassigned, which is
-   * visible and fixable. A wrong category produces no leads, no complaint and
-   * a cancellation six months later — the fault the ingest rules exist to
-   * avoid.
+   * So the BARE tag resolves to nothing and the listing is left unassigned,
+   * which is visible and fixable. A wrong category produces no leads, no
+   * complaint and a cancellation six months later — the fault the ingest rules
+   * exist to avoid.
+   *
+   * What changed on 2026-10-12 is that the `beauty=*` SUBTAG is now read where
+   * OSM troubles to set it, which rescues the thirteen that say `beauty=nails`
+   * and the two that say `beauty=spa` without guessing at the thirty-four that
+   * say nothing. See `OSM_BEAUTY_WORDS`.
    */
   beauty: "",
   /**
@@ -134,7 +139,26 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
    * sat uncategorised while the map claimed to handle them.
    */
   florist: "florist",
-  funeral_directors: "",
+  /**
+   * Four groups that had no honest destination until 2026-10-12, when
+   * categories were added for them. Each was previously either unmapped or
+   * resolving to nothing, and each left real businesses invisible to browsing:
+   * 61 car dealerships, 11 tyre shops, 10 tattoo studios and 9 funeral homes
+   * across the three towns.
+   */
+  funeral_directors: "funeral home",
+  car: "car dealer",
+  motorcycle: "motorcycle dealer",
+  boat: "boat dealer",
+  truck: "truck dealer",
+  tyres: "tires",
+  tattoo: "tattoo",
+  piercing: "tattoo",
+  /**
+   * `shop=massage` is unambiguous where `shop=beauty` is not — eleven of them,
+   * and Spa & Massage already existed to receive them.
+   */
+  massage: "massage",
   /**
    * shop=* — RETAIL
    *
@@ -272,10 +296,71 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
  * "mapped on purpose to nothing", so a pharmacy is not forced into a category
  * we do not carry.
  */
+/**
+ * What `beauty=*` means, where OSM troubles to say.
+ *
+ * `shop=beauty` is the tag that has caused the most trouble here: it read as
+ * "manicure" and filed a piercing studio, a soap shop and a day spa under Nail
+ * Salons, so it was unmapped entirely on 2026-10-06. Looking at the live data
+ * for the three towns on 2026-10-12 shows why both the mapping and the
+ * unmapping were right in their way — 54 features carry `shop=beauty`, and:
+ *
+ *     beauty=nails              13   unambiguous
+ *     beauty=tanning             2   unambiguous, and we carry no category
+ *     beauty=spa;hair            1   a spa
+ *     beauty=spa;skin_care;…     1   a spa
+ *     beauty=waxing;eyelash      1   neither, and not a spa
+ *     beauty=nails;waxing        2   nails, chiefly
+ *     (no subtag)               34   genuinely mixed
+ *
+ * Those 34 include Top Nails, California Nails, Buff City Soap, Sun Tan City
+ * and Medusa Body Piercing — a nail bar, a soap shop, a tanning salon and a
+ * piercing studio under one tag with nothing to separate them. So the subtag
+ * is used WHERE IT EXISTS and the bare tag stays unmapped. That reaches the
+ * thirteen that said what they are without guessing at the thirty-four that
+ * did not.
+ *
+ * Multi-value is OSM's semicolon convention, and the first recognised value
+ * wins: `nails;waxing` is a nail bar that also does waxing.
+ */
+const OSM_BEAUTY_WORDS: Record<string, string> = {
+  nails: "manicure",
+  spa: "massage",
+  massage: "massage",
+  // Deliberately absent: `tanning` (no category), `waxing`, `eyelash`,
+  // `eyebrow`, `skin_care`, `aesthetic`, `hair` — either we carry nothing for
+  // them or the tag is too loose to act on. `hair` in particular appears only
+  // alongside `spa`, and a salon that also does hair is not a hair salon.
+};
+
+/**
+ * The words we hand to the category resolver for an element.
+ *
+ * Returns the mapped phrase where we have one, otherwise the raw OSM value
+ * with its underscores opened out — `car_repair` becomes `car repair`, which
+ * the alias matcher can still do something sensible with. Empty string means
+ * "mapped on purpose to nothing", so a tag we carry no category for is not
+ * forced into one that is merely adjacent.
+ */
 export function tradeWordsFor(tags: Record<string, string> | undefined): string | null {
   if (!tags) return null;
   const raw = tags.craft || tags.shop || tags.office || tags.amenity || "";
   if (!raw) return null;
+
+  /**
+   * A subtag that settles an ambiguous tag is consulted FIRST.
+   *
+   * Only where the parent tag is one we have deliberately left unmapped for
+   * being ambiguous. Letting a subtag override a tag that already resolves
+   * cleanly would be a second, quieter way for the map to disagree with
+   * itself.
+   */
+  if (raw === "beauty") {
+    for (const part of String(tags.beauty ?? "").split(";")) {
+      const word = OSM_BEAUTY_WORDS[part.trim().toLowerCase()];
+      if (word) return word;
+    }
+  }
 
   if (Object.prototype.hasOwnProperty.call(OSM_TRADE_WORDS, raw)) {
     const mapped = OSM_TRADE_WORDS[raw];
