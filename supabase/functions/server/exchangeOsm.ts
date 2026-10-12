@@ -69,11 +69,24 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
   roofer: "roofer",
   plumber: "plumber",
   electrician: "electrician",
-  carpenter: "carpenter",
+  /**
+   * `craft=carpenter` is DELIBERATELY unmapped, and was effectively unmapped
+   * already without saying so.
+   *
+   * It read "carpenter", and no alias of that name exists — so it resolved to
+   * nothing while looking handled. The taxonomy has no carpentry category:
+   * General Contracting is a different trade, and Handyman is the mistake that
+   * put Lowe's under odd jobs. Unmapped and labelled is better than mapped to
+   * the nearest thing.
+   */
+  carpenter: "",
   hvac: "furnace not working",
   gardener: "lawn guy",
   painter: "painter",
-  tiler: "tile",
+  // "tile" matched no alias either; "new floors" is the phrase the Flooring
+  // category actually answers to, and a tiler laying floors is a fair reading
+  // of it. Checked against the alias table rather than assumed this time.
+  tiler: "new floors",
   plasterer: "painter",
   caterer: "catering",
   // shop=*
@@ -96,21 +109,138 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
    */
   beauty: "",
   /**
-   * `doityourself` and `hardware` are DELIBERATELY unmapped, for the same
-   * reason as `beauty` above.
+   * Mapped again, correctly this time.
    *
-   * They read as "handyman" and so filed The Home Depot, Harbor Freight Tools
-   * and the local hardware shop under Handyman. Those are RETAILERS; Handyman
-   * is a service category, and somebody looking for a person to hang a door
-   * would have found a warehouse store.
+   * These read "handyman" and so filed The Home Depot, Harbor Freight Tools
+   * and the local hardware shop under a SERVICE category — somebody looking
+   * for a person to hang a door found a warehouse store. On 2026-10-06 they
+   * were unmapped rather than corrected, because the taxonomy carried no
+   * hardware or building-supply category and every available destination was
+   * wrong. The note left behind said "these list unassigned until it does".
    *
-   * The taxonomy carries no hardware or building-supply category, so these
-   * list unassigned until it does.
+   * It does: `hardware-building` in the `shops-retail` section, added
+   * 2026-10-12. A retailer now lands in a retail category, which is what was
+   * missing rather than what was mistaken.
    */
-  doityourself: "",
-  hardware: "",
-  florist: "planting & beds",
+  doityourself: "home improvement",
+  hardware: "hardware store",
+  /**
+   * A florist is not a landscaper.
+   *
+   * This read "planting & beds", which is landscaping work. It was wrong twice
+   * over: wrong in meaning, and wrong in fact — no alias "planting & beds"
+   * exists, so it resolved to nothing and the error was invisible. Jaques
+   * Flower Shop, Rimmon Heights Florist, Celeste's Flower Barn and five more
+   * sat uncategorised while the map claimed to handle them.
+   */
+  florist: "florist",
   funeral_directors: "",
+  /**
+   * shop=* — RETAIL
+   *
+   * None of these could be mapped before 2026-10-12, because the taxonomy had
+   * Home & Property, Services, Food and Entertainment and no section for a
+   * shop. That is why 595 of 1,090 compiled listings held no category: they
+   * were shops, and there was nowhere to put a shop. The `shops-retail`
+   * section exists now and these are its doors.
+   *
+   * Every value below was checked against the alias table. A mapping to a
+   * phrase that does not exist resolves to nothing while looking handled,
+   * which is how `carpenter`, `tile`, `insurance` and `planting & beds` sat
+   * broken and silent above.
+   *
+   * Anything genuinely ambiguous is still left out. `shop=beauty` remains
+   * unmapped, for instance: OSM uses it for nail bars, waxing, spas and soap
+   * shops alike, and `beauty-supply` is a shop that sells cosmetics — not the
+   * same thing. A wrong category produces no leads and no complaint, just a
+   * cancellation six months later.
+   */
+  chemist: "pharmacy",
+  convenience: "convenience store",
+  kiosk: "corner store",
+  /**
+   * Mapped but not yet reachable, and said so rather than left to look live.
+   *
+   * Petrol stations are `amenity=fuel`, and `overpassClassQueries` asks for
+   * only a named list of amenities — restaurant, cafe, bar, pub, fast_food,
+   * pharmacy, veterinary. So this takes effect only if that list widens.
+   * Those that appear today do so as `shop=convenience`, which is handled
+   * above.
+   */
+  fuel: "gas station",
+  variety_store: "discount store",
+  department_store: "department store",
+  wholesale: "wholesale club",
+  clothes: "clothing",
+  shoes: "shoes",
+  boutique: "boutique",
+  bag: "apparel",
+  fashion_accessories: "apparel",
+  mobile_phone: "mobile phone store",
+  electronics: "electronics",
+  computer: "computer store",
+  hifi: "electronics",
+  video_games: "video games",
+  building_materials: "building supply",
+  trade: "building supply",
+  paint: "paint store",
+  tool_hire: "tool store",
+  furniture: "furniture",
+  bed: "mattresses",
+  interior_decoration: "interior decoration",
+  houseware: "home furnishings",
+  kitchen: "home furnishings",
+  pet: "pet supplies",
+  pet_supply: "pet supplies",
+  jewelry: "jewelry",
+  watches: "watches",
+  cosmetics: "cosmetics",
+  perfumery: "perfume",
+  herbalist: "vitamins",
+  health_food: "health food store",
+  sports: "sporting goods",
+  outdoor: "outdoor gear",
+  bicycle: "bicycle shop",
+  ski: "ski shop",
+  fishing: "hunting and fishing",
+  hunting: "hunting and fishing",
+  books: "book store",
+  music: "music store",
+  musical_instrument: "musical instruments",
+  art: "art supplies",
+  craft: "craft supplies",
+  hobby: "hobby shop",
+  toys: "toy store",
+  games: "games shop",
+  charity: "charity shop",
+  second_hand: "second hand",
+  gift: "gift shop",
+  optician: "optician",
+  alcohol: "liquor store",
+  wine: "wine shop",
+  beverages: "beer store",
+  tobacco: "tobacco",
+  "e-cigarette": "vape shop",
+  garden_centre: "garden center",
+  agrarian: "farm supply",
+  stationery: "office supplies",
+
+  /**
+   * shop=* — reaching categories that already existed and were unreachable.
+   *
+   * These were not missing a category, only a way in. Each of the five had
+   * members sitting uncategorised while its category sat empty.
+   */
+  supermarket: "grocers",
+  greengrocer: "grocers",
+  bakery: "birthday cake",
+  butcher: "butcher",
+  deli: "deli counter",
+  laundry: "dry cleaning",
+  dry_cleaning: "dry cleaning",
+  copyshop: "copy shop",
+  storage_rental: "self storage",
+
   // office=*
   lawyer: "divorce lawyer",
   accountant: "tax preparer",
@@ -123,7 +253,13 @@ export const OSM_TRADE_WORDS: Record<string, string> = {
   cafe: "coffee",
   bar: "a drink",
   pub: "a drink",
-  pharmacy: "",
+  /**
+   * Mappable at last. This was deliberately empty because the taxonomy had no
+   * pharmacy category — fourteen of them, four CVS, four Walgreens and four
+   * Rite Aid among them, sat uncategorised for want of somewhere to go. The
+   * `shops-retail` section added one on 2026-10-12.
+   */
+  pharmacy: "pharmacy",
   veterinary: "vet",
 };
 

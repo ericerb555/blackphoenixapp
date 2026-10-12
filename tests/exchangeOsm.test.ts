@@ -55,15 +55,20 @@ test('a mapped tag becomes the phrase a resident would use', () => {
 test('an unmapped tag keeps its own words rather than guessing a category', () => {
   // Underscores opened out so the alias matcher has a chance, but nothing
   // is forced into a category we carry.
-  assert.equal(tradeWordsFor({ shop: 'bicycle' }), 'bicycle');
   assert.equal(tradeWordsFor({ craft: 'blacksmith' }), 'blacksmith');
   assert.equal(tradeWordsFor({ shop: 'pet_grooming' }), 'pet grooming');
+  // `shop=bicycle` used to be the example here. It is mapped now that
+  // Sporting Goods exists, so a tag that IS still unmapped stands in its
+  // place — the point of the test is the fallback, not the bicycle.
+  assert.equal(tradeWordsFor({ shop: 'carpet' }), 'carpet');
 });
 
 test('a tag mapped deliberately to nothing stays nothing', () => {
-  // A pharmacy is a real business and we carry no category for it. Forcing it
-  // somewhere adjacent would be worse than leaving it unassigned.
-  assert.equal(tradeWordsFor({ amenity: 'pharmacy' }), null);
+  // Pharmacies, hardware shops and DIY sheds were all here, each because the
+  // taxonomy had nowhere to put them. The `shops-retail` section gave all
+  // three an honest destination on 2026-10-12, so they moved to the retail
+  // tests below. What is left here is what is still genuinely ambiguous or
+  // genuinely absent from the taxonomy.
   assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), null);
 
   /*
@@ -80,8 +85,6 @@ test('a tag mapped deliberately to nothing stays nothing', () => {
     cancellation six months later.
   */
   assert.equal(tradeWordsFor({ shop: 'beauty' }), null);
-  assert.equal(tradeWordsFor({ shop: 'hardware' }), null);
-  assert.equal(tradeWordsFor({ shop: 'doityourself' }), null);
 });
 
 test('craft wins over shop, which wins over amenity', () => {
@@ -115,8 +118,11 @@ test('a real Pelham element becomes a record with nothing added', () => {
 
   const record = osmToRegistryRecord(element, PELHAM) as any;
   assert.equal(record.name, 'Bridge Street Hardware');
-  // A hardware shop is a RETAILER, not a handyman. See OSM_TRADE_WORDS.
-  assert.equal(record.businessType, null);
+  // A hardware shop is a RETAILER, not a handyman — which is why this was
+  // `null` from 2026-10-06, when the only destination available was the
+  // Handyman service category. With `hardware-building` in the retail
+  // section it resolves properly.
+  assert.equal(record.businessType, 'hardware store');
   assert.equal(record.address, '12 Bridge Street');
   assert.equal(record.city, 'Pelham');
   assert.equal(record.state, 'NH');
@@ -373,4 +379,86 @@ test('a government office is no longer even asked for', () => {
   assert.ok(officeClause, 'there is an office clause');
   assert.ok(officeClause!.includes('lawyer'), 'it names the offices we carry');
   assert.ok(!/\["office"\]\["name"\]/.test(q), 'office is not unrestricted');
+});
+
+/* ── retail, and the mappings that were silently broken ───────────────────── */
+
+/*
+  WHY THESE MATTER
+
+  595 of 1,090 compiled listings held no category, and reading the names showed
+  why: they were shops, and the taxonomy had Home & Property, Services, Food
+  and Entertainment with no section for a shop. The `shops-retail` section was
+  added on 2026-10-12 and these tags are its doors.
+
+  Four mappings were ALSO pointing at phrases that do not exist in the alias
+  table — `carpenter`, `tile`, `insurance` and `planting & beds`. A mapping
+  like that resolves to nothing while looking handled, which is the worst of
+  both: the listing goes uncategorised and the map says it was dealt with.
+  Every value in `OSM_TRADE_WORDS` was checked against the live alias table
+  after this change; none of them dangle.
+
+  These assertions can only check the tag → PHRASE half, because the phrase →
+  category half lives in the database. That split is exactly how the dangling
+  four survived, so the check against the alias table is recorded in
+  `tasks/exchange-retail-section.md` rather than pretended at here.
+*/
+
+test('a shop gets a retail phrase rather than nothing', () => {
+  assert.equal(tradeWordsFor({ shop: 'chemist' }), 'pharmacy');
+  assert.equal(tradeWordsFor({ shop: 'clothes' }), 'clothing');
+  assert.equal(tradeWordsFor({ shop: 'mobile_phone' }), 'mobile phone store');
+  assert.equal(tradeWordsFor({ shop: 'pet' }), 'pet supplies');
+  assert.equal(tradeWordsFor({ shop: 'jewelry' }), 'jewelry');
+  assert.equal(tradeWordsFor({ shop: 'optician' }), 'optician');
+  assert.equal(tradeWordsFor({ shop: 'alcohol' }), 'liquor store');
+  assert.equal(tradeWordsFor({ shop: 'charity' }), 'charity shop');
+  assert.equal(tradeWordsFor({ shop: 'department_store' }), 'department store');
+});
+
+test('the hardware tags are mapped again, to retail this time', () => {
+  // Unmapped on 2026-10-06 because every destination then available was wrong:
+  // they read "handyman", so The Home Depot and Harbor Freight were filed
+  // under a SERVICE category. The note left behind said they would list
+  // unassigned "until the taxonomy carries a hardware or building-supply
+  // category". It does now, so a retailer lands in a retail category.
+  assert.equal(tradeWordsFor({ shop: 'hardware' }), 'hardware store');
+  assert.equal(tradeWordsFor({ shop: 'doityourself' }), 'home improvement');
+  assert.equal(tradeWordsFor({ shop: 'building_materials' }), 'building supply');
+});
+
+test('a pharmacy is a pharmacy now that there is somewhere to put one', () => {
+  // `amenity=pharmacy` was deliberately empty for want of a category, which
+  // left fourteen of them uncategorised — four CVS, four Walgreens, four Rite
+  // Aid and two independents.
+  assert.equal(tradeWordsFor({ amenity: 'pharmacy' }), 'pharmacy');
+});
+
+test('a florist is not a landscaper', () => {
+  // This read "planting & beds" — landscaping work — and was wrong twice over,
+  // because no such alias existed either. So it resolved to nothing and the
+  // error was invisible.
+  assert.equal(tradeWordsFor({ shop: 'florist' }), 'florist');
+});
+
+test('the tags with no honest destination are still unmapped', () => {
+  // `beauty` stays out: OSM uses it for nail bars, waxing, spas and soap shops
+  // alike, and `beauty-supply` is a shop selling cosmetics rather than any of
+  // those. A retail section does not make an ambiguous tag unambiguous.
+  assert.equal(tradeWordsFor({ shop: 'beauty' }), null);
+  // No carpentry category exists. General Contracting is a different trade and
+  // Handyman is the mistake that put Lowe's under odd jobs.
+  assert.equal(tradeWordsFor({ craft: 'carpenter' }), null);
+  assert.equal(tradeWordsFor({ shop: 'funeral_directors' }), null);
+});
+
+test('categories that existed but could not be reached now can be', () => {
+  // None of these needed a new category — only a way in. Each had members
+  // sitting uncategorised while its category sat empty.
+  assert.equal(tradeWordsFor({ shop: 'supermarket' }), 'grocers');
+  assert.equal(tradeWordsFor({ shop: 'laundry' }), 'dry cleaning');
+  assert.equal(tradeWordsFor({ shop: 'dry_cleaning' }), 'dry cleaning');
+  assert.equal(tradeWordsFor({ shop: 'copyshop' }), 'copy shop');
+  assert.equal(tradeWordsFor({ shop: 'storage_rental' }), 'self storage');
+  assert.equal(tradeWordsFor({ office: 'insurance' }), 'insurance');
 });
