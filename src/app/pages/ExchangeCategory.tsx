@@ -60,6 +60,7 @@ import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { readTown, townName } from '../lib/exchangeTowns';
 import { measureListings, formatDistance, asPoint } from '../lib/exchangeGeo';
 import ExchangeMap from '../components/exchange/ExchangeMap';
+import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import { useHere, pointOf } from '../lib/exchangeHere';
 
@@ -404,6 +405,9 @@ export default function ExchangeCategory() {
                     <a href={listingHref(biz.slug)}>
                       <Building2 size={13} /> Full listing
                     </a>
+                    {/* Last in the row: the actions that reach the business
+                        come first, because that is what the page is for. */}
+                    <SaveBusinessButton orgId={biz.id} name={biz.name} />
                   </div>
 
                   {!biz.claimed && (

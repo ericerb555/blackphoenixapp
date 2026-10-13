@@ -4,7 +4,7 @@
  */
 
 import { useState, useContext, useEffect } from 'react';
-import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store } from 'lucide-react';
+import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store, Bookmark } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { useAuth } from '../contexts/AuthContext';
@@ -406,6 +406,15 @@ export function RoleSwitcher() {
               >
                 <KeyRound className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                 <p className="text-sm text-zinc-300 text-left">Claim a listing (business owner)</p>
+              </button>
+              {/* A resident's own shelf. Sits beside the resident view because
+                  it is the same person, signed in. */}
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange-account'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <Bookmark className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Your Exchange (saved &amp; contacted)</p>
               </button>
               <button
                 onClick={() => { setIsOpen(false); navigate('exchange-claim-review'); }}

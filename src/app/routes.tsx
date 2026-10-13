@@ -175,6 +175,7 @@ const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
 const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
 const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
+const ExchangeAccount = lazy(() => import("./pages/ExchangeAccount"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
@@ -628,6 +629,15 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    * Every claim route refuses an unidentified caller server-side.
    */
   "exchange-claim":          ExchangeClaim,
+  /**
+   * A resident's own account: what they saved and who they contacted.
+   *
+   * NOT in App's public route list, and it must not be. Browsing the Exchange
+   * never needs an account — that is the positioning — but this page is
+   * somebody's own record, and every route behind it refuses an unidentified
+   * caller. The screen asks them to sign in rather than rendering empty.
+   */
+  "exchange-account":        ExchangeAccount,
   /**
    * Staff only, and deliberately NOT in App's public route list.
    *

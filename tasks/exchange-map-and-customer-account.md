@@ -433,3 +433,72 @@ Manchester, Clothing & Shoes, over the live edge function:
 
 A MapTiler key, restricted by origin, pasted into `MAP_TILE_KEY`. Everything
 else about the map is built and will draw the moment it is there.
+
+## Phase 2 — the customer account, built
+
+A resident's own shelf and their record of who they contacted. Small on
+purpose: the Exchange is free for them for ever, so there is nothing here to
+upsell and no reason to pad it into a dashboard.
+
+### The privacy rule, held by something that can fail
+
+The plan said this would be a test rather than a comment, because adding a
+customer identity is exactly the change that leaks "who" by accident. It is:
+
+- **`viewed` is not part of anybody's history.** The ledger records a view of
+  every listing page, so a history built from all of it would be a list of
+  everything somebody had so much as glanced at — surveillance wearing the
+  costume of a feature, and the thing the Exchange is positioned against. The
+  history keeps what a person *did*: rang, opened a website, asked for a quote.
+- **`actorFilter` throws rather than returning an empty filter.**
+  `exchange_lead_event` carries no row-level security — it is reached only with
+  the service role — so that one filter is the whole of the protection between
+  one resident's history and everybody else's. An unscoped read would return
+  every enquiry every person has ever made, and there is no sensible degraded
+  answer, so asking for one by accident has to be impossible.
+- **A structural test that the module never grows a business-shaped function.**
+  The leak would not look like a bug. It would look like a helpful export —
+  `whoSaved(orgId)`, `enquirersFor(orgId)` — added by somebody building the
+  business side who did not know the rule. Every function takes a *person* as
+  its subject; if that stops being true the suite fails and whoever changed it
+  has to say so out loud.
+
+### What was built
+
+| | |
+|---|---|
+| `exchange_saved_business` | New table. Composite key, so saving twice is idempotent. RLS on with owner-only select/insert/delete and deliberately no update — a saved business has nothing to change |
+| `exchangeAccount.ts` | The rules, pure and tested: which kinds count, how each reads, the filter that must never be empty |
+| `exchangeAccountRoutes.tsx` | `GET/POST/DELETE /exchange/me/saved`, `GET /exchange/me/enquiries`. Every one refuses an unidentified caller |
+| `ExchangeAccount.tsx` | The page, at `exchange-account`, plus a role-switcher entry |
+| `SaveBusinessButton.tsx` | On every category row |
+
+### Verified rather than assumed
+
+**RLS, before the migration was applied.** Rehearsed in a rolled-back
+transaction: Alice saved a business, then the session became a different
+signed-in user and counted the rows. Zero, including Alice's.
+
+**The routes fail closed,** tested against production with the anon key — the
+credential a signed-out visitor's browser actually holds:
+
+    GET  /exchange/me/saved       -> Sign in required.
+    GET  /exchange/me/enquiries   -> Sign in required.
+    POST /exchange/me/saved       -> Sign in required.
+    (no Authorization header)     -> UNAUTHORIZED_NO_AUTH_HEADER
+
+None of `/exchange/me/*` is in `PUBLIC_PREFIXES`, and it must stay that way.
+
+### Why the history is empty, and that is correct
+
+`exchange_lead_event` holds 15 rows and exactly **one** carries an
+`actor_user_id` — because almost everybody who has used the Exchange so far was
+signed out. That one row is a `viewed`, which the rule above excludes. So every
+account's history is empty today. It fills as signed-in residents actually
+contact businesses; it is not broken.
+
+### The save button is visible to signed-out people, deliberately
+
+Hiding it until sign-in would be easier and worse: nobody would ever discover
+there is a reason to have an account. Pressed while signed out it offers the
+sign-in once, politely, with no modal.

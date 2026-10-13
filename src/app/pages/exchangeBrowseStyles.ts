@@ -141,4 +141,20 @@ export const BROWSE_CSS = `
 /* A selected row in the list, so the map and the list agree about which one
    is being talked about. */
 .bpxb-biz[data-chosen="true"] { box-shadow:inset 3px 0 0 #3b82f6; }
+
+/* ── saving a business ────────────────────────────────────────────────────── */
+/* Quiet until used. A save is a note to yourself, not a vote, so it should
+   not shout for attention beside the business's own name. */
+.bpxb-save-wrap { display:inline-flex; align-items:center; gap:7px; }
+.bpxb-save { min-height:30px; padding:0 10px; border-radius:9px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:650;
+  border:1px solid var(--bpx-line); background:rgba(255,255,255,.03);
+  color:var(--bpx-dim); transition:border-color .16s, color .16s, background .16s; }
+.bpxb-save:hover { border-color:var(--bpx-line-lit); color:var(--bpx-text); }
+.bpxb-save[data-saved="true"] { border-color:rgba(234,88,12,.5);
+  background:rgba(234,88,12,.12); color:#fdba74; }
+.bpxb-save:disabled { opacity:.6; cursor:default; }
+.bpxb-save-note { font-size:11.5px; color:var(--bpx-faint); }
+.bpxb-save-note a { color:#fdba74; text-decoration:none; }
+.bpxb-save-note a:hover { text-decoration:underline; }
 `;

@@ -24,6 +24,7 @@ import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
+import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
@@ -1122,6 +1123,16 @@ app.route("/", mediaRouter);
  */
 app.route("/make-server-3eae23a6", exchangeDirectory);
 app.route("/make-server-3eae23a6", exchangeClaimRoutes);
+/**
+ * A resident's own Exchange account: their saved businesses and the record
+ * of who they contacted.
+ *
+ * Deliberately absent from PUBLIC_PREFIXES, and it must stay that way. Every
+ * route refuses an unidentified caller anyway, but the global gate is the
+ * belt to that pair of braces. There is no such thing as an anonymous
+ * account.
+ */
+app.route("/make-server-3eae23a6", exchangeAccountRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);
