@@ -108,6 +108,8 @@ export default function ExchangeMap({
   /** The MapLibre map. `any` because the module is loaded dynamically. */
   const map = useRef<any>(null);
   const hereMarker = useRef<any>(null);
+  /** Whether the map has been framed once, so the first fit does not animate. */
+  const framed = useRef(false);
   const [status, setStatus] = useState<Status>({ kind: 'waiting' });
   /* Whatever credit the server names, so swapping tile provider does not need
      a change here. */
@@ -253,6 +255,18 @@ export default function ExchangeMap({
           // map is readable at town zoom.
           clusterRadius: 48,
           clusterMaxZoom: 13,
+          /*
+           * How many of a cluster's members answer the search.
+           *
+           * Without this a search changed nothing visible on the map: the two
+           * matching shops sat inside clusters of 39 and 5, so the pins the
+           * resident asked to see were drawn as a number on a dot identical to
+           * every other dot. The list said "2 of 45" and the map said nothing.
+           * A cluster now knows whether it contains anything worth looking at.
+           */
+          clusterProperties: {
+            hits: ['+', ['case', ['get', 'hit'], 1, 0]],
+          },
         });
 
         instance.addLayer({
@@ -342,24 +356,88 @@ export default function ExchangeMap({
 
   useEffect(() => {
     if (status.kind !== 'ready') return;
-    const source = map.current?.getSource?.('listings');
+    const m = map.current;
+    const source = m?.getSource?.('listings');
     if (source?.setData) source.setData(collection);
-  }, [collection, status.kind]);
 
-  /* ── frame what is actually there ─────────────────────────────────────── */
+    /*
+     * Repaint for the search.
+     *
+     * With nothing typed every pin is the accent colour, because they are all
+     * equally the answer. While searching, a match keeps the accent and grows,
+     * and everything else recedes — the same treatment the list gives, so the
+     * two halves of the page agree about what is being pointed at.
+     *
+     * Clusters follow their `hits` count, which is why that property exists:
+     * a cluster holding a match stays lit, one holding none recedes with the
+     * rest. Otherwise a search would be invisible at any zoom where the pins
+     * are grouped, which at town zoom is all of them.
+     */
+    try {
+      m.setPaintProperty('pin', 'circle-color',
+        searching ? ['case', ['get', 'hit'], ACCENT, QUIET] : ACCENT);
+      m.setPaintProperty('pin', 'circle-radius',
+        searching ? ['case', ['get', 'hit'], 9, 5] : 6);
+      m.setPaintProperty('pin', 'circle-opacity',
+        searching ? ['case', ['get', 'hit'], 1, 0.4] : 0.95);
+      m.setPaintProperty('pin', 'circle-stroke-width',
+        searching ? ['case', ['get', 'hit'], 2.5, 0.5] : 1);
+
+      m.setPaintProperty('clusters', 'circle-color',
+        searching
+          ? ['case', ['>', ['get', 'hits'], 0], 'rgba(234,88,12,0.9)', 'rgba(100,116,139,0.45)']
+          : 'rgba(234,88,12,0.82)');
+      m.setPaintProperty('cluster-count', 'text-color',
+        searching
+          ? ['case', ['>', ['get', 'hits'], 0], '#fff', 'rgba(255,255,255,0.5)']
+          : '#fff');
+    } catch { /* a map mid-teardown is not worth an error */ }
+  }, [collection, status.kind, searching]);
+
+  /*
+   * Take the view to the matches.
+   *
+   * Highlighting something off-screen is not highlighting it. When a search
+   * has results the map frames those results; when it is cleared the map goes
+   * back to framing everything. Keyed on which listings matched rather than on
+   * the query, so refining "sho" to "shoe" with the same two results does not
+   * re-animate the map under the reader.
+   */
+  const matchKey = useMemo(
+    () => (searching ? pins.filter((p) => p.highlighted).map((p) => p.id).join('|') : ''),
+    [pins, searching],
+  );
 
   useEffect(() => {
     if (status.kind !== 'ready' || !pins.length) return;
-    const box = boundsOf(pins.map((p) => p.location));
+
+    // Matches when there are any, otherwise everything. Clearing the search
+    // therefore pulls back to the whole category rather than leaving the
+    // reader zoomed into wherever their last answer happened to be.
+    const framing = matchKey ? pins.filter((p) => p.highlighted) : pins;
+    const box = boundsOf(framing.map((p) => p.location));
     if (!box) return;
+
     try {
       map.current.fitBounds(
         [[box.sw.lng, box.sw.lat], [box.ne.lng, box.ne.lat]],
         // A single pin would otherwise fit to zoom 22 and show one rooftop.
-        { padding: FIT_PADDING, maxZoom: 15, duration: 0 },
+        // Instant on the first frame, animated afterwards so a search reads as
+        // a movement rather than a jump cut.
+        { padding: FIT_PADDING, maxZoom: matchKey ? 14 : 15, duration: framed.current ? 500 : 0 },
       );
+      framed.current = true;
     } catch { /* a map mid-teardown is not an error worth showing */ }
-  }, [pinKey, status.kind, pins]);
+    // `pins` supplies the coordinates but must not retrigger the fit; the two
+    // keys are what say the answer actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinKey, matchKey, status.kind]);
+
+  /* ── frame what is actually there ─────────────────────────────────────── */
+
+  /* Deliberately removed: this used to fit to every pin, keyed on `pinKey`.
+     The single effect below does both jobs, because two effects calling
+     `fitBounds` on the same map race each other the moment a search lands. */
 
   /* ── where they are ──────────────────────────────────────────────────── */
 
