@@ -593,9 +593,38 @@ async function postToExchange(call: any, byEmail: string): Promise<{
  * came in. This walks, applies, and reports.
  */
 onCallRouter.post(`${PREFIX}/on-call/escalate-due`, async (c) => {
-  const expected = Deno.env.get("ON_CALL_CRON_SECRET") || "";
+  /**
+   * The secret, from the database first and the environment second.
+   *
+   * This read used to be environment-only, which made arming the job a
+   * three-handed operation: generate a value, set it as an edge-function
+   * secret, and put the same value where the scheduler could send it. Every
+   * other machine route here — the store tick, the autopilot tick, the
+   * screening sweep — reads `private_cron_config`, so pg_cron and the function
+   * read the same row and the value never has to be carried between them by a
+   * person or through a transcript.
+   *
+   * The environment fallback stays, so an existing `ON_CALL_CRON_SECRET`
+   * deployment keeps working. Neither source is trusted when empty: an unset
+   * secret still refuses everything, which matters more here than anywhere
+   * else in this file, because this endpoint rings people's phones and can post
+   * somebody's emergency to the open market.
+   */
+  let expected = "";
+  try {
+    const { data } = await admin
+      .from("private_cron_config")
+      .select("value")
+      .eq("key", "on_call_cron_secret")
+      .maybeSingle();
+    expected = String(data?.value || "");
+  } catch {
+    // A database blip must not turn a paging endpoint into an open one. The
+    // check below still refuses when neither source yields a value.
+  }
+  if (!expected) expected = Deno.env.get("ON_CALL_CRON_SECRET") || "";
   if (!expected) {
-    console.log("[OnCall] escalate-due refused: ON_CALL_CRON_SECRET is not set");
+    console.log("[OnCall] escalate-due refused: no on_call_cron_secret in private_cron_config and ON_CALL_CRON_SECRET is not set");
     return c.json({ success: false, error: "Escalation is not configured on this server." }, 503);
   }
   const offered = String(c.req.header("X-On-Call-Cron-Secret") || "");
