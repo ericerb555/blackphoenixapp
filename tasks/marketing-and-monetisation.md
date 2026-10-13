@@ -1388,3 +1388,62 @@ is bigger than a copy fix, so it is named here rather than started.
 Typecheck app 316 / server 87, both on baseline. Smoke: 6 changed files reach 36
 pages including the landing page, public store and both review screens; 51
 rendered, 0 threw.
+
+---
+
+## Review 27 — the digital storefront was a dead end for every shopper (2026-10-13)
+
+### What it was doing
+
+`GET /marketplace/products` returns `{"products":[]}` in production, and that is
+correct: the server publishes only products it can deliver, and not one of the
+twenty-one has a file attached yet.
+
+The storefront treated that empty answer as a failure and substituted
+`DEFAULT_PRODUCTS` — twenty-one products defined in the page itself. So `/store`
+and `/shop` showed a full catalogue, and **every single item was refused at
+checkout** with "not available for download yet, so it cannot be purchased". A
+shopper could browse, compare, add to a cart and only discover at the end that
+none of it was for sale.
+
+The page already had the right empty state — "No digital products published
+yet", with a link to the admin screen — and it was **unreachable**, because the
+constant always filled the list first. That is the same shape as the seeded
+reviews in `StoreReviews`, which hid their own empty state the same way, and the
+third time this pattern has turned up in a week: a client-side fallback
+presenting something the server had deliberately withheld.
+
+### The change
+
+`DEFAULT_PRODUCTS` is deleted, not just unreferenced. The fetch now believes the
+server, including when it answers "nothing":
+
+- response OK → use what it sent, empty or not, and cache it;
+- server unreachable → use the cache if there is one, because anything cached
+  was published by the server when it was stored;
+- otherwise an empty list and the honest empty state.
+
+Nothing invented in the page is ever offered for sale again.
+
+### Why this matters for today's revenue rather than later
+
+It inverts the order of two jobs. Before this, uploading the sixteen built files
+would have fixed the *checkout refusal* but the storefront would still have been
+listing five products it can never deliver (the three generated reports, the
+unbuilt lease pack, and `bundle-landlord-starter`). Now the storefront shows
+exactly what is sellable, so the moment a file is attached that product appears
+and nothing else does. The upload becomes the only remaining step.
+
+### Verification, honestly
+
+Typecheck: **app 331, server 87**. The app baseline moved from 316, and it was
+not this change — a parallel session's commit `4ceca25a` ("turn the type checker
+on, and find blank buttons with it") tightened the configuration and surfaced 38
+pre-existing `leftIcon` misuses across fourteen files. `DigitalStorefront.tsx`
+itself reports **zero** errors.
+
+`npm run smoke` **did not run**: port 9911 was held by the other session's smoke
+harness on two attempts, and killing it was not an option. The missing-reference
+class that smoke exists to catch is covered by the typecheck reporting this file
+clean, but the page has not been mounted. It should be smoked before the next
+deploy.
