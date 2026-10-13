@@ -64,6 +64,7 @@ import { join } from 'node:path';
  */
 const PORT = Number(process.env.SMOKE_PORT) || 5177;
 const REPORT_PORT = Number(process.env.SMOKE_REPORT_PORT) || 9911;
+
 // One page at a time on a targeted run.
 //
 // A batch mounts its pages into a single browser, and the heavy ones - the
@@ -99,6 +100,27 @@ if (!EDGE) {
 
 const tmp = join(process.cwd(), 'node_modules', '.smoke');
 mkdirSync(tmp, { recursive: true });
+
+/**
+ * The browser profile has to be per-run too, and this was the other half of
+ * the ports bug above.
+ *
+ * Moving the ports let two runs start. They then both spawned Edge with
+ * `--user-data-dir=<tmp>/profile`, and **Edge cannot open one profile twice**:
+ * the second instance exits immediately, posts nothing, and the run reports
+ * "Nothing reported at all. The route map may have failed to load."
+ *
+ * That message sends you a long way in the wrong direction. The route map was
+ * fine — every module transformed with a 200, and the harness page worked
+ * perfectly when opened by hand against a different profile. Three commits went
+ * in with smoke unrun before the cause was found, each saying so in its message
+ * rather than claiming a pass, which is the only reason it was not worse.
+ *
+ * Keyed on the report port because that is already what distinguishes
+ * concurrent runs: give your run its own port and it gets its own profile,
+ * without having to know that profiles were ever a problem.
+ */
+const profileDir = join(tmp, `profile-${REPORT_PORT}`);
 
 const htmlPath = join(process.cwd(), 'smoke.html');
 writeFileSync(htmlPath, `<!doctype html>
@@ -214,7 +236,7 @@ async function runBatch(from, to, only) {
   browser = spawn(EDGE, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     '--use-gl=swiftshader', '--enable-unsafe-swiftshader',
-    `--user-data-dir=${join(tmp, 'profile')}`,
+    `--user-data-dir=${profileDir}`,
     url,
   ], { stdio: 'ignore' });
 
