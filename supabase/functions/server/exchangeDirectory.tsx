@@ -173,6 +173,58 @@ function publicListing(row: any, categories: any[]) {
   };
 }
 
+// ── the towns the Exchange covers ────────────────────────────────────────────
+
+/**
+ * Which towns a resident may choose.
+ *
+ * WHY THIS EXISTS
+ *
+ * The browser held this list as a hardcoded constant, with a comment admitting
+ * it: "Hardcoded because no route serves the territory list yet. When one
+ * exists, this becomes a fetch and the shape stays the same." So opening a new
+ * town meant editing a constant, committing, and waiting for a front-end
+ * deploy — which is exactly what Eric's rule about settings taking effect the
+ * moment they are saved rules out. A town is a row; it should behave like one.
+ *
+ * ONLY ACTIVE TOWNS
+ *
+ * A town is ingested long before it is worth visiting. One with nine
+ * businesses reads as a broken product rather than a new one, so a town stays
+ * `pending` until somebody decides it is ready, and only `active` ones are
+ * listed here. That decision is a person's, not a threshold's.
+ *
+ * Public, because the browse surface is public and a signed-out resident has
+ * to be able to choose where they are looking.
+ */
+exchangeDirectory.get("/exchange/territories", async (c) => {
+  try {
+    const rows = must(
+      await service()
+        .from("exchange_territory")
+        .select("slug, name, state, center_lat, center_lng")
+        .eq("status", "active")
+        .order("name"),
+      "reading the towns",
+    ) as any[];
+
+    return c.json({
+      success: true,
+      territories: (rows ?? []).map((t) => ({
+        slug: t.slug,
+        name: t.name,
+        state: t.state ?? null,
+        // The centre is what a map opens on before it has pins to frame.
+        center: t.center_lat != null && t.center_lng != null
+          ? { lat: Number(t.center_lat), lng: Number(t.center_lng) }
+          : null,
+      })),
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as Error).message) }, 500);
+  }
+});
+
 // ── everything on the map, across categories ─────────────────────────────────
 
 /**

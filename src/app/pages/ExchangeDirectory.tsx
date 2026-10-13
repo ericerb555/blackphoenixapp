@@ -40,7 +40,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
-import { LAUNCH_TOWNS, readTown, writeTown } from '../lib/exchangeTowns';
+import { useTowns, readTown, writeTown } from '../lib/exchangeTowns';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -61,6 +61,8 @@ export default function ExchangeDirectory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [town, setTown] = useState<string>(() => readTown());
+  /* From the database, so opening a town does not need a front-end deploy. */
+  const towns = useTowns();
 
   /**
    * A session is used when there is one and never required. These pages are
@@ -144,8 +146,14 @@ export default function ExchangeDirectory() {
               <div className="bpx-mark"><Store size={23} color="#fff" /></div>
               <div style={{ minWidth: 0 }}>
                 <div className="bpx-card-title">Phoenix Exchange</div>
+                {/* Named from the live list rather than written in prose, so a
+                    fourth town does not leave this line quietly lying. */}
                 <div className="bpxb-section-tag">
-                  Local businesses in Pelham, Salem and Manchester, New Hampshire
+                  Local businesses in{' '}
+                  {towns.length > 1
+                    ? `${towns.slice(0, -1).map((t) => t.name).join(', ')} and ${towns[towns.length - 1].name}`
+                    : towns.map((t) => t.name).join('')}
+                  , New Hampshire
                 </div>
               </div>
             </div>
@@ -161,7 +169,7 @@ export default function ExchangeDirectory() {
           <span className="bpxb-note" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <MapPin size={13} /> Looking in
           </span>
-          {LAUNCH_TOWNS.map((t) => (
+          {[{ slug: '', name: 'All towns' }, ...towns].map((t) => (
             <button
               key={t.slug || 'all'}
               className="bpx-chip"

@@ -44,7 +44,7 @@ import {
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
-import { LAUNCH_TOWNS, readTown, writeTown, townName } from '../lib/exchangeTowns';
+import { useTowns, readTown, writeTown, townName } from '../lib/exchangeTowns';
 import { measureListings, formatDistance, normalise } from '../lib/exchangeGeo';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
@@ -72,6 +72,10 @@ interface Category {
 const SHOW_AT_FIRST = 60;
 
 export default function ExchangePlaces() {
+  /* From the database, so a town opened this morning appears without a
+     deploy. Falls back to the built-in list only when the server cannot be
+     reached. */
+  const towns = useTowns();
   const [town, setTown] = useState(() => readTown() || 'manchester-nh');
   const [places, setPlaces] = useState<Place[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -176,11 +180,11 @@ export default function ExchangePlaces() {
   const typedTown = useMemo(() => {
     const asked = normalise(query).replace(/\b(nh|new hampshire)\b/g, '').trim();
     if (!asked) return null;
-    const match = LAUNCH_TOWNS.find(
+    const match = towns.find(
       (t) => t.slug && t.slug !== town && normalise(t.name) === asked,
     );
     return match ?? null;
-  }, [query, town]);
+  }, [query, town, towns]);
 
   const changeTown = useCallback((slug: string) => {
     writeTown(slug);
@@ -211,14 +215,14 @@ export default function ExchangePlaces() {
               <div style={{ minWidth: 0 }}>
                 <div className="bpx-card-title">Places near you</div>
                 <div className="bpxb-section-tag">
-                  {loading ? 'Loading…' : `${places.length} businesses in ${townName(town)}`}
+                  {loading ? 'Loading…' : `${places.length} businesses in ${townName(town, towns)}`}
                   {chosenCategory && ` · ${chosenCategory.name}`}
                 </div>
               </div>
             </div>
 
             <div className="bpxb-towns">
-              {LAUNCH_TOWNS.filter((t) => t.slug).map((t) => (
+              {towns.filter((t) => t.slug).map((t) => (
                 <button
                   key={t.slug}
                   className="bpxb-town"
