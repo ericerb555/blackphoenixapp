@@ -1,0 +1,157 @@
+# PLAN — the map as a main feature, and logos that arrive by claiming
+
+Eric, 2026-10-13:
+
+> *"should we have the map a main feature and compy logos will appear when the
+> claim and add them?"*
+
+Not started; waiting on him to verify the plan. Planned as one piece rather than
+two, because they are one piece: a map of 1,108 pins all drawn the same way is a
+grey field, and a logo is the thing that makes a claimed business look different
+from the 1,090 that are not. Each is worth less without the other.
+
+---
+
+## What the ground actually says
+
+Checked against production, not assumed:
+
+    organizations                1,108
+    with coordinates             1,092   (98.6%)
+    claimed                         18   (1.6%)
+    logo column                   none
+    exchange_claim_challenge     phone_code and others — control is proved
+
+Two of those numbers decide the whole plan.
+
+**98.6% geocoded** is why the map is worth promoting. The usual failure — a
+beautiful empty canvas because nothing was geocoded — does not apply here. The
+map is also the one view where having 1,108 compiled listings is an asset rather
+than a wall of text, because "who is near me" is the question a resident
+actually has and a list cannot answer it.
+
+**1.6% claimed** is why logos matter more than they look. Claiming today earns
+the right to correct your own details, which is a chore, not a reward. "Claim
+your listing and your logo appears" is a visible, immediate payoff — and it is
+the only honest lever available, because the one thing the directory must never
+do is invent the things that would make a listing attractive.
+
+---
+
+## The constraint that shapes the map half, and it is already decided
+
+`routes.tsx` documents it, and the reasoning holds:
+
+> *"`exchange` is the front door... the crawlable tree of categories and names
+> the free-traffic plan rests on; a map is a canvas with nothing in it for a
+> crawler to read. This sits beside it."*
+
+So **the map must not become the front door.** The Exchange's entire acquisition
+plan is free search traffic on a domain with no authority, and that rests on
+crawlable category and listing pages. A map-first redesign would quietly delete
+the acquisition strategy to improve the browsing experience.
+
+The resolution is that "main feature" and "front door" are different jobs:
+
+- [ ] `/exchange` stays the canonical, crawlable entry. Unchanged.
+- [ ] The map becomes the **primary resident destination** — what someone lands
+      on from inside the app, from a "near me" intent, and from the Exchange
+      nav as a peer of Browse rather than a link buried below it.
+- [ ] Every pin links to the same crawlable listing page the tree links to. The
+      map is a way *in*, never a replacement for the page itself.
+
+## The map, to be worth landing on
+
+- [ ] **Clustering.** 1,108 pins is unusable at town zoom and slow on a phone.
+- [ ] **A list beside the map, not instead of it.** The 16 listings with no
+      coordinates are invisible on a map-only view — not merely unplaced,
+      *absent*. They must still be reachable.
+- [ ] **Claimed businesses read as different**: logo, and visible first in any
+      overlapping cluster. This is where the two halves meet.
+- [ ] **Know the cost.** This becomes the heaviest page in the app. Today's
+      smoke work showed what heavy pages do to the harness; it should be lazy,
+      and it should not be in the first bundle anyone downloads.
+
+---
+
+## Logos: the only way one can legitimately exist here
+
+`exchangeIngest.ts` states the rule this plan obeys:
+
+> *"a compiled listing carries the business's name, type, address, phone and
+> website, and not one field more. No description, no hours, no photographs, no
+> ratings — none of that can be trusted before an owner stands behind it."*
+
+A logo is exactly that. It **cannot** be scraped, bought in, or guessed from a
+website. It can only arrive from somebody who proved they control the business —
+which is what the claim flow already does with a phone or email challenge. So
+"logos appear when they claim and add them" is not a product preference; it is
+the only shape the existing architecture permits.
+
+- [ ] A `logo_path` on the organisation — a **stored file reference**, not a URL.
+- [ ] Upload only on a **claimed** listing, by the account that holds the claim.
+- [ ] Reuse the existing upload path rather than inventing a fourth. There is
+      already `image-upload.tsx` (a public bucket), `media-library.tsx` (a
+      private one), `UploadMyLogo` and `brands.tsx`. A logo shown to the public
+      belongs in the public bucket with the other public imagery.
+- [ ] Through the **approval gate** in `publishApproval.ts`. A logo is tenant
+      content reaching other people, which is the standing rule for everything
+      a tenant publishes.
+
+### Three things to refuse, and why
+
+**No remote URLs, ever.** A stored `logo_url` pointing at the owner's server
+lets them swap the approved image for anything afterwards, and leaks every
+viewer's IP to a third party. Store the bytes.
+
+**No logo on an unclaimed listing**, even if somebody offers one. That is the
+whole premise: an unclaimed listing carries only what public records said.
+
+**No image from the website's favicon or og:image.** It is the obvious shortcut,
+it would populate hundreds of listings at once, and it is precisely the
+"invent nothing" line — a scraped image is a claim about a business that nobody
+stood behind, and the first wrong one is a complaint from a business that never
+asked to be listed.
+
+### And the one real abuse to design against
+
+Somebody claims a business they do not own and uploads its real logo, or a
+competitor's. The claim challenge already makes that hard — it proves control of
+the listed phone or email. The approval gate is the second lock. Worth stating
+that neither is a trademark check and we are not performing one; what we have is
+proof of control plus a human look, which is the same standard the rest of the
+platform's published content holds.
+
+---
+
+## Why these two together are the conversion story
+
+The Exchange's business model is businesses paying after a free trial. Nothing
+in the product currently makes claiming feel like a gain. This pair does:
+
+    a resident opens the map          → sees who is near them
+    claimed businesses stand out      → logo, surfaced first
+    an owner sees their own listing    → grey, anonymous, beside a rival's logo
+    claiming is now worth doing        → and claiming is the top of the funnel
+
+That is the tie-in the architecture rule asks for: the map gives the logo
+somewhere to be seen, the logo gives claiming a reason, and claiming is what
+turns a compiled record into an account that can later be sold a subscription.
+
+## Not in this plan
+
+**No photo galleries, hours, or descriptions.** Each is a separate decision
+about what a claimed listing may carry, and each has the same "who stands behind
+it" question. A logo first, because it is one small file and the visual payoff
+is immediate.
+
+**No change to `/exchange` or to the category tree.** The crawlable surface is
+load-bearing for acquisition and this plan deliberately does not touch it.
+
+**No paid placement on the map.** Selling position is a different product with
+different disclosure obligations, and mixing it into the first version would
+make "surfaced first" mean two things at once.
+
+## Review
+
+*(To be completed when the work is done.)*
