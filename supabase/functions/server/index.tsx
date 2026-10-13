@@ -25,8 +25,10 @@ import mediaRouter from "./media-library.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
+import { exchangeDealRoutes } from "./exchangeDealRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
+import { composeEstimatorContext } from "./quoteBrief.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
   SCREENING_CONSENT_TEXT,
@@ -466,6 +468,7 @@ const PUBLIC_PREFIXES = [
   '/exchange/taxonomy',
   '/exchange/listing/',   // one listing, and the contact event on it
   '/exchange/category/',
+  '/exchange/nearby',     // every placeable business in a town, for the map
   '/exchange/missing',    // "we could not find anyone" — a demand row
   /*
    * The basemap style URL, which carries the MapTiler key.
@@ -595,6 +598,31 @@ const PUBLIC_GET_PREFIXES = [
 // an ownership check — invoice belongs to this customer — before enforcement
 // reaches them. Tracked in tasks/todo.md.
 const ADMIN_PREFIXES = [
+  /**
+   * The market-alert pair was an OPEN EMAIL AND SMS RELAY.
+   *
+   * `POST /market-alerts/preferences` writes `market_alert_prefs:global` with
+   * whatever email and phone number it is given. `POST /market-alerts/send`
+   * then builds a message entirely out of its request body — the subject from
+   * `product` and `spike`, the body from `reason`, `revenue` and `urgency` —
+   * and sends it through Resend from this company's own domain and reply-to,
+   * and through Twilio from this company's number.
+   *
+   * Neither carried any authorisation, and neither appeared in any gate list,
+   * so both were tier "user": reachable by every customer, tenant, vendor and
+   * subcontractor with a session. Together they let any of them send arbitrary
+   * email and arbitrary SMS, to any address or number they chose, wearing
+   * Black Phoenix's identity — phishing, spam, and a burnt sender reputation
+   * on somebody else's Resend and Twilio bill. It also silently redirected the
+   * owner's own alerts, because the destination is a single global record.
+   *
+   * Administrator rather than merely staff, and that matches the design: one
+   * global destination is the owner's alerting, not a per-tenant feature. If
+   * tenants are ever to have their own market alerts, the preferences have to
+   * be keyed per account first — the global record is the reason this cannot
+   * simply be opened up.
+   */
+  '/market-alerts',
   '/payouts',
   '/affiliate-payouts',
   '/affiliates/',
@@ -678,6 +706,39 @@ const PUBLIC_POST_PATHS = [
    * at the price the browser suggested.
    */
   '/store/checkout',
+
+  /**
+   * Guest checkout for the DIGITAL store, and finishing it.
+   *
+   * The same argument as `/store/checkout` above, for the other shop. The
+   * physical store has taken guest money for a while; the digital one could
+   * not, because these two paths were never listed — so a shopper who would
+   * not create an account could browse the ebooks, templates and calculators
+   * and then be told "Sign in required" at the till. Every visitor unwilling
+   * to make an account was a lost sale, on the products with the best margin
+   * in the business.
+   *
+   * BOTH are required and listing only the first would be worse than listing
+   * neither: the shopper comes back from Stripe still signed out, and the
+   * order is only marked paid once `complete` verifies the session. Gate that
+   * and the money is taken while the order stays pending.
+   *
+   * Safe to expose because neither route trusts what it is given:
+   *
+   *   checkout   prices every line from our own product records, refuses an
+   *              item it cannot price, and refuses one with no file behind it
+   *              — a product is not sellable until it is deliverable.
+   *   complete   retrieves the session from Stripe on the TBPCO account and
+   *              marks the order paid only when Stripe itself says it was. It
+   *              matches an EXISTING pending order by session id, so no order
+   *              can be invented, and answers 402 when Stripe says unpaid.
+   *
+   * A guest still receives the file: entitlement accepts the email together
+   * with the ten-character order number from the receipt, and both must match
+   * the same paid order. An email address alone has never been enough.
+   */
+  '/marketplace/checkout',
+  '/marketplace/checkout/complete',
 
   /**
    * The certificate reminder run, called by the database scheduler.
@@ -1134,6 +1195,16 @@ app.route("/make-server-3eae23a6", exchangeClaimRoutes);
  * account.
  */
 app.route("/make-server-3eae23a6", exchangeAccountRoutes);
+/**
+ * Following a business, and deals.
+ *
+ * Three audiences on one router and all of them gated: a resident about
+ * themselves, a business about the listing it has claimed, and staff about
+ * everybody's submissions. None of it belongs in PUBLIC_PREFIXES — a deal
+ * reaches residents through their own account, which needs a session, and
+ * the review queue decides what the public sees.
+ */
+app.route("/make-server-3eae23a6", exchangeDealRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);
@@ -3980,15 +4051,16 @@ IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIEL
  * reimplemented per screen.
  */
 async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any; usedAI: boolean }> {
-  const extraParts: string[] = [];
-  const b = workRequest?.blueprintAnalysis || workRequest?.aiVideoAnalysis;
-  if (b) {
-    extraParts.push('Prior AI analysis available:');
-    if (b.rooms?.length) extraParts.push(`- Rooms: ${b.rooms.length} (${b.rooms.map((r: any) => r.name || r.type).filter(Boolean).join(', ')})`);
-    if (b.squareFootage || b.totalSquareFootage) extraParts.push(`- Square footage: ${b.squareFootage || b.totalSquareFootage}`);
-    if (Array.isArray(b.materials) && b.materials.length) extraParts.push(`- AI-suggested material groups: ${b.materials.length}`);
-    if (b.estimatedCosts?.total || b.costEstimates?.total) extraParts.push(`- Prior cost estimate: ${Number(b.estimatedCosts?.total || b.costEstimates?.total).toLocaleString()}`);
-  }
+  /**
+   * One composition, shared with the quote-generator routes.
+   *
+   * This read the blueprint analysis and nothing else, so a work request's
+   * size, access, conditions and timing never reached the model even here —
+   * the richer path was richer only about prices. `quoteBrief.ts` composes all
+   * of it, keeps the prior-analysis block in the shape this already emitted,
+   * and passes any written brief through verbatim.
+   */
+  const extra = composeEstimatorContext(workRequest);
 
   /**
    * The catalogue, the rates, the margins and the measured hours.
@@ -4007,7 +4079,7 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
     description: workRequest?.description,
     location: workRequest?.location || workRequest?.address,
     estimatedValue: workRequest?.estimatedValue,
-    extra: extraParts.join('\n'),
+    extra,
   },
   (raw) => repriceEstimate(raw, repricerDeps(ctx)),
   ctx.factors);
