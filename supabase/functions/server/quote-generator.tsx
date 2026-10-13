@@ -19,6 +19,8 @@ import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
+import { repriceEstimate } from './repriceEstimate.ts';
+import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 
 const quoteRouter = new Hono();
 
@@ -467,14 +469,21 @@ quoteRouter.post('/generate-quote', async (c) => {
     if (workRequestData?.requiresPermit != null) extraParts.push(`Requires permit: ${workRequestData.requiresPermit ? 'Yes' : 'No'}`);
     if (workRequestData?.equipment?.length) extraParts.push(`Equipment needed: ${workRequestData.equipment.join(', ')}`);
 
-    const { estimate, usedAI } = await runEstimator({
-      title: body.title,
-      serviceType,
-      description,
-      location: body.location || workRequestData?.location,
-      estimatedValue: body.estimatedValue ?? workRequestData?.estimatedValue,
-      extra: extraParts.join('\n'),
-    });
+    // Priced with the company's own numbers, for the same reason as the route
+    // above: this one was also calling the estimator bare.
+    const ctx = await loadQuotePricingContext();
+    const { estimate, usedAI } = await runEstimator(
+      {
+        title: body.title,
+        serviceType,
+        description,
+        location: body.location || workRequestData?.location,
+        estimatedValue: body.estimatedValue ?? workRequestData?.estimatedValue,
+        extra: extraParts.join('\n'),
+      },
+      (raw) => repriceEstimate(raw, repricerDeps(ctx)),
+      ctx.factors,
+    );
 
     // Legacy-compatible field names for older callers.
     const laborItems = estimate.labor.map((l: any) => ({ description: l.role, hours: l.hours, rate: l.hourlyRate }));
@@ -512,14 +521,33 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       if (b.estimatedCosts?.total) extraParts.push(`- Prior AI cost estimate: $${Number(b.estimatedCosts.total).toLocaleString()}`);
     }
 
-    const { estimate, usedAI } = await runEstimator({
-      title: workRequest.title,
-      serviceType: workRequest.serviceType,
-      description: workRequest.description,
-      location: workRequest.location,
-      estimatedValue: workRequest.estimatedValue,
-      extra: extraParts.join('\n'),
-    });
+    /**
+     * Priced with the company's own numbers, not the model's.
+     *
+     * This call used to pass no repricer and no measured factors, which made it
+     * the weaker of two ways into the same estimator — and it is the one the
+     * Command Center's Start Quote modal uses. So a quote started there was
+     * priced at the model's invented unit costs: no vendor catalogue, no company
+     * labour rates, none of the productivity measured from finished jobs. It
+     * read as a detailed estimate and was a plausible invention.
+     *
+     * `loadQuotePricingContext` is the same gathering `estimateForWorkRequest`
+     * does, lifted into a module both can import. One estimator path now,
+     * rather than two that priced the same job differently.
+     */
+    const ctx = await loadQuotePricingContext();
+    const { estimate, usedAI } = await runEstimator(
+      {
+        title: workRequest.title,
+        serviceType: workRequest.serviceType,
+        description: workRequest.description,
+        location: workRequest.location,
+        estimatedValue: workRequest.estimatedValue,
+        extra: extraParts.join('\n'),
+      },
+      (raw) => repriceEstimate(raw, repricerDeps(ctx)),
+      ctx.factors,
+    );
 
     console.log('[AI Quote Generator] Auto-generated quote:', {
       usedAI,

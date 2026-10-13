@@ -26,6 +26,7 @@ import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
+import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
   SCREENING_CONSENT_TEXT,
@@ -3989,44 +3990,16 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
     if (b.estimatedCosts?.total || b.costEstimates?.total) extraParts.push(`- Prior cost estimate: ${Number(b.estimatedCosts?.total || b.costEstimates?.total).toLocaleString()}`);
   }
 
-  const [catalogRaw, ratesRaw, pricingRaw] = await Promise.all([
-    kv.getByPrefix('vendor_catalog:').catch(() => []),
-    kv.get('labor_rates:global').catch(() => null),
-    kv.get('pricing_config:global').catch(() => null),
-  ]);
-
-  const vendors = ((await kv.getByPrefix('vendor:').catch(() => [])) as any[] || []).filter(Boolean);
-  const vendorNames = new Map(vendors.map((v: any) => [String(v?.id || ''), String(v?.name || '')]));
-  const catalog = ((catalogRaw as any[]) || []).filter(Boolean).map((i: any) => ({
-    offerId: String(i?.id || ''),
-    productId: String(i?.productId || ''),
-    vendorId: i?.vendorId,
-    vendorName: vendorNames.get(String(i?.vendorId)) || '',
-    name: i?.name, sku: i?.sku, unit: i?.unit,
-    price: Number(i?.price) || 0,
-    updatedAt: i?.updatedAt, isActive: i?.isActive,
-  }));
-
-  const { rates, usingStandards: ratesAreStandard } = resolveLaborRates(ratesRaw);
   /**
-   * `ratesRaw` is passed as well, because the margins Eric actually saved live
-   * on it. The labour rates screen writes `profitSettings` alongside the rates
-   * and nothing on this path ever read them, so a quote built from a
-   * description used the standard 30% materials markup where he had set 20%,
-   * no labour markup where he had set 15%, and 15% profit where he had set
-   * 20% — while the blueprint path, which does read them, priced the same job
-   * differently. See `resolvePricing`.
-   */
-  const { settings, usingStandards: settingsAreStandard } = resolvePricing(pricingRaw, ratesRaw);
-
-  /**
-   * What our own finished jobs say about how long each trade takes.
+   * The catalogue, the rates, the margins and the measured hours.
    *
-   * Published by the rate-learning pass rather than measured here: pricing one
-   * line must not mean re-measuring every job the company has ever finished.
-   * With none published, the quote is the model’s guess exactly as before.
+   * This block used to be written out here, and that is exactly why the
+   * Command Center priced quotes from the model's guesses: the route in
+   * `quote-generator.tsx` could not reach any of it, so it called the estimator
+   * bare. The gathering now lives in `quotePricingContext.ts` and both sides
+   * import it, so there is one set of company prices rather than two that drift.
    */
-  const measured = (await kv.get('labor_tasks:trade_factors').catch(() => null)) as any;
+  const ctx = await loadQuotePricingContext();
 
   return await runEstimator({
     title: workRequest?.title,
@@ -4036,8 +4009,8 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
     estimatedValue: workRequest?.estimatedValue,
     extra: extraParts.join('\n'),
   },
-  (raw) => repriceEstimate(raw, { catalog, rates, settings, ratesAreStandard, settingsAreStandard }),
-  measured?.factors || {});
+  (raw) => repriceEstimate(raw, repricerDeps(ctx)),
+  ctx.factors);
 }
 
 /**
