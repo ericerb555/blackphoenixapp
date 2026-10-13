@@ -48,8 +48,22 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const PORT = 5177;
-const REPORT_PORT = 9911;
+/**
+ * Both ports are overridable, because this harness is a SHARED resource.
+ *
+ * Eric runs several Claude sessions against this repository at once, and they
+ * all run `npm run smoke` before committing. Two runs cannot both hold 9911, so
+ * the second dies with `EADDRINUSE` and that session cannot verify its work —
+ * which has happened repeatedly, six times in one afternoon, each time leaving
+ * a change typechecked but never mounted. Killing the other session's process
+ * is not an option: it may be mid-run on somebody else's commit.
+ *
+ * So:  SMOKE_PORT=5178 SMOKE_REPORT_PORT=9912 npm run smoke
+ *
+ * Defaults are unchanged, so nothing that already works changes behaviour.
+ */
+const PORT = Number(process.env.SMOKE_PORT) || 5177;
+const REPORT_PORT = Number(process.env.SMOKE_REPORT_PORT) || 9911;
 // One page at a time on a targeted run.
 //
 // A batch mounts its pages into a single browser, and the heavy ones - the
@@ -107,10 +121,50 @@ const listener = createServer((req, res) => {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*' }).end();
   });
 });
+/**
+ * A busy report port is a message, not a stack trace.
+ *
+ * `listen` emits `error` asynchronously, and with nothing listening for it Node
+ * rethrows as an unhandled event — so a second concurrent run died with
+ * fourteen lines of `events.js` internals and the word EADDRINUSE buried in
+ * them. Correct, and useless: the person reading it has to work out that
+ * another run owns the port and that `SMOKE_REPORT_PORT` exists.
+ */
+listener.on('error', (err) => {
+  if (err?.code === 'EADDRINUSE') {
+    console.error(`\nThe report port ${REPORT_PORT} is already in use.`);
+    console.error('Another smoke run is probably in progress — they cannot share it.');
+    console.error('Run yours on different ports:');
+    console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
+    process.exit(3);
+  }
+  console.error(`The report listener failed: ${err?.message || err}`);
+  process.exit(3);
+});
 listener.listen(REPORT_PORT);
 
 const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
   stdio: 'ignore', shell: true,
+});
+
+/**
+ * Notice when vite dies instead of waiting out the clock for it.
+ *
+ * `--strictPort` makes vite exit rather than quietly move to another port, which
+ * is right — but nothing watched for that exit, so `waitForServer` spent its
+ * full sixty seconds polling a port that would never answer, and then reported
+ * "the dev server did not come up" without saying why.
+ *
+ * This is the failure that cost the most. A vite process orphaned on 2 October
+ * held 5177, and every smoke run in this checkout appeared to HANG for eleven
+ * days — including runs from sessions that had nothing to do with it. A hang
+ * reads as "this is slow, wait longer"; an error reads as "fix this". The whole
+ * eleven days is the difference between those two.
+ */
+let serverDied = null;
+server.on('exit', (code) => {
+  if (code === 0) return;
+  serverDied = `vite exited with code ${code} — port ${PORT} is most likely already in use.`;
 });
 
 let browser = null;
@@ -130,6 +184,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForServer() {
   for (let i = 0; i < 60; i++) {
+    // Stop the moment vite is known dead. Polling on for another fifty seconds
+    // cannot change the answer, and the wait is what made this look like a hang.
+    if (serverDied) return false;
     try {
       const res = await fetch(`http://localhost:${PORT}/smoke.html`);
       if (res.ok) return true;
@@ -177,7 +234,14 @@ async function runBatch(from, to, only) {
 /* ── the run ──────────────────────────────────────────────────────────── */
 
 if (!(await waitForServer())) {
-  console.error(`The dev server did not come up on ${PORT}.`);
+  if (serverDied) {
+    console.error(`\n${serverDied}`);
+    console.error('Another smoke run, or a vite left behind by an earlier one, is holding it.');
+    console.error('Run yours on different ports:');
+    console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
+  } else {
+    console.error(`The dev server did not come up on ${PORT} within 60s, and vite did not exit either.`);
+  }
   process.exit(2);
 }
 
