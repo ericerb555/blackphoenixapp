@@ -43,6 +43,24 @@ import { MapPin, Plus, Minus, Crosshair, AlertCircle, Loader2 } from 'lucide-rea
    lands in that page's chunk rather than the main bundle. The library itself
    is still imported on demand further down. */
 import 'maplibre-gl/dist/maplibre-gl.css';
+/**
+ * MapLibre's web worker, as a URL Vite actually emits.
+ *
+ * The library resolves its worker with
+ * `new URL('./maplibre-gl-worker.mjs', import.meta.url)`, which no bundler can
+ * rewrite — so the built page asked for `/assets/maplibre-gl-worker.mjs?v=6.14.0`,
+ * a path Vite never wrote, and got a 404. The symptom was quiet and nasty: the
+ * canvas appeared, the placeholder went away, and the map then never fired
+ * `load`, so there were no pins, no controls and no credit. A map of nothing,
+ * with one console line to explain it.
+ *
+ * `?url` makes Vite copy the file into the build with a content hash and give
+ * us the real address, which is then handed to MapLibre through its own
+ * `config.WORKER_URL`. The worker is self-contained — 497KB with no sibling
+ * imports — so copying the single file is enough, and it is fetched only when
+ * a map is actually built.
+ */
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import type { Point } from '../../lib/exchangeGeo';
 import { boundsOf } from '../../lib/exchangeGeo';
 import { fetchBasemapConfig, MAP_ATTRIBUTION } from '../../config/mapTiles';
@@ -166,6 +184,10 @@ export default function ExchangeMap({
       }
       if (cancelled || !holder.current) return;
 
+      // Before the map is constructed, or it will already have tried to spawn
+      // a worker from the address the bundler could not rewrite.
+      try { maplibre.config.WORKER_URL = maplibreWorkerUrl; } catch { /* older API */ }
+
       let instance: any;
       try {
         instance = new maplibre.Map({
@@ -197,7 +219,29 @@ export default function ExchangeMap({
         }
       });
 
+      /*
+       * A map that never finishes loading has to say so.
+       *
+       * This component claimed every failure had a visible state, and this one
+       * did not: when the worker 404'd, MapLibre built its canvas, removed the
+       * placeholder and then simply never fired `load`. The spinner would have
+       * spun for ever and the only evidence was one console line. A resident
+       * would have called that a broken page, and rightly.
+       *
+       * Thirty seconds because a cold cache on a phone pulling half a megabyte
+       * of worker plus tiles is genuinely slow, and calling that a failure
+       * would be worse than waiting.
+       */
+      const watchdog = setTimeout(() => {
+        if (cancelled) return;
+        setStatus((s) => (s.kind === 'ready' ? s : {
+          kind: 'unavailable',
+          why: 'The map did not finish loading. The list below is the full answer.',
+        }));
+      }, 30_000);
+
       instance.on('load', () => {
+        clearTimeout(watchdog);
         if (cancelled) return;
 
         instance.addSource('listings', {

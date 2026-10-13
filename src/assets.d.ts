@@ -62,3 +62,19 @@ declare module '*.webm' {
  * own `styles/index.css` included — was reported as a missing module.
  */
 declare module '*.css';
+
+/**
+ * Vite's `?url` suffix.
+ *
+ * `import url from './thing.mjs?url'` tells Vite to emit the file as an asset
+ * and hand back its hashed URL rather than bundling its contents. Needed for
+ * MapLibre's web worker: the library resolves it with
+ * `new URL('./maplibre-gl-worker.mjs', ...)`, which the bundler cannot rewrite,
+ * so production asked for an unhashed path that was never emitted and the
+ * worker 404'd. The map drew its canvas and then silently never finished
+ * loading.
+ */
+declare module '*?url' {
+  const url: string;
+  export default url;
+}
