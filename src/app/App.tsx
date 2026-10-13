@@ -517,6 +517,23 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * unidentified caller regardless of what this list says.
      */
     'exchange-claim',
+    /**
+     * A resident's own account, for the same reason as the claim screen above:
+     * reachable without a session so the page itself can explain what it is.
+     *
+     * Behind the global gate it rendered the generic "Welcome Back" login, and
+     * a resident who followed "Your Exchange" learned nothing about why an
+     * account exists here. The page's own signed-out state says the thing that
+     * matters — browsing the Exchange never needs an account and never will,
+     * and this exists only so the businesses you kept are still here next time.
+     * That sentence is the positioning, and it was unreachable.
+     *
+     * Nothing is served without a session regardless of this list: the page
+     * fetches only when it holds a token, and every `/exchange/me/*` route
+     * refuses an unidentified caller — verified against production, including
+     * with the anon key a signed-out browser actually carries.
+     */
+    'exchange-account',
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',
