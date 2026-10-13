@@ -176,6 +176,8 @@ const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
 const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
 const ExchangeAccount = lazy(() => import("./pages/ExchangeAccount"));
+const ExchangeBusinessDeals = lazy(() => import("./pages/ExchangeBusinessDeals"));
+const ExchangeDealReview = lazy(() => import("./pages/ExchangeDealReview"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
@@ -638,6 +640,22 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    * caller. The screen asks them to sign in rather than rendering empty.
    */
   "exchange-account":        ExchangeAccount,
+  /**
+   * A business publishing a deal. Reachable without a session for the same
+   * reason as the claim screen: the page explains what is involved and asks
+   * them to sign in. The server decides what they may actually do, and it
+   * refuses anybody who does not hold a granted claim on the listing.
+   */
+  "exchange-business-deals": ExchangeBusinessDeals,
+  /**
+   * Staff only, and deliberately NOT in App's public route list.
+   *
+   * This queue decides what residents see. Every route behind it refuses a
+   * non-staff caller server-side; the screen shows a "company access is
+   * required" panel rather than an empty page, so a colleague who opens it by
+   * accident learns why instead of filing a bug.
+   */
+  "exchange-deal-review":    ExchangeDealReview,
   /**
    * Staff only, and deliberately NOT in App's public route list.
    *

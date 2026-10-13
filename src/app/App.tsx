@@ -534,6 +534,16 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * with the anon key a signed-out browser actually carries.
      */
     'exchange-account',
+    /**
+     * A business writing a deal. Public in the route sense only, like the
+     * claim screen above: an owner arrives from their own listing and the
+     * page itself asks them to sign in. Nothing is served without a
+     * session — every deal route refuses an unidentified caller, and the
+     * business ones additionally refuse anybody without a granted claim.
+     *
+     * `exchange-deal-review` is deliberately NOT here. It is staff only.
+     */
+    'exchange-business-deals',
 
     // Store and tracking (public - anyone can browse and track)
     'public-store',

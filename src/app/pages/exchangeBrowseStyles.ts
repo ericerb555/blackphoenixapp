@@ -157,4 +157,42 @@ export const BROWSE_CSS = `
 .bpxb-save-note { font-size:11.5px; color:var(--bpx-faint); }
 .bpxb-save-note a { color:#fdba74; text-decoration:none; }
 .bpxb-save-note a:hover { text-decoration:underline; }
+
+/* ── hearing from a business ──────────────────────────────────────────────── */
+/* Deliberately not the same control as Save. Saving is private and silent;
+   this is consent to hear from somebody, and two different commitments
+   should not look like two instances of one button. Blue rather than the
+   orange accent, so a glance tells them apart. */
+.bpxb-follow { min-height:30px; padding:0 10px; border-radius:9px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:650;
+  border:1px solid var(--bpx-line); background:rgba(255,255,255,.03);
+  color:var(--bpx-dim); transition:border-color .16s, color .16s, background .16s; }
+.bpxb-follow:hover { border-color:var(--bpx-line-lit); color:var(--bpx-text); }
+.bpxb-follow[data-following="true"] { border-color:rgba(59,130,246,.5);
+  background:rgba(59,130,246,.12); color:#93c5fd; }
+.bpxb-follow:disabled { opacity:.6; cursor:default; }
+
+/* ── a deal ───────────────────────────────────────────────────────────────── */
+.bpxb-deal { display:flex; flex-direction:column; gap:6px; }
+.bpxb-deal-title { font-size:14.5px; font-weight:750; color:#fdba74; }
+.bpxb-deal-body { font-size:13px; line-height:1.55; color:var(--bpx-text); white-space:pre-wrap; }
+.bpxb-deal-when { font-size:11.5px; color:var(--bpx-faint); font-variant-numeric:tabular-nums; }
+.bpxb-deal-state { font-size:11px; font-weight:700; letter-spacing:.02em; }
+.bpxb-deal-state[data-state="approved"]  { color:#86efac; }
+.bpxb-deal-state[data-state="submitted"] { color:#fcd34d; }
+.bpxb-deal-state[data-state="rejected"]  { color:#fca5a5; }
+.bpxb-deal-state[data-state="draft"],
+.bpxb-deal-state[data-state="withdrawn"] { color:var(--bpx-dim); }
+
+/* ── a small form ─────────────────────────────────────────────────────────── */
+.bpxb-form { display:flex; flex-direction:column; gap:10px; }
+.bpxb-form label { display:flex; flex-direction:column; gap:5px; font-size:12.5px;
+  color:var(--bpx-dim); font-weight:650; }
+.bpxb-form input, .bpxb-form textarea { width:100%; padding:10px 13px; border-radius:11px;
+  background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
+  font-size:14px; font-family:inherit; outline:none; }
+.bpxb-form input:focus, .bpxb-form textarea:focus { border-color:rgba(234,88,12,.55); }
+.bpxb-form textarea { min-height:96px; resize:vertical; }
+.bpxb-form-row { display:flex; gap:10px; flex-wrap:wrap; }
+.bpxb-form-row > label { flex:1 1 170px; }
 `;

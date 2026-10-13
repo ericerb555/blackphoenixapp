@@ -4,7 +4,7 @@
  */
 
 import { useState, useContext, useEffect } from 'react';
-import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store, Bookmark } from 'lucide-react';
+import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store, Bookmark, Tag, ShieldCheck } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { useAuth } from '../contexts/AuthContext';
@@ -415,6 +415,20 @@ export function RoleSwitcher() {
               >
                 <Bookmark className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                 <p className="text-sm text-zinc-300 text-left">Your Exchange (saved &amp; contacted)</p>
+              </button>
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange-business-deals'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <Tag className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Your deals (business owner)</p>
+              </button>
+              <button
+                onClick={() => { setIsOpen(false); navigate('exchange-deal-review'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <ShieldCheck className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Deal review queue</p>
               </button>
               <button
                 onClick={() => { setIsOpen(false); navigate('exchange-claim-review'); }}

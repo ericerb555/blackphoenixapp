@@ -43,7 +43,9 @@ import {
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
+import FollowBusinessButton from '../components/exchange/FollowBusinessButton';
 import { useSavedBusinesses } from '../lib/exchangeSaved';
+import { useFollowedBusinesses } from '../lib/exchangeFollow';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { LISTING_CSS } from './exchangeListingStyles';
 
@@ -77,6 +79,7 @@ export default function ExchangeListing() {
   /* Whether this one is already on the resident's shelf, so the button does
      not invite them to keep something they have already kept. */
   const { savedIds, note: noteSaved } = useSavedBusinesses();
+  const { followedIds, note: noteFollowed } = useFollowedBusinesses();
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +215,20 @@ export default function ExchangeListing() {
                 initiallySaved={savedIds.has(listing.id)}
                 onChange={(saved) => noteSaved(listing.id, saved)}
               />
+              {/*
+                Offered only on a claimed listing. An unclaimed one is compiled
+                from public records and can never publish a deal, so inviting
+                somebody to hear from it would be promising something that
+                cannot arrive.
+              */}
+              {listing.claimed && (
+                <FollowBusinessButton
+                  orgId={listing.id}
+                  name={listing.name}
+                  initiallyFollowing={followedIds.has(listing.id)}
+                  onChange={(f) => noteFollowed(listing.id, f)}
+                />
+              )}
             </div>
           </div>
         </header>

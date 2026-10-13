@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Loader2, AlertCircle, ChevronLeft, Phone, Globe, Building2,
-  Store, Bookmark, BookmarkX, History, LogIn, ShieldCheck,
+  Store, Bookmark, BookmarkX, History, LogIn, ShieldCheck, Tag, Bell,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -43,6 +43,15 @@ interface Business {
   phone: string | null;
   website: string | null;
   savedAt?: string;
+}
+
+interface Deal {
+  id: string;
+  title: string;
+  body: string;
+  startsAt: string;
+  endsAt: string;
+  business: Business;
 }
 
 interface Enquiry {
@@ -65,6 +74,8 @@ export default function ExchangeAccount() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [saved, setSaved] = useState<Business[]>([]);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [following, setFollowing] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -82,12 +93,16 @@ export default function ExchangeAccount() {
       if (!auth) { setSignedIn(false); setLoading(false); return; }
       setSignedIn(true);
 
-      const [savedRes, enquiryRes] = await Promise.all([
+      const [savedRes, enquiryRes, dealRes, followRes] = await Promise.all([
         fetch(`${SERVER}/exchange/me/saved`, { headers: { Authorization: auth } }),
         fetch(`${SERVER}/exchange/me/enquiries`, { headers: { Authorization: auth } }),
+        fetch(`${SERVER}/exchange/me/deals`, { headers: { Authorization: auth } }),
+        fetch(`${SERVER}/exchange/me/following`, { headers: { Authorization: auth } }),
       ]);
       const savedBody = await savedRes.json().catch(() => ({}));
       const enquiryBody = await enquiryRes.json().catch(() => ({}));
+      const dealBody = await dealRes.json().catch(() => ({}));
+      const followBody = await followRes.json().catch(() => ({}));
 
       // Reported rather than swallowed: "you have saved nothing" is a lie with
       // consequences if the truth is that the read failed.
@@ -99,6 +114,14 @@ export default function ExchangeAccount() {
       setEnquiries(
         enquiryRes.ok && enquiryBody?.success && Array.isArray(enquiryBody.enquiries)
           ? enquiryBody.enquiries
+          : [],
+      );
+      setDeals(
+        dealRes.ok && dealBody?.success && Array.isArray(dealBody.deals) ? dealBody.deals : [],
+      );
+      setFollowing(
+        followRes.ok && followBody?.success && Array.isArray(followBody.following)
+          ? followBody.following
           : [],
       );
     } catch {
@@ -183,6 +206,70 @@ export default function ExchangeAccount() {
 
         {!loading && signedIn && !error && (
           <>
+            {/*
+              Deals first, because it is the only part of this page that can
+              have changed since the last visit. Saved businesses and history
+              are the same as they were; an offer that ends on Friday is not.
+            */}
+            <div className="bpxb-section">
+              <div className="bpxb-section-head">
+                <div className="bpxb-section-name">
+                  <Tag size={15} style={{ display: 'inline', marginRight: 6 }} />
+                  Deals from places you follow
+                </div>
+                <div className="bpxb-section-tag">
+                  {deals.length === 0 ? 'nothing on' : `${deals.length} on now`}
+                </div>
+              </div>
+
+              {deals.length === 0 ? (
+                <div className="bpxb-note">
+                  {following.length === 0
+                    ? 'Nothing here yet. On a claimed business\u2019s listing there is a "Get their deals" button — anything they run shows up here.'
+                    : 'None of the businesses you follow has a deal on at the moment.'}
+                </div>
+              ) : (
+                <div className="bpx-list">
+                  {deals.map((deal) => (
+                    <div key={deal.id} className="bpx-card">
+                      <div className="bpx-card-body bpxb-deal">
+                        <div className="bpxb-deal-title">{deal.title}</div>
+                        <div className="bpxb-deal-body">{deal.body}</div>
+                        <div className="bpxb-deal-when">
+                          {deal.business.name} · until {when(deal.endsAt)}
+                        </div>
+                        <div className="bpxb-contact">
+                          <a href={listingHref(deal.business.slug)}>
+                            <Building2 size={13} /> {deal.business.name}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── following ─────────────────────────────────────────────── */}
+            {following.length > 0 && (
+              <div className="bpxb-section">
+                <div className="bpxb-section-head">
+                  <div className="bpxb-section-name">
+                    <Bell size={15} style={{ display: 'inline', marginRight: 6 }} />
+                    Businesses you hear from
+                  </div>
+                  <div className="bpxb-section-tag">{following.length}</div>
+                </div>
+                <div className="bpxb-note">
+                  {following.map((b) => b.name).join(' · ')}
+                </div>
+                <div className="bpxb-note">
+                  To stop hearing from one, open its listing and press the
+                  button again. None of them is ever told who follows it.
+                </div>
+              </div>
+            )}
+
             {/* ── saved ─────────────────────────────────────────────────── */}
             <div className="bpxb-section">
               <div className="bpxb-section-head">
