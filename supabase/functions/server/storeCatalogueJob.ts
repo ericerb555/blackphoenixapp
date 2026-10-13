@@ -27,6 +27,7 @@ import * as kv from "./kv_store.tsx";
 import { Hono } from "npm:hono@4";
 import { registerStoreJob, askForGuidance, withdrawAsk, type StoreJobContext, type StoreJobResult } from "./storeAutonomy.ts";
 import { fetchCJVariantSnapshot, storedOrSecretKey as cjKey, CJ_ACCESS_DISABLED } from "./cjdropshipping.tsx";
+import { isAuthFailure, authFailureKind } from "./cjErrors.ts";
 import * as config from "./dropshipper-config.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import {
@@ -176,6 +177,31 @@ async function catalogueJob(ctx: StoreJobContext): Promise<StoreJobResult> {
           counts: { checked, delisted, relisted, repriced, asked: asked + 1, unknown },
         };
       }
+      /**
+       * An authentication failure ends the run, for the same reason a disabled
+       * account does: it is one problem with one fix, and it cannot be true of
+       * one product and false of the next.
+       *
+       * Before this, a replaced-but-wrong CJ key produced 123 errors on one
+       * sweep. The first said "APIkey is wrong, please check and try again";
+       * the other 122 were "Too Many Requests, QPS limit is 1 time/1second",
+       * because each product retried the same rejected credential against a
+       * limiter that allows one call a second. The one useful sentence arrived
+       * buried in rate-limit noise, and we spent the whole run telling CJ
+       * repeatedly that we had the wrong key.
+       */
+      if (isAuthFailure(message)) {
+        const kind = authFailureKind(message);
+        await askAboutAuthFailure(message, kind, checked, all.length);
+        return {
+          ran: false,
+          detail: kind === "bad-key"
+            ? `CJ rejected the API key, so nothing could be checked. Stopped at the first failure instead of retrying all ${all.length} — raised in the queue.`
+            : `CJ would not authenticate (${kind}), so nothing could be checked. Stopped at the first failure — raised in the queue.`,
+          counts: { checked, delisted, relisted, repriced, asked: asked + 1, unknown },
+        };
+      }
+
       problems.push(`${sku}: ${message.slice(0, 160)}`);
       continue;
     }
@@ -415,6 +441,59 @@ storeCatalogueRouter.put(`${PREFIX}/store/catalogue/policy`, async (c) => {
  * genuine alternative for somebody who has decided to stop selling CJ goods
  * rather than chase the account.
  */
+/**
+ * CJ would not authenticate at all — a different problem from a disabled
+ * account, and it needs a different instruction.
+ *
+ * A disabled account says "the key is fine, the permission is off, fix it on
+ * CJ's dashboard". This says "the credential itself is being rejected", and the
+ * single most useful thing to tell somebody is the SHAPE the key should have,
+ * because the way this happens in practice is pasting the wrong value — an MCP
+ * token, an access token, or a truncated copy — into the right box. A real CJ
+ * REST key looks like `CJ<usernum>@api@<32 hex characters>`.
+ *
+ * Deliberately a separate `dedupeKey` from the disabled-access ask. Collapsing
+ * them would mean a wrong key silently inheriting "I have turned it back on"
+ * as an answer, and the run would retry a credential nobody had corrected.
+ */
+async function askAboutAuthFailure(
+  message: string,
+  kind: "bad-key" | "rate-limited" | "other",
+  checked: number,
+  total: number,
+): Promise<void> {
+  const badKey = kind === "bad-key";
+  await askForGuidance({
+    job: "catalogue",
+    dedupeKey: `cj-auth-${kind}`,
+    question: badKey
+      ? "CJ is rejecting the API key. Can you check what is in CJ_API_KEY?"
+      : "CJ would not authenticate. Can you check the CJ credentials?",
+    because: badKey
+      ? "CJ answered \"APIkey is wrong, please check and try again\". A CJ REST API key looks like "
+        + "CJ<usernum>@api@<32 hex characters> — if an MCP token, an access token or a truncated paste "
+        + "went into the CJ_API_KEY secret, this is exactly what CJ returns. The secret is what the "
+        + "server reads; the copy in the provider record is only a fallback."
+      : `CJ refused to issue a token: ${message.slice(0, 200)}`,
+    wouldHaveDone:
+      `Nothing, and deliberately. The run stopped at the first failure after ${checked}/${total} products `
+      + "rather than retrying the same rejected credential against every remaining one — which previously "
+      + "produced 123 errors, 122 of them rate-limit noise, and told CJ 123 times that we had the wrong key.",
+    choices: [
+      {
+        key: "fixed",
+        label: "I have corrected the key — try again",
+        consequence: "The catalogue is checked on the next tick, and this question closes.",
+      },
+      {
+        key: "leave-it",
+        label: "Leave the store alone for now",
+        consequence: "Nothing is checked and nothing changes price. Ask again when the key is sorted.",
+      },
+    ],
+  });
+}
+
 async function askAboutDisabledAccess(message: string): Promise<void> {
   await askForGuidance({
     job: "catalogue",

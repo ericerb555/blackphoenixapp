@@ -70,3 +70,60 @@ export function isStaleToken(
   if (Number(payload.code) === CJ_BAD_TOKEN_CODE) return true;
   return /access[-\s]?token/i.test(String(payload.message ?? ''));
 }
+
+/**
+ * AUTHENTICATION IS A PROPERTY OF THE RUN, NOT OF A PRODUCT.
+ *
+ * `storeCatalogueJob` walks 123 products and calls CJ for each. It already
+ * stops the whole sweep when the account's API access is switched off — but a
+ * WRONG KEY was not covered, and that distinction cost an evening.
+ *
+ * What actually happened on 2026-10-13, after the CJ key was replaced: the
+ * first product reported `CJ authentication failed: APIkey is wrong, please
+ * check and try again`, and the loop carried on to the next product. The next
+ * 122 each tried to authenticate again, every one of them failed, and because
+ * CJ allows one request per second they came back as `Too Many Requests, QPS
+ * limit is 1 time/1second`. So the run produced 123 errors, 122 of them
+ * meaningless, with the one sentence that identified the real problem buried
+ * at the front of a wall of rate-limit noise.
+ *
+ * Retrying was never going to help. A key is either right or wrong for the
+ * whole account; it cannot be wrong for product A and right for product B. So
+ * the first authentication failure ends the run, which also stops us hammering
+ * a supplier's rate limiter with credentials we already know are rejected —
+ * a good way to get an account flagged on top of being useless.
+ *
+ * The prefix matched here is the one `getAccessToken` throws, so it is ours
+ * rather than CJ's prose.
+ */
+export const CJ_AUTH_FAILED_PREFIX = 'CJ authentication failed';
+
+export type CjAuthFailure = 'bad-key' | 'rate-limited' | 'other';
+
+/**
+ * Did this error come from authenticating, rather than from the product?
+ *
+ * A disabled account is excluded: it has its own marker, its own ask and its
+ * own instruction, and it is handled before this is reached. Treating it as a
+ * generic auth failure would lose the one message that says what to do.
+ */
+export function isAuthFailure(message: unknown): boolean {
+  const text = String(message ?? '');
+  if (text.startsWith(CJ_ACCESS_DISABLED)) return false;
+  return text.includes(CJ_AUTH_FAILED_PREFIX);
+}
+
+/**
+ * Which kind, so the run can say something useful rather than "it failed".
+ *
+ * `bad-key` needs a person to correct a credential. `rate-limited` is usually
+ * the SYMPTOM of a bad key on a multi-product sweep — the first call fails and
+ * the retries trip CJ's one-per-second limit — but it can also happen on its
+ * own, so it is reported separately rather than reworded into the other.
+ */
+export function authFailureKind(message: unknown): CjAuthFailure {
+  const text = String(message ?? '');
+  if (/api\s*key\s+is\s+wrong|wrong\s+api\s*key|invalid\s+api\s*key/i.test(text)) return 'bad-key';
+  if (/too\s+many\s+requests|qps\s+limit/i.test(text)) return 'rate-limited';
+  return 'other';
+}
