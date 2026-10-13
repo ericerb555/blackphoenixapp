@@ -431,6 +431,13 @@ export function RoleSwitcher() {
                 <p className="text-sm text-zinc-300 text-left">Deal review queue</p>
               </button>
               <button
+                onClick={() => { setIsOpen(false); navigate('exchange-towns'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <MapPin className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Towns &amp; coverage</p>
+              </button>
+              <button
                 onClick={() => { setIsOpen(false); navigate('exchange-claim-review'); }}
                 className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
               >

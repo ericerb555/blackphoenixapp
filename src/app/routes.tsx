@@ -177,6 +177,7 @@ const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
 const ExchangeAccount = lazy(() => import("./pages/ExchangeAccount"));
 const ExchangePlaces = lazy(() => import("./pages/ExchangePlaces"));
+const ExchangeTowns = lazy(() => import("./pages/ExchangeTowns"));
 const ExchangeBusinessDeals = lazy(() => import("./pages/ExchangeBusinessDeals"));
 const ExchangeDealReview = lazy(() => import("./pages/ExchangeDealReview"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
@@ -667,6 +668,14 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    * accident learns why instead of filing a bug.
    */
   "exchange-deal-review":    ExchangeDealReview,
+  /**
+   * Where the Exchange operates, and opening somewhere new.
+   *
+   * Staff only, and deliberately NOT in App's public route list. Opening a
+   * town compiles hundreds of real businesses; every route behind this screen
+   * refuses a non-staff caller server-side.
+   */
+  "exchange-towns":          ExchangeTowns,
   /**
    * Staff only, and deliberately NOT in App's public route list.
    *
