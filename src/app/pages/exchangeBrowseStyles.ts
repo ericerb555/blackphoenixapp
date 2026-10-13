@@ -195,4 +195,35 @@ export const BROWSE_CSS = `
 .bpxb-form textarea { min-height:96px; resize:vertical; }
 .bpxb-form-row { display:flex; gap:10px; flex-wrap:wrap; }
 .bpxb-form-row > label { flex:1 1 170px; }
+
+/* ── the town switcher and the category list ──────────────────────────────── */
+.bpxb-towns { display:flex; gap:6px; flex-wrap:wrap; }
+.bpxb-town { min-height:32px; padding:0 12px; border-radius:10px; cursor:pointer;
+  font-size:12.5px; font-weight:650; border:1px solid var(--bpx-line);
+  background:rgba(255,255,255,.03); color:var(--bpx-dim); }
+.bpxb-town:hover { border-color:var(--bpx-line-lit); color:var(--bpx-text); }
+.bpxb-town[data-current="true"] { border-color:rgba(234,88,12,.55);
+  background:rgba(234,88,12,.12); color:#fdba74; }
+
+/* Horizontally scrollable rather than wrapped into a wall: Manchester has
+   fifty-two categories, and a block of fifty-two buttons above the list
+   would push the businesses off the screen entirely. */
+.bpxb-chips { display:flex; gap:7px; overflow-x:auto; padding-bottom:4px;
+  scrollbar-width:thin; }
+.bpxb-chip { flex:0 0 auto; min-height:32px; padding:0 12px; border-radius:999px;
+  cursor:pointer; font-size:12.5px; font-weight:650; white-space:nowrap;
+  border:1px solid var(--bpx-line); background:rgba(255,255,255,.03);
+  color:var(--bpx-dim); }
+.bpxb-chip:hover { border-color:var(--bpx-line-lit); color:var(--bpx-text); }
+.bpxb-chip[data-current="true"] { border-color:rgba(234,88,12,.55);
+  background:rgba(234,88,12,.14); color:#fdba74; }
+
+/* ── the way in to the map, from the directory ────────────────────────────── */
+.bpxb-mapdoor { display:flex; align-items:center; gap:12px; text-decoration:none;
+  border:1px solid rgba(234,88,12,.4); border-radius:15px; padding:14px;
+  background:linear-gradient(90deg, rgba(234,88,12,.14), rgba(234,88,12,.04));
+  color:inherit; transition:border-color .16s; }
+.bpxb-mapdoor:hover { border-color:rgba(234,88,12,.75); }
+.bpxb-mapdoor-text { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.bpxb-mapdoor-title { font-size:15px; font-weight:750; letter-spacing:-.01em; }
 `;

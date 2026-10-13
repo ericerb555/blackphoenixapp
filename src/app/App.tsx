@@ -510,6 +510,9 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      */
     'exchange',
     'exchange-category',
+    // The map of a whole town. Public for the same reason as the tree
+    // above it: a resident looking for a shop has no account.
+    'exchange-places',
     /**
      * The claim screen. Reachable without a session so an owner can read what
      * claiming involves before signing in; the screen itself asks them to sign

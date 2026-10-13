@@ -173,6 +173,25 @@ export default function ExchangeDirectory() {
           ))}
         </div>
 
+        {/*
+          The way on to the map, above the category tree rather than below it.
+
+          "What is near me" is the question most residents arrive with, and the
+          tree asks them to pick a trade before showing them anything. This page
+          stays the crawlable list of categories and names — that is what earns
+          the search traffic, and a map has nothing in it for a crawler to read
+          — but a resident should not have to work that out.
+        */}
+        <a className="bpxb-mapdoor" href="/exchange-places">
+          <MapPin size={22} color="#fdba74" style={{ flexShrink: 0 }} />
+          <span className="bpxb-mapdoor-text">
+            <span className="bpxb-mapdoor-title">See what is near you</span>
+            <span className="bpxb-note">
+              Every business on a map, nearest first — no category needed
+            </span>
+          </span>
+        </a>
+
         {loading && (
           <div className="bpx-empty">
             <Loader2 size={24} className="animate-spin" color="#9ca3af" />

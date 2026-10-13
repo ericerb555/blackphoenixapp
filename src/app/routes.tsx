@@ -176,6 +176,7 @@ const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
 const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
 const ExchangeAccount = lazy(() => import("./pages/ExchangeAccount"));
+const ExchangePlaces = lazy(() => import("./pages/ExchangePlaces"));
 const ExchangeBusinessDeals = lazy(() => import("./pages/ExchangeBusinessDeals"));
 const ExchangeDealReview = lazy(() => import("./pages/ExchangeDealReview"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
@@ -624,6 +625,16 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    */
   "exchange":                ExchangeDirectory,
   "exchange-category":       ExchangeCategory,
+  /**
+   * The map as a destination: every business in a town, nearest first, no
+   * category needed. Public for the same reason as the rest of the browse
+   * surface — a resident looking for a shop has no account.
+   *
+   * It does NOT replace `exchange`. That page is the crawlable tree of
+   * categories and names the free-traffic plan rests on; a map is a canvas
+   * with nothing in it for a crawler to read. This sits beside it.
+   */
+  "exchange-places":         ExchangePlaces,
   /**
    * Claiming a listing. Public in the route sense — a business owner arrives
    * from their own listing page, often without an account yet — and the screen

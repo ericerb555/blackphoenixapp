@@ -173,6 +173,132 @@ function publicListing(row: any, categories: any[]) {
   };
 }
 
+// ── everything on the map, across categories ─────────────────────────────────
+
+/**
+ * Every placeable business in a town, whatever it does.
+ *
+ * WHY THIS ROUTE HAD TO EXIST
+ *
+ * Until now a map could only be drawn once a resident had chosen a category,
+ * which is backwards: "what is near me" is the question people arrive with,
+ * and "plumbers" is an answer they work towards. The browse surface asks them
+ * to pick a trade before showing them anything on a map.
+ *
+ * WHY IT RETURNS A TOWN RATHER THAN A RADIUS
+ *
+ * A radius query would need the resident's coordinates, and the whole point of
+ * the distance work in `exchangeGeo.ts` is that their position never leaves
+ * their browser. So the server answers "this town" and the browser does the
+ * measuring. The resident sorts and filters locally, from data that was going
+ * to be sent anyway, and nothing about where they are is ever transmitted.
+ *
+ * That is a real trade and worth naming: somebody near a town boundary will
+ * not see the shop two miles away in the next town until they switch towns.
+ * The alternative buys a better answer by collecting the one piece of data
+ * this directory has promised not to collect, which is not a trade worth
+ * making for a shorter list.
+ *
+ * WHY THE FIELDS ARE FEWER THAN THE CATEGORY ROUTE'S
+ *
+ * Manchester alone is nearly nine hundred businesses. This sends what a pin
+ * and a list row need and nothing else; a resident who wants the phone number
+ * opens the listing, which is one request for one business rather than nine
+ * hundred phone numbers nobody asked for.
+ */
+const NEARBY_LIMIT = 1500;
+
+exchangeDirectory.get("/exchange/nearby", async (c) => {
+  const territory = String(c.req.query("territory") ?? "").trim();
+
+  try {
+    const sb = service();
+
+    // Validated against the real list, so a hand-edited value cannot become a
+    // query that quietly matches nothing and reads as "no businesses here".
+    if (territory) {
+      const known = must(
+        await sb.from("exchange_territory").select("slug").eq("slug", territory).maybeSingle(),
+        "checking that town",
+      );
+      if (!known) return c.json({ success: false, error: "No such town." }, 404);
+    }
+
+    const embeds = ["organization_category!inner ( category_id )"];
+    if (territory) embeds.push("organization_territory!inner ( territory_slug )");
+
+    let query = sb.from("organizations")
+      .select([
+        "id, slug, name, type, status, claim_state, service_lat, service_lng",
+        ...embeds,
+      ].join(", "))
+      .not("service_lat", "is", null)
+      .not("service_lng", "is", null)
+      .limit(NEARBY_LIMIT);
+
+    if (territory) query = query.eq("organization_territory.territory_slug", territory);
+
+    const rows = must(await query, "reading the businesses here") as any[];
+
+    // An inner join on categories multiplies a business by its categories, so
+    // the same listing arrives more than once. Collapsed here, keeping every
+    // category id, because the category list beside the map is built from them.
+    const byId = new Map<string, any>();
+    for (const row of rows ?? []) {
+      if (!row || row.status !== "active" || !PUBLIC_ORG_TYPES.includes(String(row.type))) continue;
+      const seen = byId.get(row.id);
+      const categoryId = row.organization_category?.category_id
+        ?? (Array.isArray(row.organization_category) ? row.organization_category[0]?.category_id : null);
+      if (seen) {
+        if (categoryId) seen.categoryIds.add(categoryId);
+        continue;
+      }
+      byId.set(row.id, {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        claimed: String(row.claim_state ?? "") === "claimed",
+        location: { lat: Number(row.service_lat), lng: Number(row.service_lng) },
+        categoryIds: new Set(categoryId ? [categoryId] : []),
+      });
+    }
+
+    const places = [...byId.values()].map((p) => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+      claimed: p.claimed,
+      location: p.location,
+      categoryIds: [...p.categoryIds],
+    }));
+
+    // The categories actually present, so the list beside the map offers only
+    // doors that open onto something.
+    const presentIds = new Set(places.flatMap((p) => p.categoryIds));
+    const categories = presentIds.size
+      ? must(
+        await sb.from("exchange_category")
+          .select("id, slug, name, section_slug")
+          .in("id", [...presentIds])
+          .eq("status", "active"),
+        "reading the categories",
+      ) as any[]
+      : [];
+
+    return c.json({
+      success: true,
+      territory: territory || null,
+      // Said out loud: a capped list that looks complete is worse than a short
+      // one that admits it.
+      truncated: (rows ?? []).length >= NEARBY_LIMIT,
+      places,
+      categories,
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as Error).message) }, 500);
+  }
+});
+
 // ── the basemap ──────────────────────────────────────────────────────────────
 
 /**
