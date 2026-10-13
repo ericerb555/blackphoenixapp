@@ -254,6 +254,120 @@ function PriceSource({ source, vendor }: { source?: string; vendor?: string }) {
   );
 }
 
+/**
+ * What makes the total defensible, and what the estimator was told.
+ *
+ * The engine has always returned soft costs, overhead, profit, contingency and
+ * tax as separate figures — that separation is most of what makes it an
+ * estimator rather than a number generator. The editor showed a total and none
+ * of its basis, so a customer asking "what is this built from" could be
+ * answered only by somebody rebuilding the arithmetic by hand.
+ *
+ * `estimatorContext` is the second half: the composed brief, fields and
+ * exclusions exactly as the model received them. When a figure looks wrong the
+ * first question is always what went in, and before this the only way to answer
+ * it was to find the request in the edge function's logs. It is shown verbatim —
+ * a summary would be a second description of the job that could disagree with
+ * the one the model actually saw.
+ *
+ * Collapsed by default. This is the panel you open when you doubt a number, not
+ * something to read on the way to sending a quote.
+ */
+function QuoteBasis({ quote }: { quote: any }) {
+  const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
+  const has = (n: any) => Number(n) > 0;
+
+  const softCosts: any[] = Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : [];
+  const rows: Array<[string, any, string?]> = [
+    ['Materials', quote?.materialsSubtotal],
+    ['Labour', quote?.laborSubtotal],
+    ['Soft costs', quote?.additionalCostsSubtotal ?? softCosts.reduce((s, a) => s + (Number(a?.amount) || 0), 0)],
+    ['Overhead', quote?.overheadAmount, quote?.overheadPercent ? `${quote.overheadPercent}%` : ''],
+    ['Profit', quote?.profitAmount, quote?.profitPercent ? `${quote.profitPercent}%` : ''],
+    ['Contingency', quote?.contingencyAmount, quote?.contingencyPercent ? `${quote.contingencyPercent}%` : ''],
+    ['Tax on materials', quote?.taxAmount, quote?.taxRate ? `${(Number(quote.taxRate) * 100).toFixed(2)}%` : ''],
+  ];
+  const shown = rows.filter(([, value]) => has(value));
+
+  // Nothing to explain means nothing to show. A hand-built quote has no
+  // estimator basis, and an empty panel headed "how this was built" would
+  // promise an answer it does not have.
+  if (!shown.length && !softCosts.length && !quote?.aiEstimatorContext && !quote?.aiAssumptions?.length) return null;
+
+  return (
+    <details className="mt-4 bg-black/20 border border-gray-700 rounded-lg">
+      <summary className="px-4 py-3 cursor-pointer font-semibold text-gray-300 hover:bg-white/5 rounded-t-lg">
+        How this quote was built
+        <span className="ml-2 text-xs font-normal text-gray-500">
+          the markups, the soft costs, and what the estimator was told
+        </span>
+      </summary>
+
+      <div className="space-y-4 p-4">
+        {shown.length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-medium text-gray-400">The total, broken out</div>
+            <div className="rounded border border-gray-700 bg-black/40 text-sm">
+              {shown.map(([label, value, pct]) => (
+                <div key={label} className="flex items-center justify-between border-b border-gray-800 px-3 py-1.5 last:border-b-0">
+                  <span className="text-gray-400">
+                    {label}
+                    {pct ? <span className="ml-1 text-gray-600">({pct})</span> : null}
+                  </span>
+                  <span className="font-medium text-gray-200">{money(value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {softCosts.length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-medium text-gray-400">
+              Soft costs — the lines that get forgotten
+            </div>
+            <div className="space-y-1">
+              {softCosts.map((a: any, i: number) => (
+                <div key={a?.id || i} className="flex items-start justify-between rounded border border-gray-800 bg-black/40 px-3 py-1.5 text-xs">
+                  <div>
+                    <span className="text-gray-200">{a?.name || 'Additional cost'}</span>
+                    {a?.category ? <span className="ml-1 text-gray-600">· {a.category}</span> : null}
+                    {a?.description ? <div className="text-gray-500">{a.description}</div> : null}
+                  </div>
+                  <span className="shrink-0 font-medium text-gray-200">{money(a?.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Array.isArray(quote?.aiAssumptions) && quote.aiAssumptions.length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-medium text-gray-400">
+              Assumptions the estimator made
+            </div>
+            <ul className="list-disc space-y-0.5 pl-5 text-xs text-gray-400">
+              {quote.aiAssumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {quote?.aiEstimatorContext && (
+          <div>
+            <div className="mb-1 text-xs font-medium text-gray-400">
+              What the estimator was told
+              <span className="ml-1 font-normal text-gray-600">— word for word</span>
+            </div>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-gray-800 bg-black/60 p-3 text-[11px] leading-relaxed text-gray-400">
+              {quote.aiEstimatorContext}
+            </pre>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function QuoteToContractEditor({
   workRequest,
   onClose,
@@ -1500,6 +1614,19 @@ export function QuoteToContractEditor({
                             </div>
                             <div className="text-xs text-gray-400">
                               {material.quantity} {material.unit} × ${(material.unitCost || material.unitPrice || 0).toFixed(2)}
+                              {/*
+                                Waste, shown because it is part of the quantity
+                                somebody is being charged for. The engine applies
+                                an industry factor per material type — 10% on
+                                lumber, 12% on tile — and a customer asking "why
+                                am I paying for 1.1 of what I need" deserves the
+                                answer on the line rather than in a footnote.
+                              */}
+                              {Number((material as any).wasteFactor) > 0 ? (
+                                <span className="ml-1 text-gray-500">
+                                  · incl. {Math.round(Number((material as any).wasteFactor) * 100)}% waste
+                                </span>
+                              ) : null}
                             </div>
                           </div>
                           <div className="text-blue-400 font-bold">
@@ -1530,10 +1657,23 @@ export function QuoteToContractEditor({
                             </div>
                             <div className="text-xs text-gray-400">
                               {labor.hours} hours × ${(labor.hourlyRate || labor.unitPrice || 0).toFixed(2)}/hr
+                              {/*
+                                Crew size, because hours alone are ambiguous:
+                                forty hours is one person for a week or four for
+                                a day, and those are different schedules for the
+                                same money. The engine reasons about crew size to
+                                reach its hours, so the figure exists.
+                              */}
+                              {Number((labor as any).crewSize) > 0 ? (
+                                <span className="ml-1 text-gray-500">· crew of {Number((labor as any).crewSize)}</span>
+                              ) : null}
                               {(labor as any).hoursSource === 'measured' ? (
                                 <span className="ml-1 text-emerald-400">· hours corrected from finished jobs</span>
                               ) : null}
                             </div>
+                            {(labor as any).productivityNote ? (
+                              <div className="mt-0.5 text-[11px] text-gray-500">{(labor as any).productivityNote}</div>
+                            ) : null}
                           </div>
                           <div className="text-purple-400 font-bold">
                             ${(labor.totalCost || labor.totalPrice || 0).toFixed(2)}
@@ -1543,6 +1683,8 @@ export function QuoteToContractEditor({
                     )}
                   </div>
                 </details>
+
+                <QuoteBasis quote={currentQuote} />
               </div>
 
               {/* Quote Edit Tabs */}

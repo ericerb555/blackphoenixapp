@@ -571,6 +571,20 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     return c.json({
       success: true,
       usedAI,
+      /**
+       * What the estimator was actually told.
+       *
+       * Returned so a number can be questioned without reading server logs.
+       * When a quote looks wrong the first question is always what went in —
+       * which fields were filled, what the brief said, what was excluded — and
+       * until now the only way to answer it was to find the request in the
+       * function's output.
+       *
+       * It is the composed context verbatim, not a summary of it. A summary
+       * would be a second description of the job that could disagree with the
+       * one the model saw, which is the opposite of the point.
+       */
+      estimatorContext: extra || null,
       materials: estimate.materials,
       labor: estimate.labor,
       processSteps: estimate.processSteps,

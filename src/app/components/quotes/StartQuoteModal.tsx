@@ -138,6 +138,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
          * would defeat the point of it.
          */
         priceSummary?: { note?: string; confidence?: number; onYourFigures?: number; settingsAreStandard?: boolean } | null;
+        estimatorContext?: string | null;
       } = {};
 
       try {
@@ -217,6 +218,8 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
               assumptions: data.assumptions,
               regionalNote: data.regionalNote,
               priceSummary: data.priceSummary ?? null,
+              // Kept so the editor can show what the estimator was told. Verbatim.
+              estimatorContext: data.estimatorContext ?? null,
             };
           }
         } else {
@@ -253,6 +256,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         aiConfidence: aiMeta.confidence,
         aiSummary: aiMeta.summary,
         aiAssumptions: aiMeta.assumptions,
+        aiEstimatorContext: aiMeta.estimatorContext,
         aiRegionalNote: aiMeta.regionalNote,
 
         /**
