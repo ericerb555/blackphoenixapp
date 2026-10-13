@@ -62,6 +62,30 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
     title: '',
     description: '',
     estimatedValue: '',
+    // The job
+    propertyType: '',
+    workNature: '',
+    // The place
+    unitCount: '',
+    storeys: '',
+    accessNotes: '',
+    // The size — the numbers a takeoff needs
+    squareFootage: '',
+    linearFootage: '',
+    roomCount: '',
+    ceilingHeight: '',
+    // The conditions
+    occupancy: '',
+    parking: '',
+    stairsOrLift: '',
+    workingHours: '',
+    // The timing
+    urgency: '',
+    preferredWindow: '',
+    deadline: '',
+    // What he actually wants, in his own words
+    brief: '',
+    exclusions: '',
   });
 
   const update = (key: keyof typeof form, value: string) =>
@@ -124,6 +148,15 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             method: 'POST',
             headers: await authedHeaders(),
             body: JSON.stringify({
+              /**
+               * Everything that was typed, sent as it was typed.
+               *
+               * The server composes this into the estimator's context block —
+               * fixed section order, blank fields omitted rather than sent as
+               * "unknown", and `brief` passed through verbatim. Nothing is
+               * summarised here, because the detail in the brief is the part
+               * only the person who saw the job can supply.
+               */
               workRequest: {
                 id: requestId,
                 title: form.title,
@@ -131,6 +164,30 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
                 description: form.description,
                 location: form.location,
                 estimatedValue: Number(form.estimatedValue) || undefined,
+
+                propertyType: form.propertyType || undefined,
+                workNature: form.workNature || undefined,
+
+                unitCount: form.unitCount || undefined,
+                storeys: form.storeys || undefined,
+                accessNotes: form.accessNotes || undefined,
+
+                squareFootage: form.squareFootage || undefined,
+                linearFootage: form.linearFootage || undefined,
+                roomCount: form.roomCount || undefined,
+                ceilingHeight: form.ceilingHeight || undefined,
+
+                occupancy: form.occupancy || undefined,
+                parking: form.parking || undefined,
+                stairsOrLift: form.stairsOrLift || undefined,
+                workingHours: form.workingHours || undefined,
+
+                urgency: form.urgency || undefined,
+                preferredWindow: form.preferredWindow || undefined,
+                deadline: form.deadline || undefined,
+
+                brief: form.brief || undefined,
+                exclusions: form.exclusions || undefined,
               },
             }),
           },
@@ -464,6 +521,88 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
               className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
             />
           </div>
+
+          {/*
+            Everything below is optional and the estimator is told nothing about
+            a field left blank — an empty box sent as "unknown" would be a claim
+            about the job rather than silence. So filling none of this is
+            exactly as good as before, and filling any of it is better.
+          */}
+          <details className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-300">
+              Job details — the numbers a takeoff needs
+              <span className="ml-2 text-xs font-normal text-gray-500">optional, and all of it improves the estimate</span>
+            </summary>
+            <div className="space-y-4 border-t border-[#2A2A2A] p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <SmallField label="Square footage" value={form.squareFootage} onChange={(v) => update('squareFootage', v)} placeholder="320" />
+                <SmallField label="Linear footage" value={form.linearFootage} onChange={(v) => update('linearFootage', v)} placeholder="72" />
+                <SmallField label="Ceiling height (ft)" value={form.ceilingHeight} onChange={(v) => update('ceilingHeight', v)} placeholder="9" />
+                <SmallField label="Rooms" value={form.roomCount} onChange={(v) => update('roomCount', v)} placeholder="1" />
+                <SmallField label="Units covered" value={form.unitCount} onChange={(v) => update('unitCount', v)} placeholder="1" />
+                <SmallField label="Storeys" value={form.storeys} onChange={(v) => update('storeys', v)} placeholder="2" />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SmallField label="Property type" value={form.propertyType} onChange={(v) => update('propertyType', v)} placeholder="Single family, condo, commercial…" />
+                <SmallField label="New work or a rebuild?" value={form.workNature} onChange={(v) => update('workNature', v)} placeholder="Replacing an existing deck" />
+                <SmallField label="Occupancy" value={form.occupancy} onChange={(v) => update('occupancy', v)} placeholder="Occupied / vacant" />
+                <SmallField label="Parking and staging" value={form.parking} onChange={(v) => update('parking', v)} placeholder="Driveway, no street parking" />
+                <SmallField label="Stairs or lift" value={form.stairsOrLift} onChange={(v) => update('stairsOrLift', v)} placeholder="Third floor, stairs only" />
+                <SmallField label="Working hours allowed" value={form.workingHours} onChange={(v) => update('workingHours', v)} placeholder="8–4 weekdays" />
+                <SmallField label="Urgency" value={form.urgency} onChange={(v) => update('urgency', v)} placeholder="Within a month" />
+                <SmallField label="Preferred window" value={form.preferredWindow} onChange={(v) => update('preferredWindow', v)} placeholder="Late October" />
+                <SmallField label="Hard deadline" value={form.deadline} onChange={(v) => update('deadline', v)} placeholder="Before the first frost" />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-300">Access notes</label>
+                <textarea
+                  value={form.accessNotes}
+                  onChange={(e) => update('accessNotes', e.target.value)}
+                  rows={2}
+                  placeholder="Side gate is narrow, no truck access to the back"
+                  className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+                />
+              </div>
+            </div>
+          </details>
+
+          {/*
+            The brief. Passed to the estimator verbatim and marked as the most
+            authoritative description of the job, so where it contradicts a
+            field above, it wins. This is the field worth filling in.
+          */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-300">
+              Tell the estimator exactly what you want
+              <span className="ml-2 text-xs font-normal text-orange-400">the most useful thing on this form</span>
+            </label>
+            <textarea
+              value={form.brief}
+              onChange={(e) => update('brief', e.target.value)}
+              rows={7}
+              placeholder={'Write it as you would explain it to a foreman. Materials you want, construction you expect, what is already there and staying, anything awkward about the job.\n\nE.g. 16x20 deck, pressure-treated frame, composite surface, hidden fasteners. Existing footings are sound and stay. Replacing the slider at the same time. Railing to match the front porch.'}
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Sent word for word, and it outranks the fields above where they disagree.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-300">Leave out of the quote</label>
+            <textarea
+              value={form.exclusions}
+              onChange={(e) => update('exclusions', e.target.value)}
+              rows={2}
+              placeholder="No demolition. Customer is supplying the tile. Permit is already pulled."
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              These are not priced, not listed, and not added back as assumptions.
+            </p>
+          </div>
         </div>
 
         {/* Footer */}
@@ -484,6 +623,34 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A plain labelled input for the optional job details.
+ *
+ * Separate from `Field` because that one carries an icon and a required marker
+ * and is built for the customer block at the top. These are nine small boxes in
+ * a grid, where an icon each would be noise rather than help.
+ *
+ * Every one of them is free text on purpose, including the measurements. The
+ * server reads a number out of whatever is typed, so "1,250 sq ft" and "9'" both
+ * work — a numeric input that rejected those would make somebody retype what
+ * they already knew.
+ */
+function SmallField({
+  label, value, onChange, placeholder,
+}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-gray-400">{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+      />
     </div>
   );
 }

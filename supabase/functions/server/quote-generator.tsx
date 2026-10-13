@@ -21,6 +21,7 @@ import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
+import { composeEstimatorContext } from './quoteBrief.ts';
 
 const quoteRouter = new Hono();
 
@@ -463,11 +464,18 @@ quoteRouter.post('/generate-quote', async (c) => {
     const body = await c.req.json();
     const { serviceType, description, workRequestData } = body;
 
-    const extraParts: string[] = [];
-    if (workRequestData?.complexityLevel) extraParts.push(`Complexity: ${workRequestData.complexityLevel}`);
-    if (workRequestData?.duration) extraParts.push(`Rough duration estimate: ${workRequestData.duration} hours`);
-    if (workRequestData?.requiresPermit != null) extraParts.push(`Requires permit: ${workRequestData.requiresPermit ? 'Yes' : 'No'}`);
-    if (workRequestData?.equipment?.length) extraParts.push(`Equipment needed: ${workRequestData.equipment.join(', ')}`);
+    // The composed context, plus the three things this older route has always
+    // carried that the newer shape has no field for. Kept because callers still
+    // send them and dropping them would quietly make this route's estimates
+    // worse than they were.
+    const legacyParts: string[] = [];
+    if (workRequestData?.complexityLevel) legacyParts.push(`Complexity: ${workRequestData.complexityLevel}`);
+    if (workRequestData?.duration) legacyParts.push(`Rough duration estimate: ${workRequestData.duration} hours`);
+    if (workRequestData?.requiresPermit != null) legacyParts.push(`Requires permit: ${workRequestData.requiresPermit ? 'Yes' : 'No'}`);
+    if (workRequestData?.equipment?.length) legacyParts.push(`Equipment needed: ${workRequestData.equipment.join(', ')}`);
+    const extra = [composeEstimatorContext({ ...(workRequestData || {}), serviceType, ...(body || {}) }), legacyParts.join('\n')]
+      .filter(Boolean)
+      .join('\n\n');
 
     // Priced with the company's own numbers, for the same reason as the route
     // above: this one was also calling the estimator bare.
@@ -479,7 +487,7 @@ quoteRouter.post('/generate-quote', async (c) => {
         description,
         location: body.location || workRequestData?.location,
         estimatedValue: body.estimatedValue ?? workRequestData?.estimatedValue,
-        extra: extraParts.join('\n'),
+        extra,
       },
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
@@ -511,15 +519,16 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     const { workRequest } = body;
     if (!workRequest) return c.json({ success: false, error: 'Work request data is required' }, 400);
 
-    const extraParts: string[] = [];
-    if (workRequest.blueprintAnalysis) {
-      const b = workRequest.blueprintAnalysis;
-      extraParts.push('Blueprint analysis available:');
-      if (b.rooms?.length) extraParts.push(`- Rooms identified: ${b.rooms.length} (${b.rooms.map((r: any) => r.name || r.type).filter(Boolean).join(', ')})`);
-      if (b.squareFootage) extraParts.push(`- Total square footage: ${b.squareFootage}`);
-      if (b.materials?.length) extraParts.push(`- AI-suggested materials: ${b.materials.length}`);
-      if (b.estimatedCosts?.total) extraParts.push(`- Prior AI cost estimate: $${Number(b.estimatedCosts.total).toLocaleString()}`);
-    }
+    /**
+     * Everything the caller knows, composed once.
+     *
+     * This used to build a short block from the blueprint analysis alone, so
+     * the size of the job, the access, the conditions, the timing and anything
+     * the contractor actually wanted to say never reached the model. The
+     * composition lives in `quoteBrief.ts` — fixed section order, blank fields
+     * omitted rather than sent as "unknown", and the brief passed verbatim.
+     */
+    const extra = composeEstimatorContext(workRequest);
 
     /**
      * Priced with the company's own numbers, not the model's.
@@ -543,7 +552,7 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
         description: workRequest.description,
         location: workRequest.location,
         estimatedValue: workRequest.estimatedValue,
-        extra: extraParts.join('\n'),
+        extra,
       },
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
