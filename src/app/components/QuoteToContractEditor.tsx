@@ -200,6 +200,60 @@ interface QuoteToContractEditorProps {
   onConvertToContract: (request: WorkRequest) => void;
 }
 
+/**
+ * Where one line's price came from.
+ *
+ * The server has always known this. `repriceEstimate` marks every material and
+ * every labour line `catalogue`, `your-rate`, `standard` or `estimated` as it
+ * replaces the model's invented figures with the company's real ones — and this
+ * editor rendered none of it, so the one fact that decides whether a quote can
+ * be sent as it stands reached nobody.
+ *
+ * The distinction that matters most is the last one. A line marked `estimated`
+ * is the model's guess because nothing in the catalogue matched it; that is the
+ * line to check before the quote goes out. A line marked `catalogue` is a price
+ * a vendor is actually offering today.
+ *
+ * `standard` is deliberately not dressed up as the company's own: it means the
+ * built-in published rate table was used because no rate had been saved. Saying
+ * "your rate" there would be a quiet lie about whose number it is.
+ *
+ * Nothing is rendered when a line carries no source — a hand-added line has no
+ * provenance to report, and an invented badge would be worse than none.
+ */
+function PriceSource({ source, vendor }: { source?: string; vendor?: string }) {
+  if (!source) return null;
+  const styles: Record<string, { label: string; cls: string; title: string }> = {
+    catalogue: {
+      label: vendor ? vendor : 'catalogue',
+      cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+      title: 'Priced from a vendor catalogue offer',
+    },
+    'your-rate': {
+      label: 'your rate',
+      cls: 'bg-teal-500/10 text-teal-300 border-teal-500/30',
+      title: "Priced from your company's saved labour rate",
+    },
+    standard: {
+      label: 'standard rate',
+      cls: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
+      title: 'Priced from the built-in standard table — no rate of your own is saved for this trade',
+    },
+    estimated: {
+      label: 'estimated',
+      cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+      title: 'The model\'s own figure — nothing in your catalogue or rates matched this line. Check it before sending.',
+    },
+  };
+  const s = styles[source];
+  if (!s) return null;
+  return (
+    <span title={s.title} className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
+      {s.label}
+    </span>
+  );
+}
+
 export function QuoteToContractEditor({
   workRequest,
   onClose,
@@ -1440,7 +1494,10 @@ export function QuoteToContractEditor({
                       currentQuote.materials.map((material) => (
                         <div key={material.id} className="flex items-center justify-between py-2 px-3 bg-black/40 border border-gray-700 rounded">
                           <div className="flex-1">
-                            <div className="font-semibold text-white text-sm">{material.name || material.description}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-semibold text-white text-sm">{material.name || material.description}</div>
+                              <PriceSource source={(material as any).source} vendor={(material as any).supplier || (material as any).vendor} />
+                            </div>
                             <div className="text-xs text-gray-400">
                               {material.quantity} {material.unit} × ${(material.unitCost || material.unitPrice || 0).toFixed(2)}
                             </div>
@@ -1467,9 +1524,15 @@ export function QuoteToContractEditor({
                       currentQuote.labor.map((labor) => (
                         <div key={labor.id} className="flex items-center justify-between py-2 px-3 bg-black/40 border border-gray-700 rounded">
                           <div className="flex-1">
-                            <div className="font-semibold text-white text-sm">{labor.role || labor.description}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-semibold text-white text-sm">{labor.role || labor.description}</div>
+                              <PriceSource source={(labor as any).source} />
+                            </div>
                             <div className="text-xs text-gray-400">
                               {labor.hours} hours × ${(labor.hourlyRate || labor.unitPrice || 0).toFixed(2)}/hr
+                              {(labor as any).hoursSource === 'measured' ? (
+                                <span className="ml-1 text-emerald-400">· hours corrected from finished jobs</span>
+                              ) : null}
                             </div>
                           </div>
                           <div className="text-purple-400 font-bold">
