@@ -16,9 +16,11 @@
  * harness.
  *
  * So: nothing is imported until the container is actually scrolled into view,
- * and nothing is attempted at all when no basemap is configured. The import
- * lives inside an effect, which also means a failure to load it is a state
- * this component can render rather than an error that takes the page down.
+ * and the style URL is not even asked for until then — the tile key is a
+ * Supabase secret, so that is a network round trip and most visitors to a
+ * category page never scroll this far. The import lives inside an effect,
+ * which also means a failure to load it is a state this component can render
+ * rather than an error that takes the page down.
  *
  * WHY EVERY FAILURE HAS A VISIBLE STATE
  *
@@ -43,7 +45,7 @@ import { MapPin, Plus, Minus, Crosshair, AlertCircle, Loader2 } from 'lucide-rea
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Point } from '../../lib/exchangeGeo';
 import { boundsOf } from '../../lib/exchangeGeo';
-import { mapStyleUrl, MAP_ATTRIBUTION } from '../../config/mapTiles';
+import { fetchBasemapConfig, MAP_ATTRIBUTION } from '../../config/mapTiles';
 
 export interface MapPinData {
   id: string;
@@ -89,8 +91,9 @@ export default function ExchangeMap({
   const map = useRef<any>(null);
   const hereMarker = useRef<any>(null);
   const [status, setStatus] = useState<Status>({ kind: 'waiting' });
-
-  const styleUrl = useMemo(() => mapStyleUrl(), []);
+  /* Whatever credit the server names, so swapping tile provider does not need
+     a change here. */
+  const [credit, setCredit] = useState(MAP_ATTRIBUTION);
 
   /** The pins as GeoJSON. Recomputed whenever the search or the set changes. */
   const collection = useMemo(() => ({
@@ -117,7 +120,6 @@ export default function ExchangeMap({
   /* ── hold off until it is looked at ───────────────────────────────────── */
 
   useEffect(() => {
-    if (!styleUrl) { setStatus({ kind: 'unconfigured' }); return; }
     const node = holder.current;
     if (!node) return;
 
@@ -136,15 +138,23 @@ export default function ExchangeMap({
     }, { rootMargin: '150px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [styleUrl]);
+  }, []);
 
   /* ── build it ─────────────────────────────────────────────────────────── */
 
   useEffect(() => {
-    if (status.kind !== 'loading' || !styleUrl || map.current) return;
+    if (status.kind !== 'loading' || map.current) return;
     let cancelled = false;
 
     (async () => {
+      /* The key is a Supabase secret, so the style URL comes from the server.
+         Asked for here rather than on mount: most visitors to a category page
+         never scroll as far as the map, and this is a round trip. */
+      const basemap = await fetchBasemapConfig();
+      if (cancelled) return;
+      if (!basemap.styleUrl) { setStatus({ kind: 'unconfigured' }); return; }
+      setCredit(basemap.attribution);
+
       let maplibre: typeof import('maplibre-gl');
       try {
         // Named exports — MapLibre v6 has no default export, so reaching for
@@ -160,7 +170,7 @@ export default function ExchangeMap({
       try {
         instance = new maplibre.Map({
           container: holder.current,
-          style: styleUrl,
+          style: basemap.styleUrl,
           center: [-71.3245, 42.8],   // southern New Hampshire, until it fits
           zoom: 9,
           attributionControl: false,
@@ -275,7 +285,7 @@ export default function ExchangeMap({
     // once and updated by the effect below. Rebuilding the map on every
     // keystroke would be absurd.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status.kind, styleUrl]);
+  }, [status.kind]);
 
   /* ── tear down ────────────────────────────────────────────────────────── */
 
@@ -418,7 +428,7 @@ export default function ExchangeMap({
 
         {status.kind === 'ready' && (
           /* The licence term, on the map where it belongs. */
-          <div className="bpxm-credit">{MAP_ATTRIBUTION}</div>
+          <div className="bpxm-credit">{credit}</div>
         )}
       </div>
 

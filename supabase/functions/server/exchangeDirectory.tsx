@@ -173,6 +173,68 @@ function publicListing(row: any, categories: any[]) {
   };
 }
 
+// ── the basemap ──────────────────────────────────────────────────────────────
+
+/**
+ * Which MapTiler style to serve.
+ *
+ * `streets-v2-dark` because the Exchange is a dark interface and dark pins on
+ * a light basemap are unreadable. Named here rather than in the browser so
+ * that changing the style — or the provider entirely — is a deploy of this
+ * function and not of the page.
+ */
+const MAP_TILE_STYLE = "streets-v2-dark";
+
+/** Both licences require a credit, and the map is where it has to appear. */
+const MAP_ATTRIBUTION = "© MapTiler © OpenStreetMap contributors";
+
+/**
+ * The basemap style URL, assembled from the tile key this server holds.
+ *
+ * WHY THE BROWSER ASKS US INSTEAD OF CARRYING THE KEY
+ *
+ * Eric keeps the key as a Supabase secret (`MAP_TILE_KEY`), which is the right
+ * place for it: it is not committed to the repository, and it can be rotated
+ * with `supabase secrets set` without rebuilding and redeploying the front
+ * end. A constant compiled into the bundle could not do either.
+ *
+ * WHAT THIS DOES AND DOES NOT PROTECT
+ *
+ * It does **not** make the key secret. A browser cannot fetch map tiles
+ * without it, so anybody who opens the network tab will see it — that is true
+ * of every client-side map and is why MapTiler calls these keys publishable.
+ * The thing that actually protects it is the **origin restriction** set on the
+ * key in the MapTiler console: a request from anywhere but our own domains is
+ * refused, so a copied key is worth nothing. This route is about where the
+ * value is *stored and rotated*, not about hiding it.
+ *
+ * So there is deliberately no attempt at access control here beyond what every
+ * Exchange route has. Gating it would cost the signed-out visitor their map
+ * and gain nothing, because the key reaches the browser either way.
+ *
+ * WHY A NULL RATHER THAN A URL WITH NO KEY
+ *
+ * `?key=` returns 403 and MapLibre renders an unexplained void, which reads as
+ * our bug. A null lets the page say "the map needs a tile key" instead.
+ */
+exchangeDirectory.get("/exchange/map-style", (c) => {
+  const key = (Deno.env.get("MAP_TILE_KEY") ?? "").trim();
+
+  if (!key) {
+    return c.json({ success: true, styleUrl: null, attribution: MAP_ATTRIBUTION });
+  }
+
+  // Five minutes: long enough that a resident panning around does not re-ask,
+  // short enough that a rotated key takes effect while you are still watching.
+  c.header("Cache-Control", "public, max-age=300");
+
+  return c.json({
+    success: true,
+    styleUrl: `https://api.maptiler.com/maps/${MAP_TILE_STYLE}/style.json?key=${encodeURIComponent(key)}`,
+    attribution: MAP_ATTRIBUTION,
+  });
+});
+
 // ── the category tree ────────────────────────────────────────────────────────
 
 exchangeDirectory.get("/exchange/taxonomy", async (c) => {

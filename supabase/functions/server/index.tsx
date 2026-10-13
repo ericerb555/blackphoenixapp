@@ -465,6 +465,22 @@ const PUBLIC_PREFIXES = [
   '/exchange/listing/',   // one listing, and the contact event on it
   '/exchange/category/',
   '/exchange/missing',    // "we could not find anyone" — a demand row
+  /*
+   * The basemap style URL, which carries the MapTiler key.
+   *
+   * Public because the map is on a page a signed-out resident is meant to
+   * use, and because gating it would protect nothing: a browser cannot fetch
+   * tiles without the key, so it reaches the client either way. MapTiler
+   * calls these keys publishable for that reason. What actually protects it
+   * is the origin restriction set on the key in their console - a request
+   * from anywhere but our own domains is refused, so a copied key is worth
+   * nothing to whoever copied it.
+   *
+   * It is served from here rather than compiled into the bundle so that
+   * rotating it is `supabase secrets set MAP_TILE_KEY` and not a front-end
+   * deploy.
+   */
+  '/exchange/map-style',
 
   // An architect reviewing a framing submittal has no account here, by
   // design — see architect-review.tsx. Only the /review/ half is exempt:
