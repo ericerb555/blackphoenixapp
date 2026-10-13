@@ -13,7 +13,7 @@ import {
   Users, MapPin, TrendingDown, Calculator, Shield, Info, ExternalLink,
   Megaphone, Sparkles
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import LayoutManager from '../layout-editor/LayoutManager';
 import { PrimaryButton } from '../ui/button/PrimaryButton';

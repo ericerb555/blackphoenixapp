@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import { Crown, X, Save, Wrench, Building2, Megaphone, AlertCircle, Users, Award, Plus, Trash2, Edit3, CheckCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface FoundingMemberLimits {
   subcontractorsPerTrade: number;

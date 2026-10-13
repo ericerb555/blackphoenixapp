@@ -11,7 +11,7 @@ import {
   Package, Users, Building2, ArrowUpRight, ArrowDownRight, BarChart3,
   PieChart, Target, Percent, CreditCard, Receipt, X, ChevronRight
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { DataTable } from '../components/ui/table/DataTable';
 import type { DataTableColumn } from '../components/ui/table/DataTable';
 

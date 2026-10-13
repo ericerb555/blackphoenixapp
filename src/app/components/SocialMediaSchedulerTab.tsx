@@ -4,7 +4,7 @@ import {
   Facebook, Instagram, Linkedin, Twitter, FileText, Layers,
   Image as ImageIcon, Video, Library, Zap, Eye,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { consumeContentProduct, consumeSchedulerDraft, consumeSchedulerDraftQueue } from '../lib/contentHandoff';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

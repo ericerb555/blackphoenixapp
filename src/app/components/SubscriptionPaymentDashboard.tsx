@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

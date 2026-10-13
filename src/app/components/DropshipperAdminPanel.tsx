@@ -12,7 +12,7 @@ import {
   Sparkles, GitBranch, Shuffle, Filter, Search, ChevronDown, ChevronUp,
   RotateCcw,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
 import { StandardButton } from './ui/button/StandardButton';

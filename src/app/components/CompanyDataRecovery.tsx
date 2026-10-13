@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Database, Download, Upload, RefreshCw, AlertCircle, CheckCircle, Search } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export default function CompanyDataRecovery() {
   const [scanning, setScanning] = useState(false);

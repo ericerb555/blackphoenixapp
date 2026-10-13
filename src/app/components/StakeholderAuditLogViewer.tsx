@@ -21,7 +21,7 @@ import {
   ChevronRight, ExternalLink, Copy
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type AuditEventType =
   | 'stakeholder_created'

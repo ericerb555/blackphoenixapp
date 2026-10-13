@@ -15,7 +15,7 @@ import {
 import { PageHeader } from '../components/PageHeader';
 import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { SupplierRfqTab } from '../components/suppliers/SupplierRfqTab';
 import { SupplierAuditTab } from '../components/suppliers/SupplierAuditTab';
 

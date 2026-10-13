@@ -5,7 +5,7 @@
  */
 
 import { Upload, Folder, Image, Eye, Copy, LayoutGrid, Camera, Users, Sparkles, Video, FileText } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import type { AssetLibrarySettings } from './types';
 
 interface AssetLibraryProps {

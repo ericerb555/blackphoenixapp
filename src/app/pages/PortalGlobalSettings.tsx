@@ -24,7 +24,7 @@ import {
   ChevronRight, ChevronDown, Info, HelpCircle, ExternalLink,
   Sparkles, Ruler
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { BrandingHub } from '../components/branding/BrandingHub';
 
 type SettingsTab = 'branding' | 'notifications' | 'email' | 'access' | 'security' | 'integrations' | 'defaults';

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Briefcase, Calendar, DollarSign, MapPin, Tag } from 'lucide-react';
 import { updateProject, type UpdateProjectInput, type Project } from '../../lib/services/projectService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface EditProjectModalProps {
   isOpen: boolean;

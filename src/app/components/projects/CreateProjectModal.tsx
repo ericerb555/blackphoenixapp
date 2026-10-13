@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Briefcase, Calendar, DollarSign, MapPin, User, Tag, AlertCircle } from 'lucide-react';
 import { createProject, type CreateProjectInput } from '../../lib/services/projectService';
 import { searchCustomers } from '../../lib/services/customerService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface CreateProjectModalProps {
   isOpen: boolean;

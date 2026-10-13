@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { Building2, Plus, Edit2, Trash2, Save, X, Upload } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

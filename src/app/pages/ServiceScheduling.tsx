@@ -13,7 +13,7 @@ import {
   Check, X, Users, Target, Activity, TrendingUp, FileText,
   Cloud, Sun, CloudRain, Wind, Zap, Bell, ArrowLeft
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { projectId } from '../utils/supabase/info';

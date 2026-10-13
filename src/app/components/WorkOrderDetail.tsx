@@ -19,7 +19,7 @@ import {
   AlertCircle, Play, Pause, Save, Send, Star, TrendingUp,
   Package, Edit2, Plus, Trash2, Upload, Camera, Video, ChevronRight
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import type { WorkOrder, WorkOrderStatus } from './WorkOrderManager';
 

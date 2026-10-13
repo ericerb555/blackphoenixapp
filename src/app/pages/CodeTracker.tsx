@@ -14,7 +14,7 @@ import {
   Building2, Users, Calendar, RefreshCw, Filter, Search,
   Download, Eye, Zap, Package, Receipt, Wallet
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';

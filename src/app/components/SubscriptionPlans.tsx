@@ -15,7 +15,7 @@ import {
   Users, DollarSign, Calendar, Gift, Tag, ChevronRight, Flame, Home, Building, HardHat, Edit2,
   Bot, BookOpen, ShoppingBag, ExternalLink, Trash2, LineChart, MapPin, PlusCircle,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   ALL_SUBSCRIPTION_PLANS,
   FOUNDING_SUBSCRIBER_CONFIG,

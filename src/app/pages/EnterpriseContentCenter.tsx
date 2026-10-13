@@ -29,7 +29,7 @@ import {
   CheckCircle, AlertCircle as AlertCircleIcon, Youtube, Save, User, Megaphone, Flame, Link2,
   Store, Repeat
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { companyInfo } from '../lib/config/companyInfo';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";

@@ -21,7 +21,7 @@ import {
   Home, Building2, Megaphone, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   LineChart as RechartsLine,
   Line,

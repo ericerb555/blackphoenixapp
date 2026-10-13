@@ -9,7 +9,7 @@ import {
   AlertCircle, Star, Package, FileText, ArrowUpRight, Zap, Filter,
   Search, Plus, BarChart3, Award, Target, Sparkles, ChevronDown
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import GiftHoursModal from '../GiftHoursModal';
 import * as SupabaseData from '../../lib/supabase-data';
 import SponsoredMarquee from '../SponsoredMarquee';

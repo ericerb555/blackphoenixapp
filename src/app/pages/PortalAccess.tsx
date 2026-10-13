@@ -19,7 +19,7 @@ import {
   BarChart3, Shield, Settings, Globe, ChevronRight, Star,
   Zap, Crown, Target, TrendingUp, Clock, Award
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useUserProfile } from '../lib/hooks/useUserProfile';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';

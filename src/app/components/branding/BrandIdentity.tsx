@@ -5,7 +5,7 @@
  */
 
 import { Sparkles, Image, Palette, Upload, Plus, Trash2, XCircle, Edit, Check, Info } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import type { BrandingSettings } from './types';
 
 interface BrandIdentityProps {

@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { AlertTriangle, Save, Building2, ArrowLeft, Check, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 

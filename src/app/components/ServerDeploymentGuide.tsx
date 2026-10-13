@@ -6,7 +6,7 @@
 
 import { AlertCircle, Terminal, ExternalLink, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 
 export default function ServerDeploymentGuide() {

@@ -1,6 +1,6 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode, useCallback } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
 import AdvertisingMarquee from '../AdvertisingMarquee';

@@ -15,7 +15,7 @@ import {
   Image, Video, FileText, Mail, Phone, Building, Globe, Search,
   Filter, Download, Upload, RefreshCw, X, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { AdvancedCohortManagement } from './AdvancedCohortManagement';
 
 type ViewMode = 'products' | 'packages' | 'vendor-packages' | 'cohorts' | 'analytics' | 'advanced-cohorts';

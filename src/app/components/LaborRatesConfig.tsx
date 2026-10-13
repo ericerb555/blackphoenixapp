@@ -12,7 +12,7 @@ import {
   Calculator, ChevronDown, ChevronUp, Settings, CheckCircle,
   AlertCircle, Loader2, Edit3, Plus, Trash2, ArrowLeft
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { useNavigate } from '../hooks/useNavigate';
 import { authedHeadersOrAnon } from '../utils/authHeaders';

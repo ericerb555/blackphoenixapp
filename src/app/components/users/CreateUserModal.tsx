@@ -5,7 +5,7 @@
 
 import { useState, FormEvent } from 'react';
 import { Shield, Mail, Phone, User, Briefcase, Calendar, AlertCircle, Key } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import UserService, { UserFormData, ValidationError } from '../../lib/services/userService';
 import { TextInput } from '../ui/input/TextInput';
 import { TextArea } from '../ui/input/TextArea';

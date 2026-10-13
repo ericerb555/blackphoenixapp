@@ -14,7 +14,7 @@ import {
   Zap, Star, Megaphone, Car, Sparkles,
   PhoneCall,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import LayoutManager from '../layout-editor/LayoutManager';
 import { ChartContainer } from '../ChartContainer';

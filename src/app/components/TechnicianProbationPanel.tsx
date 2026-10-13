@@ -28,7 +28,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { SKILL_LEVELS, tradeLabel, type SkillLevelId } from '../lib/technicianSkills';

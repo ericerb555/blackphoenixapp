@@ -19,7 +19,7 @@ import {
   AlertOctagon, AlertTriangle, Info, Phone, Home, Building2, Hammer
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   ALL_SUBSCRIPTION_PLANS,
   SubscriptionPlan,

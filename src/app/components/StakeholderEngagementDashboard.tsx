@@ -19,7 +19,7 @@ import {
   Download, Filter, ChevronRight, Star, AlertTriangle, CheckCircle
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { DataTable } from './ui/table/DataTable';
 import type { DataTableColumn } from './ui/table/DataTable';
 import {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Send, RefreshCw, CheckCircle2, Clock, AlertTriangle, Mail, Phone, Search, Users, Ban, RotateCcw,
 } from 'lucide-react';

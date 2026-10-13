@@ -5,7 +5,7 @@
  * routes; blank fields fall back to the built-in defaults.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { Mail, Eye, RotateCcw, Save, Sparkles, RefreshCw, Send, MessageSquare, QrCode, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../lib/supabase';

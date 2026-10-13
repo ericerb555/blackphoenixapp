@@ -9,7 +9,7 @@ import {
   FileText, CreditCard, MapPin, Globe, Phone, Mail, Hash, Award,
   Briefcase, TrendingUp, Lock, Key, Save, CheckCircle, Palette, Image
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface EnhancedCompanyFormProps {
   isOpen: boolean;

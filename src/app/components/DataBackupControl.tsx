@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Database, Download, Upload, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { backupNow, restoreNow } from '../utils/dataPersistence';
 
 export default function DataBackupControl() {

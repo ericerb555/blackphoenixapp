@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Brain, Sparkles, Package, Wrench, TrendingUp, Users, Send, CheckCircle, AlertCircle, Zap, ChevronRight, Star, Crown } from 'lucide-react';
 import { StandardButton } from './ui/button/StandardButton';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 

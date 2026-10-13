@@ -1,6 +1,6 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
 import { useState, useEffect, Component, ReactNode } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   MapPin, Users, DollarSign, Briefcase, Shield, AlertCircle,
   CheckCircle, Search, Home, MessageSquare, Award, ChevronRight,

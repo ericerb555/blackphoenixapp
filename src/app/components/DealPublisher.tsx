@@ -3,7 +3,7 @@
  * Lives in the UnifiedDashboard. Syncs to server so all users see them.
  */
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Tag, Plus, Trash2, Edit2, CheckCircle, Clock, Eye, EyeOff,
   Send, ChevronDown, ChevronUp, DollarSign, Percent, X, RefreshCw,

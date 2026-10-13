@@ -27,7 +27,7 @@ import {
   Star,
   Zap
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { copyToClipboard } from '../utils/clipboard';
 import { useUserData, useReferralCode } from '../lib/hooks/useUserData';
 import { useAuth } from '../contexts/AuthContext';

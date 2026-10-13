@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import { Building2, Plus, Edit2, Trash2, X, Upload, Search, FileText } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useActiveCompany } from '../contexts/ActiveCompanyContext';
 import { BrandingService } from '../lib/services/brandingService';

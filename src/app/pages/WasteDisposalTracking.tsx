@@ -16,7 +16,7 @@ import { StandardButton } from '../components/ui/button/StandardButton';
 import { TextInput } from '../components/ui/input/TextInput';
 import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface WasteEntry {

@@ -4,7 +4,7 @@ import {
   Building2, Tag, FileText, DollarSign, TrendingUp,
   Activity, Star, User, Globe, MessageSquare, Briefcase
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 

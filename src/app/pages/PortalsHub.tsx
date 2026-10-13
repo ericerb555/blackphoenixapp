@@ -7,7 +7,7 @@ import {
   Brain, Zap, MessageSquare, Send, Loader2, Sliders, Smartphone,
   Bell, MapPin, Camera, WifiOff, Lock, Video, FileText, Globe
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import PortalGlobalSettings from './PortalGlobalSettings';
 
 // Import all portal view components

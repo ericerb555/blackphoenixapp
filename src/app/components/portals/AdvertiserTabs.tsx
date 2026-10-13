@@ -27,7 +27,7 @@ import {
   Megaphone, Plus, X, Loader2, Trash2, Play, Pause, BarChart3, MousePointerClick,
   Eye, Image as ImageIcon, TrendingUp, TrendingDown, CreditCard, Check, AlertCircle, Upload, Sparkles,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { ADVERTISER_PLANS, ADVERTISER_WEEKLY_PLANS, type SubscriptionPlan } from '../../config/subscriptionPlans';
 import SubscriptionAddOnsPanel from './SubscriptionAddOnsPanel';

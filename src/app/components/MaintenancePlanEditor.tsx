@@ -6,7 +6,7 @@ import {
   Link as LinkIcon, Upload, Play, Share2, FileText, Zap,
   CheckCircle, Target, TrendingUp, Star, Shield
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { TextArea } from './ui/input/TextArea';
 
 interface MaintenancePlan {

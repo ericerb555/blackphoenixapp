@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Building2, CheckCircle2, CircleDashed, FileUp, Loader2, LockKeyhole, Phone, ShieldCheck, Sparkles, XCircle } from "lucide-react";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
 import { projectId, publicAnonKey } from "../utils/supabase/info";

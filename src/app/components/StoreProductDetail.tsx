@@ -20,7 +20,7 @@ import {
   X, Star, ShoppingCart, Heart, Check, Truck, Shield, RefreshCw,
   Package, Minus, Plus, Zap, ChevronRight,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import StoreReviews from './StoreReviews';
 
 export interface DetailProduct {

@@ -11,7 +11,7 @@ import {
   Save, Download, Upload, Maximize2, ZoomIn, ZoomOut,
   Settings, Package, DollarSign, CheckCircle, AlertCircle
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface KitchenCabinetDesignerProps {
   onClose: () => void;

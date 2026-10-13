@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Save, RotateCcw, Settings, DollarSign, Users, MapPin, Crown, Calendar } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 interface CohortSettingsModalProps {

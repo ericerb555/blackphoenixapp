@@ -30,7 +30,7 @@ import {
   Medal, Trophy, Archive, RefreshCw, Calculator, ClipboardList, Send,
   GitMerge,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useNavigate } from '../hooks/useNavigate';
 import {
   materialsHubService,
@@ -857,14 +857,14 @@ function MyStoreSection({ quickAddToQuote }: { quickAddToQuote: (m: any) => void
         setConfig(form);
         setShowSetup(false);
         await loadConfig();
-        const { toast } = await import('sonner@2.0.3');
+        const { toast } = await import('sonner');
         toast.success(`Synced ${syncData.count} products from your store!`);
       } else {
-        const { toast } = await import('sonner@2.0.3');
+        const { toast } = await import('sonner');
         toast.error(syncData.error || 'Sync failed — check your store URL and API key');
       }
     } catch (e: any) {
-      const { toast } = await import('sonner@2.0.3');
+      const { toast } = await import('sonner');
       toast.error('Connection failed: ' + e.message);
     }
     setSyncing(false);

@@ -16,7 +16,7 @@ import {
   type ProjectWithCustomer,
   type Project,
 } from '../lib/services/projectService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { isAdminOrHigher } from '../lib/utils/roleUtils';
 
 type ViewMode = 'grid' | 'list';

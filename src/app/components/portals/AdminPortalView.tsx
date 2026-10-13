@@ -16,7 +16,7 @@ import {
   Zap, Wrench, Send, ChevronDown, MapPin, Calendar, Plus, X,
   HardHat, Briefcase, ClipboardList, Star, Shield, ArrowLeft, LayoutDashboard, FileText,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import SponsoredMarquee from '../SponsoredMarquee';
 import AdvertisingMarquee from '../AdvertisingMarquee';
 import PlansRecordsPanel from './PlansRecordsPanel';

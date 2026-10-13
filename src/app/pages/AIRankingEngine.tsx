@@ -3,7 +3,7 @@
  * Google SEO · AI Search (GEO) · Voice Search · Schema · GBP · Rank Tracker
  */
 import { useState, useEffect, useRef } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Sparkles, TrendingUp, Search, Mic, Globe, Star, Zap, RefreshCw,
   Copy, Check, ChevronRight, ExternalLink, Play, Pause, Settings,

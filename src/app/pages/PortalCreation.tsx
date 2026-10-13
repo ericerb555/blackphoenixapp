@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Plus, Sparkles } from 'lucide-react';
 import PortalCreationWizard from '../components/PortalCreationWizard';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface PortalCreationProps {
   onNavigate?: (page: string) => void;

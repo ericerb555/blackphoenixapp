@@ -4,7 +4,7 @@ import {
   Building2, Target, Users, Percent, AlertCircle, CheckCircle, Info,
   FileText, PieChart, MapPin, Briefcase, Clock, ShieldAlert, BarChart3, Loader2
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

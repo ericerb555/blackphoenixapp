@@ -9,7 +9,7 @@ import { motion } from 'motion/react';
 import { Star, Quote, ChevronLeft, ChevronRight, Plus, X, Send, RefreshCw } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

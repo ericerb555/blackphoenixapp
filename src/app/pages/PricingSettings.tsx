@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Settings, Save, RotateCcw, Wrench, Package } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { constructionTax } from '../lib/constructionTax';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { loadPricingConfig, savePricingConfig, loadPricingConfigFromServer, savePricingConfigToServer, defaultPricingConfig, PricingConfig } from '../lib/pricingConfig';

@@ -21,7 +21,7 @@ import {
   TrendingUp, BarChart3, Calendar, ChevronDown, ChevronRight,
   Crown, Star, Sparkles, Target, Box, Layers, Grid, List
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { IconButton } from '../components/ui/Button';
 import { DataTable } from '../components/ui/table/DataTable';
 import type { DataTableColumn } from '../components/ui/table/DataTable';

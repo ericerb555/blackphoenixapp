@@ -4,7 +4,7 @@
  * Portals use TierPicker to select the tier they need for a job.
  */
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   HardHat, Plus, Trash2, Edit2, X, Save, RefreshCw,
   DollarSign, Star, CheckCircle, Clock, Phone, Mail,

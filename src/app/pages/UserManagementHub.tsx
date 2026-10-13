@@ -20,7 +20,7 @@ import {
   Users, Shield, Briefcase, UserCog, ChevronRight, Settings,
   Plus, Search, Filter, Edit2, Trash2, MoreVertical, Star, Mail
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { EmailCenter } from '../components/EmailCenter';
 
 type TabType = 'users' | 'admin-users' | 'roles' | 'employees' | 'emails';

@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Globe, Lock, CheckCircle, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 

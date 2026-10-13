@@ -8,7 +8,7 @@ import {
   ArrowRight, Clock, CheckCircle, XCircle, User, 
   AlertCircle, Loader2, Calendar, MessageSquare 
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 

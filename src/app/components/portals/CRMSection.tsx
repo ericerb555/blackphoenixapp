@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { projectId } from '../../utils/supabase/info';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Users, Plus, Search, Upload, Phone, Mail, MapPin,
   Edit2, Trash2, MessageSquare, Calendar, FileText,

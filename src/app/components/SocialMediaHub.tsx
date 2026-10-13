@@ -10,7 +10,7 @@ import {
   Download, Upload, Sparkles, Eye, Heart, Share2, Clock, X,
   Building2, ChevronDown, Plus,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { useCompany } from '../contexts/CompanyContext';

@@ -15,7 +15,7 @@ import { PageHeader } from '../components/PageHeader';
 import { jobFinancialService, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
 import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type TabType = 'active-jobs' | 'projects' | 'job-financial' | 'master-schedule' | 'service-schedule' | 'change-orders' | 'weather';
 

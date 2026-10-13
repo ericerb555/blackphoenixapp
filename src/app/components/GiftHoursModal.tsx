@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Gift, Clock, User, MessageSquare, AlertCircle, Sparkles, Crown, Palette, Pencil, Hammer } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import * as SupabaseData from '../lib/supabase-data';
 
 interface GiftHoursModalProps {

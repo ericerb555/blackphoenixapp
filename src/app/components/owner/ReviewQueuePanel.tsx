@@ -27,7 +27,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Film, Megaphone, Tag, Check, X, Loader2, Inbox, AlertTriangle, RefreshCw,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 

@@ -23,7 +23,7 @@ import {
   Brain, Lightbulb, TrendingUp, Star, Clock, Bell, Info,
   AlertCircle, Copy, Download, RefreshCw, Layers, Box, XCircle
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { TextArea } from './ui/input/TextArea';
 
 type PortalType = 

@@ -19,7 +19,7 @@ import {
   Image as ImageIcon, Video, FileCheck, Eye, ArrowRight, ArrowLeft,
   Zap, Building2, Star, TrendingUp
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import WorkOrderDetail from './WorkOrderDetail';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

@@ -35,7 +35,7 @@ import {
   Check, Copy, ExternalLink, Loader2, Link2, KeyRound, AlertTriangle,
   RefreshCw, DollarSign, Info,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 

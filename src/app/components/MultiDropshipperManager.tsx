@@ -4,7 +4,7 @@
  * Features: connect/disconnect, product import, markup rules, order routing, inventory sync
  */
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Package, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Clock,
   DollarSign, ShoppingBag, Truck, Link2, Settings, Eye, EyeOff,

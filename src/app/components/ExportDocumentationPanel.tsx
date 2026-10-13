@@ -10,7 +10,7 @@ import {
   Settings, CheckCircle, Zap, Layers, FileCheck, Grid,
   Box, Building, AlertCircle, ChevronDown, X
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface StructuralElement {
   id: string;

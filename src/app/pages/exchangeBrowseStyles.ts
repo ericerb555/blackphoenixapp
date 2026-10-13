@@ -70,4 +70,75 @@ export const BROWSE_CSS = `
 .bpxb-crumb { font-size:12.5px; color:var(--bpx-dim); display:inline-flex;
   align-items:center; gap:6px; text-decoration:none; }
 .bpxb-crumb:hover { color:var(--bpx-text); }
+
+/* ── finding a place near you ─────────────────────────────────────────────── */
+/* The search box and the location button sit together because they answer the
+   same question from two directions: what am I after, and what is close. */
+.bpxb-find { display:flex; flex-direction:column; gap:9px; }
+.bpxb-find-row { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+.bpxb-find-field { position:relative; flex:1 1 220px; min-width:0; display:flex; align-items:center; }
+.bpxb-find-field > svg { position:absolute; left:13px; color:var(--bpx-faint); pointer-events:none; }
+.bpxb-find-field input { width:100%; min-height:44px; padding:0 38px 0 36px; border-radius:13px;
+  background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
+  font-size:14px; outline:none; }
+.bpxb-find-field input:focus { border-color:rgba(234,88,12,.55); }
+.bpxb-find-clear { position:absolute; right:7px; width:28px; height:28px; border-radius:9px;
+  display:inline-flex; align-items:center; justify-content:center; border:0;
+  background:transparent; color:var(--bpx-dim); cursor:pointer; }
+.bpxb-find-clear:hover { background:rgba(255,255,255,.07); color:var(--bpx-text); }
+
+/* ── a result the search answers, and one it does not ─────────────────────── */
+/* Non-matches are DIMMED rather than removed. Somebody searching "brake" should
+   still be able to see that a general garage sits two streets closer, which a
+   filter would have hidden from them. */
+.bpxb-biz[data-dim="true"] { opacity:.34; }
+.bpxb-biz[data-hit="true"] { box-shadow:inset 3px 0 0 #ea580c; }
+.bpxb-biz[data-hit="true"] .bpxb-biz-name { color:#fdba74; }
+
+/* ── how far away it is ───────────────────────────────────────────────────── */
+/* Tabular figures so a column of distances lines up and can be compared at a
+   glance, which is the whole point of showing them. */
+.bpxb-away { font-size:12px; font-weight:700; color:var(--bpx-dim); white-space:nowrap;
+  font-variant-numeric:tabular-nums; display:inline-flex; align-items:center; gap:4px; }
+.bpxb-away svg { color:var(--bpx-faint); }
+
+/* ── the map ──────────────────────────────────────────────────────────────── */
+/* A fixed height rather than an aspect ratio: on a phone an aspect-ratio map
+   either eats the whole screen or becomes a letterbox, and what matters here
+   is how many pins fit, not the shape. */
+.bpxm-wrap { display:flex; flex-direction:column; gap:7px; }
+.bpxm-shell { position:relative; width:100%; height:320px; border-radius:15px;
+  border:1px solid var(--bpx-line); background:var(--bpx-raised); overflow:hidden; }
+@media (min-width:800px){ .bpxm-shell { height:420px; } }
+
+/* Standing in for the map: no key, no WebGL, or nothing to show. */
+.bpxm-flat, .bpxm-cover { display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:9px; }
+.bpxm-flat { height:150px; }
+.bpxm-cover { position:absolute; inset:0; background:var(--bpx-raised); z-index:2; }
+
+/* Ours rather than MapLibre's, whose stylesheet is built on the padding this
+   app zeroes application-wide. */
+.bpxm-controls { position:absolute; top:9px; right:9px; z-index:3;
+  display:flex; flex-direction:column; gap:5px; }
+.bpxm-controls button { width:32px; height:32px; border-radius:9px; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--bpx-line-lit); background:rgba(12,12,14,.84);
+  color:var(--bpx-text); backdrop-filter:blur(3px); }
+.bpxm-controls button:hover { border-color:rgba(234,88,12,.6); }
+
+/* ODbL and the tile provider both require a credit, and a map is the most
+   visible place that has ever mattered. */
+.bpxm-credit { position:absolute; bottom:5px; right:7px; z-index:3; font-size:10px;
+  color:rgba(255,255,255,.62); background:rgba(12,12,14,.6); border-radius:5px;
+  line-height:1.5; letter-spacing:.01em; }
+
+/* Where the resident is. Blue, because every map in the world uses blue for
+   "you" and this is not the place to be original. */
+.bpxm-you { width:14px; height:14px; border-radius:50%; background:#3b82f6;
+  border:2.5px solid #fff; box-shadow:0 0 0 5px rgba(59,130,246,.3); }
+
+/* A selected row in the list, so the map and the list agree about which one
+   is being talked about. */
+.bpxb-biz[data-chosen="true"] { box-shadow:inset 3px 0 0 #3b82f6; }
 `;

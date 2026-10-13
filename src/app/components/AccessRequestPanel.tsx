@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, User, Clock, Send } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 const AR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;

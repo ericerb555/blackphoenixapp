@@ -31,7 +31,7 @@ import ProductDetailModal from './ProductDetailModal';
 import type { Product } from '../types/ecommerce';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 
 interface VendorStorefrontProps {

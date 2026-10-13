@@ -13,7 +13,7 @@ import {
   Lock, Crown, ExternalLink, Eye, EyeOff, Save,
   Percent, BadgePercent, Video, Play, ToggleLeft, ToggleRight, PlusCircle, Pencil, Sparkles
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import LayoutManager from '../layout-editor/LayoutManager';
 import { PrimaryButton } from '../ui/button/PrimaryButton';

@@ -5,7 +5,7 @@ import type { Invoice } from '../../lib/services/invoiceService';
 import EmailInvoiceModal from './EmailInvoiceModal';
 import InvoiceDocument from '../documents/InvoiceDocument';
 import DocumentPreviewModal from '../documents/DocumentPreviewModal';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface InvoicePreviewModalProps {
   isOpen: boolean;

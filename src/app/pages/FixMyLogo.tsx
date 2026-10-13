@@ -8,7 +8,7 @@ import { RefreshCw, CheckCircle, AlertCircle, Zap, Upload, Globe } from 'lucide-
 import { supabase } from '../lib/supabase';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type Step = 'idle' | 'uploading' | 'publishing' | 'done' | 'error';
 

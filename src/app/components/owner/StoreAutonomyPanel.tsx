@@ -29,7 +29,7 @@ import {
   Clock, CheckCircle2, AlertTriangle, HelpCircle, Loader2, RefreshCw,
   PauseCircle, PlayCircle, Send, Inbox,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 

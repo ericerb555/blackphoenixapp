@@ -41,7 +41,7 @@ import {
   Sparkles, Zap, Crown, Gift, Trophy, Timer, Users, Target, ExternalLink, Smartphone, Monitor,
   Megaphone, Tag, Award, BarChart3, Building2, Image as ImageIcon
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
 import { SecondaryButton } from '../ui/button/SecondaryButton';
 import LogoMarquee from '../LogoMarquee';

@@ -6,7 +6,7 @@ import {
   Share2, Archive, Clock, User, Camera, Film, Sparkles, ExternalLink,
   ChevronDown, ChevronRight, Layers, ZoomIn, PlayCircle, Maximize2
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { saveDual, loadDual } from '../lib/database';

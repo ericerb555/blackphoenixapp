@@ -4,7 +4,7 @@ import {
   Clock, Smartphone, Users, Building2, Package, Sparkles, Send,
   CheckCircle, XCircle, AlertCircle, Globe, Share2, Link as LinkIcon
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   getPortals,
   getPortalStats,

@@ -6,7 +6,7 @@
 
 import { useRef, useState } from 'react';
 import { ExternalLink, Camera, Download, LayoutGrid, Palette, FileText, Loader2, Search, AlertCircle, Plus } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import type { BrandingSettings, ColorPalette, Color } from './types';

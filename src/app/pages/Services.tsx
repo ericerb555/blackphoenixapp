@@ -16,7 +16,7 @@ import {
   ArrowUp, ArrowDown, MoreVertical, Tag, Zap, CheckCircle, Target,
   Calendar, Award, ChevronRight, Eye, Settings, Copy, ArrowLeft
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useCompany } from '../contexts/CompanyContext';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import ServiceFormModal from '../components/services/ServiceFormModal';

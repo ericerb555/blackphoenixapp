@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ChartContainer } from '../ChartContainer';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface AdCampaign {
   id: string;

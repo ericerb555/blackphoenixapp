@@ -8,7 +8,7 @@ import {
   CheckCircle, Tag, Package, Loader, Check, XCircle, Upload, Trash2,
   Search, RefreshCw, List, Grid, DollarSign, ChevronRight, ChevronLeft, Box,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
 import CreateContentMenu from './CreateContentMenu';

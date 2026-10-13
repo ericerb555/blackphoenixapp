@@ -12,7 +12,7 @@ import {
   Flame, Tag, ArrowRight, MessageSquare, Mail, Instagram,
   Facebook, Youtube, MapPin, Phone, Image as ImageIcon, Download,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useCompany } from '../contexts/CompanyContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';

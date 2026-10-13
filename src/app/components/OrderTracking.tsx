@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Search, Package, CreditCard, CheckCircle, Truck, Clock, MapPin, User, Mail, Phone, ArrowRight, Box, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type TrackingType = 'order' | 'payment';
 

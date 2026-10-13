@@ -21,7 +21,7 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, ChevronLeft,
   LayoutGrid, TrendingDown, AlertCircle, Plus, Home
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { isAdminOrHigher } from '../lib/utils/roleUtils';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';

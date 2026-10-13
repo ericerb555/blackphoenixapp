@@ -4,7 +4,7 @@
  * log usage hours, and track overages + balances owed.
  */
 import { useState, useEffect } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Clock, Plus, Trash2, Edit2, X, Send, RefreshCw, Sparkles,
   ChevronDown, ChevronUp, CheckCircle, AlertTriangle,

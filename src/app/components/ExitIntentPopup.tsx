@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { X, Tag, Mail, ArrowRight, CheckCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { useAuth } from '../contexts/AuthContext';

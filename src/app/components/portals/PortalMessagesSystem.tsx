@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Bell, MessageSquare, RefreshCw, X, Send } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 import { subscribeToPush, isPushSubscribed } from '../../utils/pushNotifications';

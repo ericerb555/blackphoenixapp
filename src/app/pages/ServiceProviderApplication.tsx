@@ -3,7 +3,7 @@ import {
   Sparkles, Building2, Mail, Phone, MapPin, User, Globe, FileText,
   ArrowLeft, CheckCircle, AlertCircle, DollarSign, Award, Shield, Zap
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

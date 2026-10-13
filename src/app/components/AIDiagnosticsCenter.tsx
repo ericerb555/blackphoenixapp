@@ -21,7 +21,7 @@ import {
   FileText, Image, ShoppingBag, Package, Megaphone, Target,
   Wrench, Gift, Crown, Building2, LineChart, PieChart, Layers, Video, X
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface AISystem {
   id: string;

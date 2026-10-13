@@ -22,7 +22,7 @@ import {
   Droplet, Lightbulb, Hammer, PaintBucket, Scissors, Plus,
   Trash2, ExternalLink, Info, AlertTriangle, RefreshCw, Eye
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { copyToClipboard } from '../utils/clipboard';
 import { SecondaryButton } from './ui/button/SecondaryButton';

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MessageSquare, Send, Users, Zap, Plus, X, Phone, Check, Clock, TrendingUp, ChevronRight, Sparkles, RefreshCw, Filter } from 'lucide-react';
 import { motion } from 'motion/react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 

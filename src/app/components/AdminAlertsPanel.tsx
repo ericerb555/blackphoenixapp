@@ -21,7 +21,7 @@ import {
   ArrowRight, Zap, Info, Star, Flag, MessageSquare, Mail,
   ChevronDown, Ban, ThumbsUp, ThumbsDown, AlertOctagon, Home
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import WorkRequestQuoteDraft from './quotes/WorkRequestQuoteDraft';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { DangerButton } from './ui/button/DangerButton';

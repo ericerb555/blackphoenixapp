@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, User, Mail, Phone, Building2, MapPin, Tag } from 'lucide-react';
 import { updateCustomer, type UpdateCustomerInput, type Customer } from '../../lib/services/customerService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface EditCustomerModalProps {
   isOpen: boolean;

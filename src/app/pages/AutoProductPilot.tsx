@@ -3,7 +3,7 @@
  * Scans dropshippers + trend signals → AI scores → auto-publishes 85+ to store
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   Zap, RefreshCw, ShoppingBag, TrendingUp, Star, CheckCircle,
   AlertCircle, Settings, BarChart3, Package, Globe, ArrowUpRight,

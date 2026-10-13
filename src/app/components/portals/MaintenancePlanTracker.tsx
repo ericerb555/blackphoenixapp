@@ -4,7 +4,7 @@
  * Terminology adapts per portal type.
  */
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { createInvoiceCheckout, listPlans, logPlanUsage } from '../../utils/plansApi';
 import { loadEntitlementSummary } from '../../utils/entitlementsApi';
 import {

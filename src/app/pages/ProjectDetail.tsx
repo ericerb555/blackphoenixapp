@@ -5,7 +5,7 @@ import {
   Pause, FileText, Tag, Wrench, Package, Phone, Mail,
   Building2, Target, Activity, BarChart3
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 

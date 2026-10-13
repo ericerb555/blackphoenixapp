@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Check, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 

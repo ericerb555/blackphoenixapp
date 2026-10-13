@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { X, Mail, Send, AlertCircle, CheckCircle2, Loader2, UserPlus, Smartphone } from 'lucide-react';
 import { EmailService } from '../../lib/services/emailService';
 import { PDFService, type InvoicePDFData } from '../../lib/services/pdfService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 

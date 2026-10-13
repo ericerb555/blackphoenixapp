@@ -7,7 +7,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 import CompanyHeader from '../branding/CompanyHeader';
 import AttachablesSearchPanel from './AttachablesSearchPanel';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 

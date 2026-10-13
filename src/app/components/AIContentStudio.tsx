@@ -12,7 +12,7 @@ import {
   Code, Gauge, Lightbulb, BookTemplate, ShieldCheck, Loader2,
   Building2, Phone, Mail
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import MediaLibraryManager from './MediaLibraryManager';
 import { Select } from './ui/input/Select';
 import { TextArea } from './ui/input/TextArea';

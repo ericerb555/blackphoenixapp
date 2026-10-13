@@ -11,7 +11,7 @@ import {
   PieChart, LineChart as LineChartIcon, AlertCircle, CheckCircle2,
   Palette, Lock, Crown, ExternalLink, Tag, Sparkles
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import LayoutManager from '../layout-editor/LayoutManager';
 import { PrimaryButton } from '../ui/button/PrimaryButton';

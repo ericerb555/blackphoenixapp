@@ -17,7 +17,7 @@ import {
   Tag, Grid, List, Activity, Share2, Sparkles, X, Zap, Check,
   Calendar, Box, Percent, Target, MessageCircle, Bell, Receipt
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { VendorProfile } from '../lib/services/vendorPortalService';
 import { supabase } from '../lib/supabase';

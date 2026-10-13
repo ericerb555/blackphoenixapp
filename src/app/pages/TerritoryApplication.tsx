@@ -14,7 +14,7 @@ import {
   Users, Store, Target, Zap, Award, ArrowRight, Clock,
   FileText, CreditCard, Home, Briefcase, Globe, Calendar
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PageHeader } from '../components/PageHeader';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

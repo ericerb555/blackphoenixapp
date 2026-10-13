@@ -28,7 +28,7 @@ import {
   List, Target, TrendingUp, Activity, Phone, Mail, Cloud,
   CloudRain, Sun, Wind, Droplets, CloudSnow, Thermometer, ArrowLeft
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import CalendarScheduleView from '../components/CalendarScheduleView';

@@ -8,7 +8,7 @@
  * Step 4: Export to store product page + social scheduler simultaneously
  */
 import { useState, useRef, useCallback } from 'react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useStoreProducts } from '../lib/useStoreProducts';
 import {
   Upload, Play, Pause, SkipForward, Wand2, ShoppingBag, Share2,

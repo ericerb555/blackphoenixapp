@@ -18,7 +18,7 @@ import { TextInput } from '../components/ui/input/TextInput';
 import { TextArea } from '../components/ui/input/TextArea';
 import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { constructionTax } from '../lib/constructionTax';

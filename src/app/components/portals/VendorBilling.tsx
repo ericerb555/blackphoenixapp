@@ -28,7 +28,7 @@ import {
   FileText, DollarSign, Plus, AlertCircle, CheckCircle2, Clock, Package,
   TrendingUp, Ban, X, Loader2, Receipt, CalendarClock,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../../utils/supabase/info';
 
 const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;

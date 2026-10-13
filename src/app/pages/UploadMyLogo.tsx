@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Upload, Check, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { uploadImageDataUrl } from '../utils/imageStorage';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";

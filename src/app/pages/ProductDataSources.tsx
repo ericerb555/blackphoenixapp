@@ -9,7 +9,7 @@ import {
   RefreshCw, Zap, Database, Cloud, Users, FileText, Info,
   ExternalLink, ArrowRight, Check, X, Loader
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { productDataSourceManager, DataSourceConfig } from '../lib/services/productDataSourceManager';
 
 export default function ProductDataSources() {

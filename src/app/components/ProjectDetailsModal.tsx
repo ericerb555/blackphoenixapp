@@ -31,7 +31,7 @@ import {
   ZoomIn, Download, Layout, Maximize2, Info, Save, ArrowLeft, ArrowRight
 } from 'lucide-react';
 import CreateInvoiceModal from './invoices/CreateInvoiceModal';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface ProjectDetailsModalProps {
   item: any;

@@ -34,7 +34,7 @@ import {
   Camera, Cloud, Wrench, Smartphone,
   PhoneCall,
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import RoleManagementSystem from '../components/RoleManagementSystem';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import ReviewQueuePanel from '../components/owner/ReviewQueuePanel';

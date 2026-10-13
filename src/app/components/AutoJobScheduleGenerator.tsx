@@ -4,7 +4,7 @@ import {
   Plus, Trash2, Edit2, Save, X, Zap, ChevronDown, ChevronUp,
   MapPin, DollarSign, Target, Briefcase
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
 

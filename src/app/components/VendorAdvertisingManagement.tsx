@@ -11,7 +11,7 @@ import {
   Upload, Image as ImageIcon, Tag, Zap, Rocket, ArrowRight,
   BarChart3, ChevronRight, AlertCircle, CheckCircle
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { ChartContainer } from './ChartContainer';
 

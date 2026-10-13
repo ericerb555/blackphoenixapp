@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Building, Shield } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useAuth } from '../../app/contexts/AuthContext';
 
 interface LoginProps {

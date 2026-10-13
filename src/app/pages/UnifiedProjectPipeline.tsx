@@ -34,7 +34,7 @@ import {
   XCircle, MoveRight, ExternalLink, Settings, Percent, Database,
   Loader2, RefreshCw, Zap, Camera, PenTool, Layers, X, Download
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { QuoteToContractEditor } from '../components/QuoteToContractEditor';
 import { ProjectDetailsModal } from '../components/ProjectDetailsModal';

@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, ArrowRight, Clock, User, AlertCircle, CheckCircle, Loader2, Phone, Shield } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import * as SupabaseData from '../lib/supabase-data';
 import { authedHeadersOrAnon } from '../utils/authHeaders';

@@ -1,7 +1,7 @@
 /** Internal notes attached to a canonical project/work-request record. */
 import { useState, useEffect } from 'react';
 import { X, MessageSquare, Plus, Clock, User, Edit2, Trash2, Save, Loader2 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 

@@ -26,7 +26,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Sparkles, Wand2, Check, Plus, Minus, Save, Crown, Loader2, RefreshCw, Clock, Gift, Tag, Activity, Layers, PlusCircle, X, List, Info } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   computePrice,
   getPresets,

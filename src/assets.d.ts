@@ -53,3 +53,12 @@ declare module '*.webm' {
   const src: string;
   export default src;
 }
+
+/**
+ * Stylesheets.
+ *
+ * Vite treats `import './x.css'` as a side effect that injects the stylesheet
+ * and yields no value. TypeScript has no idea, so every CSS import — the app's
+ * own `styles/index.css` included — was reported as a missing module.
+ */
+declare module '*.css';

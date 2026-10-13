@@ -17,7 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { InlineVideoCapture } from '../media/InlineVideoCapture';
 import AdvancedVideoCapture from '../media/AdvancedVideoCapture';
 import { VideoAnalysisResult } from '../../lib/services/aiVideoAnalysisService';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { TextInput } from '../ui/input/TextInput';
 import { NumberInput } from '../ui/input/NumberInput';
 import { IconButton } from '../ui/button/IconButton';

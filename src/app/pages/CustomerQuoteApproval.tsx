@@ -5,7 +5,7 @@
  * After approval, they'll see the contract and payment schedule.
  */
 
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

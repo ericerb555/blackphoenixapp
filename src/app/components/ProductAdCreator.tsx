@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, Grid, List, Search, Filter, Loader, Zap,
   FileText, ShoppingCart, Target, Award, TrendingUp, Megaphone, Settings
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import ProductAdCreatorClient from './ProductAdCreatorClient';
 

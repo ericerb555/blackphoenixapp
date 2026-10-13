@@ -9,7 +9,7 @@ import {
   Upload, Trash2, Plus, Award, Users, Briefcase, Wrench, Shield,
   AlertCircle, CheckCircle, Copy, Zap, Settings, Target, BarChart3
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useCompany } from '../../contexts/CompanyContext';
 
 interface ServiceVariant {

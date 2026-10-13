@@ -4,7 +4,7 @@ import {
   Plus, Edit, Save, X, Download, Eye, Lock, Unlock, Building2,
   Target, Percent, CheckCircle, AlertCircle, ArrowRight, Trash2
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
 

@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { Download, Film, Settings, Image as ImageIcon, Zap, Upload, Check, X, Loader2 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { PhotoSlide } from './PhotoToVideoConverter';
 import { MusicAsset } from '../lib/musicAssetManager';
 

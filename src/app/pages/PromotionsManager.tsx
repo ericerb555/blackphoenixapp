@@ -17,7 +17,7 @@ import {
   Share2, Send, Target, X, Save
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 

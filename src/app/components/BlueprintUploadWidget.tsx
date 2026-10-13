@@ -7,7 +7,7 @@
 
 import { useState, useRef } from 'react';
 import { Upload, FileImage, X, Eye, Sparkles, Loader2, CheckCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface BlueprintFile {
   id: string;

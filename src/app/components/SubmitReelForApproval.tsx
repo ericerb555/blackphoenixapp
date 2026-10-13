@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { Upload, Film, CheckCircle, Clock, X } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 

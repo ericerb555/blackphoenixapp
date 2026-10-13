@@ -18,7 +18,7 @@ import {
   Activity, Users, Bell, FileText, TrendingUp, Clock, Target,
   Grid, Layout, Filter, RefreshCw, Share2, Mail, Copy
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 type WidgetType = 'metric' | 'chart' | 'table' | 'text';
 type ChartType = 'line' | 'bar' | 'pie' | 'area';

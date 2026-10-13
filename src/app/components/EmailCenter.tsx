@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Mail, Send, FileText, Save, Trash2, Clock, CheckCircle2, XCircle, RefreshCw, Eye } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { publicAnonKey, projectId } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 

@@ -10,7 +10,7 @@ import {
   Crown, RefreshCw, CreditCard, Calendar, Clock, BadgePercent,
   ChevronDown, ChevronUp, AlertCircle, X
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useUserData } from '../../lib/hooks/useUserData';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';

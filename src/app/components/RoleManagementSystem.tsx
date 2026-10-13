@@ -22,7 +22,7 @@ import {
   Mail, Bell, Archive, RefreshCw, Save, Undo, MoreVertical, ArrowUpDown,
   Clipboard, ArrowLeft, User
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { DangerButton } from './ui/button/DangerButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
 import { PrimaryButton } from './ui/button/PrimaryButton';
