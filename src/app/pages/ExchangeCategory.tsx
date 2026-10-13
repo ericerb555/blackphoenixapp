@@ -289,7 +289,7 @@ export default function ExchangeCategory() {
                 <Search size={15} />
                 <input
                   type="search"
-                  placeholder={`Search ${category ? category.name.toLowerCase() : 'this category'}`}
+                  placeholder="Search by name or what they do"
                   value={query}
                   maxLength={120}
                   onChange={(e) => setQuery(e.target.value)}
@@ -331,7 +331,7 @@ export default function ExchangeCategory() {
               {searching && (
                 <>
                   {hits === 0
-                    ? `Nothing here matches "${query.trim()}" — everything below is still listed.`
+                    ? `Nothing here is called "${query.trim()}". This box searches business names, not categories.`
                     : `${hits} of ${measured.length} match "${query.trim()}", highlighted below.`}
                   {' '}
                 </>

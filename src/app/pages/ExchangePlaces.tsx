@@ -45,7 +45,7 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { LAUNCH_TOWNS, readTown, writeTown, townName } from '../lib/exchangeTowns';
-import { measureListings, formatDistance } from '../lib/exchangeGeo';
+import { measureListings, formatDistance, normalise } from '../lib/exchangeGeo';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
@@ -159,6 +159,29 @@ export default function ExchangePlaces() {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [categories, places]);
 
+  /*
+   * Did they type a town rather than a business?
+   *
+   * Eric typed "pelham nh" into this box and nothing came up. That was fair:
+   * the placeholder used to read "Search manchester" — a town name — so typing
+   * a town is exactly what it invited, while the search only ever matched
+   * business names and trades. The box has been reworded, and rather than
+   * stopping there the obvious action now works: a town is recognised and
+   * offered, because typing one is a reasonable thing to do on a page about
+   * places.
+   *
+   * "nh" and "new hampshire" are stripped, since that is how people write a
+   * town when they are used to typing it into a search engine.
+   */
+  const typedTown = useMemo(() => {
+    const asked = normalise(query).replace(/\b(nh|new hampshire)\b/g, '').trim();
+    if (!asked) return null;
+    const match = LAUNCH_TOWNS.find(
+      (t) => t.slug && t.slug !== town && normalise(t.name) === asked,
+    );
+    return match ?? null;
+  }, [query, town]);
+
   const changeTown = useCallback((slug: string) => {
     writeTown(slug);
     setTown(slug);
@@ -240,7 +263,7 @@ export default function ExchangePlaces() {
                   <Search size={15} />
                   <input
                     type="search"
-                    placeholder={`Search ${townName(town).toLowerCase()}`}
+                    placeholder="Search by name or what they do"
                     value={query}
                     maxLength={120}
                     onChange={(e) => setQuery(e.target.value)}
@@ -277,11 +300,27 @@ export default function ExchangePlaces() {
                 )}
               </div>
 
+              {/*
+                A town, typed into a box that searches businesses. Offered
+                rather than corrected: switching is what they meant, and a page
+                that knows that and says nothing is just being obtuse.
+              */}
+              {typedTown && (
+                <div className="bpxb-note">
+                  <button
+                    className="bpx-btn bpx-btn-primary"
+                    onClick={() => { setQuery(''); changeTown(typedTown.slug); }}
+                  >
+                    <MapPin size={14} /> Show me {typedTown.name} instead
+                  </button>
+                </div>
+              )}
+
               <div className="bpxb-note">
                 {searching && (
                   <>
                     {hits === 0
-                      ? `Nothing matches "${query.trim()}" — everything here is still shown.`
+                      ? `Nothing here is called "${query.trim()}". This box searches business names and trades — use the towns above to look somewhere else.`
                       : `${hits} of ${measured.length} match "${query.trim()}", lit up on the map.`}
                     {' '}
                   </>
