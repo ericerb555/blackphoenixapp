@@ -112,7 +112,33 @@ real navigation is the module list inside `UnifiedDashboard`.
 
 ---
 
-## 6. The smoke harness is broken for every session
+## 6. The smoke harness is broken for every session — FIXED 2026-10-13
+
+All four causes are now closed, by two sessions working on it the same day:
+
+- **Hardcoded ports** → `SMOKE_PORT` / `SMOKE_REPORT_PORT`, defaults unchanged.
+- **A shared Edge profile** → keyed per report port. Edge cannot open one
+  profile twice, so the second concurrent run's browser exited instantly and
+  reported nothing; that one cost three commits with smoke unrun.
+- **A busy report port was an unhandled stack trace** → now a message naming
+  the port and the override, exit 3. Proven by occupying a port the same way
+  the harness binds.
+- **A silent batch was written off rather than examined** → the range is now
+  halved down to single pages. This was the one that made the harness lie: a
+  batch row was skipped by the single-page retry pass, so fifteen pages went
+  unexamined *and unmentioned* — "270 rendered, 13 did not report" about an app
+  with 362 pages.
+
+**The result, under the exact configuration that failed three times that day:
+365 rendered, 0 did not report, 0 threw.** Every one of those red sweeps was
+starvation. There was never a broken page among them, and the pages that had
+been hidden inside silent batches all render fine given a browser of their own.
+
+Still worth considering, and not done: `--all` allows twenty seconds for fifteen
+pages, which is why heavy batches starve in the first place. Splitting makes the
+answer correct; a longer deadline would make it faster to reach.
+
+## 6b. The original note, kept because the reasoning still applies
 
 `scripts/smoke.mjs` hardcodes `PORT = 5177` and `REPORT_PORT = 9911` with no
 override, and spawns `vite --strictPort`. A vite process left over from

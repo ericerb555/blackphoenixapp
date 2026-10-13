@@ -225,7 +225,7 @@ async function waitForServer() {
  * deadline — most batches finish in a few seconds and only the ones containing
  * something slow use their full time.
  */
-async function runBatch(from, to, only) {
+async function runBatch(from, to, only, waitS = WAIT_S) {
   latest = null;
   const range = only
     ? `only=${encodeURIComponent(only.join(','))}`
@@ -240,7 +240,7 @@ async function runBatch(from, to, only) {
     url,
   ], { stdio: 'ignore' });
 
-  const deadline = Date.now() + WAIT_S * 1000;
+  const deadline = Date.now() + waitS * 1000;
   while (Date.now() < deadline) {
     await sleep(400);
     if (latest && latest.results.every((r) => r.status !== 'hung')) break;
@@ -336,11 +336,89 @@ const all = [];
  *
  * A genuinely broken page fails twice and is still reported.
  */
-async function runBatchWithRetry(from, to, only) {
-  const first = await runBatch(from, to, only);
+async function runBatchWithRetry(from, to, only, waitS = WAIT_S) {
+  const first = await runBatch(from, to, only, waitS);
   if (first) return first;
   process.stdout.write(' (retrying)');
-  return runBatch(from, to, only);
+  return runBatch(from, to, only, waitS);
+}
+
+/**
+ * A page tried on its own gets the generous deadline, whatever the mode.
+ *
+ * There was one global `WAIT_S` — sixty seconds for a targeted run, twenty for
+ * a full sweep — and `runBatch` used it for everything, including the retries
+ * that exist precisely to give a starved page a fair hearing. So in a full
+ * sweep a heavy page was retried alone and still allowed only twenty seconds,
+ * and was then recorded as "never reported, EVEN ALONE" — a verdict that reads
+ * as "this page is broken" and was nothing of the kind.
+ *
+ * Twenty-one pages were labelled that way in one run on 2026-10-13, minutes
+ * after the identical code reported all three hundred and sixty-five fine. The
+ * difference was machine load, and the label did not survive it.
+ *
+ * Sixty is the figure the harness already argues for a lone page: the design
+ * centre renders in seven on its own and starved at ninety in a batch of six.
+ * By the time this pass runs there are only a handful of pages left, so the
+ * generosity costs seconds and buys a verdict worth printing.
+ */
+const LONE_WAIT_S = Math.max(WAIT_S, 60);
+
+/**
+ * A batch that never reports is split in half, not written off.
+ *
+ * WHAT WAS WRONG
+ *
+ * A silent batch became a single row — `pages 60-75, hung` — and the
+ * single-page retry pass below skips those rows on purpose (`!/^pages /`). So
+ * fifteen pages went unexamined and unmentioned: a sweep would say "270
+ * rendered, 13 did not report" when the app has 362 pages, and the missing
+ * ninety were simply absent from the arithmetic. Nobody could tell whether
+ * those pages were broken or never tried.
+ *
+ * It mattered because the batch deadline for a full sweep is twenty seconds for
+ * fifteen pages, and the heavy ones — the design centre and the deck designer
+ * carry WebGL viewers that render in software here — starve each other. So a
+ * batch containing two of them times out through no fault of any page in it,
+ * and on 2026-10-13 that produced three separate red sweeps that each had to be
+ * disproved by hand before anything could be committed. A check that cries wolf
+ * trains you to commit through red, which is worse than having no check.
+ *
+ * WHY BY INDEX AND NOT BY NAME
+ *
+ * The route map lives in the browser; the Node side only learns a page's name
+ * when a batch reports one. A batch that said nothing has no names to retry, so
+ * the only handle left is the index range — which is enough. Halving reaches a
+ * single page in four steps for a batch of fifteen, and a single page gets the
+ * whole browser, which is exactly the condition under which the starved ones
+ * render.
+ *
+ * The extra browser launches are paid only on failure. A clean sweep does
+ * exactly what it did before.
+ */
+async function runRangeSplitting(from, to, depth = 0) {
+  // A single page gets the generous deadline — see LONE_WAIT_S. Splitting down
+  // to one page and then still allowing it only twenty seconds would reproduce
+  // the starvation this function exists to rule out.
+  const r = await runBatchWithRetry(from, to, undefined, to - from <= 1 ? LONE_WAIT_S : WAIT_S);
+  if (r) return r.results;
+
+  // One page, and still silent after two attempts with a browser to itself.
+  // That is a real finding rather than starvation, and it is reported as one.
+  if (to - from <= 1) {
+    return [{
+      name: `page ${from}`,
+      status: 'hung',
+      error: 'never reported, even alone (identified by index — it never named itself)',
+    }];
+  }
+
+  const mid = from + Math.floor((to - from) / 2);
+  process.stdout.write(` (splitting ${from}-${to})`);
+  return [
+    ...await runRangeSplitting(from, mid, depth + 1),
+    ...await runRangeSplitting(mid, to, depth + 1),
+  ];
 }
 
 if (targets) {
@@ -353,7 +431,14 @@ if (targets) {
 } else {
   const first = await runBatch(0, BATCH);
   if (!first) {
-    console.error('Nothing reported at all. The route map may have failed to load.');
+    // Not split, because the total page count comes from the first batch and
+    // there is nothing to iterate without it. The message names both causes
+    // rather than asserting the likelier one: it reads as a diagnosis, and
+    // "the route map failed" sent somebody a long way in the wrong direction
+    // when the real cause was a shared browser profile.
+    console.error('Nothing reported at all from the first batch.');
+    console.error('Either the route map failed to load, or the batch was starved — try');
+    console.error(`  npm run smoke -- --all --batch 5 --wait 45`);
     process.exit(2);
   }
   const total = first.total;
@@ -362,9 +447,7 @@ if (targets) {
   process.stdout.write(`  1..${Math.min(BATCH, total)}`);
   for (let from = BATCH; from < total; from += BATCH) {
     const to = Math.min(from + BATCH, total);
-    const r = await runBatchWithRetry(from, to);
-    if (r) all.push(...r.results);
-    else all.push({ name: `pages ${from}-${to}`, status: 'hung', error: 'the batch never reported, twice' });
+    all.push(...await runRangeSplitting(from, to));
     process.stdout.write(`  ${from + 1}..${to}`);
   }
   console.log('');
@@ -390,7 +473,7 @@ const quiet = all.filter((r) => r.status === 'hung' && !/^pages /.test(r.name));
 if (quiet.length) {
   console.log(`\nRetrying ${quiet.length} quiet page(s), one at a time…`);
   for (const row of quiet) {
-    const r = await runBatch(0, 0, [row.name]);
+    const r = await runBatch(0, 0, [row.name], LONE_WAIT_S);
     const fresh = r?.results?.find((x) => x.name === row.name);
     if (fresh && fresh.status !== 'hung') {
       row.status = fresh.status;
