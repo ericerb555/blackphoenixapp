@@ -578,10 +578,29 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
     } else if (lower.includes('compet') || lower.includes('rival') || lower.includes('spy')) {
       reply = `🕵️ **COMPETITOR INTELLIGENCE — Full Breakdown**\n\n**#1 Threat: TrendVault Shop** (1.24M TikTok)\n→ Posting: 40+ videos/week | Engagement: 4.2%\n→ Top products: Ice Roller, LED Strips, Earbuds, Waffle Maker\n→ Weakness: High volume, LOW depth — they rarely do product stories\n→ Strategy: Beat them on storytelling and product education\n\n**#2: DealDropUSA** (680K TikTok)\n→ Posting: 25 videos/week | Engagement: 6.8%\n→ Strength: Great hooks, fast trend adoption\n→ Weakness: No brand story — pure product dump\n→ Strategy: Build brand trust — they'll always be just a commodity seller\n\n**Your competitive advantages:**\n✅ Black Phoenix brand = authority + trust\n✅ You can create original content, not just reposts\n✅ Customer relationship + repeat buyers\n✅ Bundle products (e.g. Ice Roller + Vitamin Gummies = "Glow Kit")\n\n**Spy tactic:** Follow TrendVault on TikTok. When they post a new product, check if it's trending. If it is, list it the same day and post YOUR version of the video first.\n\n**Tool tip:** Go to TikTok's Creator Marketplace → search your category → filter by engagement rate → you'll find who's converting, not just who's popular.`;
     } else {
-      reply = `I've analyzed your full shop intelligence data. Here's your current opportunity snapshot:\n\n**🎯 Top Opportunity:** Ice Roller Face Massager — Score 96/100, +198% trend\n**💰 Best Margin:** LED Strip Lights — 140% gross margin at $24 price\n**👤 Best Creator Match:** @budgetbeautybri — 7.8% conversion rate\n**🎬 Best Format Right Now:** 15-second Hack Reel — 14.8% engagement\n**⏰ Best Post Time:** Friday 8PM or Saturday 8PM\n**⚠️ Avoid:** Stanley Tumbler — high saturation (score 78)\n\n**Ask me anything specific:**\n• "What should I sell right now?"\n• "Which products have the best margins?"\n• "How do I find creators to work with?"\n• "What video format converts best?"\n• "How do I beat my competitors?"\n• "What's the opportunity score for [product]?"`;
+      reply = `Here is the worked-example snapshot these tools are set up to produce:\n\n**🎯 Top Opportunity:** Ice Roller Face Massager — Score 96/100, +198% trend\n**💰 Best Margin:** LED Strip Lights — 140% gross margin at $24 price\n**👤 Best Creator Match:** @budgetbeautybri — 7.8% conversion rate\n**🎬 Best Format Right Now:** 15-second Hack Reel — 14.8% engagement\n**⏰ Best Post Time:** Friday 8PM or Saturday 8PM\n**⚠️ Avoid:** Stanley Tumbler — high saturation (score 78)\n\n**Ask me anything specific:**\n• "What should I sell right now?"\n• "Which products have the best margins?"\n• "How do I find creators to work with?"\n• "What video format converts best?"\n• "How do I beat my competitors?"\n• "What's the opportunity score for [product]?"`;
     }
 
-    setAiMessages(prev => [...prev, { role: 'assistant', content: reply, timestamp: new Date().toLocaleTimeString() }]);
+    /**
+     * "BPilot AI" IS NOT A MODEL, AND MUST NOT CLAIM TO HAVE READ YOUR DATA.
+     *
+     * Every reply above is a hardcoded string selected by keyword matching on
+     * the question. No request is made anywhere in this file, so nothing has
+     * been analysed — and yet one branch opened with "I've analyzed your full
+     * shop intelligence data", and the creator branch named specific handles
+     * with estimated per-post fees and an outreach script signed "— Eric".
+     *
+     * Somebody trusting that would email strangers quoting conversion rates
+     * nobody measured, on the strength of an analysis that never happened.
+     * That is worse than a wrong number: it is a wrong number with an
+     * instruction attached.
+     *
+     * The guidance itself is reasonable general advice and worth keeping, so it
+     * is labelled rather than deleted. The label goes on at the single point
+     * every reply passes through, so a branch added later cannot miss it.
+     */
+    const labelled = `_Worked example — BPilot is a set of prepared notes, not a model, and has not read your account data. Figures below are illustrative._\n\n${reply}`;
+    setAiMessages(prev => [...prev, { role: 'assistant', content: labelled, timestamp: new Date().toLocaleTimeString() }]);
     setAiTyping(false);
   }
 
@@ -598,6 +617,44 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
 
   return (
     <div className="space-y-6">
+      {/*
+        EVERY FIGURE ON THIS SCREEN IS AN EXAMPLE, AND IT HAS TO SAY SO.
+
+        Nothing here is measured. The only two network calls in this file are
+        the market-alert preferences and the "send" button; every number — the
+        trending products, the creators and their follower counts, the named
+        competitor shops and their revenue, the video engagement rates, the
+        "+198% in 24h" market alerts — is a constant declared at the top of
+        this file under a comment reading "Demo Data". That comment is in the
+        source, where a customer never looks.
+
+        It mattered because this screen renders inside EnterpriseContentCenter,
+        and the content centre is sold as an add-on to six audiences. A paying
+        subscriber opening "Creator Discovery" was shown seven influencers with
+        handles, follower counts and conversion rates, several carrying a
+        verified tick, and no indication that none of them had been measured or
+        might even exist. Acting on it means contacting strangers on the
+        strength of numbers nobody produced.
+
+        An unmissable, non-dismissible notice rather than a tidy little badge:
+        the whole screen is the claim, so the whole screen needs the caveat.
+      */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-amber-200">
+            Example data — no analytics source is connected
+          </p>
+          <p className="text-xs text-amber-200/80 mt-1 leading-relaxed">
+            Every figure on this screen is a worked example used to show how the tools lay out:
+            the products, creators, competitors, engagement rates and market spikes are invented.
+            They do not describe real accounts, real people or real sales, and the creator handles
+            should not be contacted on the strength of anything shown here. Connecting a live
+            data source is still to be built.
+          </p>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1196,7 +1253,14 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-bold text-white">{creator.name}</p>
-                        {creator.verified && <CheckCircle className="w-4 h-4 text-blue-400 flex-shrink-0" />}
+                        {/*
+                          The verified tick is gone. Five of these seven carried
+                          one, and a platform verification badge is a specific
+                          factual claim about a named account — not a styling
+                          choice, and not something a worked example gets to
+                          assert. The notice at the top of the screen covers the
+                          figures; this one had to go rather than be captioned.
+                        */}
                       </div>
                       <p className="text-xs text-gray-400">{creator.handle}</p>
                       <div className="flex items-center gap-1.5 mt-1">
