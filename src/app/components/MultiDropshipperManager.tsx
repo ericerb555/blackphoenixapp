@@ -137,6 +137,10 @@ interface ConnectedSupplier {
   supplierId: string;
   name: string;
   status: 'connected' | 'syncing' | 'error' | 'disconnected';
+  /** Why, when the status is not 'connected'. Empty for suppliers we cannot probe. */
+  statusReason?: string;
+  /** Where the owner goes to fix it, when the fix is on the supplier's side. */
+  fixUrl?: string;
   productCount: number;
   lastSync: string;
   markupType: 'percent' | 'fixed';
@@ -317,10 +321,21 @@ export default function MultiDropshipperManager() {
   async function loadConnected() {
     setLoadingConnected(true);
     try {
-      const [cfgRes, invRes] = await Promise.all([
+      /**
+       * CJ's real state, asked of CJ.
+       *
+       * The status below used to be the constant `'connected'` for every
+       * enabled provider, which meant the badge reported a healthy integration
+       * for ten days while every CJ data call was being refused with 1600014.
+       * `/cj/status` now authenticates and makes one data call, so `apiAccess`
+       * distinguishes "the key works" from "the account may use the API".
+       */
+      const [cfgRes, invRes, cjRes] = await Promise.all([
         fetch(`${SERVER}/dropshipper/config`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${SERVER}/dropshipper/inventory`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${SERVER}/cj/status`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
       ]);
+      const cjStatus = cjRes ? await cjRes.json().catch(() => ({})) : {};
       const cfgData = await cfgRes.json().catch(() => ({}));
       const invData = await invRes.json().catch(() => ({}));
 
@@ -342,7 +357,19 @@ export default function MultiDropshipperManager() {
             id: p.id,
             supplierId: p.id,
             name: p.name || def?.name || p.id,
-            status: 'connected' as const,
+            /**
+             * Only CJ can be asked, so only CJ's badge can be better than a
+             * guess. An enabled provider we cannot probe stays 'connected',
+             * which is what the record says — but it is no longer asserted for
+             * the one supplier we can actually check.
+             */
+            status: (
+              String(p.id) === 'cjdropshipping' && cjStatus?.apiAccess && cjStatus.apiAccess !== 'ok'
+                ? 'error'
+                : 'connected'
+            ) as ConnectedSupplier['status'],
+            statusReason: String(p.id) === 'cjdropshipping' ? String(cjStatus?.reason || '') : '',
+            fixUrl: String(p.id) === 'cjdropshipping' ? String(cjStatus?.fixUrl || '') : '',
             productCount: countByProvider[String(p.id).toLowerCase()] || 0,
             lastSync: cfgData?.config?.lastSync
               ? new Date(cfgData.config.lastSync).toLocaleString()
@@ -812,6 +839,27 @@ export default function MultiDropshipperManager() {
                             return null;
                           })()}
                         </div>
+                        {/* An "Error" badge with no reason sends somebody to read
+                            logs. The reason and the place to fix it belong here. */}
+                        {supplier.status === 'error' && supplier.statusReason && (
+                          <p className="mt-1 text-xs text-red-300/90">
+                            {supplier.statusReason}
+                            {supplier.fixUrl && (
+                              <>
+                                {' '}
+                                <a
+                                  href={supplier.fixUrl}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="underline font-semibold hover:text-red-200"
+                                >
+                                  Reactivate on CJ
+                                </a>
+                              </>
+                            )}
+                          </p>
+                        )}
                         <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 flex-wrap">
                           <span>{supplier.productCount.toLocaleString()} products</span>
                           <span>Synced {supplier.lastSync}</span>

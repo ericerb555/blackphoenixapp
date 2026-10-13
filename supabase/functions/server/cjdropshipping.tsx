@@ -996,21 +996,129 @@ cjRouter.post(`${PREFIX}/cj/import-more`, async (c) => {
 /**
  * Report whether CJ is configured and connected.
  */
+/**
+ * Is CJ actually usable? — asked of CJ, not of our own config.
+ *
+ * WHAT THIS ROUTE USED TO ANSWER, AND WHY IT MISLED
+ *
+ * `hasSecret` (a key is saved) and `registered` (a provider record exists).
+ * Neither touches CJ. `MultiDropshipperManager` then labelled every enabled
+ * provider `status: 'connected'` as a hardcoded constant, so the app reported
+ * CJ as connected while every data endpoint had been refusing for ten days —
+ * and the badge would have said the same if the account had been deleted.
+ *
+ * The distinction that matters, and that nothing surfaced: **authentication
+ * succeeds and the data endpoints refuse.** `getAccessToken` returns HTTP 200
+ * with a real token, then `/product/list` answers code 1600014, "Your API
+ * access has been disabled." A check that stops at "do the credentials work"
+ * sees a healthy integration. Only a data call sees the truth.
+ *
+ * So this now authenticates AND makes one cheap data call, and reports which of
+ * those failed. The verdict is cached briefly because CJ's QPS is 1 and the
+ * calls cost account points — a diagnostic should not be able to exhaust them
+ * by being polled.
+ */
+const STATUS_CACHE_KEY = "cj:status_probe";
+const STATUS_CACHE_MS = 5 * 60 * 1000;
+
 cjRouter.get(`${PREFIX}/cj/status`, async (c) => {
   try {
     const apiKey = resolveKey();
     const provider = await config.getProvider(PROVIDER_ID);
-    return c.json({
+    const base = {
       success: true,
       hasSecret: Boolean(apiKey),
       registered: Boolean(provider),
       autoForwardOrders: provider?.autoForwardOrders ?? false,
       lastSync: await config.getLastSync(),
-    });
+    };
+
+    if (!apiKey) {
+      return c.json({
+        ...base,
+        apiAccess: "no-key",
+        usable: false,
+        reason: "No CJ API key is configured, so nothing can be checked.",
+      });
+    }
+
+    // `?fresh=1` skips the cache, for somebody who has just reactivated access
+    // on CJ's dashboard and wants to know immediately.
+    const fresh = c.req.query("fresh") === "1";
+    if (!fresh) {
+      const cached = (await kv.get(STATUS_CACHE_KEY)) as any;
+      if (cached && Number(cached.at) > Date.now() - STATUS_CACHE_MS) {
+        return c.json({ ...base, ...cached.verdict, cached: true, checkedAt: cached.at });
+      }
+    }
+
+    const verdict = await probeCjAccess(apiKey);
+    await kv.set(STATUS_CACHE_KEY, { at: Date.now(), verdict });
+    return c.json({ ...base, ...verdict, cached: false, checkedAt: Date.now() });
   } catch (error) {
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
   }
 });
+
+/**
+ * One authentication and one data call, reported separately.
+ *
+ * Deliberately `/product/list` with `pageSize=1`: the cheapest call that still
+ * exercises the permission the catalogue job needs. A successful auth proves
+ * only that the key is valid.
+ */
+async function probeCjAccess(apiKey: string): Promise<{
+  apiAccess: "ok" | "disabled" | "auth-failed" | "unreachable";
+  usable: boolean;
+  reason: string;
+  fixUrl?: string;
+}> {
+  let token = "";
+  try {
+    token = await getAccessToken(apiKey, true);
+  } catch (err) {
+    return {
+      apiAccess: "auth-failed",
+      usable: false,
+      reason: `CJ rejected the API key: ${String((err as any)?.message || err)}`,
+    };
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/product/list?pageNum=1&pageSize=1`, {
+      headers: { "CJ-Access-Token": token },
+    });
+    const body = await res.json().catch(() => ({}));
+
+    if (isAccessDisabled(body)) {
+      return {
+        apiAccess: "disabled",
+        usable: false,
+        reason:
+          "The API key is valid and authentication succeeds, but CJ has switched API access off "
+          + "for this account, so no product, stock or order call will work. Reactivate it on CJ's "
+          + "dashboard — this cannot be fixed from here.",
+        fixUrl: "https://www.cjdropshipping.com/my.html#/authorize/APIStores",
+      };
+    }
+
+    if (body?.result === true || res.ok) {
+      return { apiAccess: "ok", usable: true, reason: "Authenticated and the data endpoints answer." };
+    }
+
+    return {
+      apiAccess: "unreachable",
+      usable: false,
+      reason: `CJ answered code ${body?.code ?? res.status}: ${String(body?.message || "no message")}`,
+    };
+  } catch (err) {
+    return {
+      apiAccess: "unreachable",
+      usable: false,
+      reason: `Could not reach CJ: ${String((err as any)?.message || err)}`,
+    };
+  }
+}
 
 /**
  * Diagnostics: confirm the secret is present and the key authenticates.
