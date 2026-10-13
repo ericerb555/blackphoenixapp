@@ -619,3 +619,41 @@ Phases 1 to 4 are all live. What was deliberately left out:
   were ruled out at the start and nothing since has changed the reasoning.
 - **The last 131 uncategorised listings** are still one-offs, better fixed by
   businesses claiming their listings than by more tag mapping.
+
+## The deal pipeline, proven end to end
+
+Phase 3's unit tests cover the rules; this covers the data path between them.
+Run as a rolled-back transaction against production on 2026-10-13, so nothing
+was left behind.
+
+A business with a granted claim submitted a deal, a resident followed that
+business, and the feed was asked at each stage:
+
+| step | deals visible | |
+|---|---|---|
+| reaches the staff review queue | 1 | correct |
+| follower feed while **submitted** | 0 | approval is the whole point |
+| follower feed after **approval** | 1 | correct |
+| approved but **finished** | 0 | the window is enforced, not just the state |
+| approved but **not yet started** | 0 | likewise |
+
+### The integration risk that was worth checking
+
+Two different gates guard publishing and they are not the same column:
+`mayPublish` reads `organizations.claim_state = 'claimed'`, while
+`listingIClaim` reads an `exchange_claim` row in state `granted`. If those ever
+moved independently, a business holding a real claim would be refused by one of
+them and no deal could ever be published — a dead end that would look like
+nothing at all rather than like an error.
+
+Both granted claims in production satisfy both gates. Worth re-checking if the
+claim flow is ever changed, because the failure is silent.
+
+### What is still unwalked
+
+The claim flow's *screens* — sign in, enter the code, become granted — have
+never been driven end to end in a browser, because doing so needs a real signed
+-in session and an account must not be created on Eric's behalf. The database
+says the flow has succeeded twice, both times on Eric's own companies, so he
+can exercise the deal composer and the review queue from his own account
+without claiming anything new.
