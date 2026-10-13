@@ -19,7 +19,7 @@
  * SPACING NOTE: `p-*` and `m-*` compute to 0px application-wide — see the
  * comment on the reset in `globals.css`.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Bookmark, BookmarkCheck, Loader2 } from 'lucide-react';
 import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
@@ -38,6 +38,23 @@ export default function SaveBusinessButton({ orgId, name, initiallySaved = false
   const [saved, setSaved] = useState(initiallySaved);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+
+  /*
+   * The shelf arrives after the first render — it is a fetch — so the initial
+   * state alone is not enough. Without this the button renders "Save" for a
+   * business already kept and never corrects itself, which is the bug this
+   * prop exists to fix.
+   *
+   * Guarded on `busy` so an answer in flight is not overwritten by a stale
+   * one: pressing save and having the page's shelf arrive a moment later must
+   * not flip the button back.
+   */
+  useEffect(() => {
+    if (!busy) setSaved(initiallySaved);
+    // Deliberately not depending on `busy`: this should run when the shelf
+    // changes, not when a request finishes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initiallySaved]);
 
   const toggle = useCallback(async (event: React.MouseEvent) => {
     // The row around this button selects a map pin, and the listing name next

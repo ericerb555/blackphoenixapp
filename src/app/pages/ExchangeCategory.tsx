@@ -63,6 +63,7 @@ import ExchangeMap from '../components/exchange/ExchangeMap';
 import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import { useHere, pointOf } from '../lib/exchangeHere';
+import { useSavedBusinesses } from '../lib/exchangeSaved';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -109,6 +110,9 @@ export default function ExchangeCategory() {
      never becomes a request and the position never leaves the browser. */
   const [query, setQuery] = useState('');
   const { here, ask, forget } = useHere();
+  /* One fetch for the whole page: forty-five buttons asking the same
+     question separately would be absurd. */
+  const { savedIds, note: noteSaved } = useSavedBusinesses();
 
   /* Measured and marked in one pass — nearest first once there is somewhere to
      measure from, and every match flagged without anything being removed. */
@@ -407,7 +411,12 @@ export default function ExchangeCategory() {
                     </a>
                     {/* Last in the row: the actions that reach the business
                         come first, because that is what the page is for. */}
-                    <SaveBusinessButton orgId={biz.id} name={biz.name} />
+                    <SaveBusinessButton
+                      orgId={biz.id}
+                      name={biz.name}
+                      initiallySaved={savedIds.has(biz.id)}
+                      onChange={(saved) => noteSaved(biz.id, saved)}
+                    />
                   </div>
 
                   {!biz.claimed && (

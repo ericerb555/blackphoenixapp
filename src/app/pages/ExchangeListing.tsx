@@ -42,6 +42,8 @@ import {
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
+import { useSavedBusinesses } from '../lib/exchangeSaved';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { LISTING_CSS } from './exchangeListingStyles';
 
@@ -72,6 +74,9 @@ export default function ExchangeListing() {
     [],
   );
 
+  /* Whether this one is already on the resident's shelf, so the button does
+     not invite them to keep something they have already kept. */
+  const { savedIds, note: noteSaved } = useSavedBusinesses();
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -192,6 +197,21 @@ export default function ExchangeListing() {
               {!listing.claimed && (
                 <span className="bpxl-badge bpxl-badge-quiet">Public record listing</span>
               )}
+              {/*
+                Saving sits beside the badges rather than among "Get in touch"
+                below, because those are actions that reach the business and
+                this one reaches nobody but the person pressing it.
+
+                It was missing entirely until now, which made the account
+                page's own words — "there is a save button on every listing" —
+                untrue on the one screen where somebody would look for it.
+              */}
+              <SaveBusinessButton
+                orgId={listing.id}
+                name={listing.name}
+                initiallySaved={savedIds.has(listing.id)}
+                onChange={(saved) => noteSaved(listing.id, saved)}
+              />
             </div>
           </div>
         </header>
