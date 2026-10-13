@@ -16,10 +16,51 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { isStaffRequest } from "./requireStaff.ts";
+import { isStaffRequest, requireStaff } from "./requireStaff.ts";
 
 const router = new Hono();
 const PREFIX = "/make-server-3eae23a6";
+
+/**
+ * WRITING TO THE CATALOGUE IS A STAFF ACTION. IT WAS NOT CHECKED AT ALL.
+ *
+ * `POST /marketplace/products`, `PUT /marketplace/products/:id`, `DELETE`, the
+ * file attach and delete, `POST /marketplace/products/seed` and
+ * `POST /marketplace/generate-image` each ran with no authorisation of any
+ * kind. The auth wall in `index.tsx` defaults an unlisted path to "signed in",
+ * and `/marketplace` is in `PUBLIC_GET_PREFIXES` but in no admin list — so
+ * every one of those writes was reachable by **any account with a session**:
+ * every customer, tenant, vendor and subcontractor on the platform.
+ *
+ * WHY THAT WAS A MONEY HOLE AND NOT ONLY AN UNTIDY ONE
+ *
+ * The checkout prices server-side from `product.price`, and its comment records
+ * the hole that closed: it used to bill `item.price` from the request body, so
+ * a posted `price: 0.01` bought a $199 bundle. But `PUT` merges an arbitrary
+ * body over the stored product, so a signed-in account could set that record's
+ * price to a cent and then buy it honestly at the price the server itself now
+ * trusted. The hole had moved one door down rather than closed.
+ *
+ * `DELETE` removed any product and `seed` bulk-replaced the whole catalogue.
+ * `generate-image` spends real money on model calls.
+ *
+ * GET is deliberately untouched: the storefront reads the catalogue signed out,
+ * and the two buyer routes — `entitlements` and `:id/download` — carry their
+ * own entitlement checks keyed to a paid order, which is where that belongs.
+ *
+ * Applied as scoped router middleware rather than a line per handler: a check
+ * that must be remembered on every new route is one that will be forgotten. It
+ * is scoped to these paths and never `use("*")`, which has trapped this project
+ * four times by catching routes the author never considered.
+ */
+const staffForWrites = async (c: any, next: any) => {
+  const method = c.req.method;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return await next();
+  return await requireStaff(c, next);
+};
+router.use(`${PREFIX}/marketplace/products`, staffForWrites);
+router.use(`${PREFIX}/marketplace/products/*`, staffForWrites);
+router.use(`${PREFIX}/marketplace/generate-image`, staffForWrites);
 const PRODUCT_PREFIX = "marketplace_product:";
 const PRODUCT_INDEX = "marketplace_product_index";
 const ORDER_PREFIX = "store_order:";

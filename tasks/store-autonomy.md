@@ -1156,3 +1156,146 @@ never timed out, so it was left alone rather than changed on spec.
 | `fulfil` | off. Order count AND spend now both capped — see the spend-guard review |
 | `price-watch` | off — nothing to watch until the catalogue is seeded |
 
+
+---
+
+## Review — the margin policy and the markup were contradicting each other (2026-10-12)
+
+Found while answering "where are we at to get the ecommerce making money
+automated". Measured against production, not recalled.
+
+### The contradiction
+
+| | |
+|---|---|
+| Configured markup | `markupPercentage: 30` on the CJ provider |
+| Margin that produces | **23.1%**, because `1 - 1/1.30 = 0.2308` |
+| Observed across 123 SKUs | 22.8% to 23.5% — a 0.7-point band |
+| Cleared the 35% floor | **0 of 123** |
+
+Markup is taken on cost; margin is measured against the selling price. A 30%
+markup can never produce a 35% margin — that needs 53.8%. So the floor Eric set
+and the markup the importer uses described two different businesses, and nothing
+reported it because the catalogue job has never completed a run: CJ has been
+refusing since the access was switched off.
+
+Had it run, `decideListing` would have returned `ask` for all 123, because
+restoring a 35% floor from 23% needs an 18% rise and the band is 10%. The first
+successful run would have produced 123 questions rather than 123 repriced
+products.
+
+### Eric's decision, 2026-10-12: meet in the middle at 30%
+
+    store:catalogue:policy   marginFloor  0.35 -> 0.30   (repriceBand left at 0.1)
+    dropshipper_config       markupPercentage  30 -> 42.9
+
+Both applied to production. The provider record is a double-encoded JSON string
+holding the CJ API key, so the markup was changed with a single targeted
+`regexp_replace` after confirming exactly one occurrence, and verified by
+reading back only the fields — not the record.
+
+### What I got wrong, and the real number
+
+The option described this as "catalogue asks: 0 — the job acts on its own". That
+was optimistic and it is worth correcting rather than letting it stand.
+
+Re-running `priceForFloor` and the band check per SKU against a 0.30 floor:
+
+    auto-repriced   92
+    still ask       31
+    rise needed     9.71% to 10.87%
+
+The rises straddle the 10% band. Anything needing more than 10% still asks, and
+the cent-rounding in `priceForFloor` (`Math.ceil`) pushes some of them over. So
+31 products will still come back as questions.
+
+**Left as it is deliberately.** "Raise up to 10%" was Eric's explicit
+instruction; widening the band to 11% would clear all 123 in one pass but it
+would be changing a guardrail he set in order to make my own figure true. His
+call, not mine.
+
+### Note on what the markup change does and does not do
+
+`applyMarkup` runs at import, so 42.9% applies to products imported from now on.
+It does **not** reprice the 123 already in the catalogue. Those move when the
+catalogue job next runs successfully — which still needs CJ reactivated.
+
+---
+
+## Review — the digital catalogue was writable by any signed-in account (2026-10-12)
+
+Found while checking that the digital-product delivery chain works, so that
+uploading the sixteen built files would produce something sellable rather than
+something broken. The delivery chain is sound. The catalogue it delivers from
+was not.
+
+### What had no authorisation at all
+
+Every write route on the marketplace router:
+
+    POST   /marketplace/products                     create
+    PUT    /marketplace/products/:id                 merge any body over a product
+    DELETE /marketplace/products/:id                 remove a product
+    POST   /marketplace/products/seed                bulk-replace the catalogue
+    POST   /marketplace/products/:id/files           attach a deliverable
+    DELETE /marketplace/products/:id/files/:fileId   remove one
+    POST   /marketplace/generate-image               spend money on model calls
+
+No actor check, no staff check, no router middleware. `isStaffRequest` was
+imported into the file and used in exactly two places, neither of them a write.
+
+The auth wall in `index.tsx` defaults an unlisted path to "signed in", which is
+the right default and is not enough: `/marketplace` is in
+`PUBLIC_GET_PREFIXES` and in no admin list, so `authTier` returned `user` for
+all of the above. Tier `user` requires only `signedIn`. **Every customer,
+tenant, vendor and subcontractor on the platform is signed in.**
+
+Verified against production that the gate does block a stranger — `PUT
+/marketplace/products/x` with the anon key returns 401 "Sign in required." The
+exposure was to anybody holding a session, which is not something that can be
+demonstrated from here without creating an account, so it is asserted from the
+code path rather than from a request: not OPTIONS, not in `PUBLIC_PREFIXES`,
+not a GET, not a POST in `PUBLIC_POST_PATHS`, not in `ADMIN_PREFIXES` →
+`'user'` → `allowed = signedIn` → handler with no check.
+
+### Why it was a money hole, not only an untidy one
+
+`POST /marketplace/checkout` prices server-side from `product.price`, and its
+own comment records the hole it closed: it used to bill `item.price` from the
+request body, so a posted `price: 0.01` bought a $199 bundle.
+
+But `PUT` merges an arbitrary body over the stored product. So a signed-in
+account could set that record's price to one cent and then buy the product
+honestly, at the price the server itself now trusted. **The hole had moved one
+door down rather than closed** — and the server-side pricing that was supposed
+to be the fix is what made the rewritten price authoritative.
+
+`seed` could replace the catalogue outright. `generate-image` spends real money.
+
+### The fix
+
+`staffForWrites` on this router, the same guard and the same shape as the one
+added to `maintenance-config.tsx` for the same reason: GET, HEAD and OPTIONS
+pass, every other method requires staff. Scoped to
+`/marketplace/products`, `/marketplace/products/*` and
+`/marketplace/generate-image` — never `use("*")`, which has trapped this
+project four times by catching routes the author never considered.
+
+Deliberately untouched:
+
+- `GET /marketplace/products` — the storefront reads it signed out.
+- `GET /marketplace/entitlements` and `GET /marketplace/products/:id/download` —
+  buyer routes that carry their own entitlement checks keyed to a paid order,
+  which is where that check belongs.
+- `POST /marketplace/checkout` lives on `app` in `index.tsx`, not this router,
+  so it is unaffected.
+
+### Separate observation, not a hole
+
+`POST /marketplace/checkout` is tier `user`, so a signed-out shopper cannot buy
+a digital product — only `/store/checkout` is in `PUBLIC_POST_PATHS`. The
+physical store takes guest payments and the digital one does not. That is a
+business decision somebody should make deliberately rather than inherit.
+
+Typecheck app 316 / server 87, both on baseline. Smoke 15 modals, 0 threw.
+**Not deployed** — the hole is open in production until the edge function ships.
