@@ -149,3 +149,71 @@ building is unknown.
 
 Typecheck app 316 / server 87, both on baseline. Smoke 28 rendered, 0 threw,
 `condo-association-portal` among them.
+
+## Done — the remaining portals, 2026-10-13
+
+Checked all seven rather than assuming they shared one bug, and they did not.
+Three groups came out of it.
+
+### Fabricated by default — fixed
+
+| Portal | Showed every account |
+|---|---|
+| `SubcontractorPortal` | Carlos Rivera · Elite Construction LLC · carlos@eliteconstruct.com · (817) 555-0163 |
+| `LandlordPortalView` | "Nguyen Rental Properties" as the business name in the header |
+| `PropertyManagerPortalView` | "Prestige Property Management" |
+| `CondoManagerPortalView` | "Lakewood Heights HOA" |
+
+All four now read `user.user_metadata.company`, the field
+`AdvertiserPortalView` and `InvestorPortalView` already use, and fall back to
+the account holder's own name or email — never another business.
+
+`SubcontractorPortal` was the vendor portal's bug exactly: `subName` and
+`subCompany` were passed as `ownerName` into the plan tracker, the plan builder
+and the investments tab, so a real subcontractor's plan was recorded against a
+company that does not exist. `subPhone` was deleted rather than resolved — it
+was declared and never rendered, so its only function was to hold a fake
+number.
+
+### Already correct — deliberately left alone
+
+`CustomerPortalView` and `SubTenantPortal` read the demo profile but fall back
+to the **real** account (`user.email`, `user_metadata.full_name`) or to an
+honest placeholder like "— Unit not set —". `TerritoryPortalView` falls back to
+"My Territory" and "Territory Owner", which are generic labels rather than a
+real person. The name and email lines in the landlord, property-manager and
+condo-manager portals are the same shape and were not touched: they prefer real
+metadata and end in a role word.
+
+So the demo-profile *override* survives in those files. It is a display value
+the browser can set for itself and grants nothing, which is a different and much
+smaller problem than the fabricated defaults — worth removing eventually, not
+worth a change to five more files today.
+
+### The condo association's budget — nothing to read, so nothing drawn
+
+`budgetData` hardcoded Maintenance $45,000, Utilities $28,000, Insurance
+$22,000, Landscaping $15,000 and Reserve Fund $30,000, drawn as a pie chart
+headed "Monthly Budget Allocation" for every board member and property manager.
+**$140,000 a month of invented spending presented to a board as its own
+accounts** — including a reserve-fund figure, which is the number an
+association is legally obliged to understand and plan against.
+
+The condo server has no budget route, so there was nothing being discarded that
+could be shown instead. The array is empty, the card explains that no budget is
+recorded yet, and the chart is skipped rather than drawn empty.
+
+### Verification
+
+Typecheck app 316 / server 87, both on baseline.
+
+Smoke finally ran: **33 rendered, 0 threw**, covering `condo-association-portal`,
+`condo-manager-portal`, `landlord-portal`, `property-manager-portal` and
+`subcontractor-portal` — every page changed here.
+
+It had to be run on `SMOKE_PORT=5178 SMOKE_REPORT_PORT=9912`, because port 9911
+was held for twenty-three minutes by another session's harness and killing it
+was not an option. `scripts/smoke.mjs` now reads both ports from the
+environment, defaults unchanged, so two sessions can verify at once instead of
+one of them silently going unverified. That change is **not committed with
+this** — the other session has its own uncommitted work in the same file.

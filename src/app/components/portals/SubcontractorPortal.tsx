@@ -44,17 +44,37 @@ function badge(s: string) {
 
 type Tab = 'dashboard' | 'jobs' | 'bids' | 'compliance' | 'payments' | 'investments' | 'plan-tracker' | 'plan-builder' | 'performance' | 'messages' | 'documents' | 'guide';
 
-function getDemoProfile() {
-  try { const r = localStorage.getItem('demo_role_profile'); return r ? JSON.parse(r) : null; } catch { return null; }
-}
-
 export default function SubcontractorPortal() {
-  const { session } = useAuth();
-  const demoProfile = getDemoProfile();
-  const subName = demoProfile?.name || 'Carlos Rivera';
-  const subCompany = demoProfile?.company || 'Elite Construction LLC';
-  const subEmail = demoProfile?.email || 'carlos@eliteconstruct.com';
-  const subPhone = demoProfile?.phone || '(817) 555-0163';
+  const { user, session } = useAuth();
+
+  /**
+   * Who this portal says you are — from the signed-in account.
+   *
+   * It used to be Carlos Rivera of Elite Construction LLC, on
+   * carlos@eliteconstruct.com and (817) 555-0163, shown to every
+   * subcontractor who signed in. The object was read first from
+   * `localStorage.getItem('demo_role_profile')` — a value the browser owns —
+   * with that invented person as the fallback whenever it was empty, which is
+   * every visit for everybody except a member of staff who had used the role
+   * switcher in the same browser.
+   *
+   * And it was not only cosmetic. `subName` and `subCompany` are passed as
+   * `ownerName` into the plan tracker, the plan builder and the investments
+   * tab, so a real subcontractor&apos;s plan was recorded against a company
+   * that does not exist. Same bug and same consequence as the vendor portal
+   * showing 'Premier Building Supplies Co.' — see tasks/portal-identity.md.
+   *
+   * `subPhone` is gone rather than resolved: it was declared here and never
+   * rendered anywhere, so the only thing it did was carry a fake number.
+   *
+   * Failing closed: an account with no company recorded is shown its own name
+   * or its own email address, never somebody else&apos;s business.
+   */
+  const subEmail = String(user?.email || '').trim().toLowerCase();
+  const subName = String(
+    user?.user_metadata?.full_name || user?.user_metadata?.name || subEmail || 'Subcontractor',
+  );
+  const subCompany = String(user?.user_metadata?.company || subName);
 
   const [tab, setTab] = useState<Tab>('dashboard');
 

@@ -452,7 +452,7 @@ export default function LandlordPortalView() {
                 <Home className="w-5 h-5 text-teal-400" />
               </div>
               <div>
-                <h1 className="text-lg font-bold">{demoProfile?.company || 'Nguyen Rental Properties'}</h1>
+                <h1 className="text-lg font-bold">{user?.user_metadata?.company || name}</h1>
                 <p className="text-xs text-gray-500 font-medium">{name} · {email} · Landlord</p>
               </div>
             </div>

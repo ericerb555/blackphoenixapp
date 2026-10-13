@@ -483,13 +483,23 @@ export default function CondoAssociationPortalView() {
         };
 
   // Budget allocation data
-  const budgetData = [
-    { name: 'Maintenance', value: 45000, color: '#ea580c' },
-    { name: 'Utilities', value: 28000, color: '#3b82f6' },
-    { name: 'Insurance', value: 22000, color: '#22c55e' },
-    { name: 'Landscaping', value: 15000, color: '#eab308' },
-    { name: 'Reserve Fund', value: 30000, color: '#8b5cf6' }
-  ];
+  /**
+   * THE ASSOCIATION'S BUDGET IS NOT KNOWN, SO NONE IS DRAWN.
+   *
+   * Five figures were hardcoded here — Maintenance $45,000, Utilities $28,000,
+   * Insurance $22,000, Landscaping $15,000, Reserve Fund $30,000 — and rendered
+   * as a pie chart headed "Monthly Budget Allocation" to every board member and
+   * property manager who opened the dashboard. That is $140,000 a month of
+   * invented spending presented to a board as its own accounts, including a
+   * reserve-fund figure, which is the number an association is legally
+   * required to understand and plan against.
+   *
+   * There is no budget record anywhere to read instead: the condo server has
+   * routes for associations, members, standing and consent, and none for
+   * budgets. Same position as the vendor contracts above — the honest render is
+   * nothing, and the feature has to be built before it can show anything.
+   */
+  const budgetData: Array<{ name: string; value: number; color: string }> = [];
 
   // Pending approvals (for board members)
   const pendingApprovals = workRequests.filter(req => req.status === 'pending_approval');
@@ -877,6 +887,14 @@ export default function CondoAssociationPortalView() {
               {canViewFinancials && (
                 <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] p-6">
                   <h2 className="text-lg font-bold text-white mb-6">Monthly Budget Allocation</h2>
+                  {/* Nothing recorded, so nothing drawn. See the note on `budgetData`. */}
+                  {budgetData.length === 0 && (
+                    <p className="text-sm text-gray-500">
+                      No budget has been recorded for this association yet. Once budget tracking is
+                      available, what the association actually spends each month will appear here.
+                    </p>
+                  )}
+                  {budgetData.length > 0 && (<>
                   <ChartContainer height={256} minHeight={256} dependencies={[activeTab]}>
                     <PieChart width={800} height={256}>
                       <Pie
@@ -909,6 +927,7 @@ export default function CondoAssociationPortalView() {
                       </div>
                     ))}
                   </div>
+                  </>)}
                 </div>
               )}
 

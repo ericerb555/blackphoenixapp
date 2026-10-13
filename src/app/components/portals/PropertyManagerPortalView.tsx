@@ -221,7 +221,7 @@ export default function PropertyManagerPortalView() {
                 <Building2 className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <h1 className="text-lg font-bold">{demoProfile?.company || 'Prestige Property Management'}</h1>
+                <h1 className="text-lg font-bold">{user?.user_metadata?.company || name}</h1>
                 <p className="text-xs text-gray-500 font-medium">{name} · {email} · Property Manager</p>
               </div>
             </div>
