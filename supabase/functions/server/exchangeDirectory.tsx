@@ -445,7 +445,52 @@ exchangeDirectory.get("/exchange/listing/:slug", async (c) => {
       surface: "profile",
     });
 
-    return c.json({ success: true, listing: publicListing(row, categories) });
+    /*
+     * Anything this business has on at the moment.
+     *
+     * Served here rather than from a route of its own: it is one more read on
+     * a request that is already happening, and a listing page that needed two
+     * round trips to tell you about a deal would show the business first and
+     * its offer a moment later, which reads as a page changing its mind.
+     *
+     * THE THREE CONDITIONS ARE ALL NECESSARY
+     *
+     * `approved` — nothing a business writes reaches a resident until a person
+     * has said so, which is the rule the review queue exists to keep.
+     * `starts_at <= now` and `ends_at >= now` — because an approved deal that
+     * has finished is not a deal, and one that has not started is somebody
+     * else's business. The equivalent judgement lives in `isLive` for the
+     * routes that read a set of deals; here it is the query, and the two must
+     * agree. If that ever stops being true, the account page and the listing
+     * page will disagree about what is on, in front of the same resident.
+     *
+     * The columns are the public ones only. A decision note is correspondence
+     * between us and the business, and `created_by` is a person.
+     */
+    const now = new Date().toISOString();
+    const deals = must(
+      await sb.from("exchange_deal")
+        .select("id, title, body, starts_at, ends_at")
+        .eq("org_id", row.id)
+        .eq("state", "approved")
+        .lte("starts_at", now)
+        .gte("ends_at", now)
+        .order("ends_at", { ascending: true })
+        .limit(10),
+      "reading what they have on",
+    ) as any[];
+
+    return c.json({
+      success: true,
+      listing: publicListing(row, categories),
+      deals: (deals ?? []).map((d) => ({
+        id: d.id,
+        title: d.title,
+        body: d.body,
+        startsAt: d.starts_at,
+        endsAt: d.ends_at,
+      })),
+    });
   } catch (error: any) {
     console.error("[exchange] listing failed:", error?.message || error);
     return c.json({ success: false, error: "Unable to load that listing." }, 500);

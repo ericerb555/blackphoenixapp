@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MapPin, Phone, Globe, ShieldCheck, Loader2, Building2,
-  BadgeCheck, AlertCircle, ArrowUpRight,
+  BadgeCheck, AlertCircle, ArrowUpRight, Tag,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -81,6 +81,11 @@ export default function ExchangeListing() {
   const { savedIds, note: noteSaved } = useSavedBusinesses();
   const { followedIds, note: noteFollowed } = useFollowedBusinesses();
   const [listing, setListing] = useState<Listing | null>(null);
+  /* What this business has on right now. Approved and inside its dates — the
+     server decides both, so this page cannot show something unreviewed. */
+  const [deals, setDeals] = useState<{
+    id: string; title: string; body: string; startsAt: string; endsAt: string;
+  }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -114,6 +119,7 @@ export default function ExchangeListing() {
           setError(body?.error || 'We could not find that business.');
         } else {
           setListing(body.listing);
+          setDeals(Array.isArray(body.deals) ? body.deals : []);
         }
       } catch {
         if (!cancelled) setError('We could not reach the Exchange just now.');
@@ -241,6 +247,35 @@ export default function ExchangeListing() {
           is what makes the page read as deliberate instead of unfinished —
           and it is where the recruitment funnel starts.
         */}
+        {/*
+          What they have on, directly under the name.
+
+          Above everything else because it is the only perishable thing on the
+          page — the phone number will be the same next week and the offer will
+          not. Shown to signed-out visitors too: a deal nobody could see until
+          they made an account would be a strange thing to have asked a
+          business to write.
+        */}
+        {deals.length > 0 && (
+          <section className="bpxl-deals">
+            <h2 className="bpxl-h2">
+              <Tag className="w-4 h-4" style={{ display: 'inline', marginRight: 6 }} />
+              On at the moment
+            </h2>
+            {deals.map((deal) => (
+              <div key={deal.id} className="bpxl-deal">
+                <div className="bpxl-deal-title">{deal.title}</div>
+                <div className="bpxl-deal-body">{deal.body}</div>
+                <div className="bpxl-deal-until">
+                  Until {new Date(deal.endsAt).toLocaleDateString(undefined, {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                  })}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
         {!listing.claimed && (
           <section className="bpxl-claim">
             <div>

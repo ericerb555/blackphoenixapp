@@ -78,4 +78,18 @@ export const LISTING_CSS = `
 /* A control whose destination arrives in a later phase: it should look
    like the real thing without pretending to work. */
 .bpxl-btn-soon { opacity:.55; cursor:default; box-shadow:none; }
+
+/* ── what a business has on ───────────────────────────────────────────────── */
+/* Warmer than the panels around it, because an offer is the one thing on this
+   page with a deadline. Not loud enough to compete with the name above it. */
+.bpxl-deals { display:flex; flex-direction:column; gap:12px;
+  border:1px solid rgba(234,88,12,.35); border-radius:18px; padding:18px;
+  background:linear-gradient(135deg, rgba(234,88,12,.12), rgba(234,88,12,.03)); }
+.bpxl-deal { display:flex; flex-direction:column; gap:5px; }
+.bpxl-deal + .bpxl-deal { border-top:1px solid rgba(234,88,12,.2); padding-top:12px; }
+.bpxl-deal-title { font-size:15.5px; font-weight:750; letter-spacing:-.01em; color:#fdba74; }
+.bpxl-deal-body { font-size:13.5px; line-height:1.6; white-space:pre-wrap; }
+/* The end date, not the start: a resident reading this today does not need
+   to be told it began last Tuesday, they need to know how long they have. */
+.bpxl-deal-until { font-size:11.5px; color:var(--bpx-faint); font-variant-numeric:tabular-nums; }
 `;
