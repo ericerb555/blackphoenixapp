@@ -502,3 +502,120 @@ contact businesses; it is not broken.
 Hiding it until sign-in would be easier and worse: nobody would ever discover
 there is a reason to have an account. Pressed while signed out it offers the
 sign-in once, politely, with no modal.
+
+## Phase 3 — following and deals, built
+
+A resident can hear from a business, a claimed business can write a deal, and
+staff decide whether anybody sees it.
+
+### The rule this feature exists to not break
+
+Eric's standing rule: anything a tenant publishes that reaches other people is
+approved before it goes live. The enforcement is not a flag on a screen —
+`businessMayMove` contains no route to `approved` from any state, so there is
+no sequence of business-side requests that publishes anything. Approval lives
+behind `isStaffRequest` and nowhere else.
+
+An approved deal also cannot be edited, only withdrawn and submitted again.
+Otherwise what residents see would not be what a person reviewed, and the
+review would be a formality anybody could walk straight past.
+
+### Following is not saving, and the button does not say "Follow"
+
+Saving is a bookmark: private, silent, the business never told. Following is
+consent to hear from them. Separate tables, separate verbs, and a deliberately
+different-looking control.
+
+"Follow" is a social-network word and it sets the wrong expectation — people
+read it as a feed and then resent the business for appearing in one. The label
+says **"Get their deals"**, which is what actually happens.
+
+It appears only on a claimed listing, because an unclaimed one can never
+publish and inviting somebody to hear from it would promise something that
+cannot arrive.
+
+### Still how many, never who
+
+A business may be told how many people follow it. The identities are not
+served, and no route takes a business as its subject and returns people. The
+feed is built from the resident's side — their follow rows, then those
+businesses' live deals — because the opposite shape is the same data and a far
+worse habit.
+
+### Approval is necessary and not sufficient
+
+`isLive` checks the state **and** the window, and a malformed date makes a deal
+NOT live. The tempting alternative — treating a bad end date as "no limit" —
+publishes something indefinitely because a field was malformed. 17 tests.
+
+### Pricing, when it comes
+
+`mayPublish` asks whether deals are included in the plan rather than returning
+true. Eric chose free-with-a-claim now, priced into the catalogue later; when
+that day comes the answer comes from the catalogue and nothing else on the
+publish path changes.
+
+### What is not here
+
+No public deal surface. A deal reaches residents through their own account,
+which is what the plan scoped. Showing live deals on a public listing page is a
+reasonable next step and was deliberately not widened into this phase.
+
+### The smoke harness could not complete
+
+Worth recording because it affected two commits. `npm run smoke` reports
+"nothing at all" from its first batch — on clean ports, with no orphaned
+listeners, after the parallel session's fix for sharing the harness. Every
+module added here transforms through Vite with a 200 and typecheck is at
+baseline, so it is a harness-level failure rather than a page one. The pages
+were mounted directly in a headless browser instead and all rendered.
+
+## Phase 4 — the map as a place you can go
+
+`/exchange-places`: every business in a town, clustered, nearest first, no
+category needed. 779 in Manchester, 136 in Salem, 50 in Pelham.
+
+### It does not replace the front door
+
+`/exchange` stays the crawlable tree of categories and names, because that is
+what the free-traffic plan rests on and a map is a canvas with nothing in it
+for a crawler to read. The map sits beside it, with a prominent way in placed
+**above** the tree so a resident does not have to work that out.
+
+### Three controls, three different jobs
+
+| control | what it does |
+|---|---|
+| a category | **filters** — removes everything else |
+| the search | **highlights** — marks what it answers, dims the rest |
+| a location | **sorts** — nearest first, nothing hidden |
+
+Only one removes anything, and it is the one a resident chose explicitly from a
+list of what is actually in this town. The other two never hide a business,
+because the thing a map is for is noticing what you were not looking for.
+
+The category list is ordered **biggest first** rather than alphabetically: on a
+map of a whole town the useful doors are the ones with something behind them.
+
+### Why the server answers "this town" and not "within N miles"
+
+A radius query needs the resident's coordinates. The whole point of the
+distance work is that their position never leaves their browser, so the server
+sends the town and the measuring happens locally.
+
+The cost is real and the code says so: somebody near a boundary will not see
+the shop two miles into the next town until they switch towns. The alternative
+buys a shorter list with the one piece of data this directory has promised not
+to collect. If that trade is ever revisited, this is the paragraph to argue
+with.
+
+### The plan is now built
+
+Phases 1 to 4 are all live. What was deliberately left out:
+
+- **No public deal surface.** A deal reaches residents through their own
+  account. Showing live deals on a listing page is the obvious next step.
+- **No reviews or ratings**, no chat, no paid placement on the map — all three
+  were ruled out at the start and nothing since has changed the reasoning.
+- **The last 131 uncategorised listings** are still one-offs, better fixed by
+  businesses claiming their listings than by more tag mapping.
