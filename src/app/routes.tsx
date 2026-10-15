@@ -179,6 +179,7 @@ const ExchangePlaces = lazy(() => import("./pages/ExchangePlaces"));
 const ExchangeTowns = lazy(() => import("./pages/ExchangeTowns"));
 const ExchangeBusinessDeals = lazy(() => import("./pages/ExchangeBusinessDeals"));
 const ExchangeDealReview = lazy(() => import("./pages/ExchangeDealReview"));
+const ExchangeLogoReview = lazy(() => import("./pages/ExchangeLogoReview"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
@@ -666,6 +667,15 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    * accident learns why instead of filing a bug.
    */
   "exchange-deal-review":    ExchangeDealReview,
+  /**
+   * The logo queue, staff only for the same reason and on the same terms.
+   *
+   * A logo is the one piece of branding a listing may carry, so this is the
+   * screen that decides what appears on somebody else's business. It is a look
+   * at an image, never a trademark check: the claim behind each listing already
+   * proved control of its phone or email.
+   */
+  "exchange-logo-review":    ExchangeLogoReview,
   /**
    * Where the Exchange operates, and opening somewhere new.
    *

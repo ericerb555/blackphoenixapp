@@ -31,6 +31,7 @@ import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
+import ExchangeLogoPanel from '../components/exchange/ExchangeLogoPanel';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -238,6 +239,14 @@ export default function ExchangeBusinessDeals() {
 
         {!loading && signedIn && !error && listings.length > 0 && (
           <>
+            {/*
+              Above the deal form on purpose. A business that has just claimed
+              its listing wants the visible thing first, and a logo is the only
+              reward claiming currently offers; a deal is work they may never
+              get round to.
+            */}
+            <ExchangeLogoPanel orgId={orgId} auth={authHeader} />
+
             <div className="bpxb-section">
               <div className="bpxb-section-head">
                 <div className="bpxb-section-name">A new deal</div>

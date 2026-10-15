@@ -264,6 +264,31 @@ export const BROWSE_CSS = `
 .bpxb-ours-line { font-size:13.5px; font-weight:650; line-height:1.45; }
 .bpxb-ours svg { flex-shrink:0; color:#fdba74; }
 
+/* ── a logo, which only a claimed listing can have ───────────────── */
+/* A fixed frame rather than a loose image. Logos arrive as any aspect ratio a
+   business happens to have, and a row of differently-shaped images reads as a
+   broken page; contain keeps the whole mark visible inside a predictable box. */
+.bpxb-logo-frame { width:72px; height:72px; flex-shrink:0; border-radius:14px;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+  border:1px solid var(--bpx-line); background:#fff; }
+/* White behind a logo on purpose: most are drawn for paper and a dark panel
+   turns a black wordmark into a rectangle of nothing. */
+.bpxb-logo-frame[data-empty="true"] { background:var(--bpx-raised); }
+.bpxb-logo-frame img { max-width:100%; max-height:100%; object-fit:contain; }
+
+.bpxb-logo-row { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; }
+.bpxb-logo-words { display:flex; flex-direction:column; gap:7px; flex:1 1 260px; min-width:0; }
+.bpxb-logo-badge { display:inline-flex; align-items:center; gap:6px;
+  font-size:12.5px; font-weight:750; }
+.bpxb-logo-acts { display:flex; gap:8px; flex-wrap:wrap; }
+
+/* The small one, on a list row and beside a business name. 40px because it sits
+   on the same line as a name at 15.5px and must not out-shout it. */
+.bpxb-logo-chip { width:40px; height:40px; flex-shrink:0; border-radius:10px;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+  border:1px solid var(--bpx-line); background:#fff; }
+.bpxb-logo-chip img { max-width:100%; max-height:100%; object-fit:contain; }
+
 /* ── the way in to the map, from the directory ────────────────────────────── */
 .bpxb-mapdoor { display:flex; align-items:center; gap:12px; text-decoration:none;
   border:1px solid rgba(234,88,12,.4); border-radius:15px; padding:14px;

@@ -299,14 +299,46 @@ export default function ExchangeMap({
           type: 'circle',
           source: 'listings',
           filter: ['!', ['has', 'point_count']],
+          layout: {
+            /*
+             * WHICH PIN WINS WHERE TWO SIT ON TOP OF EACH OTHER.
+             *
+             * On a town map plenty of businesses share an address — a strip of
+             * units, two trades at one yard — and whichever feature is drawn
+             * last is the one a resident can see and tap. Left to the order the
+             * query happened to return, that is arbitrary.
+             *
+             * A search match always wins, because the resident asked for it. A
+             * claimed listing wins next: somebody stands behind it, its details
+             * were corrected by its owner, and it is the one most worth
+             * reaching. Everything else keeps its place rather than being
+             * hidden — the point of a map is noticing what you were not looking
+             * for.
+             */
+            'circle-sort-key': [
+              'case',
+              ['get', 'hit'], 3,
+              ['get', 'claimed'], 2,
+              1,
+            ],
+          },
           paint: {
             // The highlight, data-driven: a match is the accent and larger, a
             // non-match stays visible but recedes. Dimming rather than hiding
             // is deliberate — see the note on the category page.
             'circle-color': ['case', ['get', 'hit'], ACCENT, QUIET],
-            'circle-radius': ['case', ['get', 'hit'], 9, 6],
-            'circle-opacity': ['case', ['get', 'hit'], 1, 0.75],
-            'circle-stroke-width': ['case', ['get', 'hit'], 2.5, 1],
+            'circle-radius': ['case', ['get', 'hit'], 9, ['get', 'claimed'], 7, 6],
+            /*
+             * A claimed listing is not dimmed, even when it is not a match.
+             * That is the whole visible reward for claiming on this surface:
+             * the logo itself cannot be painted into a circle layer without
+             * loading an image per business, and 1,092 of those would cost far
+             * more than the map is worth — so the logo lives on the list beside
+             * the map and on the listing page, and here claiming buys a pin
+             * that reads as solid rather than faint.
+             */
+            'circle-opacity': ['case', ['get', 'hit'], 1, ['get', 'claimed'], 1, 0.75],
+            'circle-stroke-width': ['case', ['get', 'hit'], 2.5, ['get', 'claimed'], 1.8, 1],
             'circle-stroke-color': 'rgba(255,255,255,0.7)',
           },
         });

@@ -28,6 +28,7 @@ import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
 import { exchangeDealRoutes } from "./exchangeDealRoutes.tsx";
 import { exchangeTerritoryRoutes } from "./exchangeTerritoryRoutes.tsx";
 import { exchangeAssistantRoutes } from "./exchangeAssistantRoutes.tsx";
+import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -1223,6 +1224,16 @@ app.route("/make-server-3eae23a6", exchangeTerritoryRoutes);
  * path that answers most questions has none and costs nothing.
  */
 app.route("/make-server-3eae23a6", exchangeAssistantRoutes);
+/**
+ * A business logo. Deliberately NOT public, in either direction.
+ *
+ * The write side belongs to whoever holds the granted claim on that one
+ * listing, and the review side to staff; there is no third audience, because a
+ * resident meets a logo as a field on a listing the directory already serves.
+ * An unauthenticated caller has no business here at all, so none of these paths
+ * are in PUBLIC_PREFIXES.
+ */
+app.route("/make-server-3eae23a6", exchangeLogoRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);

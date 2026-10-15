@@ -58,6 +58,9 @@ interface Listing {
   slug: string;
   name: string;
   claimed: boolean;
+  /* Null unless the owner uploaded one AND a person approved it AND the claim
+     still stands. The server decides all three; this screen only draws it. */
+  logo: string | null;
   source: string | null;
   phone: string | null;
   website: string | null;
@@ -179,11 +182,14 @@ export default function ExchangeListing() {
 
       <div className="bpxl-shell">
         <header className="bpxl-head">
-          <div className="bpxl-mark" aria-hidden="true">
-            {/* Until a logo is uploaded, the category's own mark. A map and a
-                directory made entirely of these still has to look finished,
-                because on launch day that is exactly what they are. */}
-            <Building2 className="w-7 h-7" />
+          <div className="bpxl-mark" data-logo={!!listing.logo} aria-hidden="true">
+            {/* The logo if there is one, and the generic mark otherwise. A map
+                and a directory made entirely of the generic one still has to
+                look finished, because on launch day that is exactly what they
+                are: 18 of 1,108 listings are claimed. */}
+            {listing.logo
+              ? <img src={listing.logo} alt="" />
+              : <Building2 className="w-7 h-7" />}
           </div>
 
           <div className="bpxl-headtext">

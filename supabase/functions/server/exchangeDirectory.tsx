@@ -31,6 +31,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { recordLead, recordDemand } from "./exchangeLedger.ts";
+import { publicLogoUrl } from "./exchangeLogo.ts";
 
 export const exchangeDirectory = new Hono();
 
@@ -132,6 +133,9 @@ const PUBLIC_LISTING_COLUMNS = [
   "service_lat", "service_lng", "service_radius_miles",
   "verification_state", "claim_state", "listing_source",
   "license_state", "license_expires_at", "insurance_expires_at",
+  // A logo is the one piece of branding a listing may carry, and it only
+  // exists on a listing somebody claimed and a person then looked at.
+  "logo_path", "logo_state", "logo_submitted_at",
 ].join(", ");
 
 /**
@@ -162,6 +166,9 @@ function publicListing(row: any, categories: any[]) {
       ? { lat: Number(row.service_lat), lng: Number(row.service_lng) }
       : null,
     categories,
+    /* Null unless a person approved it and the claim still stands. Decided in
+       one place so no surface can serve an image by forgetting to ask. */
+    logo: publicLogoUrl(row, PROJECT_URL),
     credentials: {
       // The badge lapses on the date, rather than standing for ever because
       // somebody uploaded a certificate once.
@@ -260,6 +267,9 @@ exchangeDirectory.get("/exchange/territories", async (c) => {
  */
 const NEARBY_LIMIT = 1500;
 
+/** Where a stored logo is addressed from. Read once; it does not change. */
+const PROJECT_URL = Deno.env.get("SUPABASE_URL") ?? "";
+
 exchangeDirectory.get("/exchange/nearby", async (c) => {
   const territory = String(c.req.query("territory") ?? "").trim();
 
@@ -282,6 +292,9 @@ exchangeDirectory.get("/exchange/nearby", async (c) => {
     let query = sb.from("organizations")
       .select([
         "id, slug, name, type, status, claim_state, service_lat, service_lng",
+        // The logo, which is the only thing that makes a claimed pin look
+        // different from the 1,090 that are not claimed.
+        "logo_path, logo_state, logo_submitted_at",
         ...embeds,
       ].join(", "))
       .not("service_lat", "is", null)
@@ -310,6 +323,10 @@ exchangeDirectory.get("/exchange/nearby", async (c) => {
         slug: row.slug,
         name: row.name,
         claimed: String(row.claim_state ?? "") === "claimed",
+        /* Null unless a person approved it AND the claim still stands.
+           `publicLogoUrl` is the one place that decides, so no surface can
+           serve an image by forgetting to check. */
+        logo: publicLogoUrl(row, PROJECT_URL),
         location: { lat: Number(row.service_lat), lng: Number(row.service_lng) },
         categoryIds: new Set(categoryId ? [categoryId] : []),
       });
@@ -320,6 +337,7 @@ exchangeDirectory.get("/exchange/nearby", async (c) => {
       slug: p.slug,
       name: p.name,
       claimed: p.claimed,
+      logo: p.logo,
       location: p.location,
       categoryIds: [...p.categoryIds],
     }));

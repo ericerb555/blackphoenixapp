@@ -152,6 +152,80 @@ load-bearing for acquisition and this plan deliberately does not touch it.
 different disclosure obligations, and mixing it into the first version would
 make "surfaced first" mean two things at once.
 
-## Review
+## Review — built 2026-10-15
 
-*(To be completed when the work is done.)*
+### The map half was already there
+
+Checked rather than assumed, and most of it had been built with the map itself:
+clustering (`clusterRadius: 48`, `clusterMaxZoom: 13`, with a cluster knowing
+whether it holds a search match), the list beside the map rather than instead of
+it, the lazy load that keeps MapLibre out of every other page bundle, and the
+map door sitting **above** the category tree on `/exchange` rather than below
+it. So the only map item left was the one that needed the logo half to exist.
+
+- [x] `/exchange` stays the canonical crawlable entry. Untouched.
+- [x] The map is a first-class destination, linked above the tree.
+- [x] Every pin links to the same crawlable listing page.
+- [x] Clustering.
+- [x] A list beside the map, so the 16 unplaceable listings stay reachable.
+- [x] Lazy, and not in the first bundle.
+- [x] **Claimed businesses read as different**, which is what this round added:
+      `circle-sort-key` puts a search match above a claimed listing above
+      everything else, so where two businesses share an address the one
+      somebody stands behind is the one you can see and tap. A claimed pin also
+      keeps full opacity and a stronger stroke rather than being dimmed.
+
+The logo itself is **not** painted into a pin. That needs an image loaded per
+business, and 1,092 of them would cost more than the map is worth. The logo
+lives on the list beside the map and on the listing page; on the map, claiming
+buys a pin that reads as solid rather than faint.
+
+### Logos
+
+- [x] `logo_path` on the organisation — an object path, never a URL.
+- [x] Upload only on a **claimed** listing, by the account holding the granted
+      claim. Checked against `exchange_claim`, the same thing the claim flow
+      already decided.
+- [x] Through the approval gate: a business can reach `submitted` and nothing
+      else. `businessMayMove` refuses every transition to `approved` from every
+      state, so no sequence of business-side requests publishes an image.
+- [x] All three refusals written in: no remote URLs, no logo on an unclaimed
+      listing, no favicon scraping — there is no code path that fetches an
+      image from anywhere.
+
+**The rule that does the most work** is `logoIsPublic`, which requires an
+approved logo **and** a listing still in the hands of whoever claimed it. The
+suspend route can put `claim_state` back to `listed`; a logo that kept showing
+after that would be the directory asserting a brand nobody stands behind, which
+is the invent-nothing rule being broken by the back door. It has a test.
+
+### Where the plan had to be corrected
+
+**"Reuse the existing upload path rather than inventing a fourth" was not
+possible.** Both candidates were checked:
+
+- `image-upload.tsx` — right bucket, right byte-sniffing, **staff only**. A
+  business owner is not staff, and widening that gate would hand every
+  signed-up account the project’s storage.
+- `media-library.tsx` — signed in, but a **private** bucket with 24-hour signed
+  URLs. A logo has to display in a year to somebody who is not logged in.
+
+So `exchangeLogoRoutes.tsx` is new, and what is reused is everything that
+should be: the same public bucket, the same `sniffImage`, the same
+approval rule. What is new is only the authorisation, which neither existing
+route could express.
+
+**Replacing an approved logo takes it down until it is looked at again.** Not in
+the plan, but it follows from `publishApproval.ts`: the thing reviewed and the
+thing shown have to be the same thing. Otherwise approval is bypassed by anybody
+willing to submit something inoffensive and swap it afterwards. The business
+side says so before they upload, because finding out later would feel like a bug.
+
+### Still to do
+
+**The migration has not been applied.** `20261015120000_exchange_listing_logo.sql`
+is written and reviewed but not run, so the routes will fail until it is — the
+columns do not exist yet. That is a production write and wants Eric’s say-so.
+
+**Nothing links to `/exchange-logo-review` yet.** The queue works and is staff
+gated; it needs a way in from wherever staff start their day.

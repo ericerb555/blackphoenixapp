@@ -28,6 +28,12 @@ export const LISTING_CSS = `
 .bpxl-head { display:flex; align-items:flex-start; gap:16px; }
 .bpxl-mark { width:62px; height:62px; flex-shrink:0; border-radius:18px; display:grid; place-items:center;
   background:linear-gradient(135deg,#1f1f1f,#141414); border:1px solid var(--bpxl-line); color:var(--bpxl-accent); }
+/* A real logo gets a white ground and the whole mark kept inside the box.
+   Most logos are drawn for paper, so a black wordmark on the dark gradient
+   above renders as a rectangle of nothing; and they arrive at whatever aspect
+   ratio the business happens to have, which contain absorbs. */
+.bpxl-mark[data-logo="true"] { background:#fff; padding:6px; }
+.bpxl-mark img { max-width:100%; max-height:100%; object-fit:contain; }
 .bpxl-headtext { min-width:0; display:flex; flex-direction:column; gap:6px; }
 .bpxl-name { font-size:clamp(24px,5vw,34px); font-weight:800; letter-spacing:-.02em; line-height:1.12; }
 .bpxl-trade { color:var(--bpxl-dim); font-size:15px; }

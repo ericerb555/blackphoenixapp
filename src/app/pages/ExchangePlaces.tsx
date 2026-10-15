@@ -79,6 +79,9 @@ interface Place {
   slug: string;
   name: string;
   claimed: boolean;
+  /* Approved, on a listing still claimed. The one thing that makes a claimed
+     business look different from the thousand that are not. */
+  logo: string | null;
   location: { lat: number; lng: number };
   categoryIds: string[];
 }
@@ -645,7 +648,15 @@ export default function ExchangePlaces() {
                     onClick={() => setChosenId(listing.id)}
                   >
                     <div className="bpxb-biz-top">
-                      <div style={{ minWidth: 0 }}>
+                      {/* The logo beside the name, not instead of it. A row
+                          that led with an image would make the thousand
+                          listings without one look broken rather than plain. */}
+                      {listing.logo && (
+                        <div className="bpxb-logo-chip">
+                          <img src={listing.logo} alt="" />
+                        </div>
+                      )}
+                      <div style={{ minWidth: 0, flex: '1 1 auto' }}>
                         <a
                           className="bpxb-biz-name"
                           href={listingHref(listing.slug)}
