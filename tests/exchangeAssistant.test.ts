@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normaliseAsk, resolveFromAliases, weOfferSomething, fenceRows, keepKnownIds,
-  withinDailyCap, assistantSystemPrompt, DAILY_MODEL_ASKS,
+  withinDailyCap, assistantSystemPrompt, DAILY_MODEL_ASKS, holdingCategoryOf,
 } from '../supabase/functions/server/exchangeAssistant.ts';
 
 /** A few real rows from `exchange_category_alias`. */
@@ -87,6 +87,47 @@ test('we lead on construction and stay quiet elsewhere', () => {
   assert.ok(!weOfferSomething({ slug: 'restaurants', sectionSlug: 'food-drink' }));
   assert.ok(!weOfferSomething(null));
   assert.ok(!weOfferSomething(undefined));
+});
+
+// ── the category a business actually holds ──────────────────────────────────
+
+/** Two levels, as the real taxonomy has them: a holder and a service under it. */
+const TAXONOMY = [
+  { id: 'c-glaze', slug: 'glaziers', parent_id: null },
+  { id: 's-window', slug: 'window-replacement', parent_id: 'c-glaze' },
+  { id: 'c-plumb', slug: 'plumbing', parent_id: null },
+  { id: 's-orphan', slug: 'gutter-relining', parent_id: 'c-gone' },
+];
+
+test('a service resolves to the category a business actually holds', () => {
+  /*
+   * "drafty windows" is an alias on window replacement, which is a service.
+   * Nobody holds a service, so querying it directly finds nobody — and a
+   * screen handed its slug lights no chip and looks broken while the answer
+   * underneath it is right.
+   */
+  const held = holdingCategoryOf(TAXONOMY[1], TAXONOMY);
+  assert.equal(held?.id, 'c-glaze');
+  assert.equal(held?.slug, 'glaziers');
+});
+
+test('a category already held resolves to itself', () => {
+  assert.equal(holdingCategoryOf(TAXONOMY[2], TAXONOMY)?.slug, 'plumbing');
+});
+
+test('a service whose parent has gone resolves to itself, not to nothing', () => {
+  /*
+   * Wrong, and deliberately wrong in the direction of showing something: the
+   * query then finds nobody, the ask is recorded as demand, and the resident
+   * is told plainly. Returning null would have thrown the question away and
+   * told them nothing was understood, which is false — it was.
+   */
+  assert.equal(holdingCategoryOf(TAXONOMY[3], TAXONOMY)?.slug, 'gutter-relining');
+});
+
+test('nothing asked for holds nothing', () => {
+  assert.equal(holdingCategoryOf(null, TAXONOMY), null);
+  assert.equal(holdingCategoryOf(undefined, TAXONOMY), null);
 });
 
 // ── the model may not invent a business ─────────────────────────────────────

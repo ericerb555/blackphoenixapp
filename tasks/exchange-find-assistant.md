@@ -206,3 +206,47 @@ differently:
 I have not guessed between them. The second is buildable today and breaks
 nothing; the first needs Eric to say what has changed about the materials-hub
 boundary, because the rule it crosses was his.
+
+## Built — 2026-10-15
+
+Both halves, to the decisions answered above.
+
+**The server.** `exchangeAssistant.ts` holds the rules, each one tested:
+alias resolution, the prompt-injection fence, `keepKnownIds`, the daily
+ceiling, the holding-category walk, and the system prompt. `POST
+/exchange/assistant` is the one route — alias table first and for free, the
+model only on the messy half, `recordDemand` on everything it could not answer.
+Public, with a per-visitor daily cap on model-backed asks and none on the alias
+path.
+
+**The map's search box.** `/exchange-places` keeps its instant local filter on
+every keystroke; Enter, or the Ask button beside it, sends the question. What
+comes back is used for exactly one thing: lighting the category chip a resident
+could have picked themselves, labelled with what was understood and cleared in
+one tap.
+
+### The page ignores the listings the route returns, on purpose
+
+The server already refuses to let a model name a business it did not fetch.
+This page goes further and lets nothing a model touched reach the screen at
+all: every pin and every row came from `/exchange/nearby` and was measured in
+the browser, exactly as it would have been if nobody had asked anything.
+
+So a wrong guess costs a wrong chip — visible, one tap to clear. It cannot cost
+a business that does not exist. The route's rows survive as a single boolean,
+which is what separates "the directory has them but none are placeable on a
+map" from "nobody here does that yet".
+
+### Two things the live prompt taught us
+
+It printed a raw UUID when told to "refer to them by their id", and it listed
+the businesses one by one underneath cards that already showed them. It is now
+told never to print an id, and to say what the set is *like* rather than
+enumerate it. The first has a test.
+
+### Still open
+
+**"Items from paying vendors come first"** — unchanged from the section above.
+The advertiser reading is buildable and breaks nothing; the vendor-catalogue
+reading crosses three of Eric's own standing rulings, including that customers
+never see a negotiated rate. Waiting on Eric to say which he meant.

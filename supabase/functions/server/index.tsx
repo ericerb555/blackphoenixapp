@@ -1431,6 +1431,38 @@ app.route("/", designStandardsRouter);
  * number. They stay unmounted. `property-management` is a different case again:
  * twenty-one of its twenty-two routes are duplicates of the guarded ones in this
  * file, so mounting it would shadow them with unguarded copies.
+ *
+ * AND THE TWO THAT HAD A CALLER, WHICH IS WHY THEY LOOKED LIKE A BUG
+ *
+ * `aiBidRouter` and `unifiedProductSearch` were listed as "features calling
+ * routes that are not mounted" — a user pressing a button and getting the auth
+ * wall's 401. Reviewed for mounting on 2026-10-15, and neither can be: the
+ * caller was the thing to remove, not the mount that was missing.
+ *
+ * `aiBidRouter` returns every matching provider's email and phone — and their
+ * subscription tier — to anyone past the auth wall who can post a job
+ * description, which is the roster of subcontractors as a contact list. Its
+ * `/ai-route` writes `bid_opportunity:${requestId}` for an id taken from the
+ * body with no ownership check, and `/ai-analysis/:requestId` reads any
+ * analysis by id — the same identity-from-the-URL shape that keeps
+ * `providerBids` unmounted above. Its only caller, `AIBidAssistant.tsx`, was
+ * rendered by nothing; the component is deleted and the router stays here
+ * unmounted, because `analyzeRequest` and `calculateMatchScore` are ordinary
+ * keyword scoring and are worth keeping if the bid side is ever built.
+ *
+ * `unifiedProductSearch` is a second catalogue over the same data. Its `GET /`
+ * reads the `product_` prefix — the live catalogue, the 123 rows named in the
+ * PRODUCTS CATALOG note further down — unpaginated and with no admin check,
+ * and `productsRouter` is mounted some four thousand lines above it, so Hono
+ * would answer from there anyway and the mount would be the trap that note
+ * describes. `/source/:sourceId/search` is worse: it loads a supplier's stored
+ * credentials by a URL-supplied id and spends them against that supplier's API.
+ *
+ * Its caller was the `product-data-sources` page, which could never have worked
+ * for a plainer reason: five of its seven endpoints are `/product-sources...`,
+ * and no router in this server has ever served that path. The production log
+ * kept in `src/imports/pasted_text/app-init-logs.txt` shows the 404. The page
+ * is deleted. Connecting a real supplier API is a feature, not a mount.
  */
 app.route("/", growthToolsRouter);
 app.route("/", growthTools2Router);

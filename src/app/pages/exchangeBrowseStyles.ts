@@ -218,6 +218,52 @@ export const BROWSE_CSS = `
 .bpxb-chip[data-current="true"] { border-color:rgba(234,88,12,.55);
   background:rgba(234,88,12,.14); color:#fdba74; }
 
+/* ── asking in words, and the answer ──────────────────────────────────────── */
+/* The ask is a separate control from the search field it sits beside, because
+   they are not the same promise: the field filters what is already on screen,
+   instantly and for nothing, while this one sends a question to a server and
+   costs money. A resident should be able to tell which one they are using. */
+.bpxb-ask { min-height:44px; padding:0 15px; border-radius:13px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:700;
+  border:1px solid rgba(234,88,12,.5); background:rgba(234,88,12,.12); color:#fdba74;
+  white-space:nowrap; transition:border-color .16s, background .16s; }
+.bpxb-ask:hover:not(:disabled) { border-color:rgba(234,88,12,.8); background:rgba(234,88,12,.2); }
+.bpxb-ask:disabled { opacity:.45; cursor:default; }
+
+/* Quiet on purpose. This panel explains what the page did; it is not the
+   answer, which is the businesses on the map underneath it. */
+.bpxb-answer { display:flex; flex-direction:column; gap:9px;
+  border:1px solid var(--bpx-line); border-left:3px solid rgba(234,88,12,.7);
+  border-radius:13px; padding:12px 13px; background:var(--bpx-raised); }
+.bpxb-answer-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.bpxb-answer-said { font-size:14px; line-height:1.55; min-width:0; }
+.bpxb-answer-drop { flex-shrink:0; width:28px; height:28px; border-radius:9px; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--bpx-line); background:transparent; color:var(--bpx-faint); }
+.bpxb-answer-drop:hover { background:rgba(255,255,255,.07); color:var(--bpx-text); }
+/* The reading, shown rather than hidden: a wrong guess should be obvious at a
+   glance and undoable in one tap, which is the whole reason this line exists. */
+.bpxb-answer-read { font-size:12px; color:var(--bpx-dim); line-height:1.5; }
+.bpxb-answer-read b { color:#fdba74; font-weight:750; }
+.bpxb-answer-ask { font-size:13px; color:var(--bpx-text); line-height:1.5; }
+
+/* ── ours, and unmistakably labelled as ours ──────────────────────────────── */
+/* The directory list stays neutral and is ranked by match and distance alone.
+   This block is Black Phoenix offering its own work, so it is allowed to look
+   like Black Phoenix — the brand treatment IS the disclosure. A resident who
+   cannot tell the difference has been misled; one who can is being offered
+   something. Never mixed into the list, and never ranked for money. */
+.bpxb-ours { display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;
+  border:1px solid rgba(234,88,12,.45); border-radius:13px; padding:12px 13px;
+  background:linear-gradient(90deg, rgba(234,88,12,.16), rgba(234,88,12,.04));
+  transition:border-color .16s; }
+.bpxb-ours:hover { border-color:rgba(234,88,12,.8); }
+.bpxb-ours-text { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.bpxb-ours-tag { font-size:10.5px; font-weight:800; letter-spacing:.06em;
+  text-transform:uppercase; color:#fdba74; }
+.bpxb-ours-line { font-size:13.5px; font-weight:650; line-height:1.45; }
+.bpxb-ours svg { flex-shrink:0; color:#fdba74; }
+
 /* ── the way in to the map, from the directory ────────────────────────────── */
 .bpxb-mapdoor { display:flex; align-items:center; gap:12px; text-decoration:none;
   border:1px solid rgba(234,88,12,.4); border-radius:15px; padding:14px;

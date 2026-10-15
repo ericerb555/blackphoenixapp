@@ -126,6 +126,34 @@ export function weOfferSomething(category: CategoryContext | null | undefined): 
 }
 
 /**
+ * Walk from the category a question resolved to, up to the one a business
+ * actually holds.
+ *
+ * The taxonomy has two levels and only the top one is ever held. A business is
+ * a glazier; "window replacement" is a service underneath it. So an alias that
+ * lands on a service has not landed on anything queryable, and the holder is
+ * what both the lookup and the caller need.
+ *
+ * Returning the holder rather than the id matters: a screen that keeps its own
+ * category controls needs the slug to light the right one, and handing it the
+ * service slug lights nothing — the page looks broken while the answer
+ * underneath it is right.
+ *
+ * A service whose parent has gone missing resolves to itself. That is wrong,
+ * but it is wrong in the direction of showing something: the query finds
+ * nobody, the ask is recorded as demand, and a resident is told plainly that
+ * the directory has nobody. A null would have thrown away the question.
+ */
+export function holdingCategoryOf<T extends { id: string; parent_id?: string | null }>(
+  asked: T | null | undefined,
+  all: readonly T[],
+): T | null {
+  if (!asked) return null;
+  if (!asked.parent_id) return asked;
+  return all.find((c) => c.id === asked.parent_id) ?? asked;
+}
+
+/**
  * Fence retrieved rows so the model reads them as data.
  *
  * THE ATTACK THIS EXISTS FOR

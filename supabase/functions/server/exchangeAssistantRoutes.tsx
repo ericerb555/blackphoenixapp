@@ -30,7 +30,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { recordDemand } from "./exchangeLedger.ts";
 import {
-  resolveFromAliases, weOfferSomething, fenceRows,
+  resolveFromAliases, weOfferSomething, fenceRows, holdingCategoryOf,
   withinDailyCap, assistantSystemPrompt, DAILY_MODEL_ASKS,
 } from "./exchangeAssistant.ts";
 /*
@@ -269,9 +269,14 @@ exchangeAssistantRoutes.post("/exchange/assistant", async (c) => {
     }
 
     /* ── retrieve, for real ──────────────────────────────────────────── */
-    const holding = categories.find((x) => x.slug === resolution!.categorySlug);
-    // A business holds a category, never a service under one.
-    const holdingId = holding?.parent_id ?? holding?.id;
+    const asked = categories.find((x) => x.slug === resolution!.categorySlug);
+    /*
+     * A business holds a category, never a service under one — so resolve up
+     * to the holder before querying, and report the HOLDER to the caller. The
+     * rule itself lives in `exchangeAssistant.ts`, where it is tested.
+     */
+    const holding = holdingCategoryOf(asked, categories);
+    const holdingId = holding?.id;
 
     const embeds = ["organization_category!inner ( category_id )"];
     if (territory) embeds.push("organization_territory!inner ( territory_slug )");
@@ -341,6 +346,11 @@ exchangeAssistantRoutes.post("/exchange/assistant", async (c) => {
       understood: {
         category: resolution.categoryName,
         slug: resolution.categorySlug,
+        // What businesses actually hold, so a screen can light its own control
+        // rather than re-querying. Equal to `slug` unless an alias resolved to
+        // a service and we walked up to the category holding it.
+        holdingSlug: holding?.slug ?? null,
+        holdingCategory: holding?.name ?? resolution.categoryName,
         how: resolution.how,
         matched: resolution.matched,
       },
