@@ -77,9 +77,9 @@ sponsors, payroll and cohort screens.
 
 ---
 
-## 4. Two features call routes that are not mounted
+## 4. Two features call routes that are not mounted — FIXED 2026-10-15
 
-Both fail for a user with a 401 from the auth wall, which the UI will render as
+Both failed for a user with a 401 from the auth wall, which the UI rendered as
 something vaguer.
 
     src/app/components/AIBidAssistant.tsx:57
@@ -88,8 +88,45 @@ something vaguer.
     src/app/lib/services/productDataSourceManager.tsx:160
         → /products/unified-search      unifiedProductSearch is never imported
 
-- [ ] Mount both, with an authorisation review each, or remove the UI that calls
+- [x] Mount both, with an authorisation review each, or remove the UI that calls
       them. A button that cannot work is worse than no button.
+
+**The review said do not mount either, so the callers went instead.** The
+reasoning is written where the next person will look for it — the unmounted-
+router note in `index.tsx` — and in short:
+
+`aiBidRouter` hands every matching provider's email, phone and subscription tier
+to anybody past the auth wall who can post a job description, and its other two
+routes take a record id from the body or the URL with no ownership check. That is
+the same shape that keeps `providerBids` unmounted under item 9. Its caller,
+`AIBidAssistant.tsx`, turned out to be rendered by nothing at all — an orphan
+component, not a reachable button. Deleted.
+
+`unifiedProductSearch` is a second catalogue over the live `product_` prefix,
+unpaginated and unguarded, and `productsRouter` is mounted four thousand lines
+ahead of it — so mounting would have built exactly the trap the PRODUCTS CATALOG
+note in that file describes, and the route would never have answered anyway.
+Worse, `/source/:sourceId/search` spends a supplier's stored credentials on an
+id handed in by the caller.
+
+Its caller was the `product-data-sources` page, and the real finding is that it
+could never have worked for a much plainer reason than a missing mount: five of
+its seven endpoints are `/product-sources...`, which no router in this server has
+ever served. The 404 is sitting in the production log kept at
+`src/imports/pasted_text/app-init-logs.txt`. The page is deleted, its route entry
+with it, and `productDataSourceManager` is down from 480 lines to 200 — the one
+method with a live caller (`MaterialsCenter` asking whether any supplier API is
+connected, so it can carry on without one) and nothing else.
+
+Two things worth noting, because neither was in the original finding. The dead
+`searchProducts` answered its 404 with a hardcoded product list returned as
+search results — the same invented-data pattern as item 3, one screen further
+back. And the file defined a second `UnifiedProduct` interface, unrelated to the
+one in `lib/useAllProducts` that the rest of the app imports; two different
+shapes under one name is the kind of thing that costs an afternoon. Both gone.
+
+Connecting a real supplier API is a feature, not a mount. When somebody builds
+it, `getDefaultSources` already names the four worth integrating.
 
 Six more modules are unreferenced and nothing calls them, so they are dead
 weight rather than broken features: `kitchen-cabinet-schedule`, `materials-api`,

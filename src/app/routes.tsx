@@ -143,7 +143,6 @@ const ChangeOrderCameraApp = lazy(() => import("./pages/ChangeOrderCameraApp"));
 const WasteDisposalTracking = lazy(() => import("./pages/WasteDisposalTracking"));
 const WeatherJobSiteMonitor = lazy(() => import("./pages/WeatherJobSiteMonitor"));
 const CodeTracker = lazy(() => import("./pages/CodeTracker"));
-const ProductDataSources = lazy(() => import("./pages/ProductDataSources"));
 const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders"));
 const JobsCenter = lazy(() => import("./pages/JobsCenter"));
 const DiscountGrants = lazy(() => import("./pages/DiscountGrants"));
@@ -541,7 +540,6 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "master-schedule":         MasterScheduling,
 
   // Operations & Tools
-  "product-data-sources": ProductDataSources,
   "purchase-orders":      PurchaseOrders,
   "jobs":                 JobsCenter,
   "job-center":           JobsCenter,
