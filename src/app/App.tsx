@@ -86,8 +86,6 @@ export const NavigationContext = createContext<{ navigate: (page: string) => voi
   navigate: () => {},
 });
 
-// Nav structure lives in nav.ts — edit that file to change the sidebar
-import { navigationSections } from "./nav";
 
 // Sign Out Button Component
 function SignOutButton() {

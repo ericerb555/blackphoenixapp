@@ -6,7 +6,7 @@ what hurts soonest.
 
 ---
 
-## 1. STOP: a landlord can be charged $45 for a report that cannot exist
+## 1. STOP: a landlord can be charged $45 for a report that cannot exist — FIXED
 
 **This is live right now and it is my fault.** Phase 2 built the fee; phase 3
 (a real agency) is not built. Nothing connects the two.
@@ -24,13 +24,29 @@ design.
 Two fixes, either is enough, and one of them should happen before anybody else
 touches the landlord portal:
 
-- [ ] **Refuse to order at all when the resolved provider is not live**, with a
+- [x] **Refuse to order at all when the resolved provider is not live**, with a
       message saying screening is not yet available. One guard in the order
       route, before `chargeFor` is consulted.
 - [ ] Or set `enabled: false` on the pricing record until a real provider is
       configured.
 
 The first is better because it cannot be undone by somebody re-enabling the fee.
+
+**Done, and better placed than this item asked for.** The refusal is not in the
+order route but inside `chargeFor` itself (`screeningPricing.ts`), ahead of the
+pricing check, the price check and the switch — the first thing the function
+does. A guard in one route would have held until somebody added a second route
+that charges; a guard in the function that decides every charge holds for ever.
+`index.tsx:10701` passes `provider.live` into it, `chargeRefusalMessage` says
+"no screening agency is connected yet, so no report can be produced and nothing
+has been charged", and `tests/screeningPricing.test.ts:248-270` holds it —
+including that `provider_not_live` wins over every other refusal reason, and
+that the default stays `true` so an omitted argument cannot silently stop
+charging.
+
+The second box is deliberately left open: it is an alternative, not a second
+task, and the fix above is the one that cannot be undone from the settings
+screen.
 
 ---
 
@@ -134,18 +150,35 @@ weight rather than broken features: `kitchen-cabinet-schedule`, `materials-api`,
 
 ---
 
-## 5. `nav.ts` drives nothing, so new pages are unreachable
+## 5. `nav.ts` drives nothing, so new pages are unreachable — FIXED 2026-10-15
 
-The file says of itself: *"To add a new page to the nav: add an entry here.
-App.tsx never needs to change."* `navigationSections` is imported at
-`App.tsx:90` and **never used**. "Platform Management" exists in that file and
+The file said of itself: *"To add a new page to the nav: add an entry here.
+App.tsx never needs to change."* `navigationSections` was imported at
+`App.tsx:90` and **never used**. "Platform Management" existed in that file and
 nowhere else in the app.
 
-This is why a finished feature can be invisible — it cost an hour today. The
-real navigation is the module list inside `UnifiedDashboard`.
+This is why a finished feature can be invisible — it cost an hour. The real
+navigation is the module list inside `UnifiedDashboard`.
 
-- [ ] Either wire `nav.ts` into a real sidebar, or delete it and correct the
+- [x] Either wire `nav.ts` into a real sidebar, or delete it and correct the
       comment so the next person does not trust it.
+
+**Deleted, not wired.** Wiring it would have meant building a second navigation
+surface alongside the one people actually use, which is how there came to be two
+in the first place. There were three statements of the same untruth, and all
+three are gone: the header in `nav.ts`, a comment at `App.tsx:89` saying "nav
+structure lives in nav.ts — edit that file to change the sidebar", and the dead
+import beneath it.
+
+What replaces them is one note where the decision actually gets made — above the
+module list in `UnifiedDashboard.tsx` — saying plainly that this list IS the
+navigation and that a module added anywhere else reaches nobody.
+
+One thing found on the way out, left as an observation rather than a claim: of
+the 75 paths `nav.ts` carried, 51 are not in that module list. Some are
+certainly reachable from other hubs, so that is not a count of unreachable
+pages — but if somebody ever builds a real sidebar, the deleted file is the best
+starting inventory in the repo and the commit that removed it still has it.
 
 ---
 
@@ -182,9 +215,17 @@ override, and spawns `vite --strictPort`. A vite process left over from
 2 October still holds 5177, so the harness hangs rather than failing, and the
 pre-commit check cannot run — for any session in this checkout, not just one.
 
-- [ ] Take both ports from the environment, defaulting to today's values.
-- [ ] Give the reporter a deadline so a vite that cannot bind fails loudly.
-- [ ] Kill the orphan (needs a person; this session cannot kill processes).
+- [x] Take both ports from the environment, defaulting to today's values.
+      `smoke.mjs:65-66` — `SMOKE_PORT` and `SMOKE_REPORT_PORT`, old values as
+      the defaults.
+- [x] Give the reporter a deadline so a vite that cannot bind fails loudly.
+      `smoke.mjs:156-161` — `EADDRINUSE` on the report port now names the port
+      and prints the override that gets past it, exit 3 instead of fourteen
+      lines of `events.js`; a vite that dies on `PORT` is caught at 189 and
+      says which port it most likely lost.
+- [x] Kill the orphan. Gone — checked 2026-10-15, nothing is listening on 5177.
+      It was never killed deliberately as far as any note says; a reboot
+      probably did it. The two fixes above are why it stops mattering.
 
 ---
 
