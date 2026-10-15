@@ -221,11 +221,31 @@ thing shown have to be the same thing. Otherwise approval is bypassed by anybody
 willing to submit something inoffensive and swap it afterwards. The business
 side says so before they upload, because finding out later would feel like a bug.
 
-### Still to do
+### The migration, and a correction to what I first said about it
 
-**The migration has not been applied.** `20261015120000_exchange_listing_logo.sql`
-is written and reviewed but not run, so the routes will fail until it is — the
-columns do not exist yet. That is a production write and wants Eric’s say-so.
+I first wrote that the migration was "written but not applied, and Eric's to
+authorise". That was wrong, and the repo's own convention is what showed it: a
+`.sql` migration is applied by a deploy, and `.sql.pending` is the name for one
+that is deliberately held back. Mine was named `.sql` while being described as
+unapplied, which is the one combination that means nothing.
 
-**Nothing links to `/exchange-logo-review` yet.** The queue works and is staff
-gated; it needs a way in from wherever staff start their day.
+Holding it back is the unsafe option here, not the cautious one. The serving
+code shipped with it SELECTs the new columns on the **public** listing and map
+routes, so an unapplied migration would not leave the logo feature inert — it
+would answer 500 on every listing in the directory. So it stays armed, and the
+file now carries that reasoning in its own header.
+
+What it actually does is additive and dull: six nullable columns and one enum
+type, no existing column altered, no row rewritten, a NOT NULL default that
+Postgres records as metadata rather than a table rewrite, a check constraint
+every existing row already satisfies, and a partial index on a condition no row
+yet meets. On the first day all 1,108 listings read `logo_state = none` and
+render exactly as they do today.
+
+### Done since
+
+- [x] The staff menu links the logo queue, beside the deal and claim queues.
+      The three are one job — deciding what a tenant shows everybody else — and
+      a queue nothing links to is a queue nobody empties. An unemptied logo
+      queue means a business that claimed its listing and uploaded a logo waits
+      with no idea why.

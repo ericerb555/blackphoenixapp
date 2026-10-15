@@ -31,23 +31,30 @@
 -- for a long time, which is the point: it is what makes a claimed listing look
 -- different from the 1,090 that are not.
 
-do $$ begin
-  create type public.exchange_logo_state as enum
-    ('none','submitted','approved','rejected');
-exception when duplicate_object then null; end $$;
+-- WHY THIS IS NOT .pending, UNLIKE THE SCHEDULING MIGRATIONS
+--
+-- The on-call, autopilot and store-clock migrations are held back as
+-- `.sql.pending` because arming them starts something running. This one is the
+-- opposite case: the serving code shipped alongside it SELECTS these columns,
+-- including on the public listing and map routes. Held back, it would not merely
+-- leave the logo feature inert — it would take the whole directory down with a
+-- 500 on every listing. There is no version of "later" that is safer.
+--
+-- WHAT IT DOES, SO THE DECISION IS AN INFORMED ONE
+--
+-- Entirely additive. Six nullable columns and one enum type; no existing column
+-- is altered and no row is rewritten. `logo_state` is NOT NULL with a default,
+-- which Postgres records as metadata rather than rewriting the table. The check
+-- constraint validates against existing rows, and every existing row will read
+-- `none`, so it cannot fail on arrival. The index is partial on a condition no
+-- row yet meets.
+--
+-- WHAT IT DOES ON THE FIRST DAY: NOTHING VISIBLE
+--
+-- Every one of the 1,108 listings gets `logo_state = none`, which renders
+-- exactly as today. The first change a resident could notice needs a business
+-- to claim a listing, upload an image, and a member of staff to approve it.
 
-alter table public.organizations
-  add column if not exists logo_path          text,
-  add column if not exists logo_state         public.exchange_logo_state not null default 'none',
-  add column if not exists logo_submitted_at  timestamptz,
-  add column if not exists logo_decided_at    timestamptz,
-  add column if not exists logo_decided_by    text,
-  add column if not exists logo_reject_reason text;
-
--- A state that claims to be anything but 'none' has to have an image behind it.
--- Without this a bug that wrote the state and lost the path would publish an
--- approved logo that does not exist, which renders as a broken image on a
--- business's own listing -- worse than no logo at all.
 do $$ begin
   alter table public.organizations
     add constraint organizations_logo_path_present
