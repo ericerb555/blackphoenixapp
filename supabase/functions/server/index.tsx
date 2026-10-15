@@ -26,6 +26,8 @@ import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
 import { exchangeDealRoutes } from "./exchangeDealRoutes.tsx";
+import { exchangeTerritoryRoutes } from "./exchangeTerritoryRoutes.tsx";
+import { exchangeAssistantRoutes } from "./exchangeAssistantRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -466,6 +468,8 @@ const PUBLIC_PREFIXES = [
    * are not in it.
    */
   '/exchange/taxonomy',
+  '/exchange/territories', // which towns the Exchange covers, for the switcher
+  '/exchange/assistant',   // describe what you need; it answers from the directory
   '/exchange/listing/',   // one listing, and the contact event on it
   '/exchange/category/',
   '/exchange/nearby',     // every placeable business in a town, for the map
@@ -1205,6 +1209,20 @@ app.route("/make-server-3eae23a6", exchangeAccountRoutes);
  * the review queue decides what the public sees.
  */
 app.route("/make-server-3eae23a6", exchangeDealRoutes);
+/**
+ * Opening and running towns. Staff only, all of it — these routes decide
+ * where the directory operates and can write hundreds of rows describing
+ * real businesses who never asked to be listed. None of it belongs in
+ * PUBLIC_PREFIXES and none of it ever will.
+ */
+app.route("/make-server-3eae23a6", exchangeTerritoryRoutes);
+/**
+ * The find assistant. Public, because it is the front door for somebody who
+ * does not know which category to pick, and browsing has never needed an
+ * account. Model-backed asks carry a daily ceiling per visitor; the alias
+ * path that answers most questions has none and costs nothing.
+ */
+app.route("/make-server-3eae23a6", exchangeAssistantRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);

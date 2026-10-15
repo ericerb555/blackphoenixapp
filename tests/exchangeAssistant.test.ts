@@ -167,6 +167,8 @@ test('the prompt states every line it must not cross', () => {
   const prompt = assistantSystemPrompt('Pelham');
   for (const rule of [
     /never invent a name, a phone number or an address/i,
+    // Added after a live answer came back containing a raw UUID.
+    /never print an id/i,
     /never recommend one business over another/i,
     /never give trade advice/i,
     /legal, medical or financial/i,
