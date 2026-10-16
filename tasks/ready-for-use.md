@@ -154,7 +154,7 @@ screen.
 
 ---
 
-## 2. There is still effectively no clock
+## 2. The clock — ARMED AND VERIFIED, 2026-10-16
 
 One scheduled job exists in production:
 
@@ -249,6 +249,29 @@ All three now match `cron.job` as read on 2026-10-15. It keeps the `.pending`
 suffix with the reason restated: not "do not arm this yet" but "there is nothing
 left to arm" — and renaming it is now harmless rather than harmful, which is the
 whole point of making it match.
+
+---
+
+### Verified again 2026-10-16, one layer deeper
+
+`cron.job_run_details` says "succeeded" when the SQL statement ran, and that
+statement is `net.http_post` — which succeeds by QUEUEING a request. A job
+whose edge function returns 500 every time still reports a clean run, so the
+first check could not tell a working clock from a job faithfully posting into a
+wall.
+
+Checked `net._http_response` instead, which holds what actually came back:
+
+    status  responses (6h retention window)
+    200     422
+    null      1
+
+1,681 cron runs in 24 hours with zero failures, and every HTTP response in the
+retained window a 200. The single null is one request that never completed,
+which at one in 423 is ordinary network noise rather than a pattern.
+
+`exchange-upkeep` was added today and runs at 04:40, so it has no history yet
+— worth a look tomorrow rather than a concern now.
 
 ---
 
