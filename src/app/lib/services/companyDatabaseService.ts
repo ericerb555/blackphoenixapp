@@ -100,9 +100,52 @@ export class CompanyDatabaseService {
   }
 
   /**
-   * Get all companies for current user
+   * Every column except the logos that are stored as base64 in the row.
+   *
+   * WHY THIS LIST EXISTS AT ALL
+   *
+   * `select('*')` here returned 695 kB for two companies, and 694 kB of that
+   * was two columns: `logo_primary` at 245 kB and `logo_secondary` at 450 kB,
+   * both base64 image data living in the table. The slow query log caught it
+   * averaging 140 ms across 2,525 calls — about six minutes of database time
+   * and roughly 1.7 GB shipped to browsers, to render lists that mostly want a
+   * name.
+   *
+   * `logo_url` stays: it is a 51-byte link into storage, which is what the
+   * other logo columns should have been.
+   *
+   * ADDING A COLUMN TO THE TABLE MEANS ADDING IT HERE
+   *
+   * That is the cost of a named list, and it is the right trade: the previous
+   * behaviour was that any column added later was shipped to every browser by
+   * a query nobody revisited.
    */
-  static async getCompanies(): Promise<{ data: Company[] | null; error: any }> {
+  private static readonly LIST_COLUMNS = [
+    'id', 'user_id',
+    'company_name', 'company_legal_name', 'company_tagline', 'slug',
+    'email', 'phone', 'fax', 'website', 'emergency_phone', 'support_email',
+    'address_line1', 'address_line2', 'city', 'state', 'zip_code', 'country',
+    // The link, never the base64.
+    'logo_url',
+    'primary_color', 'secondary_color', 'accent_color',
+    'industry', 'description',
+    'tax_id', 'tax_label', 'license_number', 'insurance_number',
+    'bank_name', 'bank_account_name', 'bank_account_number', 'bank_routing_number',
+    'payment_terms',
+    'created_at', 'updated_at',
+  ].join(', ');
+
+  /**
+   * Get all companies for current user.
+   *
+   * `withLogos` is opt-in and costs about 350 kB per company. Two screens need
+   * it — the company editor, which is where the logos are set, and the
+   * contract editor, which draws them on a document. Everything else wants a
+   * name and an address, and should not pay for artwork it will not render.
+   */
+  static async getCompanies(
+    options: { withLogos?: boolean } = {},
+  ): Promise<{ data: Company[] | null; error: any }> {
     try {
       const userId = await this.getUserId();
       if (!userId) {
@@ -113,7 +156,7 @@ export class CompanyDatabaseService {
 
       const { data, error } = await supabase
         .from('companies')
-        .select('*')
+        .select(options.withLogos ? '*' : CompanyDatabaseService.LIST_COLUMNS)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 

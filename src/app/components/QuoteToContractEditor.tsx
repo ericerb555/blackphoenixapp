@@ -387,7 +387,8 @@ export function QuoteToContractEditor({
         // Quotes/contracts always represent the main app business (Black Phoenix
         // Builds), never the ecommerce store. Resolve it and use it for both the
         // header display and the global company info the documents read.
-        const { data: companies } = await CompanyDatabaseService.getCompanies();
+        // Draws the logo onto the contract, so it needs the image itself.
+        const { data: companies } = await CompanyDatabaseService.getCompanies({ withLogos: true });
         const mainApp = pickMainAppCompany(companies || []);
         if (mainApp) {
           setActiveCompanyInfo(mainApp);

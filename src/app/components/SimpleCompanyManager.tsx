@@ -163,7 +163,10 @@ export default function SimpleCompanyManager() {
       console.log('[SimpleCompanyManager] 🔄 Loading companies for user:', user.id);
 
       // Load from database (primary source)
-      const { data: dbCompanies, error } = await CompanyDatabaseService.getCompanies();
+      // The editor is where logos are set, so it is one of the two screens
+      // that asks for the base64 columns. See LIST_COLUMNS for why that is
+      // opt-in rather than the default.
+      const { data: dbCompanies, error } = await CompanyDatabaseService.getCompanies({ withLogos: true });
 
       console.log('[SimpleCompanyManager] 📊 Database result:', {
         companiesCount: dbCompanies?.length || 0,
