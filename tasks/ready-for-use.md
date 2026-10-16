@@ -375,14 +375,63 @@ sandbox credentials rather than a negotiation — see the Phase 3 plan in
 
 ---
 
-## 9. Subcontractor bidding does not work
+## 9. Subcontractor bidding does not work — ANSWERED 2026-10-16, DIFFERENTLY
 
 `providerBids` and `serviceProviders` are deliberately unmounted, documented in
 `index.tsx`: they take the provider's identity from the URL, so any signed-in
 caller could read another provider's opportunities by changing a number.
 
-- [ ] Per-record ownership checks, then mount. Until then the bid side of
+- [x] Per-record ownership checks, then mount. Until then the bid side of
       Phoenix Exchange is not a feature.
+
+**Do not mount them, and do not write the ownership checks.** Investigated
+before starting the work, and the premise is out of date: the bid side of
+Phoenix Exchange already works, and these two modules are not part of it.
+
+The live bid room is in `index.tsx` and is properly built — `/bid-room/award`
+and `/bid-room/notify-invites` go through `userScopedClient`, so RLS decides
+per record, with org membership checked on top, and `/bid-intake` is mounted
+beside them. Every route in `providerBids` reads or writes `bid_opportunity:`,
+and the only writer of that key is `aiBidRouter./ai-route`, which item 4 ruled
+unmountable; the live router keeps its state under `bid_route:`. So the pair is
+a parallel older implementation on an orphaned data model. No frontend calls
+any of their nineteen routes, and production holds **zero rows** under every
+prefix they touch — no providers, no subcontractors, no opportunities, no bids.
+
+Their customer half could not have been secured as written in any case.
+`accept-bid` and `request/:id/bids` have to know which customer owns an
+opportunity, and the record carries `customerInfo: customerInfo || null` —
+free-form, nullable, from a request body. There is no identity in it to check
+anyone against. The live routes avoid this by asking Postgres, which knows.
+
+### What the investigation did find, in the mounted half — now fixed
+
+Looking for the hole described above led to a real one that was live:
+
+**`/bid-router/ai-analyze` and `/bid-router/ai-route` were reachable by every
+signed-in account.** `/bid-router/` appears in `AI_METERED_PREFIXES`, which
+bounds model spend and reads like a decision about who may call them. It is not
+one — the auth wall defaults an unlisted path to "signed in", so every customer,
+tenant, applicant, vendor and subcontractor could.
+
+    ai-analyze   returned `matchingProviders` as `loadBidProviders` built them,
+                 email address on every row. Production holds 8 `vendor:`
+                 records and all 8 carry an email, so any login could post a job
+                 description and read the vendor roster as a contact list.
+    ai-route     loops the top five providers and sends each a real email AND
+                 SMS whose subject carries `title` from the request body. Not a
+                 leak but a send button: any signed-in account could put words
+                 of its choosing in front of five vendors, from our address.
+
+The second is the one that mattered. Both routes are staff operations and
+nothing in `src/` calls either, so the gate cost nothing. `simple-test` is gated
+with them so the prefix has one rule.
+
+`ai-analyze` also strips the address on the way out, via
+`withholdProviderContact` in `bidRouterContact.ts` with tests in
+`tests/bidRouterContact.test.ts`. Belt and braces on purpose: the gate is one
+line somebody can move, and the thing that must stay true is "the address does
+not leave the server", not "…while line one still says staff".
 
 ---
 

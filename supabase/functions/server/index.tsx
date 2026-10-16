@@ -30,6 +30,7 @@ import { exchangeTerritoryRoutes } from "./exchangeTerritoryRoutes.tsx";
 import { exchangeAssistantRoutes } from "./exchangeAssistantRoutes.tsx";
 import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
+import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
@@ -1482,6 +1483,35 @@ app.route("/", designStandardsRouter);
  * number. They stay unmounted. `property-management` is a different case again:
  * twenty-one of its twenty-two routes are duplicates of the guarded ones in this
  * file, so mounting it would shadow them with unguarded copies.
+ *
+ * `providerBids` AND `serviceProviders` ARE NOT WAITING ON OWNERSHIP CHECKS
+ *
+ * That was the plan for them, and it was the wrong plan. Investigated properly
+ * on 2026-10-16 before writing the checks, and the checks would have been
+ * nineteen routes of work on a branch that is already dead:
+ *
+ * Every route in `providerBids` reads or writes `bid_opportunity:`, and the only
+ * thing that ever wrote that key is `aiBidRouter./ai-route` — the module ruled
+ * unmountable in the note below. The LIVE bid room is in this file, built since:
+ * `/bid-room/award` and `/bid-room/notify-invites` on Postgres tables, reached
+ * through `userScopedClient` so RLS decides per record, with org membership
+ * checked on top; `/bid-intake` mounted beside them; and `/bid-router/ai-route`
+ * keeping its state under `bid_route:`, a different key from `bid_opportunity:`.
+ * So the two are a parallel older implementation on an orphaned data model, no
+ * frontend calls any of their nineteen routes, and production holds zero rows
+ * under every prefix they touch.
+ *
+ * Worse, their customer half could not be secured as written even with the
+ * effort spent. `accept-bid` and `request/:id/bids` need to know which customer
+ * owns an opportunity, and the record carries `customerInfo: customerInfo ||
+ * null` — free-form, nullable, straight from a request body. There is no
+ * identity there to check anybody against. The live routes do not have that
+ * problem because they ask Postgres, which knows.
+ *
+ * Securing them would therefore have produced nineteen guarded routes nobody
+ * calls, on data nothing creates, next to a working bid room. The real holes
+ * were in the mounted half and are fixed where they live — see the bid-router
+ * note further down this file.
  *
  * AND THE TWO THAT HAD A CALLER, WHICH IS WHY THEY LOOKED LIKE A BUG
  *
@@ -7702,9 +7732,42 @@ function scoreProviders(providers: any[], categories: string[]) {
     return { ...p, matchScore: Math.min(99, base + ratingBoost + tierBoost) };
   }).sort((a, b) => b.matchScore - a.matchScore);
 }
-app.post('/make-server-3eae23a6/bid-router/simple-test', (c) => c.json({ success: true, message: 'Bid router is reachable.', timestamp: new Date().toISOString() }));
+/*
+ * THE BID ROUTER IS A STAFF TOOL. IT WAS REACHABLE BY EVERY SIGNED-IN ACCOUNT.
+ *
+ * `/bid-router/` appears in AI_METERED_PREFIXES above, which bounds what it can
+ * spend per visitor and reads like a decision about who may call it. It is not
+ * one: the auth wall defaults an unlisted path to "signed in", so every customer,
+ * tenant, applicant, vendor and subcontractor on the platform could call these.
+ * Two things were wrong with that, and the second is worse than the first.
+ *
+ * `ai-analyze` returns `matchingProviders`, and `loadBidProviders` puts each
+ * provider's email address in every row. Production holds eight `vendor:`
+ * records and all eight carry an email, so a POST with any job description
+ * returned our vendor roster as a contact list to anybody with a login.
+ *
+ * `ai-route` is the worse one. It loops the top five providers and sends each a
+ * real email and SMS whose subject carries `title` straight from the request
+ * body. That is not a data leak but a send button: any signed-in account could
+ * put words of its choosing in front of five of our vendors, from our address.
+ *
+ * Both are staff operations — read a work request, decide who should bid, tell
+ * them — and nothing in `src/` calls either route, so the gate costs nothing.
+ * `simple-test` is gated with them so the prefix has one rule rather than two;
+ * a reachability probe that answers only to staff is still a reachability probe.
+ */
+const requireStaffForBidRouter = async (c: any) =>
+  (await isStaffRequest(c)) ? null : c.json({ success: false, error: 'Staff access is required.' }, 403);
+
+app.post('/make-server-3eae23a6/bid-router/simple-test', async (c) => {
+  const refused = await requireStaffForBidRouter(c);
+  if (refused) return refused;
+  return c.json({ success: true, message: 'Bid router is reachable.', timestamp: new Date().toISOString() });
+});
 app.post('/make-server-3eae23a6/bid-router/ai-analyze', async (c) => {
   try {
+    const refused = await requireStaffForBidRouter(c);
+    if (refused) return refused;
     const body = await c.req.json().catch(() => ({}));
     const title = String(body.title || '').trim();
     const description = String(body.description || '').trim();
@@ -7735,11 +7798,21 @@ Type: ${body.type || 'unknown'}`;
     analysis.categories = Array.isArray(analysis.categories) ? analysis.categories : [];
     const matchingProviders = scoreProviders(await loadBidProviders(), analysis.categories).slice(0, 20);
     if (matchingProviders.length === 0 && analysis.recommendedAction === 'direct_assign') analysis.recommendedAction = 'no_matches';
-    return c.json({ success: true, analysis, matchingProviders });
+    /*
+     * The address stays on the server. `loadBidProviders` carries it because
+     * `ai-route` below needs somewhere to send the invitation, and that send
+     * happens here rather than in the browser — so no caller of this route has
+     * ever needed it. Stripped on the way out as well as gated on the way in,
+     * because the gate is one line somebody can move and this is the habit that
+     * survives them doing so. `bidRouterContact.ts` has the tests.
+     */
+    return c.json({ success: true, analysis, matchingProviders: withholdProviderContact(matchingProviders) });
   } catch (error: any) { console.log('bid-router/ai-analyze error:', error); return c.json({ success: false, error: error.message || 'Unable to analyze the request.' }, 500); }
 });
 app.post('/make-server-3eae23a6/bid-router/ai-route', async (c) => {
   try {
+    const refused = await requireStaffForBidRouter(c);
+    if (refused) return refused;
     const body = await c.req.json().catch(() => ({}));
     const title = String(body.title || 'a new job');
     const providers = scoreProviders(await loadBidProviders(), []).slice(0, 5);
