@@ -29,6 +29,7 @@ import { exchangeDealRoutes } from "./exchangeDealRoutes.tsx";
 import { exchangeTerritoryRoutes } from "./exchangeTerritoryRoutes.tsx";
 import { exchangeAssistantRoutes } from "./exchangeAssistantRoutes.tsx";
 import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
+import { queryPerfRoutes } from "./queryPerfRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
@@ -101,6 +102,7 @@ import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
 import { automationOverviewRoutes } from "./automationOverview.tsx";
 import { exchangeUpkeepRoutes } from "./exchangeUpkeepRoutes.tsx";
+import { refundPolicyRoutes } from "./refundPolicyRoutes.tsx";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
 import { registerStoreWatchJob } from "./storeWatchJob.ts";
@@ -515,6 +517,19 @@ const PUBLIC_PREFIXES = [
    * 256 bits, stored as a hash, expiring, revocable, and refusing a second
    * decision. See shareToken.ts.
    */
+  /**
+   * A company's published refund policy.
+   *
+   * Public because the entire point of the page is to be the URL submitted to
+   * Stripe as the refund-policy disclosure, and read by whoever is reviewing a
+   * dispute. A policy behind a login is not a disclosure: the issuer's analyst
+   * cannot sign in, and nor can somebody who has stopped being a customer.
+   *
+   * Safe to expose because the route serves PUBLISHED versions only and nothing
+   * else — no drafts, no history, no author. Writing stays behind the wall and
+   * behind a staff check, in refundPolicyRoutes.
+   */
+  '/refund-policy/',
   '/quotes/by-token/',
   '/change-orders/by-token/',
 
@@ -1258,6 +1273,11 @@ app.route("/make-server-3eae23a6", exchangeAssistantRoutes);
  * are in PUBLIC_PREFIXES.
  */
 app.route("/make-server-3eae23a6", exchangeLogoRoutes);
+/**
+ * The slow query log. Staff only, and never public: the query text in it names
+ * tables and columns across the whole system, which is a map of the schema.
+ */
+app.route("/make-server-3eae23a6", queryPerfRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);
@@ -1366,6 +1386,11 @@ app.route("/", automationOverviewRoutes);
  * refuses everything while none is configured.
  */
 app.route("/", exchangeUpkeepRoutes);
+/**
+ * The refund policy. Reading one is public — see the note in the module and the
+ * PUBLIC_PREFIXES entry; writing and publishing are staff only.
+ */
+app.route("/", refundPolicyRoutes);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/", marketplaceRouter);

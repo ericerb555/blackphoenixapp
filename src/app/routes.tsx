@@ -11,6 +11,15 @@ import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
+/**
+ * Not lazy, unlike RefundPolicy below, and deliberately.
+ *
+ * This is the page an enterprise reviewer or an acquirer's diligence opens
+ * first, often as a cold link pasted from an email. A Suspense fallback on
+ * that first render is a blank panel on the one page whose whole job is to
+ * look like a company that has its house in order.
+ */
+import Security from "./pages/Security";
 import DirectoryLandingPage from "./pages/DirectoryLandingPage";
 import BuildsLandingPage from "./pages/BuildsLandingPage";
 import HandymanLandingPage from "./pages/HandymanLandingPage";
@@ -179,8 +188,10 @@ const ExchangeTowns = lazy(() => import("./pages/ExchangeTowns"));
 const ExchangeBusinessDeals = lazy(() => import("./pages/ExchangeBusinessDeals"));
 const ExchangeDealReview = lazy(() => import("./pages/ExchangeDealReview"));
 const ExchangeLogoReview = lazy(() => import("./pages/ExchangeLogoReview"));
+const SlowQueries = lazy(() => import("./pages/SlowQueries"));
 const ExchangeClaimReview = lazy(() => import("./pages/ExchangeClaimReview"));
 const ReturnPortal = lazy(() => import("./pages/ReturnPortal"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const DeckDesigner = lazy(() => import("./pages/DeckDesigner"));
 const StairCalculator = lazy(() => import("./pages/StairCalculator"));
 const TownDocumentScanner = lazy(() => import("./pages/TownDocumentScanner"));
@@ -675,6 +686,12 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    */
   "exchange-logo-review":    ExchangeLogoReview,
   /**
+   * The slow query log. Staff only and NOT in App's public route list: the
+   * query text in it names tables and columns across the whole system, which
+   * is a map of the schema.
+   */
+  "slow-queries":            SlowQueries,
+  /**
    * Where the Exchange operates, and opening somewhere new.
    *
    * Staff only, and deliberately NOT in App's public route list. Opening a
@@ -758,8 +775,18 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Legal
   "privacy":           PrivacyPolicy,
   "privacy-policy":    PrivacyPolicy,
+  // The URL submitted to Stripe as the refund-policy disclosure. Several
+  // spellings, because it gets typed by hand off a receipt.
+  "refund-policy":     RefundPolicy,
+  "refunds":           RefundPolicy,
+  "return-policy":     RefundPolicy,
   "terms":             TermsOfService,
   "terms-of-service":  TermsOfService,
+  // Several spellings because this one gets typed by hand off a questionnaire
+  // or a diligence checklist, and "/trust" is what most reviewers try first.
+  "security":          Security,
+  "security-policy":   Security,
+  "trust":             Security,
 
   // The condo association portal is a real destination now, not a preview.
   // It pointed at the demo hub, which is why nobody invited to an association

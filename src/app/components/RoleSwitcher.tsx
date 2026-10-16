@@ -4,7 +4,7 @@
  */
 
 import { useState, useContext, useEffect } from 'react';
-import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store, Bookmark, Tag, ShieldCheck, Image as ImageIcon } from 'lucide-react';
+import { Shield, ChevronDown, Check, Crown, MapPin, Building2, Megaphone, Wrench, User, UserCheck, TrendingUp, Home, KeyRound, ShoppingBag, Store, Bookmark, Tag, ShieldCheck, Image as ImageIcon, Gauge } from 'lucide-react';
 import { useUser } from '../lib/user-context';
 import { UserRole, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { useAuth } from '../contexts/AuthContext';
@@ -449,6 +449,16 @@ export function RoleSwitcher() {
                   nothing links to is a queue nobody empties, and an unemptied
                   logo queue means a business that claimed its listing and
                   uploaded a logo sits waiting with no idea why. */}
+              {/* Not an Exchange screen, but this is where staff-only tools are
+                  reachable from, and a dashboard nothing links to is one
+                  nobody opens. */}
+              <button
+                onClick={() => { setIsOpen(false); navigate('slow-queries'); }}
+                className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"
+              >
+                <Gauge className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300 text-left">Slow queries (staff)</p>
+              </button>
               <button
                 onClick={() => { setIsOpen(false); navigate('exchange-logo-review'); }}
                 className="w-full px-3 py-2 flex items-center gap-3 rounded-lg hover:bg-zinc-900/50 transition-all"

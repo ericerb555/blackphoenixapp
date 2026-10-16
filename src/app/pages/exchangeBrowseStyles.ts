@@ -268,6 +268,17 @@ export const BROWSE_CSS = `
 .bpxb-ours-line { font-size:13.5px; font-weight:650; line-height:1.45; }
 .bpxb-ours svg { flex-shrink:0; color:#fdba74; }
 
+/* ── the slow query log ───────────────────────────────────── */
+/* SQL wraps badly and matters character by character, so it gets a monospace
+   face and keeps its own line breaks rather than being reflowed into prose. */
+.bpxq-sql { display:block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px; line-height:1.5; color:var(--bpx-text); word-break:break-word;
+  max-height:80px; overflow:hidden; }
+.bpxq-stats { display:flex; flex-wrap:wrap; gap:14px; font-size:12px;
+  color:var(--bpx-dim); }
+.bpxq-stats b { color:var(--bpx-text); font-weight:700;
+  font-variant-numeric:tabular-nums; }
+
 /* ── a paying advertiser, which must never look like a listing ───────── */
 /* Deliberately NOT the card the directory uses. A resident should be able to
    tell at a glance that this is a different kind of thing from the businesses
