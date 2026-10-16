@@ -35,15 +35,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Store, Loader2, AlertCircle, ChevronRight, MapPin, RefreshCw,
-  KeyRound, Bookmark, ArrowRight,
+  KeyRound, Bookmark, ArrowRight, Building2, X,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
-import { useTowns, readTown, writeTown } from '../lib/exchangeTowns';
+import { useTowns, readTown, writeTown, townName } from '../lib/exchangeTowns';
+import ExchangeMap from '../components/exchange/ExchangeMap';
+import type { MapPinData } from '../components/exchange/ExchangeMap';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/** A business the map can draw. */
+interface Place {
+  id: string;
+  slug: string;
+  name: string;
+  claimed: boolean;
+  logo: string | null;
+  location: { lat: number; lng: number };
+}
 
 interface Section { slug: string; name: string; tagline: string | null; sort_order: number }
 interface Category {
@@ -65,6 +77,19 @@ export default function ExchangeDirectory() {
   /* From the database, so opening a town does not need a front-end deploy. */
   const towns = useTowns();
 
+  /*
+   * THE MAP'S OWN DATA, FETCHED SEPARATELY FROM THE TREE.
+   *
+   * Two requests rather than one, deliberately: the category tree is what
+   * earns the search traffic and what most arrivals came for, and it must not
+   * wait on a thousand business rows to render. Whichever returns first shows
+   * first, and a map that fails leaves the directory untouched.
+   */
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [mapLoading, setMapLoading] = useState(true);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [chosenId, setChosenId] = useState<string | null>(null);
+
   /**
    * A session is used when there is one and never required. These pages are
    * for people who have not signed up — that is the point of them being
@@ -78,6 +103,36 @@ export default function ExchangeDirectory() {
       return `Bearer ${publicAnonKey}`;
     }
   }, []);
+
+  /**
+   * Everything placeable in the chosen town, for the map.
+   *
+   * Re-runs when the town chips change, because those chips filter the map as
+   * much as the tree. "All towns" sends no territory, and the route then
+   * returns every placeable listing — the same thing the full map page asks
+   * for.
+   */
+  const loadPlaces = useCallback(async () => {
+    setMapLoading(true);
+    setMapError(null);
+    setChosenId(null);
+    try {
+      const query = town ? `?territory=${encodeURIComponent(town)}` : '';
+      const res = await fetch(`${SERVER}/exchange/nearby${query}`, {
+        headers: { Authorization: await authHeader() },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        setMapError(body?.error || 'We could not load the map.');
+        return;
+      }
+      setPlaces(Array.isArray(body.places) ? body.places : []);
+    } catch {
+      setMapError('We could not reach the Exchange just now.');
+    } finally {
+      setMapLoading(false);
+    }
+  }, [town, authHeader]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -102,6 +157,7 @@ export default function ExchangeDirectory() {
   }, [authHeader]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadPlaces(); }, [loadPlaces]);
 
   const chooseTown = useCallback((slug: string) => {
     setTown(slug);
@@ -129,6 +185,25 @@ export default function ExchangeDirectory() {
     }
     return map;
   }, [categories]);
+
+  /** The pins. Nothing is highlighted here: the front door has no search box,
+      and a map where everything is lit means nothing is. */
+  const pins = useMemo<MapPinData[]>(
+    () => places.map((place) => ({
+      id: place.id,
+      name: place.name,
+      slug: place.slug,
+      claimed: place.claimed,
+      location: place.location,
+      highlighted: false,
+    })),
+    [places],
+  );
+
+  const chosen = useMemo(
+    () => places.find((place) => place.id === chosenId) ?? null,
+    [places, chosenId],
+  );
 
   const categoryHref = useCallback(
     (slug: string) => `/exchange-category?slug=${encodeURIComponent(slug)}`,
@@ -166,33 +241,6 @@ export default function ExchangeDirectory() {
           </div>
         </div>
 
-        {/*
-          THE MAP, FIRST AND UNMISTAKABLE.
-
-          Eric asked twice for the map to be a main feature. It was a one-line
-          link sitting between the town chips and the tree, and on the live page
-          it read as a notice — he did not register it as the map at all.
-
-          It is still a DOOR rather than the map itself, and that is deliberate:
-          `/exchange` is the crawlable tree of categories and names the whole
-          free-traffic plan rests on, and a map canvas gives a crawler nothing to
-          read. Putting the canvas here would also pull 1,500 rows and MapLibre
-          onto the most visited page in the directory. So the door is built to
-          look like what is behind it — the pin field is CSS and costs no
-          request — and the tree below is untouched.
-        */}
-        <a className="bpxb-hero" href="/exchange-places">
-          <span className="bpxb-hero-mark"><MapPin size={27} color="#fff" /></span>
-          <span className="bpxb-hero-text">
-            <span className="bpxb-hero-title">See every business on the map</span>
-            <span className="bpxb-hero-sub">
-              Nearest first, no category needed — the quickest way to find who is
-              actually near you.
-            </span>
-          </span>
-          <span className="bpxb-hero-go">Open the map <ArrowRight size={16} /></span>
-        </a>
-
         <div className="bpx-row">
           <span className="bpxb-note" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <MapPin size={13} /> Looking in
@@ -207,6 +255,126 @@ export default function ExchangeDirectory() {
               {t.name}
             </button>
           ))}
+        </div>
+
+        {/*
+          THE MAP ITSELF, ON THE FRONT DOOR.
+
+          Asked for three times: "should we have the map a main feature", then
+          twice more when a link was shipped instead. A link was the wrong
+          answer and this is the right one — the map is the thing most people
+          arrive wanting, and a directory of 1,092 placeable businesses is far
+          easier to grasp as a picture of a town than as a list of trades.
+
+          THE TREE BELOW IS UNTOUCHED, AND THAT IS THE WHOLE BARGAIN
+
+          `/exchange` is the crawlable list of categories and names the entire
+          free-traffic plan rests on — a map canvas has nothing in it a crawler
+          can read. So the map is ADDED above the tree and removes none of it.
+          Every section, category and service link is exactly where it was, and
+          the map is a second way in rather than a replacement.
+
+          WHAT IT COSTS, SAID PLAINLY
+
+          A second request on the busiest page, and MapLibre. The tree does not
+          wait for either: the two fetches are separate, and a map that fails
+          leaves the directory working. MapLibre itself still loads only when
+          the canvas is scrolled into view, which at the top of the page means
+          immediately — that is the price of the decision, and it was made
+          knowingly.
+
+          NO LOCATION IS ASKED FOR HERE.
+
+          The front door shows no distances, so it has no reason to want a
+          coordinate, and a permission prompt on arrival is the behaviour people
+          resent about lead-resale sites. "Follow me" lives on the full map,
+          where distance is the point.
+        */}
+        <div className="bpxb-mapwrap">
+          <div className="bpxb-maphead">
+            <div className="bpxb-hero-text">
+              <div className="bpxb-hero-title">
+                {town ? `Businesses in ${townName(town, towns)}` : 'Every business on the map'}
+              </div>
+              <div className="bpxb-hero-sub">
+                {mapLoading
+                  ? 'Loading the map…'
+                  : mapError
+                    ? mapError
+                    : `${places.length} on the map — tap a pin to see who it is`}
+              </div>
+            </div>
+            <a className="bpxb-hero-go" href="/exchange-places">
+              Full map <ArrowRight size={16} />
+            </a>
+          </div>
+
+          {mapLoading && (
+            <div className="bpxb-mapwait">
+              <Loader2 size={22} className="animate-spin" color="#9ca3af" />
+            </div>
+          )}
+
+          {/* A map that cannot draw must never be a silent empty rectangle —
+              the same rule the map component holds itself to. */}
+          {!mapLoading && mapError && (
+            <div className="bpxb-mapwait">
+              <AlertCircle size={22} color="#fca5a5" />
+              <span className="bpxb-note">{mapError}</span>
+              <button className="bpx-btn" onClick={() => void loadPlaces()}>Try again</button>
+            </div>
+          )}
+
+          {!mapLoading && !mapError && places.length > 0 && (
+            <ExchangeMap
+              pins={pins}
+              here={null}
+              searching={false}
+              selectedId={chosenId}
+              onSelect={setChosenId}
+            />
+          )}
+
+          {!mapLoading && !mapError && places.length === 0 && (
+            <div className="bpxb-mapwait">
+              <MapPin size={22} color="#9ca3af" />
+              <span className="bpxb-note">
+                Nothing placeable here yet. The categories below still list
+                everybody.
+              </span>
+            </div>
+          )}
+
+          {/*
+            Tapping a pin names the business rather than navigating away. A
+            mis-tap on a map of a thousand pins is ordinary, and losing the page
+            because of one would make the map annoying to use.
+          */}
+          {chosen && (
+            <div className="bpxb-mappick">
+              {chosen.logo
+                ? <span className="bpxb-logo-chip"><img src={chosen.logo} alt="" /></span>
+                : <Building2 size={18} color="#fdba74" />}
+              <span className="bpxb-door-text">
+                <span className="bpxb-door-title">{chosen.name}</span>
+                <span className="bpxb-note">
+                  {chosen.claimed ? 'Claimed by its owner' : 'Listed from public records'}
+                </span>
+              </span>
+              <a className="bpx-btn" href={`/exchange-listing?slug=${encodeURIComponent(chosen.slug)}`}>
+                Open listing
+              </a>
+              <button
+                type="button"
+                className="bpxb-find-clear"
+                style={{ position: 'static' }}
+                onClick={() => setChosenId(null)}
+                aria-label="Clear the selection"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/*

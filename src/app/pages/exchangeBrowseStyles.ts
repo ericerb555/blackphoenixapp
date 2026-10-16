@@ -300,21 +300,21 @@ export const BROWSE_CSS = `
    canvas has nothing in it for a crawler to read. So this is a door built to
    look like the thing behind it: the pin field is CSS, it costs no request, and
    the tree underneath is untouched. */
-.bpxb-hero { position:relative; overflow:hidden; display:flex; gap:18px;
-  align-items:center; flex-wrap:wrap; text-decoration:none; color:inherit;
-  border:1px solid rgba(234,88,12,.5); border-radius:18px; padding:22px 20px;
-  background:
-    radial-gradient(circle at 14% 26%, rgba(253,186,116,.85) 0 3.5px, transparent 4px),
-    radial-gradient(circle at 27% 68%, rgba(253,186,116,.55) 0 2.5px, transparent 3px),
-    radial-gradient(circle at 46% 34%, rgba(253,186,116,.7) 0 3px, transparent 3.5px),
-    radial-gradient(circle at 63% 72%, rgba(253,186,116,.5) 0 2.5px, transparent 3px),
-    radial-gradient(circle at 79% 30%, rgba(253,186,116,.75) 0 3px, transparent 3.5px),
-    radial-gradient(circle at 90% 62%, rgba(253,186,116,.45) 0 2.5px, transparent 3px),
-    linear-gradient(135deg, rgba(234,88,12,.22), rgba(234,88,12,.04) 55%, rgba(255,255,255,.02));
-  transition:border-color .16s, background-color .16s; }
-.bpxb-hero:hover { border-color:rgba(234,88,12,.9); }
-.bpxb-hero-mark { width:54px; height:54px; flex-shrink:0; border-radius:16px;
-  display:grid; place-items:center; background:rgba(234,88,12,.9); }
+/* The map is now the real canvas rather than a door, so what is left of the
+   hero is the line above it and the way through to the full map page. */
+.bpxb-mapwrap { display:flex; flex-direction:column; gap:10px;
+  border:1px solid rgba(234,88,12,.45); border-radius:18px; padding:16px;
+  background:linear-gradient(135deg, rgba(234,88,12,.12), rgba(255,255,255,.015)); }
+.bpxb-maphead { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+/* Every state the map can be in gets the same height, so the page does not
+   jump as it loads, fails or fills. */
+.bpxb-mapwait { height:320px; border-radius:15px; display:flex; gap:10px;
+  flex-direction:column; align-items:center; justify-content:center;
+  border:1px solid var(--bpx-line); background:var(--bpx-raised); text-align:center; }
+.bpxb-mappick { display:flex; gap:11px; align-items:center; flex-wrap:wrap;
+  border:1px solid var(--bpx-line); border-radius:13px; padding:11px 12px;
+  background:var(--bpx-raised); }
+.bpxb-mappick .bpxb-door-text { flex:1 1 140px; }
 .bpxb-hero-text { display:flex; flex-direction:column; gap:5px; min-width:0; flex:1 1 240px; }
 .bpxb-hero-title { font-size:clamp(19px,2.6vw,25px); font-weight:800; letter-spacing:-.02em; }
 .bpxb-hero-sub { font-size:13.5px; color:var(--bpx-dim); line-height:1.5; }
