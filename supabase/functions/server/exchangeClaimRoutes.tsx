@@ -34,7 +34,7 @@
  * It is read from `organizations.website` every time. A claimant who could
  * name the domain would simply name their own.
  */
-import { Hono } from "npm:hono";
+import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { mintShareToken, hashToken } from "./shareToken.ts";

@@ -1,5 +1,62 @@
 # Must-dos before the app is ready for use
 
+---
+
+## 0. THE SERVER CANNOT BE DEPLOYED. READ THIS FIRST — 2026-10-16
+
+`supabase functions deploy make-server-3eae23a6` fails:
+
+    unexpected deploy status 413:
+    Function source code exceeds the maximum deployment size (5 MB)
+
+**Nothing committed after `make-server-3eae23a6` v659 is live**, including the
+bid-router authorisation fix under item 9 and the Exchange upkeep work. The
+frontend is unaffected — Vercel builds from the push and does not care.
+
+### It is a bundling-path limit, not our file sizes
+
+Two limits exist, and we are on the wrong side of the wrong one:
+
+    server-side bundling (Management API / Dashboard)    5 MB
+    local bundling (Supabase CLI, needs Docker)         20 MB
+
+The CLI logs `Uploading asset …` for all 224 files in `functions/server/`,
+which is the server-side path: it ships the sources and bundles them remotely.
+Raw source is 4.47 MB, so what crosses 5 MB is the bundle the server builds —
+our code plus `npm:hono@4` and `npm:@supabase/supabase-js@2` resolved at bundle
+time, which is why this can start failing on a day nobody added anything.
+
+It is not a slow drift we can measure our way out of either: v659 deployed on
+2026-10-15 from a **larger** tree (4.59 MB) than the one now failing (4.47 MB).
+
+### The fix, and it needs a decision
+
+- [ ] **Install Docker Desktop**, then deploy with `--use-docker`. Checked
+      2026-10-16: Docker is not installed on this machine, so `--use-docker`
+      silently falls back to the API path and fails identically. This is the
+      recommended answer — it bundles locally, raises the ceiling to 20 MB, and
+      gives roughly four times the headroom instead of fighting for kilobytes.
+- [ ] Or get the server-side bundle under 5 MB, which now means removing live
+      code. The dead weight is already gone (see below) and it was not enough.
+      `index.tsx` is 1.3 MB of the remaining 4.47 MB and is the only lever of
+      that size left.
+
+Two things were done while diagnosing it. Both are worth keeping and **neither
+fixed the deploy**, which is worth saying plainly:
+
+- Sixteen modules nothing imported — 213 KB — moved to
+  `functions/_retired/server-unmounted-2026-10-16/`, which has a README. The
+  deploy uploads every file in the function directory rather than the import
+  graph, so unreachable code was being shipped on every deploy.
+- `kv_store.tsx` and `store-content.tsx` imported `jsr:@supabase/supabase-js`
+  while sixty-two other files imported `npm:@supabase/supabase-js@2`, and
+  `exchangeClaimRoutes.tsx` imported `npm:hono` unpinned against seventy-seven
+  pinned `npm:hono@4`. Two registries for one library means two copies in the
+  bundle, and `kv_store` is imported by nearly every module in the server. Now
+  one specifier each.
+
+---
+
 Scanned 2026-10-04 on Eric's instruction. Every item below is evidence from the
 code or from the production database, not a guess or a feature wish. Ordered by
 what hurts soonest.
