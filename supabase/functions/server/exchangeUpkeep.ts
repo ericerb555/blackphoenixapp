@@ -16,6 +16,27 @@
  * queries back to back and was blocked outright. So a tick is one town, and
  * the plan Eric agreed on 2026-10-13 was weekly, one town per tick.
  *
+ * THE DAILY TICK *IS* THE BACKOFF, AND THAT IS WORTH SAYING OUT LOUD
+ *
+ * Asked directly on 2026-10-16, while watching the first real tick fail, the
+ * endpoint answered:
+ *
+ *   502 — "This Overpass API server is currently at capacity. All query workers
+ *   are busy and the request queue is full... Retry your request using
+ *   exponential backoff... This public endpoint is intended for browser-based
+ *   and human-operated tools. For automated or high-volume use, run a local
+ *   Overpass API instance."
+ *
+ * A fair warning, and worth reading twice before anybody is tempted to add
+ * retries inside a tick. Retrying in-process is the behaviour that got the
+ * earlier fetcher blocked; it turns one polite request into several impolite
+ * ones. A tick that fails, records why, leaves the town at the front of the
+ * queue and comes back tomorrow is already exponential backoff with a 24-hour
+ * first interval — gentler than anything the endpoint asks for.
+ *
+ * If that ever stops being enough, the answer the endpoint itself gives is to
+ * run our own Overpass instance, not to ask the public one harder.
+ *
  * NEVER-COMPILED COMES FIRST, AND THAT IS THE POINT
  *
  * A town with no listings is not a stale town, it is an empty product. Hudson

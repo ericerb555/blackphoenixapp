@@ -212,7 +212,41 @@ async function askOverpass(query: string): Promise<OverpassElement[]> {
   });
 
   if (!result.ok || !result.body) {
-    throw new Error(result.error || "Overpass did not answer");
+    /**
+     * SAY WHAT OVERPASS ACTUALLY SAID.
+     *
+     * This threw `result.error || "Overpass did not answer"`, and `safeFetch`
+     * sets `error` only when the request never completed — a blocked address, a
+     * DNS failure, a timeout. A real HTTP response that is simply not 2xx comes
+     * back as `{ ok: false, status }` with no `error` at all, so every refusal
+     * BY Overpass was reported as Overpass not answering, with the status
+     * thrown away.
+     *
+     * Found by firing the first real tick on 2026-10-16: the run recorded
+     * "Overpass did not answer" after 906ms, which is far too fast to be a
+     * timeout and was the clue. Asked directly, the endpoint was returning
+     *
+     *   502 — "This Overpass API server is currently at capacity. All query
+     *   workers are busy and the request queue is full."
+     *
+     * which is a different situation with a different answer: nothing is wrong
+     * with us, nothing is misconfigured, and the response is to come back
+     * later. "Did not answer" reads as a network or credential problem and
+     * sends somebody looking in the wrong place.
+     *
+     * 429 is the one that WOULD be about us — too many requests — and telling
+     * the two apart matters, because one means wait and the other means we are
+     * asking too often.
+     */
+    const status = result.status ? ` ${result.status}` : "";
+    const detail = result.error
+      ? result.error
+      : result.status === 429
+        ? "it is rate-limiting us, so we are asking too often"
+        : result.status === 502 || result.status === 504
+          ? "it is at capacity; all its query workers are busy"
+          : "it answered with no usable body";
+    throw new Error(`Overpass refused${status}: ${detail}`);
   }
   // A 504 comes back as an HTML page, not JSON. Saying so plainly beats a
   // JSON parse error that reads like our bug.
