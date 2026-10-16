@@ -5,10 +5,13 @@ Eric, 2026-10-13:
 > *"should we have the map a main feature and compy logos will appear when the
 > claim and add them?"*
 
-Not started; waiting on him to verify the plan. Planned as one piece rather than
-two, because they are one piece: a map of 1,108 pins all drawn the same way is a
-grey field, and a logo is the thing that makes a claimed business look different
-from the 1,090 that are not. Each is worth less without the other.
+**BUILT 2026-10-15 — see the Review at the bottom of this file.** The migration
+still needs `supabase db push`; nothing else is outstanding.
+
+Planned as one piece rather than two, because they are one piece: a map of 1,108
+pins all drawn the same way is a grey field, and a logo is the thing that makes
+a claimed business look different from the 1,090 that are not. Each is worth
+less without the other.
 
 ---
 
@@ -53,22 +56,22 @@ the acquisition strategy to improve the browsing experience.
 
 The resolution is that "main feature" and "front door" are different jobs:
 
-- [ ] `/exchange` stays the canonical, crawlable entry. Unchanged.
-- [ ] The map becomes the **primary resident destination** — what someone lands
+- [x] `/exchange` stays the canonical, crawlable entry. Unchanged.
+- [x] The map becomes the **primary resident destination** — what someone lands
       on from inside the app, from a "near me" intent, and from the Exchange
       nav as a peer of Browse rather than a link buried below it.
-- [ ] Every pin links to the same crawlable listing page the tree links to. The
+- [x] Every pin links to the same crawlable listing page the tree links to. The
       map is a way *in*, never a replacement for the page itself.
 
 ## The map, to be worth landing on
 
-- [ ] **Clustering.** 1,108 pins is unusable at town zoom and slow on a phone.
-- [ ] **A list beside the map, not instead of it.** The 16 listings with no
+- [x] **Clustering.** 1,108 pins is unusable at town zoom and slow on a phone.
+- [x] **A list beside the map, not instead of it.** The 16 listings with no
       coordinates are invisible on a map-only view — not merely unplaced,
       *absent*. They must still be reachable.
-- [ ] **Claimed businesses read as different**: logo, and visible first in any
+- [x] **Claimed businesses read as different**: logo, and visible first in any
       overlapping cluster. This is where the two halves meet.
-- [ ] **Know the cost.** This becomes the heaviest page in the app. Today's
+- [x] **Know the cost.** This becomes the heaviest page in the app. Today's
       smoke work showed what heavy pages do to the harness; it should be lazy,
       and it should not be in the first bundle anyone downloads.
 
@@ -88,13 +91,16 @@ which is what the claim flow already does with a phone or email challenge. So
 "logos appear when they claim and add them" is not a product preference; it is
 the only shape the existing architecture permits.
 
-- [ ] A `logo_path` on the organisation — a **stored file reference**, not a URL.
-- [ ] Upload only on a **claimed** listing, by the account that holds the claim.
-- [ ] Reuse the existing upload path rather than inventing a fourth. There is
+- [x] A `logo_path` on the organisation — a **stored file reference**, not a URL.
+- [x] Upload only on a **claimed** listing, by the account that holds the claim.
+- [x] Reuse the existing upload path rather than inventing a fourth. There is
       already `image-upload.tsx` (a public bucket), `media-library.tsx` (a
       private one), `UploadMyLogo` and `brands.tsx`. A logo shown to the public
       belongs in the public bucket with the other public imagery.
-- [ ] Through the **approval gate** in `publishApproval.ts`. A logo is tenant
+      **Not possible as written — see the Review.** The public bucket and the
+      byte-sniffing were reused; the route could not be, because
+      `image-upload.tsx` is staff only.
+- [x] Through the **approval gate** in `publishApproval.ts`. A logo is tenant
       content reaching other people, which is the standing rule for everything
       a tenant publishes.
 

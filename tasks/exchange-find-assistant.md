@@ -4,7 +4,12 @@ Eric: *"i want to design a ai chat bot that can help people find what they are
 looking for and something state of the art the best of the best in helping
 people find what exactly they are looking for."*
 
-A plan to agree before any of it is built.
+**BUILT 2026-10-15 — see "Built" at the bottom of this file.** The decisions
+table partway down was answered on 2026-10-13 and the build follows it. One
+question is still open and is Eric's: what "items from paying vendors come
+first" means, which the last section sets out.
+
+What follows is the plan as it was agreed, kept for its reasoning.
 
 ## The thing to get right, stated first
 

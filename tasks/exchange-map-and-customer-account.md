@@ -221,7 +221,12 @@ sign-off first.
   long-term state and it changes how every future install resolves, so it is
   your call rather than mine.
 
-### Phase 2 — the account, and saving (not started)
+### Phase 2 — the account, and saving (BUILT)
+
+`ExchangeAccount.tsx`, with `/exchange/me/saved` and `/exchange/me/enquiries` in
+`exchangeAccountRoutes.tsx`. The privacy rule was written as a test rather than
+left as a comment, as promised below: see `tests/exchangeAccount.test.ts` and
+`tests/exchangeLedger.test.ts`.
 
 - An Exchange customer sign-in, its own portal.
 - **Saved businesses** — the pin you keep.
@@ -231,7 +236,12 @@ sign-off first.
   many** people wanted them, never **who**. The account must not weaken that,
   and I will write that as a test rather than a comment.
 
-### Phase 3 — following, and deals (not started)
+### Phase 3 — following, and deals (BUILT)
+
+`exchange_follow` and `exchange_deal` (migration `20261013160000`),
+`exchangeDealRoutes.tsx` with the rules in `exchangeDeals.ts`,
+`ExchangeBusinessDeals.tsx` for the business and `ExchangeDealReview.tsx` for
+staff. Saving and following stayed separate tables, for the reason given below.
 
 - **Follow a business** (distinct from saving: saving is a bookmark, following
   is consent to hear from them).
@@ -239,10 +249,16 @@ sign-off first.
   before they are visible.
 - Deals from followed businesses on the customer's own page.
 
-### Phase 4 — the map as the main surface (not started)
+### Phase 4 — the map as the main surface (BUILT)
 
-Only once the above is real: make the map a primary entry point rather than a
-view — the thing you land on, with the category list beside it.
+`ExchangePlaces.tsx` at `/exchange-places`, with clustering, the category list
+beside it, and the way in sitting *above* the category tree on `/exchange`.
+
+With one correction to the wording above, made deliberately and documented in
+`tasks/exchange-map-and-logos.md`: the map is the primary **resident
+destination**, not the front door. `/exchange` stays the canonical crawlable
+entry, because the free-traffic plan rests on a tree of categories and names and
+a map is a canvas with nothing in it for a crawler to read.
 
 ## Risks I will not discover later
 

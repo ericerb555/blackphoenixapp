@@ -39,19 +39,21 @@ is inventing new service categories; the existing ones are used as they stand.
 
 ## Plan
 
-- [ ] 1. Add a `shops-retail` section and 20 categories, chosen from the names
+**All five done — see the Review below for what it actually moved.**
+
+- [x] 1. Add a `shops-retail` section and 20 categories, chosen from the names
       actually sitting uncategorised rather than from a general idea of retail.
       Rehearsed in a rolled-back transaction before it is applied.
-- [ ] 2. Seed aliases for the new categories, in the same shape as the existing
+- [x] 2. Seed aliases for the new categories, in the same shape as the existing
       seed, so the ingest resolver can reach them.
-- [ ] 3. Widen `OSM_TRADE_WORDS` to cover the tags these businesses carry —
+- [x] 3. Widen `OSM_TRADE_WORDS` to cover the tags these businesses carry —
       including the three unmapped on 2026-10-06, which now have honest
       destinations — and map tags whose existing categories are empty.
-- [ ] 4. Backfill the 595. No OSM id was stored, but `service_lat`/`service_lng`
+- [x] 4. Backfill the 595. No OSM id was stored, but `service_lat`/`service_lng`
       were written from the feature's own coordinates at six decimals, so a
       listing can be matched back to its OSM feature by position. Re-fetch the
       three towns once and assign categories from the corrected map.
-- [ ] 5. Verify through the public API and in the running app, then typecheck,
+- [x] 5. Verify through the public API and in the running app, then typecheck,
       tests, smoke, commit, deploy.
 
 ## Risks and how they are handled

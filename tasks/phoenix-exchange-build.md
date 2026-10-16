@@ -558,11 +558,17 @@ account and key, and confirming the trial clock.
 
 ## DEFERRED — Phase 2, part three: the browse surface (proposed 2026-10-02)
 
-**Not started.** Offered to Eric on 2026-10-02 and he chose the claim flow
-instead, which is the right call: a browse surface over a directory nobody has
-claimed shows the same compiled rows more conveniently, while the claim is what
-turns one of those rows into an account that pays. This plan stands as written
-and is the step to come back to.
+**BUILT, after the claim flow.** Offered to Eric on 2026-10-02 and he chose the
+claim flow first, which was the right call: a browse surface over a directory
+nobody has claimed shows the same compiled rows more conveniently, while the
+claim is what turns one of those rows into an account that pays. Both exist now
+— `ExchangeDirectory.tsx` is the section-and-category tree at `/exchange` and
+`ExchangeCategory.tsx` is a category's listings, with `/exchange-places` added
+later as the map.
+
+So the problem stated below — "the listing page is built and nothing links to
+it" — is solved, and the plan is kept for its reasoning rather than as work
+outstanding.
 
 ### Why this one next
 
@@ -625,9 +631,16 @@ pages name their own classes under `EXCHANGE_CSS` as `ExchangeListing` does —
 
 ---
 
-## NEXT STEP — Phase 3, part one: proving you own the listing (proposed 2026-10-02)
+## Phase 3, part one: proving you own the listing (proposed 2026-10-02)
 
-**Not started. Awaiting Eric's approval.**
+**BUILT.** `exchangeClaimRoutes.tsx` (1,100 lines) with the rules in
+`exchangeClaim.ts` and 481 lines of tests, `ExchangeClaim.tsx` for the owner and
+`ExchangeClaimReview.tsx` for staff, challenges in `exchange_claim_challenge`,
+and the grant taking the listing row first as the lock against two claimants.
+
+Built is not the same as taken up: 18 of 1,108 listings were claimed when
+`tasks/exchange-map-and-logos.md` counted on 2026-10-13, which is the number
+that plan was written to move.
 
 Eric chose this over the browse surface. The claim is the hinge of the whole
 Exchange: the directory is compiled from public records, so every row in it
