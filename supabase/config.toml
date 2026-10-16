@@ -12,7 +12,16 @@ project_id = "plzsvzwwcdopnawtiwzm"
 # of them while the per-route auth gap (F1) is still open.
 
 [functions.make-server-3eae23a6]
-entrypoint = "./functions/server/index.tsx"
+# Deployed from the BUILD, not from the source. The source crossed Supabase's
+# 5 MB ceiling on 2026-10-16 and deploys stopped working for everybody; a third
+# of it is comments, which the runtime does not read. `scripts/build-server.mjs`
+# strips those and the type annotations into ./functions/server-dist, taking
+# 4.47 MB to 3.13 MB with nothing deleted from the source.
+#
+# So deploy with `npm run deploy:server`, which builds first. server-dist is
+# gitignored, so a bare `supabase functions deploy` in a fresh clone fails
+# loudly with a missing entrypoint rather than quietly shipping a stale build.
+entrypoint = "./functions/server-dist/index.tsx"
 verify_jwt = true
 
 # Stripe's webhook deliveries. verify_jwt MUST stay false: Stripe posts with a

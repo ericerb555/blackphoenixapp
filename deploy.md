@@ -6,7 +6,7 @@ one you need is most of the job.
 | what changed | what to run | how long |
 |---|---|---|
 | anything under `src/` | `git push origin main` — Vercel builds | ~2 min |
-| anything under `supabase/functions/` | `supabase functions deploy …` (below) | ~1 min |
+| anything under `supabase/functions/` | `npm run deploy:server` (below) | ~1 min |
 | a new file in `supabase/migrations/` | apply it by hand (below) | seconds |
 
 **Nothing is automatic except the frontend.** There is no CI in this repository.
@@ -47,8 +47,32 @@ npm install -g supabase
 supabase login
 
 # Every time
-supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm
+npm run deploy:server
 ```
+
+### It is built before it is deployed, and that is not optional
+
+On 2026-10-16 the function crossed Supabase’s **5 MB source ceiling** and the
+deploy started failing with a 413 for everybody — a wall in front of every
+server change, not a tidiness problem. Nothing could be deleted to fix it:
+223 of the 225 files are genuinely imported from `index.tsx`, and the only two
+that are not are `deno.json` and `deno.lock`.
+
+What was big is comments — **1.34 MB of 4.47, about 30%**. Those are the most
+valuable thing in the server and none of them were touched. `npm run
+deploy:server` runs `scripts/build-server.mjs` first, which transpiles the
+source into `functions/server-dist/` with comments and type annotations
+removed, using TypeScript’s own compiler rather than a regex that would eat
+the `//` in every URL. **4.47 MB in, 3.13 MB out, 1.87 MB of headroom.**
+
+Filenames and import specifiers are preserved exactly, because the modules
+name each other as `./thing.ts` and Deno resolves the literal string.
+
+`server-dist` is gitignored, so in a fresh clone a bare `supabase functions
+deploy` fails loudly with a missing entrypoint instead of quietly shipping
+whatever build happens to be lying there. If the build ever reports it is
+still over the limit, stripping comments has stopped being enough and the
+function needs splitting into two — the script says so and exits non-zero.
 
 ### Do NOT pass `--no-verify-jwt`
 
@@ -60,8 +84,9 @@ look broken afterwards — which is exactly what makes it dangerous.
 
 Let `config.toml` supply the settings. It also carries the `entrypoint`, which
 this function cannot deploy without: the CLI expects
-`functions/make-server-3eae23a6/index.ts`, while the source actually lives in
-`functions/server/index.tsx`.
+`functions/make-server-3eae23a6/index.ts`, while the source lives in
+`functions/server/` and the thing actually uploaded is the build of it in
+`functions/server-dist/`.
 
 ### Check it
 
