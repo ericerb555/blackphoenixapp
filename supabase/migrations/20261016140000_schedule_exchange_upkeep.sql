@@ -1,48 +1,48 @@
 -- The seventh clock: refresh one Exchange town a week.
 --
--- HELD AS .pending ON PURPOSE. NOT APPLIED.
+-- ARMED. Applied to production on 2026-10-16, on Eric's instruction, after the
+-- two preconditions below were checked rather than assumed.
 --
--- `deploy.md`: "A migration named `.sql.pending` is deliberately held back and
--- must not be run without reading why. The on-call, autopilot and store-clock
--- ones carry that suffix because applying them **starts something running** on
--- a schedule. Rename to `.sql` to arm one, as its own decision."
---
--- This one rewrites a live directory of 1,100 businesses against a free
--- endpoint that has already blocked us once, so it belongs in that set.
+-- It was written and held as `.sql.pending` first, which is this repository's
+-- convention for a migration that STARTS SOMETHING RUNNING — `deploy.md`:
+-- "Rename to `.sql` to arm one, as its own decision." This one rewrites a live
+-- directory of 1,100 businesses against a free endpoint that has already
+-- blocked us once, so it belonged in that set until somebody chose.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
--- BEFORE ARMING IT, THREE THINGS MUST BE TRUE
+-- WHAT WAS CHECKED BEFORE ARMING, AND WHAT TO CHECK IF IT IS EVER RE-ARMED
 -- ─────────────────────────────────────────────────────────────────────────────
 --
 -- 1. THE SERVER IS DEPLOYED. `/exchange/cron-tick` must exist, or every tick
 --    is a 404 that pg_cron records as "succeeded" — see the note on
---    `succeeded` below. Check it:
+--    `succeeded` below. Checked with:
 --
 --      curl -s -X POST \
 --        https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/exchange/cron-tick \
 --        -H "Authorization: Bearer <anon key>"
 --
---    A 401 "Not authorised." is the RIGHT answer here: the route exists and is
+--    A 401 "Not authorised." is the RIGHT answer: the route exists and is
 --    refusing a request with no secret. A 404 or "Sign in required." means it
---    is not deployed, or not listed in PUBLIC_POST_PATHS.
+--    is not deployed, or not listed in PUBLIC_POST_PATHS. It answered 401.
 --
--- 2. THE SECRET EXISTS. Insert a 32-byte secret before arming, or the clock
---    fires weekly into a route that refuses every tick, and the only trace is
---    a week of silence that looks exactly like a town where nothing changed:
+-- 2. THE SECRET EXISTS. Without it the header below resolves to NULL, the
+--    route refuses every tick, and the only trace is silence that looks
+--    exactly like a town where nothing changed. Created as:
 --
 --      insert into private_cron_config (key, value)
 --      values ('exchange_cron_secret', encode(gen_random_bytes(32), 'hex'))
 --      on conflict (key) do nothing;
 --
---    `GET /exchange/upkeep/status` reports `secretConfigured` so this can be
---    confirmed from the Automation screen rather than from SQL.
+--    Verified by running the command's own subquery and confirming it is not
+--    null. `GET /exchange/upkeep/status` also reports `secretConfigured`, so
+--    it can be confirmed from the Automation screen rather than from SQL.
 --
--- 3. HUDSON AND WINDHAM HAVE BEEN LOOKED AT. They are the two towns the first
---    ticks will compile, because `pickTownToRefresh` puts a never-compiled
---    town ahead of every stale one. Compiling a town writes hundreds of rows
---    describing real businesses who never asked to be listed; the first time
---    that happens for a town it is worth watching, which is what
---    `POST /exchange/upkeep/run` is for.
+-- 3. STILL OUTSTANDING AT THE TIME OF ARMING: nobody had yet watched a town
+--    compile. Windham and Hudson are the first two the clock will reach,
+--    because `pickTownToRefresh` puts a never-compiled town ahead of every
+--    stale one, and compiling a town writes hundreds of rows describing real
+--    businesses who never asked to be listed. `POST /exchange/upkeep/run`
+--    does exactly what a tick does, on demand, for watching it happen.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHY WEEKLY, AND WHY ONE TOWN
@@ -62,9 +62,16 @@
 -- and costs four cheap no-op requests a week. `pickTownToRefresh` owns that
 -- decision and is tested, including the case where it correctly does nothing.
 --
--- 40 minutes past 04:00 UTC — midnight Eastern, when nobody is using the
--- directory and Overpass is quietest — and offset from every other job in the
--- table so two edge function cold starts never coincide.
+-- 04:40 UTC, which is 00:40 Eastern — nobody is using the directory and
+-- Overpass is at its quietest.
+--
+-- :40 avoids the two fifteen-minute jobs (:00, :15, :30, :45) and the two
+-- hourly ones (:07). It does NOT avoid `on-call-escalation`, which runs every
+-- minute of every hour and therefore coincides with everything; there is no
+-- minute that misses it, and an earlier draft of this comment claiming the
+-- slot was clear of every other job was wrong. The overlap is two concurrent
+-- requests to the same edge function, which it already handles ninety-six
+-- times a day alongside the store tick.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- `succeeded` DOES NOT MEAN IT WORKED
@@ -114,7 +121,7 @@ begin
   );
 end $$;
 
--- Read it back. A `.sql` file is the only thing in this repository that is
--- never typechecked, never built and never tested.
+-- Read back after applying. A `.sql` file is the only thing in this repository
+-- that is never typechecked, never built and never tested, so this was run:
 --
 --   select jobname, schedule, active from cron.job where jobname = 'exchange-upkeep';
