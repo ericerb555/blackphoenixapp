@@ -168,34 +168,32 @@ export async function autoSyncBranding(): Promise<void> {
           }
         }
 
-        // SECOND: Try kv_store table for branding profile.
-        //
-        // `maybeSingle` rather than `single`: PostgREST answers 406 when
-        // `single` matches no row, and a user who has never published branding
-        // has no row. The result was a failed request on every load for them
-        // too — the same fault as the visitor path above, just quieter because
-        // it needed somebody signed in to see it. Absent is an answer here,
-        // not an error.
-        console.log('🔍 [AutoSync] Checking KV store for branding data...');
-        const { data: kvData, error: kvError } = await supabase
-          .from('kv_store_57095a78')
-          .select('*')
-          .eq('key', `company_branding_profile_${user.id}`)
-          .maybeSingle();
-
-        if (!kvError && kvData && kvData.value) {
-          console.log('✅ [AutoSync] Found branding in KV store');
-          const brandingProfile = kvData.value;
-
-          if (brandingProfile.logo_url || brandingProfile.logo_primary || brandingProfile.logoPrimary) {
-            localStorage.setItem('company_branding_profile', JSON.stringify(brandingProfile));
-            window.dispatchEvent(new Event('brandingUpdated'));
-            console.log('✅ [AutoSync] Synced from KV store with logo');
-            return;
-          }
-        }
-
-        console.log('⚠️ [AutoSync] No logo found in database tables');
+        /*
+         * SECOND: there used to be a read of `kv_store_57095a78` here, and it
+         * could never have returned anything.
+         *
+         * The note above explains why the signed-OUT path had to stop reading
+         * that table. The same rule applies signed IN, which this read assumed
+         * it escaped: RLS is enabled on `kv_store_57095a78` with no policies at
+         * all, so it denies the `authenticated` role exactly as it denies
+         * `anon`. A browser read returns `200 []`, never rows — so this was a
+         * fallback that reported "no logo found in database tables" regardless
+         * of what the database held.
+         *
+         * An earlier fix had already changed `single` to `maybeSingle` here, to
+         * stop a 406 on every load. That silenced the symptom and left the read
+         * in place, which is what made it look settled.
+         *
+         * It is removed rather than routed through the server, because the two
+         * paths above already cover it: the `companies` table read for a
+         * signed-in user, and `/public/branding` for everyone else. There is no
+         * third source of truth to consult, and `company_branding_profile_<id>`
+         * is written by nothing — grep for it.
+         *
+         * This runs on every sign-in (`Login.tsx`), so it was also a request per
+         * login that could only come back empty.
+         */
+        console.log('⚠️ [AutoSync] No logo found for this account');
       } else {
         console.log('ℹ️ [AutoSync] No authentication - public visitor mode');
         console.log('🔍 [AutoSync] Checking for published public branding...');

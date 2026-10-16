@@ -552,6 +552,74 @@ compares counts. Worth burning down in slices rather than all at once.
 
 ---
 
+## 11. The browser was querying a table RLS denies it — FIXED 2026-10-16
+
+Found by running the database advisors rather than reading code, which is why it
+had survived: every one of these calls was wrapped so that failure looked like
+absence.
+
+`kv_store_57095a78` is the live server's key-value store. The server reaches it
+with the service role, which bypasses RLS. **Seven places in `src/` reached it
+straight from the browser with the publishable key**, and RLS is enabled on it
+with no policies — which denies `authenticated` exactly as it denies `anon`.
+Confirmed against production rather than inferred:
+
+    anon READ   →  HTTP 200  []                                    silently empty
+    anon WRITE  →  HTTP 401  42501 violates row-level security     nothing written
+
+The read behaviour is the dangerous half. An error gets noticed; `200 []` gets
+believed.
+
+| where | what it did | what the user saw |
+|---|---|---|
+| `guaranteedSave.ts` | 7 calls, **no callers at all** | nothing — orphan |
+| `AdminAlertsPanel.tsx` | KV fallback after a working server call, commented "data is ALWAYS here" | a blank panel, and a comment that stopped anyone looking further |
+| `autoSyncBranding.ts` | 2nd fallback, on **every sign-in** | "No logo found in database tables", always |
+| `FixMyLogo.tsx` | server upload (works), then a redundant browser write | worked by accident; company name and colour silently never saved |
+| `PublishMyBranding.tsx` | read 406s, write throws | **publishing genuinely failed** |
+| `CheckMyCompanies.tsx` | diagnostic query | "No branding data found in KV store" — a confident wrong answer, on the page built to reassure somebody their data is there |
+
+- [x] Stop the browser touching that table. No direct `kv_store_` access
+      remains anywhere in `src/`.
+
+Two were deleted rather than repaired. `guaranteedSave.ts` had no callers.
+`PublishMyBranding` is superseded: it published a base64 logo out of
+localStorage, and the server refuses exactly that — `/public/branding` gates on
+`isUrl(logo_url)` and the refresh route's own message says "No Storage URL found
+— use Fix My Logo first". `FixMyLogo` is that replacement and goes through
+`/logo/upload`, which has permission to write the row.
+
+The rest keep their working path and lose the dead one, each with a note saying
+what was there and why it could not work — because the pattern is what matters
+here, not the six instances. **A fallback that cannot succeed is worse than no
+fallback**, since it is the reason nobody looks further.
+
+### Still open from the same advisor sweep, in priority order
+
+- [ ] **A trap, not a quick fix.** Eleven `SECURITY DEFINER` functions are
+      executable by `anon` and `authenticated` — `my_org_ids()`,
+      `my_visible_bid_ids()`, `is_platform_operator()` and friends. The obvious
+      remedy is `revoke execute`, and it would **break the live bid room**:
+      policies on `bids`, `bid_requests`, `bid_line_prices` and others call
+      these, and the invoking role needs EXECUTE for a policy to evaluate. Needs
+      reading each policy first.
+- [ ] Six functions have a mutable `search_path`
+      (`sync_bid_amount_from_lines`, `exchange_org_category_guard`,
+      `exchange_normalise_phrase`, `update_opportunity_stats`,
+      `update_investor_totals`, `bid_request_distance_miles`). One
+      `alter function … set search_path = ''` each. Safe and contained.
+- [ ] **Leaked-password protection is off** — Auth settings, needs Eric. It
+      checks new passwords against HaveIBeenPwned. One toggle.
+
+And the part of that sweep that is **not** a problem, written down so nobody
+spends an afternoon on it: the other thirteen "RLS enabled, no policy" tables —
+`exchange_claim`, `exchange_deal`, `private_cron_config`, the other kv stores —
+are correct as they are. Nothing in `src/` touches them and the server uses the
+service role. Deny-all is the intended state; the INFO badge makes a locked door
+look like a missing one.
+
+---
+
 ## What is genuinely fine
 
 Worth saying, because the list above is all problems:

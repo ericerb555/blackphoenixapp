@@ -45,18 +45,24 @@ export default function CheckMyCompanies() {
         console.log('📊 Companies found:', companiesData?.length || 0);
       }
 
-      // Check kv_store for branding data
-      const { data: kvStoreData, error: kvError } = await supabase
-        .from('kv_store_57095a78')
-        .select('*')
-        .or('key.ilike.%brand%,key.ilike.%logo%,key.ilike.%company%');
-
-      if (kvError) {
-        console.error('KV Store query error:', kvError);
-      } else {
-        setKvData(kvStoreData || []);
-        console.log('📊 KV Store entries found:', kvStoreData?.length || 0);
-      }
+      /*
+       * The KV store is not readable from here, and this page used to say so
+       * the wrong way round.
+       *
+       * It queried `kv_store_57095a78` for every key matching brand/logo/company
+       * and rendered the count. RLS on that table is enabled with no policies,
+       * so the browser gets `200 []` rather than an error — the query looked
+       * like it had succeeded and found nothing. On a page whose entire job is
+       * to tell somebody what their data looks like, that is the worst
+       * available outcome: a confident, wrong answer, under a warning icon, to
+       * somebody already worried their branding has gone missing.
+       *
+       * Only the server may read that table, with the service role. There is no
+       * route that exposes it as a diagnostic, and it should not get one
+       * casually — that table holds everything. So this page now reports what
+       * it can actually see, and says plainly that the KV store is not one of
+       * those things.
+       */
 
     } catch (err: any) {
       console.error('Check data error:', err);
@@ -230,15 +236,27 @@ export default function CheckMyCompanies() {
           )}
         </div>
 
-        {/* KV Store Data */}
+        {/* KV Store Data — not visible from a browser; see loadData() */}
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
           <h2 className="text-xl font-bold text-cyan-400 mb-4">
-            KV Store Branding Data ({kvData.length} entries)
+            KV Store Branding Data
           </h2>
           {kvData.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <AlertCircle className="w-12 h-12 mx-auto mb-2" />
-              <p>No branding data found in KV store</p>
+            <div className="py-6 text-sm text-gray-400 space-y-2">
+              <p className="text-gray-300 font-semibold">
+                Not checked — this page cannot read the KV store.
+              </p>
+              <p>
+                That table is readable only by the server. A check from your
+                browser is refused, so this panel used to report “no branding
+                data found” whether or not any existed. It is better to say
+                nothing than to say that.
+              </p>
+              <p>
+                The companies list above is read directly and is accurate. To
+                see or repair your published logo, use <strong>Fix My Logo</strong>,
+                which goes through the server.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">

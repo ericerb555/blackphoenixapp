@@ -111,11 +111,28 @@ export default function FixMyLogo() {
     setStep('publishing');
     setMessage('Publishing to live site...');
 
-    // Write to public_branding_profile in KV table
-    await supabase.from('kv_store_57095a78').upsert(
-      { key: 'public_branding_profile', value: { company_name: companyName, logo_url: url, logo_primary: url, primary_color: '#ea580c' } },
-      { onConflict: 'key' }
-    );
+    /*
+     * THE ROW IS ALREADY WRITTEN, BY THE SERVER, BEFORE WE GET HERE.
+     *
+     * There used to be an `upsert` of `public_branding_profile` on this line.
+     * It could not work and had not worked for some time: `kv_store_57095a78`
+     * has RLS enabled with no policies, so the browser is refused —
+     * `401 42501 new row violates row-level security policy` — for the
+     * authenticated role as much as for the anon one. The call did not
+     * destructure `error`, so the rejection was dropped on the floor and this
+     * page went on to say "your logo is now live".
+     *
+     * Which was true, but not because of this. `/logo/upload` above puts the
+     * file in Storage AND writes the same row with the service role, which does
+     * bypass RLS. The upload was doing the whole job and this line was a second,
+     * failing attempt at the half already done.
+     *
+     * Two fields were in that dead write and are NOT in the server's: the
+     * company name and a primary colour. They were never being saved — the
+     * write they were in was always rejected — so nothing is lost by removing
+     * it. If they should be published, `/logo/upload` is where to add them,
+     * because that is the only path here with permission to write the row.
+     */
 
     // Bust server cache
     await fetch(

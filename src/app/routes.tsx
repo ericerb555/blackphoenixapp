@@ -155,7 +155,6 @@ const DiagnosticLogos = lazy(() => import("./pages/DiagnosticLogos"));
 const DiagnosticLogosDebug = lazy(() => import("./pages/DiagnosticLogosDebug"));
 const UploadMyLogo = lazy(() => import("./pages/UploadMyLogo"));
 const CheckMyCompanies = lazy(() => import("./pages/CheckMyCompanies"));
-const PublishMyBranding = lazy(() => import("./pages/PublishMyBranding"));
 const FixMyLogo = lazy(() => import("./pages/FixMyLogo"));
 const SpocketIntegration = lazy(() => import("./pages/SpocketIntegration"));
 const ZendropIntegration = lazy(() => import("./pages/ZendropIntegration"));
@@ -559,7 +558,6 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "diagnostic-logos-debug": DiagnosticLogosDebug,
   "upload-my-logo":        UploadMyLogo,
   "check-my-companies":    CheckMyCompanies,
-  "publish-my-branding":   PublishMyBranding,
   "fix-my-logo":           FixMyLogo,
   "doba-integration":      DobaIntegration,
   "spocket":               SpocketIntegration,

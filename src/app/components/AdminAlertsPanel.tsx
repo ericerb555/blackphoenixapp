@@ -418,19 +418,21 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
           }
         } catch {}
 
-        // Fallback: read directly from Supabase KV table — data is ALWAYS here
-        if (all.length === 0) {
-          try {
-            const { data: kvData } = await supabase
-              .from('kv_store_57095a78')
-              .select('value')
-              .eq('key', 'all_work_requests')
-              .single();
-            if (kvData?.value && Array.isArray(kvData.value)) {
-              all = kvData.value;
-            }
-          } catch {}
-        }
+        /*
+         * There was a fallback here that read `kv_store_57095a78` directly when
+         * the route above returned nothing, under the comment "data is ALWAYS
+         * here". The data may well be; this could not reach it.
+         *
+         * `kv_store_57095a78` has RLS enabled and no policies, so it denies the
+         * browser whoever is asking — a read comes back `200 []`, and with
+         * `.single()` PostgREST answers 406 instead. Either way the `catch {}`
+         * swallowed it and `all` stayed empty. A fallback that cannot return a
+         * row is worse than none, because it is the reason nobody looked
+         * further when the panel came up blank.
+         *
+         * The route above is the way in. It runs on the server with the service
+         * role, which is the only thing permitted to read that table.
+         */
 
         if (all.length > 0) {
 
