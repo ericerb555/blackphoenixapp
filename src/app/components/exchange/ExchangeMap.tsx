@@ -62,7 +62,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
  */
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import type { Point } from '../../lib/exchangeGeo';
-import { boundsOf } from '../../lib/exchangeGeo';
+import { boundsOf, boundsAround } from '../../lib/exchangeGeo';
 import { fetchBasemapConfig, MAP_ATTRIBUTION } from '../../config/mapTiles';
 
 export interface MapPinData {
@@ -86,6 +86,17 @@ interface Props {
   onSelect?: (id: string) => void;
   /** How many listings in the category have no coordinate at all. */
   unplaceable?: number;
+  /**
+   * Frame this instead of framing every pin.
+   *
+   * Without it the map fits whatever it was given, so "All towns" opens on the
+   * whole of southern New Hampshire — technically correct and useless, because
+   * at that zoom every town is a cluster bubble and nothing is a business.
+   *
+   * A search still wins: framing the matches is the whole point of a search,
+   * and somebody who typed a name wants to see it rather than their radius.
+   */
+  focus?: { center: Point; miles: number } | null;
   /**
    * Keep the view on `here` as it moves.
    *
@@ -111,6 +122,7 @@ const FIT_PADDING = 48;
 
 export default function ExchangeMap({
   pins, here, searching, selectedId, onSelect, unplaceable = 0, follow = false,
+  focus = null,
 }: Props) {
   const holder = useRef<HTMLDivElement | null>(null);
   /** The MapLibre map. `any` because the module is loaded dynamically. */
@@ -464,14 +476,25 @@ export default function ExchangeMap({
     [pins, searching],
   );
 
+  /** A radius, as a key, so changing it reframes and nothing else does. */
+  const focusKey = focus ? `${focus.center.lat},${focus.center.lng},${focus.miles}` : '';
+
   useEffect(() => {
     if (status.kind !== 'ready' || !pins.length) return;
 
-    // Matches when there are any, otherwise everything. Clearing the search
-    // therefore pulls back to the whole category rather than leaving the
-    // reader zoomed into wherever their last answer happened to be.
+    /*
+     * A search beats a radius, and a radius beats the pins.
+     *
+     * Framing the matches is the entire point of searching, so that comes
+     * first. With nothing typed, a chosen radius is a deliberate instruction
+     * about how much to look at and is honoured literally — including when it
+     * holds no businesses, because an empty circle is a real answer to "what
+     * is within a mile of me" and silently widening it would be a lie.
+     */
     const framing = matchKey ? pins.filter((p) => p.highlighted) : pins;
-    const box = boundsOf(framing.map((p) => p.location));
+    const box = matchKey || !focus
+      ? boundsOf(framing.map((p) => p.location))
+      : boundsAround(focus.center, focus.miles);
     if (!box) return;
 
     try {
@@ -480,14 +503,20 @@ export default function ExchangeMap({
         // A single pin would otherwise fit to zoom 22 and show one rooftop.
         // Instant on the first frame, animated afterwards so a search reads as
         // a movement rather than a jump cut.
-        { padding: FIT_PADDING, maxZoom: matchKey ? 14 : 15, duration: framed.current ? 500 : 0 },
+        {
+          padding: FIT_PADDING,
+          // A single pin would otherwise fit to zoom 22 and show one rooftop.
+          // A radius frames itself exactly, so it needs no ceiling.
+          maxZoom: matchKey ? 14 : 15,
+          duration: framed.current ? 500 : 0,
+        },
       );
       framed.current = true;
     } catch { /* a map mid-teardown is not an error worth showing */ }
-    // `pins` supplies the coordinates but must not retrigger the fit; the two
+    // `pins` supplies the coordinates but must not retrigger the fit; the
     // keys are what say the answer actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinKey, matchKey, status.kind]);
+  }, [pinKey, matchKey, focusKey, status.kind]);
 
   /* ── frame what is actually there ─────────────────────────────────────── */
 

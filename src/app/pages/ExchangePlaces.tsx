@@ -67,7 +67,9 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
-import { measureListings, formatDistance, normalise } from '../lib/exchangeGeo';
+import {
+  measureListings, formatDistance, normalise, RADIUS_CHOICES,
+} from '../lib/exchangeGeo';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
@@ -146,6 +148,8 @@ export default function ExchangePlaces() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [showing, setShowing] = useState(SHOW_AT_FIRST);
+  /** How far out the map is looking. Null frames whatever is on it. */
+  const [radius, setRadius] = useState<number | null>(null);
   const { here, ask, follow, stop, forget, following } = useHere();
 
   /* Asking in words. `drivenId` is the chip an answer lit, remembered so that
@@ -230,6 +234,26 @@ export default function ExchangePlaces() {
 
   const searching = highlightTerm.trim().length > 0;
   const hits = useMemo(() => measured.filter((m) => m.highlighted).length, [measured]);
+  /**
+   * What a radius is measured from, and why this page can do better than the
+   * front door.
+   *
+   * Here a resident may have said where they are, and "within 5 miles" plainly
+   * means of THEM rather than of the town hall. So their own position wins when
+   * there is one, and the town centre stands in when there is not — which also
+   * means pressing "Show me what is nearest" re-centres a radius already on
+   * screen, without anybody having to ask twice.
+   */
+  const focusCentre = useMemo(
+    () => pointOf(here) ?? towns.find((t) => t.slug === town)?.center ?? null,
+    [here, towns, town],
+  );
+
+  const focus = useMemo(
+    () => (focusCentre && radius ? { center: focusCentre, miles: radius } : null),
+    [focusCentre, radius],
+  );
+
   const chosenCategory = useMemo(
     () => categories.find((c) => c.id === categoryId) ?? null,
     [categories, categoryId],
@@ -458,6 +482,7 @@ export default function ExchangePlaces() {
               selectedId={chosenId}
               onSelect={setChosenId}
               follow={following}
+              focus={focus}
             />
 
             <div className="bpxb-find">
@@ -653,6 +678,34 @@ export default function ExchangePlaces() {
               {tooFar && ' You are not near one of the towns the Exchange covers yet, so this is showing the nearest one we do.'}
               </div>
             </div>
+
+            {/*
+              How far out to look. Moves the VIEW and nothing else — the pins,
+              the list and the counts are untouched, because on this page a
+              category chip is what filters and a search is what highlights.
+            */}
+            {focusCentre && (
+              <div className="bpx-row">
+                <span className="bpxb-note">Looking within</span>
+                {RADIUS_CHOICES.map((miles) => (
+                  <button
+                    key={miles}
+                    className="bpx-chip"
+                    data-on={radius === miles}
+                    onClick={() => setRadius(radius === miles ? null : miles)}
+                  >
+                    {miles} mi
+                  </button>
+                ))}
+                <button
+                  className="bpx-chip"
+                  data-on={radius === null}
+                  onClick={() => setRadius(null)}
+                >
+                  Everything here
+                </button>
+              </div>
+            )}
 
             {/* The category list, beside the map rather than instead of it. */}
             <div className="bpxb-chips">

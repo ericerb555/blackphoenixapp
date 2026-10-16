@@ -290,6 +290,42 @@ export function measureListings<T extends {
  * in one corner of Manchester opens on those three instead of on the whole
  * city with the pins in a huddle.
  */
+/** The radii a resident can look within, in miles. */
+export const RADIUS_CHOICES = [1, 3, 5, 10, 25] as const;
+
+/**
+ * A box of roughly this many miles around a point, for framing a map.
+ *
+ * WHY A BOX RATHER THAN A CIRCLE
+ *
+ * MapLibre frames rectangles. A circle would have to be converted to its
+ * bounding box to be used anyway, so this produces the box directly and says
+ * \"roughly\" out loud: the corners of the box are further from the centre than
+ * the edges are, which is fine for deciding a zoom level and would not be fine
+ * for deciding what is within range.
+ *
+ * Longitude degrees shrink towards the poles, so the east-west half-width is
+ * divided by the cosine of the latitude. Without that, a ten-mile box in New
+ * Hampshire comes out about a quarter too wide.
+ */
+export function boundsAround(
+  point: Point | null | undefined,
+  miles: number,
+): { sw: Point; ne: Point } | null {
+  const at = asPoint(point);
+  if (!at || !Number.isFinite(miles) || miles <= 0) return null;
+
+  const latDegrees = miles / 69;
+  // Guard the cosine: at a pole it goes to zero and the box becomes infinite.
+  const shrink = Math.max(0.01, Math.cos((at.lat * Math.PI) / 180));
+  const lngDegrees = miles / (69 * shrink);
+
+  return {
+    sw: { lat: at.lat - latDegrees, lng: at.lng - lngDegrees },
+    ne: { lat: at.lat + latDegrees, lng: at.lng + lngDegrees },
+  };
+}
+
 export function boundsOf(locations: unknown[]): { sw: Point; ne: Point } | null {
   const points = locations.map(asPoint).filter((p): p is Point => p !== null);
   if (!points.length) return null;

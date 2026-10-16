@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nearestTown, TOWN_NEAR_ENOUGH_MILES,
+  nearestTown, TOWN_NEAR_ENOUGH_MILES, boundsAround, RADIUS_CHOICES, haversineMiles,
 } from '../src/app/lib/exchangeGeo.ts';
 
 /** The real centres, as `/exchange/territories` serves them. */
@@ -90,4 +90,41 @@ test('the slug a GPS pick produces is one the switcher knows', () => {
   const near = nearestTown({ lat: 42.7362, lng: -71.3273 }, TOWNS);
   assert.ok(TOWNS.some((t) => t.slug === near?.town.slug));
   assert.equal(near?.town.name, 'Pelham');
+});
+
+// ── framing a map on a radius ───────────────────────────────────────────────
+
+test('a radius box is about that many miles from its centre', () => {
+  const box = boundsAround({ lat: 42.9956, lng: -71.4548 }, 10);
+  const north = haversineMiles({ lat: 42.9956, lng: -71.4548 }, { lat: box!.ne.lat, lng: -71.4548 });
+  const east = haversineMiles({ lat: 42.9956, lng: -71.4548 }, { lat: 42.9956, lng: box!.ne.lng });
+  assert.ok(Math.abs(north - 10) < 0.5, `north edge was ${north}`);
+  assert.ok(Math.abs(east - 10) < 0.5, `east edge was ${east}`);
+});
+
+test('longitude is narrowed for latitude, or the box comes out too wide', () => {
+  /*
+   * A degree of longitude is about 51 miles in New Hampshire, not 69. Without
+   * the cosine the east-west half-width is a third too generous, and every
+   * "within 5 miles" view quietly shows eight.
+   */
+  const box = boundsAround({ lat: 42.9956, lng: -71.4548 }, 10)!;
+  const lngSpan = box.ne.lng - box.sw.lng;
+  const latSpan = box.ne.lat - box.sw.lat;
+  assert.ok(lngSpan > latSpan, 'a degree of longitude is shorter here, so the span must be wider');
+});
+
+test('a radius with no centre, or no radius, frames nothing', () => {
+  assert.equal(boundsAround(null, 10), null);
+  assert.equal(boundsAround({ lat: 42.9, lng: -71.4 }, 0), null);
+  assert.equal(boundsAround({ lat: 42.9, lng: -71.4 }, -5), null);
+  assert.equal(boundsAround({ lat: 42.9, lng: -71.4 }, Number.NaN), null);
+});
+
+test('every offered radius produces a usable box', () => {
+  for (const miles of RADIUS_CHOICES) {
+    const box = boundsAround({ lat: 42.9956, lng: -71.4548 }, miles);
+    assert.ok(box, `${miles} miles produced no box`);
+    assert.ok(box!.ne.lat > box!.sw.lat && box!.ne.lng > box!.sw.lng);
+  }
 });

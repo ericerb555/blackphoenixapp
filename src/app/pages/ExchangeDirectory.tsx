@@ -45,7 +45,7 @@ import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import ExchangeBizRow from '../components/exchange/ExchangeBizRow';
-import { measureListings } from '../lib/exchangeGeo';
+import { measureListings, RADIUS_CHOICES } from '../lib/exchangeGeo';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -99,6 +99,11 @@ export default function ExchangeDirectory() {
   const [mapError, setMapError] = useState<string | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [find, setFind] = useState('');
+  /**
+   * How far out the map is looking, in miles. Null is "fit whatever is here",
+   * which is the old behaviour and still the right answer for a single town.
+   */
+  const [radius, setRadius] = useState<number | null>(null);
   /** How much of the list is rendered. The map always holds every pin. */
   const [showing, setShowing] = useState(SHOW_AT_FIRST);
 
@@ -173,6 +178,9 @@ export default function ExchangeDirectory() {
   /* A new search starts at the top of the list rather than forty rows down
      into the answer to the last one. */
   useEffect(() => { setShowing(SHOW_AT_FIRST); }, [find, town]);
+  /* A one-mile view of the last town is not a sensible opening view of the
+     next one, so changing town goes back to framing what is actually there. */
+  useEffect(() => { setRadius(null); }, [town]);
 
   /** Services grouped under their parent, for the prose line on each tile. */
   const servicesByParent = useMemo(() => {
@@ -229,6 +237,27 @@ export default function ExchangeDirectory() {
   const chosen = useMemo(
     () => places.find((place) => place.id === chosenId) ?? null,
     [places, chosenId],
+  );
+
+  /**
+   * What a radius is measured from.
+   *
+   * The chosen town's centre, which the territories route already serves. Not
+   * the resident's own position: this page asks for no location, and a radius
+   * control is not a good enough reason to start — the full map is where
+   * "near me" lives.
+   *
+   * With no town chosen there is no centre, so the radius buttons stay out of
+   * the way rather than offering to zoom to the middle of nowhere.
+   */
+  const townCentre = useMemo(
+    () => towns.find((t) => t.slug === town)?.center ?? null,
+    [towns, town],
+  );
+
+  const focus = useMemo(
+    () => (townCentre && radius ? { center: townCentre, miles: radius } : null),
+    [townCentre, radius],
   );
 
   const categoryHref = useCallback(
@@ -395,6 +424,41 @@ export default function ExchangeDirectory() {
             </label>
           )}
 
+          {/*
+            How far out to look.
+
+            Only offered once a town is chosen, because a radius needs a centre
+            and "All towns" has none — and because the honest answer to "show
+            me everything" is to frame everything, which is what the map does
+            when no radius is set.
+
+            This moves the VIEW and nothing else. The pins, the list and the
+            count are unchanged: a category filters, a search highlights, and a
+            radius decides how much of the map you are looking at.
+          */}
+          {!mapLoading && !mapError && town && townCentre && places.length > 0 && (
+            <div className="bpx-row">
+              <span className="bpxb-note">Looking within</span>
+              {RADIUS_CHOICES.map((miles) => (
+                <button
+                  key={miles}
+                  className="bpx-chip"
+                  data-on={radius === miles}
+                  onClick={() => setRadius(radius === miles ? null : miles)}
+                >
+                  {miles} mi
+                </button>
+              ))}
+              <button
+                className="bpx-chip"
+                data-on={radius === null}
+                onClick={() => setRadius(null)}
+              >
+                The whole town
+              </button>
+            </div>
+          )}
+
           {mapLoading && (
             <div className="bpxb-mapwait">
               <Loader2 size={22} className="animate-spin" color="#9ca3af" />
@@ -415,9 +479,13 @@ export default function ExchangeDirectory() {
             <ExchangeMap
               pins={pins}
               here={null}
-              searching={false}
+              /* Was hardcoded false, which meant `hit` was false for every pin
+                 and a search lit the list while the map ignored it entirely.
+                 The enlarged matching pin is the whole point of searching here. */
+              searching={searching}
               selectedId={chosenId}
               onSelect={setChosenId}
+              focus={focus}
             />
           )}
 
