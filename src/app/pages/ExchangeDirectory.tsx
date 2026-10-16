@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Store, Loader2, AlertCircle, ChevronRight, MapPin, RefreshCw,
+  KeyRound, Bookmark, ArrowRight,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -165,6 +166,33 @@ export default function ExchangeDirectory() {
           </div>
         </div>
 
+        {/*
+          THE MAP, FIRST AND UNMISTAKABLE.
+
+          Eric asked twice for the map to be a main feature. It was a one-line
+          link sitting between the town chips and the tree, and on the live page
+          it read as a notice — he did not register it as the map at all.
+
+          It is still a DOOR rather than the map itself, and that is deliberate:
+          `/exchange` is the crawlable tree of categories and names the whole
+          free-traffic plan rests on, and a map canvas gives a crawler nothing to
+          read. Putting the canvas here would also pull 1,500 rows and MapLibre
+          onto the most visited page in the directory. So the door is built to
+          look like what is behind it — the pin field is CSS and costs no
+          request — and the tree below is untouched.
+        */}
+        <a className="bpxb-hero" href="/exchange-places">
+          <span className="bpxb-hero-mark"><MapPin size={27} color="#fff" /></span>
+          <span className="bpxb-hero-text">
+            <span className="bpxb-hero-title">See every business on the map</span>
+            <span className="bpxb-hero-sub">
+              Nearest first, no category needed — the quickest way to find who is
+              actually near you.
+            </span>
+          </span>
+          <span className="bpxb-hero-go">Open the map <ArrowRight size={16} /></span>
+        </a>
+
         <div className="bpx-row">
           <span className="bpxb-note" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <MapPin size={13} /> Looking in
@@ -182,23 +210,36 @@ export default function ExchangeDirectory() {
         </div>
 
         {/*
-          The way on to the map, above the category tree rather than below it.
+          The two doors this page has been missing.
 
-          "What is near me" is the question most residents arrive with, and the
-          tree asks them to pick a trade before showing them anything. This page
-          stays the crawlable list of categories and names — that is what earns
-          the search traffic, and a map has nothing in it for a crawler to read
-          — but a resident should not have to work that out.
+          Both of the things behind them were built and neither was reachable
+          from here. Claiming could only be reached by finding your own listing
+          through the tree and pressing the button on it — so an owner arriving
+          at the front door had no way in at all, while the footer cheerfully
+          told them they could claim. And the resident account (saved
+          businesses, who you have contacted) was linked only from the staff
+          role switcher, which no resident will ever open.
         */}
-        <a className="bpxb-mapdoor" href="/exchange-places">
-          <MapPin size={22} color="#fdba74" style={{ flexShrink: 0 }} />
-          <span className="bpxb-mapdoor-text">
-            <span className="bpxb-mapdoor-title">See what is near you</span>
-            <span className="bpxb-note">
-              Every business on a map, nearest first — no category needed
+        <div className="bpxb-doors">
+          <a className="bpxb-door" href="/exchange-claim">
+            <KeyRound size={20} />
+            <span className="bpxb-door-text">
+              <span className="bpxb-door-title">Is one of these yours?</span>
+              <span className="bpxb-note">
+                Claim your listing — free, and it stays free
+              </span>
             </span>
-          </span>
-        </a>
+          </a>
+          <a className="bpxb-door" href="/exchange-account">
+            <Bookmark size={20} />
+            <span className="bpxb-door-text">
+              <span className="bpxb-door-title">Your Exchange</span>
+              <span className="bpxb-note">
+                Save businesses and see who you have contacted
+              </span>
+            </span>
+          </a>
+        </div>
 
         {loading && (
           <div className="bpx-empty">
@@ -260,8 +301,13 @@ export default function ExchangeDirectory() {
         {!loading && !error && sections.length > 0 && (
           <div className="bpxb-note">
             Every business here is listed from public records or by its owner.
-            Nothing is invented, and a business can claim or correct its own
-            listing at any time.
+            Nothing is invented, and a business can{' '}
+            {/* This sentence promised something and linked to nothing, which is
+                the worst way to state a right somebody actually has. */}
+            <a href="/exchange-claim" style={{ color: '#fdba74' }}>
+              claim or correct its own listing
+            </a>
+            {' '}at any time.
             {' '}
             {/* ODbL. Compiled listings come from OpenStreetMap, and crediting
                 it is a licence term rather than a courtesy. */}

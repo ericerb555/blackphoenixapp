@@ -289,12 +289,53 @@ export const BROWSE_CSS = `
   border:1px solid var(--bpx-line); background:#fff; }
 .bpxb-logo-chip img { max-width:100%; max-height:100%; object-fit:contain; }
 
-/* ── the way in to the map, from the directory ────────────────────────────── */
-.bpxb-mapdoor { display:flex; align-items:center; gap:12px; text-decoration:none;
-  border:1px solid rgba(234,88,12,.4); border-radius:15px; padding:14px;
-  background:linear-gradient(90deg, rgba(234,88,12,.14), rgba(234,88,12,.04));
-  color:inherit; transition:border-color .16s; }
-.bpxb-mapdoor:hover { border-color:rgba(234,88,12,.75); }
-.bpxb-mapdoor-text { display:flex; flex-direction:column; gap:3px; min-width:0; }
-.bpxb-mapdoor-title { font-size:15px; font-weight:750; letter-spacing:-.01em; }
+/* ── the map, as the main feature it is supposed to be ────────────────────── */
+/* Eric, twice: "the map should be a main feature". It was a one-line link
+   wedged between the town chips and the category tree, which reads as a notice
+   rather than a way in — on the live page he did not register it as the map at
+   all, and he was right not to.
+
+   What it must NOT become is the page itself. /exchange is the crawlable tree
+   of categories and names that the entire free-traffic plan rests on, and a map
+   canvas has nothing in it for a crawler to read. So this is a door built to
+   look like the thing behind it: the pin field is CSS, it costs no request, and
+   the tree underneath is untouched. */
+.bpxb-hero { position:relative; overflow:hidden; display:flex; gap:18px;
+  align-items:center; flex-wrap:wrap; text-decoration:none; color:inherit;
+  border:1px solid rgba(234,88,12,.5); border-radius:18px; padding:22px 20px;
+  background:
+    radial-gradient(circle at 14% 26%, rgba(253,186,116,.85) 0 3.5px, transparent 4px),
+    radial-gradient(circle at 27% 68%, rgba(253,186,116,.55) 0 2.5px, transparent 3px),
+    radial-gradient(circle at 46% 34%, rgba(253,186,116,.7) 0 3px, transparent 3.5px),
+    radial-gradient(circle at 63% 72%, rgba(253,186,116,.5) 0 2.5px, transparent 3px),
+    radial-gradient(circle at 79% 30%, rgba(253,186,116,.75) 0 3px, transparent 3.5px),
+    radial-gradient(circle at 90% 62%, rgba(253,186,116,.45) 0 2.5px, transparent 3px),
+    linear-gradient(135deg, rgba(234,88,12,.22), rgba(234,88,12,.04) 55%, rgba(255,255,255,.02));
+  transition:border-color .16s, background-color .16s; }
+.bpxb-hero:hover { border-color:rgba(234,88,12,.9); }
+.bpxb-hero-mark { width:54px; height:54px; flex-shrink:0; border-radius:16px;
+  display:grid; place-items:center; background:rgba(234,88,12,.9); }
+.bpxb-hero-text { display:flex; flex-direction:column; gap:5px; min-width:0; flex:1 1 240px; }
+.bpxb-hero-title { font-size:clamp(19px,2.6vw,25px); font-weight:800; letter-spacing:-.02em; }
+.bpxb-hero-sub { font-size:13.5px; color:var(--bpx-dim); line-height:1.5; }
+.bpxb-hero-go { flex-shrink:0; display:inline-flex; align-items:center; gap:7px;
+  min-height:44px; padding:0 18px; border-radius:13px; font-size:14px; font-weight:750;
+  background:#ea580c; color:#fff; }
+
+/* ── the two doors a directory has to have and did not ────────────────────── */
+/* An owner arriving at the Exchange had no way to claim: the only route in was
+   to find your own listing by browsing and press the button on it. And the
+   resident account — saved businesses, who you contacted — was reachable only
+   from the staff role switcher, so no actual resident could ever find it.
+   Both existed. Neither had a door. */
+.bpxb-doors { display:grid; gap:10px; grid-template-columns:1fr; }
+@media (min-width:700px) { .bpxb-doors { grid-template-columns:1fr 1fr; } }
+.bpxb-door { display:flex; align-items:center; gap:12px; text-decoration:none;
+  color:inherit; border:1px solid var(--bpx-line); border-radius:14px; padding:14px;
+  background:var(--bpx-raised); transition:border-color .16s, background .16s; }
+.bpxb-door:hover { border-color:var(--bpx-line-lit); background:rgba(255,255,255,.04); }
+.bpxb-door svg { flex-shrink:0; color:#fdba74; }
+.bpxb-door-text { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.bpxb-door-title { font-size:14.5px; font-weight:750; letter-spacing:-.01em; }
+
 `;
