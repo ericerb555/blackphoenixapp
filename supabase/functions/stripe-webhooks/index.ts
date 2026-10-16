@@ -544,16 +544,20 @@ Deno.serve(async (req) => {
   const raw = await req.text();
   const header = req.headers.get('stripe-signature') || '';
 
+  // Named, because the name is what attributes a dispute to a company. See the
+  // verification loop below.
   const secrets = [
-    Deno.env.get('STRIPE_WEBHOOK_SECRET_SERVICES'),
-    Deno.env.get('STRIPE_WEBHOOK_SECRET_STORE'),
-    Deno.env.get('STRIPE_WEBHOOK_SECRET'),
+    'STRIPE_WEBHOOK_SECRET_SERVICES',
+    'STRIPE_WEBHOOK_SECRET_STORE',
+    'STRIPE_WEBHOOK_SECRET',
     // Test mode. Registering a test-mode endpoint against this same URL and
     // storing its signing secret here means billing can be exercised without
     // touching live — see the livemode guard below, which is what makes that
     // safe rather than merely possible.
-    Deno.env.get('STRIPE_WEBHOOK_SECRET_TEST'),
-  ].filter((s): s is string => !!s && s.trim().length > 0);
+    'STRIPE_WEBHOOK_SECRET_TEST',
+  ]
+    .map((name) => ({ name, secret: Deno.env.get(name) || '' }))
+    .filter((s) => s.secret.trim().length > 0);
 
   if (!secrets.length) {
     // Refuse rather than trust an unverified body. Accepting unsigned events
@@ -565,9 +569,20 @@ Deno.serve(async (req) => {
     );
   }
 
+  /**
+   * WHICH secret verified it, not merely that one did.
+   *
+   * This loop used to throw that away, and it is the only thing in the delivery
+   * that identifies the account. Each company here is its own standalone Stripe
+   * account with its own signing secret — see the note at the top of
+   * `stripe-connect.tsx` — so the secret that verified a chargeback IS the
+   * answer to "whose chargeback is this". Guessing instead would file one
+   * business's dispute, and one business's evidence, against another's money.
+   */
   let verified = false;
-  for (const secret of secrets) {
-    if (await verifySignature(raw, header, secret)) { verified = true; break; }
+  let verifiedBy: string | null = null;
+  for (const { name, secret } of secrets) {
+    if (await verifySignature(raw, header, secret)) { verified = true; verifiedBy = name; break; }
   }
   if (!verified) {
     console.log('[stripe-webhooks] signature verification failed.');
@@ -665,6 +680,110 @@ Deno.serve(async (req) => {
   }
 
   try {
+    /**
+     * A CHARGEBACK, FIRST, BECAUSE IT IS THE ONE WITH A CLOCK.
+     *
+     * Handled before the metadata routing below for a plain reason: a dispute
+     * object carries none of that metadata. It has no `store_checkout_id`, no
+     * `bp_tier_id`, no `screening_order_id` — it is a card network challenging
+     * a charge, not a checkout we stamped. Left to fall through, it would reach
+     * `handlePlanEvent`, match nothing, and be acknowledged as handled.
+     *
+     * Which is exactly what happened until now: the whole of
+     * `charge.dispute.*` was unhandled, so Stripe emailed somebody, a response
+     * window started, and this application never found out. A dispute not
+     * answered inside its window is lost by default however good the evidence
+     * was — the one failure where having everything and never being asked costs
+     * as much as having nothing.
+     *
+     * THIS HANDLER IS DELIBERATELY DUMB
+     *
+     * It verifies, attributes and stores. It does not interpret, score, draft
+     * or decide. Interpretation lives in `server/disputes.ts` where it is
+     * tested and can be changed without redeploying the endpoint a card network
+     * delivers to, and the job here is the one thing that cannot be done later:
+     * never lose the event.
+     */
+    if (String(event?.type || '').startsWith('charge.dispute.')) {
+      const dispute = event?.data?.object || {};
+      const id = String(dispute?.id || '').trim();
+      if (!id) {
+        // Nothing to key on. Acknowledged so Stripe stops retrying something
+        // no retry will fix, and logged loudly because it should not happen.
+        console.log('[stripe-webhooks] charge.dispute.* with no dispute id; nothing stored.');
+        return new Response(JSON.stringify({ received: true, type: event.type, stored: false }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      /**
+       * Whose dispute this is, from the secret that verified the delivery.
+       *
+       * `dispute_company_for_secret` maps a signing-secret env name to a
+       * company id. Absent or unmapped means UNATTRIBUTED, which is a real
+       * state and not a default — a person decides. A default would put one
+       * business's documents against another's chargeback.
+       */
+      const map = (await kvGet('dispute_company_for_secret')) || {};
+      const companyId = verifiedBy ? (map?.[verifiedBy] ?? null) : null;
+
+      const now = new Date().toISOString();
+      const existing = await kvGet(`dispute:${id}`);
+
+      // Stripe sends seconds. Read as milliseconds this would date every
+      // deadline to 1970 and report every dispute overdue.
+      const dueRaw = Number(dispute?.evidence_details?.due_by);
+      const evidenceDueBy = Number.isFinite(dueRaw) && dueRaw > 0
+        ? new Date(dueRaw * 1000).toISOString()
+        : null;
+
+      const record = {
+        ...(existing || {}),
+        id,
+        companyId: existing?.companyId ?? companyId,
+        verifiedBy: existing?.verifiedBy ?? verifiedBy,
+        chargeId: String(dispute?.charge || ''),
+        paymentIntentId: String(dispute?.payment_intent || '') || null,
+        amountMinor: Number(dispute?.amount) || 0,
+        currency: String(dispute?.currency || 'usd').toLowerCase(),
+        reason: String(dispute?.reason || 'general'),
+        stripeStatus: String(dispute?.status || 'needs_response'),
+        evidenceDueBy,
+        liveMode: dispute?.livemode !== false,
+        // OUR handling state is never overwritten by a later Stripe update.
+        // Stripe says what the network thinks; this says what we have done, and
+        // an `updated` event must not reset a draft back to `received`.
+        state: existing?.state ?? (companyId ? 'received' : 'unattributed'),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        lastEventType: String(event?.type || ''),
+      };
+
+      await kvSet(`dispute:${id}`, record);
+
+      // An index, so the queue does not have to scan every key to find the
+      // open ones. Newest first, capped — the record itself is the truth.
+      const index: string[] = (await kvGet('dispute_index')) || [];
+      if (!index.includes(id)) {
+        await kvSet('dispute_index', [id, ...index].slice(0, 2000));
+      }
+
+      console.log(
+        `[stripe-webhooks] ${event.type} ${id} company=${record.companyId ?? 'UNATTRIBUTED'} `
+        + `reason=${record.reason} due=${evidenceDueBy ?? 'none'} amount=${record.amountMinor}`,
+      );
+
+      return new Response(JSON.stringify({
+        received: true,
+        type: event.type,
+        stored: true,
+        disputeId: id,
+        companyId: record.companyId,
+        attributed: Boolean(record.companyId),
+        evidenceDueBy,
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     // Route on the metadata each flow stamps onto its own checkout, rather than
     // on event type — a checkout.session.completed can belong to either
     // business, and guessing from the type alone would send store orders into
