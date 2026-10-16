@@ -436,6 +436,23 @@ export interface AgencyDisclosure {
   legalName: string;
   address: string;
   phone: string;
+  /**
+   * The agency's toll-free number, where it has one.
+   *
+   * 15 U.S.C. § 1681m(a)(3)(A) requires "the name, address, and telephone
+   * number of the consumer reporting agency (including a toll-free telephone
+   * number established by the agency if the agency compiles and maintains
+   * files on consumers on a nationwide basis)". So for a nationwide agency the
+   * ordinary number is not enough, and this is the field that carries it.
+   *
+   * Optional because the duty is conditional: an agency that is not nationwide
+   * owes no toll-free number, and inventing one would be worse than omitting
+   * it.
+   */
+  tollFreePhone?: string | null;
+  /** Whether this agency compiles files nationwide, which is what triggers the
+      toll-free requirement above. */
+  nationwide?: boolean | null;
 }
 
 export type AdverseActionRefusal =
@@ -487,18 +504,48 @@ export interface AdverseActionInput {
 /**
  * The notice an applicant is owed when a report counted against them.
  *
- * DRAFT WORDING. Returned as structured paragraphs rather than a rendered
- * document on purpose: the text has not been through a lawyer, and producing a
- * tidy PDF of unapproved legal language invites somebody to send it. The
- * portal shows it marked as a draft and there is no route that sends it. See
- * item 3 of the blocking list in `tasks/tenant-screening.md`.
+ * CHECKED AGAINST THE STATUTE, 2026-10-16, rather than deferred to a lawyer.
+ * The source is 15 U.S.C. § 1681m(a), and the FTC's own business guidance
+ * "Using Consumer Reports: What Landlords Need to Know" applies it to exactly
+ * this use. Each statement below maps to a provision:
  *
- * The four statements are the ones the obligation is actually about — who
- * furnished the report, that they did not make the decision and cannot explain
- * it, the right to a free copy, and the right to dispute what is in it. They
- * are separate fields rather than one block of prose so that a lawyer's edit to
- * one does not require re-reading the others, and so the portal can show them
- * as a list rather than a wall.
+ *   § 1681m(a)(1)     notice that adverse action was taken          statement 1
+ *   § 1681m(a)(3)(A)  the agency's name, address and telephone      statement 2
+ *   § 1681m(a)(3)(B)  the agency did not decide and cannot explain  statement 3
+ *   § 1681m(a)(4)(A)  a free copy of the report within 60 days      statement 4
+ *   § 1681m(a)(4)(B)  the right to dispute what it contains         statement 5
+ *
+ * New Hampshire adds nothing to this. RSA 359-B:15 II covers adverse action on
+ * "credit for personal, family, or household purposes" from a non-agency
+ * source; a tenancy is not credit, and the chapter imposes no notice duty on a
+ * landlord beyond the federal one.
+ *
+ * WHY THE CREDIT SCORE IS NOT IN HERE, AND WHOSE JOB IT IS
+ *
+ * § 1681m(a)(2) requires that where a credit score was USED in taking the
+ * adverse action, the notice carries that score, the range of possible scores,
+ * up to four key factors that adversely affected it, the date it was created
+ * and who provided it (§ 1681g(f)(1)(B)–(E)).
+ *
+ * Black Phoenix cannot supply any of that and must not try: the order record
+ * deliberately holds no score, no band and no report body — see WHAT AN ORDER
+ * IS NOT at the top of this file. The landlord reads the report through a
+ * short-lived link into the agency, so the landlord is the only party who ever
+ * sees a score, and § 1681m puts the duty on the person who took the action
+ * using it. Storing a score here to complete the paragraph would break the
+ * architectural rule that keeps this system out of the business of holding
+ * things worth stealing.
+ *
+ * So the notice SAYS so, in `scoreObligation`. A silent omission would leave a
+ * landlord believing a generated draft was complete when the law wanted one
+ * more paragraph only they can write.
+ *
+ * STILL A DRAFT, FOR A DIFFERENT REASON THAN BEFORE
+ *
+ * It used to be marked draft because the wording had not been checked. It has
+ * now. It stays a draft because no consumer reporting agency is connected, so
+ * the agency details in it are not yet real, and because the score paragraph
+ * above may still be owed by the landlord. No route sends it.
  */
 export function adverseActionNotice(input: AdverseActionInput) {
   const { agency } = input;
@@ -515,13 +562,41 @@ export function adverseActionNotice(input: AdverseActionInput) {
     },
     statements: [
       `Your rental application was declined, and information in a consumer report was a factor in that decision.`,
-      `The report was supplied by ${agency.legalName}, ${agency.address}, ${agency.phone}.`,
+      `The report was supplied by ${agency.legalName}, ${agency.address}, ${contactLine(agency)}.`,
       `${agency.legalName} did not make the decision to decline your application and cannot explain why it was made.`,
       `You have the right to obtain a free copy of your report from ${agency.legalName} if you request it within 60 days.`,
       `You have the right to dispute with ${agency.legalName} the accuracy or completeness of any information in the report.`,
     ],
+    /*
+     * Addressed to the landlord, never to the applicant, and not part of the
+     * notice text. It is the one paragraph of § 1681m(a) this system cannot
+     * write for them.
+     */
+    scoreObligation: SCORE_OBLIGATION,
   };
 }
+
+/**
+ * The agency's contact details as the statute wants them.
+ *
+ * A nationwide agency owes its toll-free number as well, so both are given
+ * rather than the toll-free one replacing the other — § 1681m(a)(3)(A) asks
+ * for the telephone number "including" the toll-free one, not instead of it.
+ */
+function contactLine(agency: AgencyDisclosure): string {
+  const tollFree = String(agency.tollFreePhone ?? '').trim();
+  if (!tollFree || tollFree === agency.phone) return agency.phone;
+  return `${agency.phone} (toll-free ${tollFree})`;
+}
+
+/** What the landlord must add if a credit score informed their decision. */
+export const SCORE_OBLIGATION =
+  'If a credit score was part of your decision, federal law (15 U.S.C. '
+  + '§ 1681m(a)(2)) requires this notice to also state the score, the range of '
+  + 'possible scores under that model, up to four key factors that adversely '
+  + 'affected it, the date it was created and who provided it. Black Phoenix '
+  + 'never receives the score — you read the report directly from the agency — '
+  + 'so you must add that paragraph yourself.';
 
 /**
  * Whether a landlord may be handed a link to the report.

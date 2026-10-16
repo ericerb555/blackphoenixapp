@@ -379,8 +379,61 @@ test('the notice names the agency in every statement that needs it', () => {
 });
 
 test('the notice is always marked a draft', () => {
-  // Until a lawyer has read it, nothing produced here may look final.
+  /*
+   * Not because the wording is unchecked — it was checked against
+   * 15 U.S.C. § 1681m(a) on 2026-10-16 — but because no agency is connected,
+   * so the agency details in it are not yet real, and because the landlord may
+   * still owe the credit-score paragraph below.
+   */
   assert.equal(adverseActionNotice({ applicantName: 'A', decidedAt: 'x', agency }).draft, true);
+});
+
+/* ── § 1681m(a)(3)(A): the toll-free number a nationwide agency owes ───── */
+
+test('a nationwide agency gives its toll-free number as well, not instead', () => {
+  // The statute asks for the telephone number "including" the toll-free one.
+  const n = adverseActionNotice({
+    applicantName: 'Jo',
+    decidedAt: 'x',
+    agency: { ...agency, tollFreePhone: '800-555-0100', nationwide: true },
+  });
+  const contact = n.statements.find((s) => s.includes(agency.address))!;
+  assert.ok(contact.includes(agency.phone), 'the ordinary number must survive');
+  assert.ok(contact.includes('800-555-0100'), 'the toll-free number must appear');
+});
+
+test('an agency with no toll-free number is not given an invented one', () => {
+  const n = adverseActionNotice({ applicantName: 'Jo', decidedAt: 'x', agency });
+  const contact = n.statements.find((s) => s.includes(agency.address))!;
+  assert.ok(contact.includes(agency.phone));
+  assert.ok(!contact.toLowerCase().includes('toll-free'));
+});
+
+test('a toll-free number that duplicates the main one is not said twice', () => {
+  const n = adverseActionNotice({
+    applicantName: 'Jo',
+    decidedAt: 'x',
+    agency: { ...agency, tollFreePhone: agency.phone },
+  });
+  const contact = n.statements.find((s) => s.includes(agency.address))!;
+  assert.ok(!contact.toLowerCase().includes('toll-free'));
+});
+
+/* ── § 1681m(a)(2): the paragraph only the landlord can write ───────── */
+
+test('the notice tells the landlord the score paragraph is theirs', () => {
+  /*
+   * The order record holds no score by design, so this system cannot write
+   * that paragraph. Saying nothing would let a landlord believe the generated
+   * draft was complete when the law wanted one more paragraph.
+   */
+  const n = adverseActionNotice({ applicantName: 'Jo', decidedAt: 'x', agency });
+  assert.ok(n.scoreObligation.includes('1681m(a)(2)'), 'it must cite the provision');
+  assert.match(n.scoreObligation, /key factors/i);
+  assert.match(n.scoreObligation, /range of/i);
+
+  // And it is addressed to the landlord, never mixed into what the applicant reads.
+  assert.ok(!n.statements.some((s) => s.includes('you must add')));
 });
 
 /* ── throwing records away ────────────────────────────────────────────────── */

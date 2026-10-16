@@ -516,8 +516,36 @@ sandbox credentials rather than a negotiation — see the Phase 3 plan in
 
 - [ ] Apply for sandbox credentials (Tenant Alert has no minimum and no startup
       fee; AAOA Enterprise is sized for 50+ units).
-- [ ] Get the adverse-action wording reviewed once by a lawyer. It is a draft in
-      the code and labelled as one.
+- [x] ~~Get the adverse-action wording reviewed once by a lawyer.~~ **Done by
+      reading the statute, 2026-10-16.** Eric: "you dont need a lawyer we have
+      the laws to review?" He was right, and `look-up-the-law-before-naming-a-
+      lawyer` already said so — this line had been repeated without anybody
+      checking it.
+
+      15 U.S.C. § 1681m(a) is the whole duty, and the FTC’s own guidance
+      "Using Consumer Reports: What Landlords Need to Know" applies it to this
+      exact use. The five existing statements map to (a)(1), (a)(3)(A),
+      (a)(3)(B), (a)(4)(A) and (a)(4)(B). New Hampshire adds nothing: RSA
+      359-B:15 II covers adverse action on "credit for personal, family, or
+      household purposes" from a non-agency source, and a tenancy is not credit.
+
+      Two real gaps were found and both are now fixed in `screeningOrder.ts`
+      with tests:
+
+      - **§ 1681m(a)(3)(A)** wants the agency’s toll-free number *as well as*
+        its telephone number where the agency is nationwide. `AgencyDisclosure`
+        had no field for it.
+      - **§ 1681m(a)(2)** wants the credit score, its range, up to four key
+        factors, its date and its source where a score was used. This system
+        cannot supply any of it — the order record holds no score by design —
+        so the notice now tells the LANDLORD that paragraph is theirs. Silence
+        there would have let somebody send an incomplete notice believing it
+        was finished.
+
+      What is genuinely left for a specialist is much smaller than the original
+      line suggested, and is not about wording: whether Black Phoenix should
+      generate this notice at all, given § 1681m puts the duty on the person who
+      took the action — the landlord — and we are supplying the tooling.
 
 ---
 
