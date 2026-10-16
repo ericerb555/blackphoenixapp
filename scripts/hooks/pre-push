@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Refuse to push a tree that cannot build because a committed file imports one
+# nobody committed.
+#
+# WHY A PRE-PUSH HOOK AND NOT A PRE-COMMIT ONE
+#
+# A bad commit is private and free to fix — amend it, or commit the missing
+# file. A bad PUSH is what reaches Vercel, fails every build, and stops the
+# whole team shipping until somebody notices. On 2026-10-16 that was about an
+# hour, and the only symptom was that nothing changed.
+#
+# `npm run precommit` also exists and is heavier. This is the one check whose
+# failure is expensive and whose cost is a second.
+#
+# WHY IT CANNOT BE SKIPPED BY HABIT
+#
+# Because it is not a habit. `git push --no-verify` bypasses it, which is right
+# — there are real reasons to force a push — but it has to be typed on purpose.
+#
+# Install with: npm run hooks:install
+set -e
+
+printf 'pre-push: checking that every committed import resolves… '
+
+if ! out=$(node scripts/checkImports.mjs 2>&1); then
+  printf '\n\n%s\n' "$out"
+  printf '%s\n' "pre-push REFUSED: this push would break the build for everybody."
+  printf '%s\n' "Commit the missing file(s), or do not push the file that imports them."
+  printf '%s\n' "To push anyway: git push --no-verify"
+  exit 1
+fi
+
+printf 'ok\n'
+exit 0

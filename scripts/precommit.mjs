@@ -1,7 +1,7 @@
 /**
  * Everything that has to pass before a commit, as one command.
  *
- *   npm run precommit            all four checks
+ *   npm run precommit            all five checks
  *   npm run precommit -- --quick everything except smoke, and says so loudly
  *
  * WHY THIS EXISTS
@@ -10,7 +10,9 @@
  * The rule was real and the list was not: it lived in a memory and in a
  * habit, so a fourth check added later — `check:exchange-map` — would have had
  * to be remembered separately by whoever happened to know about it. One
- * command is one thing to remember.
+ * command is one thing to remember. A fifth —  — was added on
+ * 2026-10-16 after a push that could not build; see that script for why none of
+ * the other four could have caught it.
  *
  * WHY IT IS A NODE SCRIPT AND NOT `a && b && c`
  *
@@ -90,7 +92,24 @@ line('tests…');
   line(`  ${ok ? 'ok' : 'FAILED'} — ${steps.at(-1).detail}`);
 }
 
-/* ── 2. every OSM mapping reaches a category ───────────────────────────── */
+/* ── 2. does the commit reference a file nobody committed ──────────────── */
+
+line('imports…');
+{
+  const { output, status, ranAtAll } = run('npm run check:imports');
+  const ok = ranAtAll && status === 0;
+  steps.push({
+    name: 'imports',
+    ok,
+    detail: !ranAtAll ? 'could not run'
+      : ok ? (output.match(/^imports: .*$/m) || ['every import resolves'])[0].replace(/^imports: /, '')
+      : (output.match(/^\d+ import\(s\) point at a file git does not have\.$/m) || ['dangling imports'])[0],
+    noise: ok ? '' : output.split('\n').filter(Boolean).slice(1, 20).join('\n'),
+  });
+  line(`  ${ok ? 'ok' : 'FAILED'} — ${steps.at(-1).detail}`);
+}
+
+/* ── 3. every OSM mapping reaches a category ───────────────────────────── */
 
 line('exchange map…');
 {
@@ -111,7 +130,7 @@ line('exchange map…');
   line(`  ${ok ? 'ok' : unknown ? 'UNKNOWN' : 'FAILED'} — ${steps.at(-1).detail}`);
 }
 
-/* ── 3. typecheck, against the baseline ────────────────────────────────── */
+/* ── 4. typecheck, against the baseline ────────────────────────────────── */
 
 line('typecheck…');
 {
@@ -150,7 +169,7 @@ line('typecheck…');
   for (const m of movements) line(`  note — ${m}`);
 }
 
-/* ── 4. smoke ──────────────────────────────────────────────────────────── */
+/* ── 5. smoke ──────────────────────────────────────────────────────────── */
 
 if (quick) {
   steps.push({ name: 'smoke', ok: true, skipped: true, detail: 'SKIPPED by --quick' });
