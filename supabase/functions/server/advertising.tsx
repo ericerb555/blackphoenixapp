@@ -30,6 +30,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
+import { isPlaceholderLink } from "./placeholderLink.ts";
 import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productImages.tsx";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 
@@ -541,6 +542,10 @@ advertisingRouter.get("/advertising/serve", async (c) => {
       // not permission to show it in the first place.
       if (!isPublishable(cr)) return false;
       if (!cr?.isActive) return false;
+      // A link nobody can follow. Approval and an active switch cannot tell a
+      // seed row from a vendor, and two `example.com` advertisements passed
+      // every other check here for nineteen days. See placeholderLink.ts.
+      if (isPlaceholderLink(cr.linkUrl)) return false;
       if (String(cr.placement || "marquee") !== placement) return false;
       if (!cr.campaignId) return true; // a standalone ad runs until switched off
       const camp = byCampaign.get(String(cr.campaignId));
