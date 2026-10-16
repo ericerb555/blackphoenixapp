@@ -618,7 +618,44 @@ None are in the crash classes, and the counts are how a regression is spotted �
 but a baseline of four hundred means a new error is invisible unless somebody
 compares counts. Worth burning down in slices rather than all at once.
 
-- [ ] Agree a direction of travel: the count only goes down.
+- [x] Agree a direction of travel: the count only goes down.
+
+**Agreed, and already enforced rather than merely agreed.** This item asked for
+a decision; the decision has since been built, which is better. The ratchet is
+`scripts/precommit-baseline.json`, read by `scripts/precommit.mjs`:
+
+    above the baseline   fails, naming the half and by how many it ADDED
+    at the baseline       passes
+    below the baseline    passes, and tells you to lower the file
+
+So the question the item was worried about — "is this change adding errors?" —
+is no longer a judgement somebody makes by remembering two numbers. Lower the
+file in the same commit that removes the findings; raising it is a deliberate
+act that belongs in the commit message.
+
+The numbers in this item are stale by nine. Measured 2026-10-16:
+
+    app     316 -> 307     (the item's figure, then today's)
+    server   87 ->  83     four of those were in code nobody ran; see item 4
+
+The direction has held across four sessions and two days without anybody
+policing it, which is the only evidence that matters for a rule like this.
+
+Worth recording what else the gate grew while nobody was looking at this item.
+It is five checks now, not the two the rule started as — `npm run precommit`
+runs tests, an **import check** (every relative import in 1,214 built files
+resolves to a tracked file), the Exchange map check, typecheck, and smoke. The
+import check earns its place: it caught `main` not building because two
+committed routes imported files nobody had committed, which is precisely the
+class `vite build` passes and a render throws on.
+
+Full run, 2026-10-16:
+
+    tests          2189 passed, 0 failed
+    imports        1214 built files, every relative import resolves
+    exchange map   110 mappings: 108 land on a category, 2 blank, 0 broken
+    typecheck      app 307, server 83 (at baseline)
+    smoke          373 rendered, 0 did not report, 0 threw
 
 ---
 
