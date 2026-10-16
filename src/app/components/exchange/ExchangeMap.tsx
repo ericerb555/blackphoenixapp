@@ -86,6 +86,14 @@ interface Props {
   onSelect?: (id: string) => void;
   /** How many listings in the category have no coordinate at all. */
   unplaceable?: number;
+  /**
+   * Keep the view on `here` as it moves.
+   *
+   * Only ever true while somebody has switched following on. Panning a map
+   * under the hands of a person who is reading it is obnoxious, so this is the
+   * one thing that licenses it — they asked to be followed.
+   */
+  follow?: boolean;
 }
 
 type Status =
@@ -102,7 +110,7 @@ const QUIET = '#64748b';
 const FIT_PADDING = 48;
 
 export default function ExchangeMap({
-  pins, here, searching, selectedId, onSelect, unplaceable = 0,
+  pins, here, searching, selectedId, onSelect, unplaceable = 0, follow = false,
 }: Props) {
   const holder = useRef<HTMLDivElement | null>(null);
   /** The MapLibre map. `any` because the module is loaded dynamically. */
@@ -492,8 +500,20 @@ export default function ExchangeMap({
       hereMarker.current = new maplibre.Marker({ element: dot })
         .setLngLat([here.lng, here.lat])
         .addTo(map.current);
+
+      /*
+       * Following means the view moves too, not just the dot.
+       *
+       * `easeTo` rather than `flyTo`: a fix arrives every few seconds while
+       * walking, and the swooping zoom-out-zoom-in of a fly would be unusable
+       * repeated at that rate. The zoom is left alone — whatever they have
+       * pinched to is what they wanted.
+       */
+      if (follow) {
+        map.current.easeTo({ center: [here.lng, here.lat], duration: 700 });
+      }
     })();
-  }, [here, status.kind]);
+  }, [here, status.kind, follow]);
 
   /* ── follow the list's selection ─────────────────────────────────────── */
 

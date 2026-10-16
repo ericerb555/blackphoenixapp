@@ -135,7 +135,7 @@ export default function ExchangePlaces() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [showing, setShowing] = useState(SHOW_AT_FIRST);
-  const { here, ask, forget } = useHere();
+  const { here, ask, follow, stop, forget, following } = useHere();
 
   /* Asking in words. `drivenId` is the chip an answer lit, remembered so that
      dismissing the explanation also undoes the filter it caused — a page must
@@ -438,6 +438,7 @@ export default function ExchangePlaces() {
               searching={searching}
               selectedId={chosenId}
               onSelect={setChosenId}
+              follow={following}
             />
 
             <div className="bpxb-find">
@@ -506,6 +507,22 @@ export default function ExchangePlaces() {
                     {here.kind === 'asking' ? 'Finding you…' : 'Show me what is nearest'}
                   </button>
                 )}
+
+                {/*
+                  Following, as its own control rather than a mode of the one
+                  above. Asking once and being followed are different things to
+                  consent to, and a person should be able to have the first
+                  without the second — which is why the hook has two verbs.
+                */}
+                <button
+                  type="button"
+                  className="bpx-btn"
+                  data-on={following}
+                  onClick={() => (following ? stop() : follow())}
+                >
+                  <Crosshair size={15} />
+                  {following ? 'Stop following' : 'Follow me'}
+                </button>
               </form>
 
               {askFailed && <div className="bpxb-failed">{askFailed}</div>}
@@ -608,7 +625,9 @@ export default function ExchangePlaces() {
                     {' '}
                   </>
                 )}
-                {here.kind === 'known' && 'Nearest first. Your location stays in this browser — it is not sent to us or stored.'}
+                {following && here.kind === 'known' && 'Following you. The map moves as you do, and your location still stays in this browser — it is not sent to us or stored. '}
+                {!following && here.kind === 'known' && 'Nearest first. Your location stays in this browser — it is not sent to us or stored.'}
+                {following && here.kind === 'asking' && 'Waiting for a fix from your phone…'}
                 {here.kind === 'refused' && 'No problem — without a location we cannot work out distances.'}
                 {here.kind === 'failed' && here.why}
                 {here.kind === 'unsupported' && 'This browser cannot share a location, so distances are not available.'}
