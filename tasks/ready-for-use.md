@@ -487,6 +487,25 @@ pre-commit check cannot run — for any session in this checkout, not just one.
       $20–30. In New Hampshire the refund is price minus documented cost, so an
       understated cost refunds more than the law requires.
 
+**Do not guess a number for this — checked 2026-10-16.** No screening money can
+move at all today, so nothing here is live and nothing is at risk:
+
+- `screeningProvider.ts` contains no provider with `live: true`. The only one is
+  `manual`, which is `live: false` by design.
+- `chargeFor` refuses every charge with `provider_not_live` before it looks at
+  pricing, so the $45 is never taken.
+- `refundDue` returns 0 without a `paidAt`, so the New Hampshire refund cannot
+  run either.
+- Production pricing is `defaultPayer: landlord` with `payerByState: {}`, and
+  the refund only applies to APPLICANT-paid orders — so even once a provider is
+  live, no state currently routes an order down this path.
+
+The statute allows retaining the actual cost of the **documented** check. With
+no agency connected there is no invoice and no documented cost, so the honest
+figure today is whatever the first real invoice says. Writing $20 or $30 in
+now would be inventing the evidence the statute asks for. This is settled by
+item 8, not before it.
+
 ---
 
 ## 8. Screening cannot produce a report at all
@@ -626,11 +645,32 @@ fallback**, since it is the reason nobody looks further.
       policies on `bids`, `bid_requests`, `bid_line_prices` and others call
       these, and the invoking role needs EXECUTE for a policy to evaluate. Needs
       reading each policy first.
-- [ ] Six functions have a mutable `search_path`
-      (`sync_bid_amount_from_lines`, `exchange_org_category_guard`,
-      `exchange_normalise_phrase`, `update_opportunity_stats`,
-      `update_investor_totals`, `bid_request_distance_miles`). One
-      `alter function … set search_path = ''` each. Safe and contained.
+- [x] Six functions have a mutable `search_path`. **Done 2026-10-16** —
+      `20261016170000_pin_function_search_path.sql`, applied by hand, and the
+      lint no longer appears. Two corrections to this entry as written: the
+      sixth is `exchange_category_depth_guard`, not `sync_bid_amount_from_lines`
+      (which has a path already and appears only in the SECURITY DEFINER item
+      above); and it is `= public`, not `= ''`.
+
+      `''` is the stronger form and three of the six would have taken it
+      unchanged. The other three — both Exchange guards and the depth guard —
+      read `exchange_category`, `organizations` and `organization_category`
+      unqualified, so an empty path breaks them outright. They are triggers on
+      live tables: one enforces the category allowance on every business in the
+      directory, the other keeps the taxonomy two levels deep. Pinning to
+      `public` makes the caller's path irrelevant without touching a body.
+
+      Worth recording that **none of the six is SECURITY DEFINER**, so the
+      escalation this lint exists for could not happen: a SECURITY INVOKER
+      function redirected by its caller gives that caller nothing they did not
+      already have. The reason to fix it is that the dangerous version is one
+      `security definer` keyword away, and nothing in review would catch the day
+      somebody adds it.
+
+      Verified by firing both guards against live rows inside an aborted
+      transaction rather than by reasoning about them — each still raised its own
+      refusal, `exchange_normalise_phrase` still normalised, and nothing was
+      committed: 0 probe rows, 180 categories and 969 org-category links intact.
 - [ ] **Leaked-password protection is off** — Auth settings, needs Eric. It
       checks new passwords against HaveIBeenPwned. One toggle.
 
