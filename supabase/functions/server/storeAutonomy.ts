@@ -544,6 +544,60 @@ storeAutonomyRouter.post(`${PREFIX}/store/watchdog`, async (c) => {
 });
 
 /** Is the store running itself? Reads the heartbeat; invents nothing. */
+/**
+ * The store clock in five numbers, for the automation overview.
+ *
+ * EXPORTED FROM HERE RATHER THAN READ FROM THERE
+ *
+ * The overview screen needs to say whether this clock is alive and whether it
+ * is waiting on anybody. It could read `store:autonomy:heartbeat` and the ask
+ * prefix itself, and then there would be two files that know those key names —
+ * and the one that drifted would be the one nobody was watching, which is the
+ * exact failure this module was written to prevent. The keys stay private and
+ * the summary is a function.
+ *
+ * It is deliberately NOT the status route's payload. That route serves the
+ * panel that can switch jobs on and off and answer asks, so it carries the
+ * settings, the ceilings, the recent runs and the findings. The overview only
+ * needs to know whether to send somebody here.
+ */
+export async function storeClockSummary(): Promise<{
+  lastRunAt: string | null;
+  minutesSinceLastRun: number | null;
+  totalRuns: number;
+  jobsEnabled: number;
+  jobsRegistered: number;
+  openAsks: number;
+  /** Null until the watch job has run once — which is NOT "nothing is wrong". */
+  findings: { at: string; urgent: number; attention: number } | null;
+}> {
+  const [settings, heartbeat, findings, asks] = await Promise.all([
+    readSettings(),
+    kv.get(HEARTBEAT_KEY) as Promise<any>,
+    kv.get(FINDINGS_KEY) as Promise<any>,
+    allAsks(),
+  ]);
+  const lastRunAt = heartbeat?.lastRunAt || null;
+  const registered = registeredStoreJobs();
+  return {
+    lastRunAt,
+    minutesSinceLastRun: lastRunAt
+      ? Math.round((Date.now() - new Date(lastRunAt).getTime()) / 60_000)
+      : null,
+    totalRuns: Number(heartbeat?.totalRuns || 0),
+    jobsEnabled: registered.filter((name) => settings.jobs[name] === true).length,
+    jobsRegistered: registered.length,
+    openAsks: asks.filter(askIsOpen).length,
+    findings: findings
+      ? {
+        at: String(findings.at || ''),
+        urgent: Number(findings.urgent || 0),
+        attention: Number(findings.attention || 0),
+      }
+      : null,
+  };
+}
+
 storeAutonomyRouter.get(`${PREFIX}/store/autonomy/status`, async (c) => {
   if (!await isStaffRequest(c)) {
     return c.json({ success: false, error: "Company access is required for this." }, 403);

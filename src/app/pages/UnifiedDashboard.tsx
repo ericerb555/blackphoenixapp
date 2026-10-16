@@ -21,7 +21,7 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, ChevronLeft,
   LayoutGrid, TrendingDown, AlertCircle, Plus, Home, LogIn,
   Camera, CloudRain, Monitor, Key, MapPin, Calculator, Tag, HardHat,
-  Star, QrCode, Heart, Share2, ShoppingBag
+  Star, QrCode, Heart, Share2, ShoppingBag, Radio
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LineChart, Line, AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
@@ -31,6 +31,7 @@ import DealPublisher from '../components/DealPublisher';
 import MaintenancePlanCreator from '../components/MaintenancePlanCreator';
 import TechRosterManager from '../components/TechRosterManager';
 import MultiDropshipperManager from '../components/MultiDropshipperManager';
+import AutomationOverviewPanel from '../components/owner/AutomationOverviewPanel';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import MasterScheduling from './MasterScheduling';
 import UnifiedDashboardMobile from './UnifiedDashboardMobile';
@@ -453,6 +454,24 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     localStorage.setItem('unified-dashboard-sidebar', newState ? 'collapsed' : 'expanded');
   };
 
+  /**
+   * Tabs that render one full-width panel instead of a grid of module cards.
+   *
+   * WHY THIS IS A LIST AND NOT A CHAIN OF COMPARISONS
+   *
+   * It used to be written out twice, as
+   * `activeTab !== 'deals' && activeTab !== 'plan-creator' && ...` — once to
+   * decide whether "no modules found" applies and once to decide whether to
+   * draw the grid. Five panels meant ten comparisons kept in agreement by
+   * hand, and adding a sixth meant finding both. Miss one and the new panel
+   * renders with an empty module grid stacked underneath it, or with "No
+   * modules found" over the top of it.
+   *
+   * One list, checked twice. A panel tab added here is complete.
+   */
+  const PANEL_TABS = ['automation', 'deals', 'plan-creator', 'tech-roster', 'dropshippers'];
+  const isPanelTab = PANEL_TABS.includes(activeTab);
+
   // Tab categories with modules
   const tabCategories: TabCategory[] = [
     {
@@ -549,6 +568,20 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Portals Hub', path: '/portals-hub', icon: Monitor, color: 'orange', description: 'Create, edit & manage portals', badge: 'NEW' },
         { label: 'Directory Landing Page', path: '/directory-landing-page', icon: LayoutGrid, color: 'orange', description: 'New directory-style landing page', badge: 'NEW' },
       ]
+    },
+    /**
+     * What is running on its own, and what it is waiting for.
+     *
+     * First of the panel tabs, deliberately. Eric asked how the automation was
+     * doing and the answer was not available anywhere in the app — it took six
+     * database reads and knowing which six. A tab nobody can find is the same
+     * as not having built it.
+     */
+    {
+      id: 'automation',
+      label: 'Automation',
+      icon: Radio,
+      modules: [],
     },
     {
       id: 'deals',
@@ -1616,6 +1649,17 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             </div>
           )}
 
+          {/* What is running on its own — full-width panel.
+              Wrapped like the dropshipper panel so a render error shows its
+              message instead of blanking the dashboard. Given to the
+              dashboard's own navigator, so the "Go there" buttons use SPA
+              navigation rather than a reload. */}
+          {activeTab === 'automation' && !searchQuery && (
+            <ErrorBoundary>
+              <AutomationOverviewPanel onNavigate={(page) => handleNavigation(page)} />
+            </ErrorBoundary>
+          )}
+
           {/* Deal Publisher — full-width panel, not a module grid */}
           {activeTab === 'deals' && !searchQuery && (
             <DealPublisher />
@@ -1640,13 +1684,13 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
             </ErrorBoundary>
           )}
 
-          {activeTab !== 'deals' && activeTab !== 'plan-creator' && activeTab !== 'tech-roster' && activeTab !== 'dropshippers' && searchQuery && filteredModules.length === 0 ? (
+          {!isPanelTab && searchQuery && filteredModules.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Search className="w-16 h-16 text-gray-600 mb-4" />
               <h3 className="text-xl font-bold text-gray-400 mb-2">No modules found</h3>
               <p className="text-gray-500">Try a different search term</p>
             </div>
-          ) : activeTab !== 'deals' && activeTab !== 'plan-creator' && activeTab !== 'tech-roster' && activeTab !== 'dropshippers' ? (
+          ) : !isPanelTab ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredModules.map((module, index) => {
                 const Icon = module.icon;

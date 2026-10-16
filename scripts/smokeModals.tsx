@@ -39,6 +39,7 @@ import CreateInvoiceModal from '../src/app/components/invoices/CreateInvoiceModa
 import InvoicePreviewModal from '../src/app/components/invoices/InvoicePreviewModal';
 import { ProjectDetailsModal } from '../src/app/components/ProjectDetailsModal';
 import { QuoteToContractEditor } from '../src/app/components/QuoteToContractEditor';
+import AutomationOverviewPanel from '../src/app/components/owner/AutomationOverviewPanel';
 
 const noop = () => {};
 
@@ -237,6 +238,21 @@ export const modalMap: Record<string, () => JSX.Element> = {
       summary={{ totalRevenue: 0, activeJobsCount: 0, customersCount: 0, teamCount: 0 }}
     />
   ),
+
+  /*
+    The automation screen, with no session.
+
+    It lives on a Command Center TAB, so mounting the dashboard proves nothing
+    about it — the panel renders only once somebody clicks Automation, which is
+    the same gap that let a modal throw unnoticed for weeks.
+
+    No session is the worst honest case and the one the harness always has: the
+    fetch is refused, and the component must render its "could not read" state
+    rather than throw or sit on a spinner for ever. That state carries the line
+    that matters most — "this does not mean nothing is running, it means this
+    screen could not find out" — so it is worth proving it draws.
+  */
+  'modal:automation-overview': () => <AutomationOverviewPanel onNavigate={noop} />,
 
   /** The same dialog mid-send, and with a customer to name. */
   'modal:unpriced-send-sending': () => (
