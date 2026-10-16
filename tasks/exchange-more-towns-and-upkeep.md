@@ -229,15 +229,63 @@ invisible unless something is built to say so.
 - `exchange_territory.last_compiled_at`, backfilled from the newest listing per
   town — an understatement of the truth, deliberately, so the error costs an
   extra Overpass query rather than a town going silently unrefreshed.
-- The schedule, held at
-  `20261016140000_schedule_exchange_upkeep.sql.pending`. Arming it starts
-  something that rewrites a live directory, so it carries the three
-  preconditions and stays Eric's decision.
+- The schedule. Written as
+  `20261016140000_schedule_exchange_upkeep.sql.pending`, then **armed on Eric's
+  instruction the same day** — job 10, `exchange-upkeep`, 04:40 UTC daily,
+  after the route was proved deployed and the secret proved non-null.
 
 **Daily, not weekly, for a weekly refresh.** With five towns and a seven-day
 window a weekly tick takes five weeks to reach the fifth town. A daily tick
 that usually does nothing reaches each town every seven days and costs four
 cheap no-op requests a week.
+
+### OPEN: the ingest gets 406 from Overpass, and the clock cannot do its job
+
+**Deferred on Eric's decision, 2026-10-16: "leave it until overpass is
+answering."** Recorded here rather than remembered, because the symptom is a
+job failing quietly every night at 00:40.
+
+The first real tick failed. Not a timeout — 906ms — and the message said
+"Overpass did not answer", which was itself wrong and is fixed: `safeFetch`
+sets `error` only when a request never completes, so a real non-2xx answer was
+being reported as unreachable with the status discarded. It now says what it
+got, which is **406**.
+
+406 is what Overpass returns to a caller sending no User-Agent, and
+`exchangeIngestRun.ts` has said so in a comment since it was written. Proved
+both ways from a workstation on the day:
+
+    with a User-Agent      times out — the endpoint is at capacity
+    without a User-Agent   406 — exactly what the server receives
+
+So the server's requests arrive with no User-Agent although the code sets one.
+What this rules out: the build step is faithful — `server-dist` carries
+`headers: { Accept: ..., ...(init.headers || {}) }` intact — and the geocoder
+in `exchangeTerritoryRoutes.tsx` sets a User-Agent on a plain `fetch` and
+works, which is how Hudson and Windham got their coordinates. The likely
+mechanism is the edge runtime overriding the header: Nominatim tolerates a
+default agent, Overpass does not.
+
+**Why it was not fixed on the spot:** no fix can be confirmed while Overpass is
+at capacity, because a correct User-Agent gets no answer either. Shipping an
+unverifiable change to the one path that rewrites the directory is how a second
+bug gets hidden behind the first.
+
+**How to tell when it is worth picking up:**
+
+    curl -s -m 25 https://overpass-api.de/api/status \
+      -H "User-Agent: PhoenixExchange/1.0 (contact blackphoenixbuilds@proton.me)"
+
+A slot report means it is answering. A "currently at capacity" page means wait.
+When it answers, the test is a single tick — `POST /exchange/upkeep/run` — and
+a 406 that persists against a confirmed-answering endpoint proves the header,
+while a success means capacity was the whole story.
+
+**What the clock does meanwhile, which is the part that is not broken:** it
+records each failure, leaves Hudson at the front of the queue rather than
+deferring it a week, and reports the reason on the Automation tab. Nothing
+accumulates and nothing is lost. It is a job that cannot currently succeed, not
+a job doing damage.
 
 ### Still not done, and now visible rather than assumed
 
