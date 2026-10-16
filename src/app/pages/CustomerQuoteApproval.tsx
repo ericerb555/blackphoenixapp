@@ -11,6 +11,20 @@ import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 /**
+ * Reused rather than rewritten: it returns null for a date it cannot parse,
+ * which is exactly what a quote with no `validUntil` needs — this page used to
+ * print "Invalid Date" at a customer.
+ */
+import { formatDate } from '../components/documents/quoteMath';
+/**
+ * Reading a stored quote lives next to `quoteMath` and not in here, because it
+ * decides what a customer is told their job costs and the test runner strips
+ * types from `.ts` only. See the note at the top of that file for what it
+ * replaced — this page held a complete fictional kitchen renovation as its
+ * initial state and merged the real quote over the top of it.
+ */
+import { readQuote, splitPayment, text, DEPOSIT_RATE, type Quote } from '../components/documents/quoteRead';
+/**
  * The discount arrives with the quote, resolved by the server.
  *
  * This page used to load a membership record itself and work the percentage
@@ -32,34 +46,6 @@ import {
   Sparkles, TrendingUp, Zap, Star, Award
 } from 'lucide-react';
 
-interface MaterialItem {
-  id: string;
-  name: string;
-  description: string;
-  quantity: number;
-  unit: string;
-  unitCost: number;
-  totalCost: number;
-  category: string;
-}
-
-interface LaborItem {
-  id: string;
-  role: string;
-  description: string;
-  hours: number;
-  hourlyRate: number;
-  totalCost: number;
-}
-
-interface ProcessStep {
-  id: string;
-  stepNumber: number;
-  title: string;
-  description: string;
-  estimatedDuration: string;
-}
-
 interface PaymentScheduleItem {
   id: string;
   type: 'deposit' | 'milestone' | 'progress' | 'completion';
@@ -71,27 +57,6 @@ interface PaymentScheduleItem {
   status: 'pending' | 'paid' | 'overdue';
 }
 
-interface Quote {
-  id: string;
-  quoteNumber: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  projectTitle: string;
-  projectDescription: string;
-  address: string;
-  materials: MaterialItem[];
-  labor: LaborItem[];
-  processSteps: ProcessStep[];
-  materialsSubtotal: number;
-  laborSubtotal: number;
-  taxRate: number;
-  taxAmount: number;
-  totalCost: number;
-  generatedAt: string;
-  validUntil: string;
-  approvalStatus: 'pending' | 'approved' | 'rejected';
-}
 
 export default function CustomerQuoteApproval() {
   const [loading, setLoading] = useState(true);
@@ -111,48 +76,53 @@ export default function CustomerQuoteApproval() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
-    if (token) {
-      // Deliberately the anon key. The share token IS the credential here — a
-      // customer follows this link from an email to approve their quote, and
-      // requiring them to be signed in would defeat the point of sending it.
-      fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}`, {
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
-      })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (data?.quote) {
-            setTokenRecord(data.quote);
-            // Absent when the server could not resolve one, which means no
-            // discount rather than a remembered one.
-            setDiscount(data.discount || null);
-            if (data.quote.status === 'approved') setAlreadySigned(true);
-            // Merge real quote data if available
-            if (data.quote.quoteData) {
-              const qd = data.quote.quoteData;
-              setQuote(prev => ({
-                ...prev,
-                id: qd.id || prev.id,
-                quoteNumber: qd.quoteNumber || prev.quoteNumber,
-                customerName: data.quote.clientName || prev.customerName,
-                customerEmail: data.quote.clientEmail || prev.customerEmail,
-                customerPhone: data.quote.clientPhone || prev.customerPhone,
-                projectTitle: qd.title || qd.serviceType || prev.projectTitle,
-                projectDescription: qd.description || prev.projectDescription,
-                materials: qd.materials || qd.materialItems || prev.materials,
-                labor: qd.labor || qd.laborItems || prev.labor,
-                materialsSubtotal: qd.materialsSubtotal || qd.subtotals?.materials || prev.materialsSubtotal,
-                laborSubtotal: qd.laborSubtotal || qd.subtotals?.labor || prev.laborSubtotal,
-                taxAmount: qd.taxAmount || qd.subtotals?.tax || prev.taxAmount,
-                totalCost: qd.totalCost || qd.total || prev.totalCost,
-              }));
-            }
-          }
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    } else {
+
+    // No token, no quote. This used to fall through to the fictional one, with
+    // a working Approve button under it.
+    if (!token) {
+      setLoadError('This page needs the link from your quote email.');
       setLoading(false);
+      return;
     }
+
+    let live = true;
+    // Deliberately the anon key. The share token IS the credential here — a
+    // customer follows this link from an email to approve their quote, and
+    // requiring them to be signed in would defeat the point of sending it.
+    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}`, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+    })
+      // Read the body either way: a 404 carries the server's own sentence for
+      // invalid, expired and revoked, and showing that is better than inventing
+      // a message here. `r.ok ? r.json() : null` threw the sentence away.
+      .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => null) }))
+      .then(({ ok, data }) => {
+        if (!live) return;
+
+        if (!ok || !data?.quote) {
+          setLoadError(text(data?.error) || 'This quote link is invalid or has expired.');
+          setLoading(false);
+          return;
+        }
+
+        setTokenRecord(data.quote);
+        // Absent when the server could not resolve one, which means no
+        // discount rather than a remembered one.
+        setDiscount(data.discount || null);
+        if (data.quote.status === 'approved') setAlreadySigned(true);
+        setQuote(readQuote(data.quote));
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!live) return;
+        // A failure to reach the server is not an invalid link, and saying so
+        // stops somebody binning a quote because their train went into a
+        // tunnel.
+        setLoadError('We could not load your quote just now. Check your connection and try again.');
+        setLoading(false);
+      });
+
+    return () => { live = false; };
   }, []);
 
   // Canvas drawing helpers
@@ -193,10 +163,20 @@ export default function CustomerQuoteApproval() {
   const handleSign = async (decision: 'approved' | 'rejected' = 'approved') => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
+    /**
+     * No token, no decision to record.
+     *
+     * What was here announced *"Quote approved! We'll be in touch shortly."*
+     * and set the signed state, having sent nothing anywhere — a customer told
+     * their quote was approved when no such thing had happened. It was labelled
+     * "Demo mode" and reachable by anybody opening this page without a link.
+     *
+     * Unreachable now that a missing token renders the refusal instead, and
+     * removed rather than left: a function that reports success for work it did
+     * not do is the same failure as the fictional quote, in a different shape.
+     */
     if (!token) {
-      // Demo mode — just show success
-      toast.success(decision === 'approved' ? 'Quote approved! We\'ll be in touch shortly.' : 'Quote rejected. We\'ll reach out to discuss.');
-      if (decision === 'approved') setApproved(true);
+      toast.error('This page needs the link from your quote email.');
       return;
     }
 
@@ -256,52 +236,80 @@ export default function CustomerQuoteApproval() {
     setSigning(false);
   };
 
-  const [quote, setQuote] = useState<Quote>({
-    id: 'Q-2026-001',
-    quoteNumber: 'QT-2026-001',
-    customerName: 'John Smith',
-    customerEmail: 'john.smith@email.com',
-    customerPhone: '(555) 123-4567',
-    projectTitle: 'Kitchen Renovation',
-    projectDescription: 'Complete kitchen remodel including cabinets, countertops, and appliances',
-    address: '123 Main St, Springfield, CA 90001',
-    materials: [
-      { id: 'm1', name: 'Kitchen Cabinets - White Shaker Style', description: 'Custom fit wall and base cabinets', quantity: 12, unit: 'units', unitCost: 850, totalCost: 10200, category: 'Cabinetry' },
-      { id: 'm2', name: 'Granite Countertops - Kashmir White', description: '3cm thick granite with polished edge', quantity: 45, unit: 'sq ft', unitCost: 75, totalCost: 3375, category: 'Countertops' },
-      { id: 'm3', name: 'Stainless Steel Appliances Package', description: 'Refrigerator, range, dishwasher, microwave', quantity: 1, unit: 'set', unitCost: 4500, totalCost: 4500, category: 'Appliances' },
-      { id: 'm4', name: 'Under-Cabinet LED Lighting', description: 'Energy efficient LED strip lighting', quantity: 16, unit: 'ft', unitCost: 25, totalCost: 400, category: 'Electrical' }
-    ],
-    labor: [
-      { id: 'l1', role: 'General Contractor', description: 'Project oversight and coordination', hours: 40, hourlyRate: 75, totalCost: 3000 },
-      { id: 'l2', role: 'Cabinet Installer', description: 'Remove old cabinets, install new cabinets', hours: 32, hourlyRate: 65, totalCost: 2080 },
-      { id: 'l3', role: 'Countertop Installer', description: 'Template, fabricate, and install granite', hours: 16, hourlyRate: 70, totalCost: 1120 },
-      { id: 'l4', role: 'Licensed Electrician', description: 'Electrical work and lighting installation', hours: 12, hourlyRate: 85, totalCost: 1020 }
-    ],
-    processSteps: [
-      { id: 's1', stepNumber: 1, title: 'Demolition & Prep', description: 'Remove existing cabinets, countertops, and appliances. Protect flooring and adjacent areas.', estimatedDuration: '1-2 days' },
-      { id: 's2', stepNumber: 2, title: 'Electrical & Plumbing Rough-In', description: 'Update electrical outlets and lighting circuits. Relocate plumbing as needed.', estimatedDuration: '1 day' },
-      { id: 's3', stepNumber: 3, title: 'Cabinet Installation', description: 'Install all wall and base cabinets, ensuring level and plumb.', estimatedDuration: '2-3 days' },
-      { id: 's4', stepNumber: 4, title: 'Countertop Template & Fabrication', description: 'Create precise template, fabricate granite countertops off-site.', estimatedDuration: '3-5 days' },
-      { id: 's5', stepNumber: 5, title: 'Countertop & Backsplash Installation', description: 'Install granite countertops and tile backsplash.', estimatedDuration: '2 days' },
-      { id: 's6', stepNumber: 6, title: 'Appliance & Fixture Installation', description: 'Install all appliances, sink, faucet, and lighting.', estimatedDuration: '1 day' },
-      { id: 's7', stepNumber: 7, title: 'Final Inspection & Cleanup', description: 'Final walkthrough, punch list items, thorough cleanup.', estimatedDuration: '1 day' }
-    ],
-    materialsSubtotal: 18475,
-    laborSubtotal: 7220,
-    taxRate: 0.08,
-    taxAmount: 1478,
-    totalCost: 27173,
-    generatedAt: '2026-03-14T10:00:00Z',
-    validUntil: '2026-04-14T23:59:59Z',
-    approvalStatus: 'pending'
-  });
+  /**
+   * The quote this link is for, or null until it has been read.
+   *
+   * WHAT WAS HERE, AND WHY IT MATTERED
+   *
+   * A complete fictional job, as the initial state: John Smith,
+   * john.smith@email.com, a kitchen renovation at 123 Main St Springfield,
+   * $10,200 of white shaker cabinets, Kashmir White granite, four labour roles,
+   * a seven-step kitchen process and a $27,173 total.
+   *
+   * The real quote was then merged OVER the top of it, field by field, with
+   * `|| prev` on every line — so any field the record did not carry fell back
+   * to the fiction. A quote with no `materials` array displayed granite
+   * countertops. And `address`, `processSteps`, `taxRate`, `validUntil` and
+   * `generatedAt` were not in the merge at all, so even a perfectly good quote
+   * showed Springfield, seven kitchen steps and an April 2026 expiry.
+   *
+   * `loading` was set but never read, and the fetch discarded failures
+   * (`r.ok ? r.json() : null`). So an invalid, expired or revoked link — and a
+   * network error, and no token at all — left the whole invention on screen,
+   * with an Approve button under it and nothing anywhere to say it was not this
+   * customer's quote.
+   *
+   * It is null now. The page renders nothing until the token resolves, a
+   * refusal when it does not, and a field the record does not carry is absent
+   * rather than inherited.
+   */
+  const [quote, setQuote] = useState<Quote | null>(null);
+  /**
+   * Why the quote could not be shown.
+   *
+   * The server answers invalid, expired and revoked with one sentence on
+   * purpose — *"'Expired' would confirm the link was once real, which is
+   * information a stranger guessing should not be given"* — so this displays
+   * what it said rather than deciding anything itself.
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Sent with the quote by the server. Nothing here decides it.
   const [discount, setDiscount] = useState<ResolvedDiscount | null>(null);
   const discountPct = Number(discount?.percent || 0);
-  const jobSubtotal = quote.materialsSubtotal + quote.laborSubtotal;
+  const jobSubtotal = (quote?.materialsSubtotal || 0) + (quote?.laborSubtotal || 0);
   const discountAmount = Math.round(jobSubtotal * (discountPct / 100));
-  const discountedTotal = Math.max(0, quote.totalCost - discountAmount);
+  const discountedTotal = Math.max(0, (quote?.totalCost || 0) - discountAmount);
+
+  /**
+   * What the customer is asked to pay, and when.
+   *
+   * WHAT WAS HERE
+   *
+   * Four hardcoded installments — $8,152, $6,793, $6,793 and $5,435 — being
+   * 30/25/25/20 of the fictional $27,173 above, with milestones describing
+   * somebody else's job: *"After demolition and rough-in complete"*,
+   * *"Cabinets & Countertops Installed"*. They were shown under a heading
+   * reading "Your project cost of $X will be paid in 4 installments", in the
+   * one section of this page that defaults to expanded.
+   *
+   * Nothing backed them. There is no payment schedule on a quote record and no
+   * milestone policy anywhere in the codebase — `grep` finds `paymentSchedule`
+   * in five browser files and zero server ones.
+   *
+   * WHAT IS HERE INSTEAD
+   *
+   * The two figures that are real: the deposit this page's own checkout button
+   * charges, and the balance. Both computed from the total the customer is
+   * being shown, which is the discounted one — the old code took 30% of
+   * `quote.totalCost` while the page crossed that number out and displayed
+   * `discountedTotal` as the project cost, so a subscriber was asked for a
+   * deposit on a price we had just told them they were not paying.
+   *
+   * No invented triggers and no invented dates. When a quote record carries a
+   * real schedule, this is where it goes.
+   */
+  const { deposit: depositAmount, balance: balanceAmount } = splitPayment(discountedTotal);
 
   // No effect here any more. Asking the server a second question about who
   // this customer is would be a second chance to get a different answer;
@@ -316,46 +324,36 @@ export default function CustomerQuoteApproval() {
   });
 
   const [contractType, setContractType] = useState<'standard' | 'soroban-smart-contract'>('standard');
-  const [paymentSchedule] = useState<PaymentScheduleItem[]>([
+
+  /**
+   * The two stages that are real, derived from this quote's own total.
+   *
+   * See the note on `depositAmount` for what was here. `dueDate` and
+   * `milestone` are deliberately left off: a date nobody has agreed and a
+   * trigger nobody wrote down are the two fields that made the old schedule
+   * read as a commitment.
+   */
+  const paymentSchedule: PaymentScheduleItem[] = [
     {
-      id: 'p1',
+      id: 'deposit',
       type: 'deposit',
-      description: 'Initial Deposit - Secures materials and scheduling',
-      percentage: 30,
-      amount: 8152,
-      dueDate: '2026-03-20',
-      status: 'pending'
+      description: 'Deposit — secures your materials and your place in the schedule',
+      percentage: Math.round(DEPOSIT_RATE * 100),
+      amount: depositAmount,
+      status: 'pending',
     },
     {
-      id: 'p2',
-      type: 'milestone',
-      description: 'Milestone 1 - After demolition and rough-in complete',
-      percentage: 25,
-      amount: 6793,
-      milestone: 'Electrical & Plumbing Rough-In Complete',
-      status: 'pending'
-    },
-    {
-      id: 'p3',
-      type: 'milestone',
-      description: 'Milestone 2 - After cabinet and countertop installation',
-      percentage: 25,
-      amount: 6793,
-      milestone: 'Cabinets & Countertops Installed',
-      status: 'pending'
-    },
-    {
-      id: 'p4',
+      id: 'balance',
       type: 'completion',
-      description: 'Final Payment - Upon project completion and approval',
-      percentage: 20,
-      amount: 5435,
-      milestone: 'Project Complete & Final Walkthrough',
-      status: 'pending'
-    }
-  ]);
+      description: 'Balance — due as the work completes',
+      percentage: 100 - Math.round(DEPOSIT_RATE * 100),
+      amount: balanceAmount,
+      status: 'pending',
+    },
+  ];
 
   const handleApprove = () => {
+    if (!quote) return;
     setQuote({ ...quote, approvalStatus: 'approved' });
     toast.success('Quote Approved!', {
       description: 'Your contract is being generated...'
@@ -381,6 +379,7 @@ export default function CustomerQuoteApproval() {
   };
 
   const handleReject = () => {
+    if (!quote) return;
     toast.error('Quote rejected. We\'ll contact you to discuss revisions.');
     setQuote({ ...quote, approvalStatus: 'rejected' });
   };
@@ -391,6 +390,42 @@ export default function CustomerQuoteApproval() {
       [section]: !expandedSections[section]
     });
   };
+
+  /**
+   * Nothing is rendered until the link has been resolved.
+   *
+   * These three returns are what makes the removal of the fictional quote
+   * complete: without them an unresolved page renders its empty state, which is
+   * a different wrong answer rather than no answer.
+   */
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center px-6">
+        <div className="text-center">
+          <div className="w-12 h-12 mx-auto mb-4 rounded-full border-2 border-[#2A2A2A] border-t-[#ea580c] animate-spin" />
+          <p className="text-gray-400">Loading your quote…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!quote) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-8 text-center">
+          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <AlertCircle className="w-7 h-7 text-amber-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-3">We can't show this quote</h1>
+          <p className="text-gray-400 mb-6">{loadError || 'This quote link is invalid or has expired.'}</p>
+          <p className="text-sm text-gray-500">
+            Quote links expire after 30 days. If yours has run out, reply to the email it came in
+            and we'll send a fresh one.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (quote.approvalStatus === 'pending') {
     return (
@@ -404,14 +439,24 @@ export default function CustomerQuoteApproval() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">Quote for Review</h1>
-                <p className="text-orange-100">Quote #{quote.quoteNumber}</p>
+                {quote.quoteNumber && (
+                  <p className="text-orange-100">Quote #{quote.quoteNumber}</p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-6 text-white/90 text-sm">
-              <span className="flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                Valid until {new Date(quote.validUntil).toLocaleDateString()}
-              </span>
+              {/*
+                `formatDate` returns null for a date it cannot parse, which is
+                what every quote with no `validUntil` produced here — the old
+                line rendered "Valid until Invalid Date", and before that it
+                rendered the mock's April 2026 on every real quote.
+              */}
+              {formatDate(quote.validUntil) && (
+                <span className="flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Valid until {formatDate(quote.validUntil)}
+                </span>
+              )}
               <span className="flex items-center gap-2">
                 <Building className="w-4 h-4" />
                 Professional Contracting Services
@@ -424,30 +469,56 @@ export default function CustomerQuoteApproval() {
         <div className="max-w-5xl mx-auto px-6 py-8">
           {/* Project Info */}
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-6 mb-6">
-            <h2 className="text-2xl font-bold text-white mb-4">{quote.projectTitle}</h2>
-            <p className="text-gray-400 mb-6">{quote.projectDescription}</p>
-            
+            <h2 className="text-2xl font-bold text-white mb-4">
+              {quote.projectTitle || 'Your project'}
+            </h2>
+            {quote.projectDescription && (
+              <p className="text-gray-400 mb-6">{quote.projectDescription}</p>
+            )}
+
+            {/* Each block appears only where the record has something to put in
+                it. An empty "Project Location" heading over a blank line is how
+                the old merge advertised that it had nothing. */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-start gap-3">
-                <User className="w-5 h-5 text-[#ea580c] mt-0.5" />
-                <div>
-                  <div className="text-sm text-gray-500">Customer</div>
-                  <div className="text-white font-medium">{quote.customerName}</div>
-                  <div className="text-gray-400 text-sm">{quote.customerEmail}</div>
-                  <div className="text-gray-400 text-sm">{quote.customerPhone}</div>
+              {(quote.customerName || quote.customerEmail || quote.customerPhone) && (
+                <div className="flex items-start gap-3">
+                  <User className="w-5 h-5 text-[#ea580c] mt-0.5" />
+                  <div>
+                    <div className="text-sm text-gray-500">Customer</div>
+                    {quote.customerName && (
+                      <div className="text-white font-medium">{quote.customerName}</div>
+                    )}
+                    {quote.customerEmail && (
+                      <div className="text-gray-400 text-sm">{quote.customerEmail}</div>
+                    )}
+                    {quote.customerPhone && (
+                      <div className="text-gray-400 text-sm">{quote.customerPhone}</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-[#ea580c] mt-0.5" />
-                <div>
-                  <div className="text-sm text-gray-500">Project Location</div>
-                  <div className="text-white font-medium">{quote.address}</div>
+              )}
+              {quote.address && (
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-5 h-5 text-[#ea580c] mt-0.5" />
+                  <div>
+                    <div className="text-sm text-gray-500">Project Location</div>
+                    <div className="text-white font-medium">{quote.address}</div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Materials */}
+          {/*
+            A section with no rows is not shown.
+
+            It used to be unconditional, which was invisible while the fictional
+            quote guaranteed four materials, four labour roles and seven steps.
+            On a real quote it would have rendered "Materials — 0 items" above
+            an empty box, and a customer reading that reasonably concludes the
+            job includes no materials.
+          */}
+          {quote.materials.length > 0 && (
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl mb-6 overflow-hidden">
             <button
               onClick={() => toggleSection('materials')}
@@ -455,9 +526,11 @@ export default function CustomerQuoteApproval() {
             >
               <div className="flex items-center gap-3">
                 <Package className="w-5 h-5 text-[#ea580c]" />
-                <h3 className="text-xl font-bold text-white">Materials</h3>
+                <h3 className="text-xl font-bold text-white">
+                  {quote.linesAreMaterials ? 'Materials' : 'Items'}
+                </h3>
                 <span className="px-3 py-1 bg-[#ea580c]/20 text-[#ea580c] rounded-full text-sm font-semibold">
-                  {quote.materials.length} items
+                  {quote.materials.length} {quote.materials.length === 1 ? 'item' : 'items'}
                 </span>
               </div>
               {expandedSections.materials ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
@@ -470,11 +543,24 @@ export default function CustomerQuoteApproval() {
                     <div key={item.id} className="flex items-start justify-between p-4 bg-[#0A0A0A] rounded-lg">
                       <div className="flex-1">
                         <h4 className="text-white font-semibold mb-1">{item.name}</h4>
-                        <p className="text-gray-400 text-sm mb-2">{item.description}</p>
+                        {item.description && (
+                          <p className="text-gray-400 text-sm mb-2">{item.description}</p>
+                        )}
+                        {/* "Qty: 0  @ $0.00/" is what an unpriced or
+                            quantity-less line used to render. Each part appears
+                            only where there is a figure behind it. */}
                         <div className="flex items-center gap-4 text-sm">
-                          <span className="text-gray-500">Qty: {item.quantity} {item.unit}</span>
-                          <span className="text-gray-500">@ ${item.unitCost.toFixed(2)}/{item.unit}</span>
-                          <span className="px-2 py-1 bg-[#2A2A2A] text-gray-400 rounded text-sm">{item.category}</span>
+                          {item.quantity > 0 && (
+                            <span className="text-gray-500">Qty: {item.quantity} {item.unit}</span>
+                          )}
+                          {item.unitCost > 0 && (
+                            <span className="text-gray-500">
+                              @ ${item.unitCost.toFixed(2)}{item.unit ? `/${item.unit}` : ''}
+                            </span>
+                          )}
+                          {item.category && (
+                            <span className="px-2 py-1 bg-[#2A2A2A] text-gray-400 rounded text-sm">{item.category}</span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
@@ -484,14 +570,18 @@ export default function CustomerQuoteApproval() {
                   ))}
                 </div>
                 <div className="mt-4 pt-4 border-t border-[#2A2A2A] flex justify-between items-center">
-                  <span className="text-gray-400 font-semibold">Materials Subtotal</span>
+                  <span className="text-gray-400 font-semibold">
+                    {quote.linesAreMaterials ? 'Materials Subtotal' : 'Subtotal'}
+                  </span>
                   <span className="text-2xl font-bold text-white">${quote.materialsSubtotal.toLocaleString()}</span>
                 </div>
               </div>
             )}
           </div>
+          )}
 
           {/* Labor */}
+          {quote.labor.length > 0 && (
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl mb-6 overflow-hidden">
             <button
               onClick={() => toggleSection('labor')}
@@ -501,7 +591,7 @@ export default function CustomerQuoteApproval() {
                 <Users className="w-5 h-5 text-[#ea580c]" />
                 <h3 className="text-xl font-bold text-white">Labor</h3>
                 <span className="px-3 py-1 bg-[#ea580c]/20 text-[#ea580c] rounded-full text-sm font-semibold">
-                  {quote.labor.length} roles
+                  {quote.labor.length} {quote.labor.length === 1 ? 'role' : 'roles'}
                 </span>
               </div>
               {expandedSections.labor ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
@@ -514,10 +604,14 @@ export default function CustomerQuoteApproval() {
                     <div key={item.id} className="flex items-start justify-between p-4 bg-[#0A0A0A] rounded-lg">
                       <div className="flex-1">
                         <h4 className="text-white font-semibold mb-1">{item.role}</h4>
-                        <p className="text-gray-400 text-sm mb-2">{item.description}</p>
+                        {item.description && (
+                          <p className="text-gray-400 text-sm mb-2">{item.description}</p>
+                        )}
                         <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span>{item.hours} hours</span>
-                          <span>@ ${item.hourlyRate}/hour</span>
+                          {item.hours > 0 && (
+                            <span>{item.hours} {item.hours === 1 ? 'hour' : 'hours'}</span>
+                          )}
+                          {item.hourlyRate > 0 && <span>@ ${item.hourlyRate}/hour</span>}
                         </div>
                       </div>
                       <div className="text-right">
@@ -533,8 +627,10 @@ export default function CustomerQuoteApproval() {
               </div>
             )}
           </div>
+          )}
 
           {/* Process Steps */}
+          {quote.processSteps.length > 0 && (
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl mb-6 overflow-hidden">
             <button
               onClick={() => toggleSection('process')}
@@ -544,7 +640,7 @@ export default function CustomerQuoteApproval() {
                 <FileText className="w-5 h-5 text-[#ea580c]" />
                 <h3 className="text-xl font-bold text-white">Project Process</h3>
                 <span className="px-3 py-1 bg-[#ea580c]/20 text-[#ea580c] rounded-full text-sm font-semibold">
-                  {quote.processSteps.length} steps
+                  {quote.processSteps.length} {quote.processSteps.length === 1 ? 'step' : 'steps'}
                 </span>
               </div>
               {expandedSections.process ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
@@ -565,11 +661,15 @@ export default function CustomerQuoteApproval() {
                       </div>
                       <div className="flex-1 pb-6">
                         <h4 className="text-white font-semibold mb-1">{step.title}</h4>
-                        <p className="text-gray-400 text-sm mb-2">{step.description}</p>
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <Clock className="w-4 h-4" />
-                          <span>{step.estimatedDuration}</span>
-                        </div>
+                        {step.description && (
+                          <p className="text-gray-400 text-sm mb-2">{step.description}</p>
+                        )}
+                        {step.estimatedDuration && (
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <Clock className="w-4 h-4" />
+                            <span>{step.estimatedDuration}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -577,22 +677,33 @@ export default function CustomerQuoteApproval() {
               </div>
             )}
           </div>
+          )}
 
           {/* Total Cost */}
           <div className="bg-gradient-to-br from-[#1A1A1A] to-[#0d0d0d] border border-[#ea580c]/30 rounded-2xl p-6 mb-6">
             <div className="space-y-3">
-              <div className="flex justify-between items-center text-gray-400">
-                <span>Materials</span>
-                <span className="font-semibold">${quote.materialsSubtotal.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-gray-400">
-                <span>Labor</span>
-                <span className="font-semibold">${quote.laborSubtotal.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-gray-400">
-                <span>Tax ({(quote.taxRate * 100).toFixed(0)}%)</span>
-                <span className="font-semibold">${quote.taxAmount.toLocaleString()}</span>
-              </div>
+              {/* Each component line appears only where there is one. A quote
+                  held as a single `items` list has no labour subtotal, and
+                  "Labor $0" on it reads as a claim that the work is free. */}
+              {quote.materialsSubtotal > 0 && (
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>{quote.linesAreMaterials ? 'Materials' : 'Subtotal'}</span>
+                  <span className="font-semibold">${quote.materialsSubtotal.toLocaleString()}</span>
+                </div>
+              )}
+              {quote.laborSubtotal > 0 && (
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>Labor</span>
+                  <span className="font-semibold">${quote.laborSubtotal.toLocaleString()}</span>
+                </div>
+              )}
+              {/* Labelled "Tax", with no rate. See the note on `taxAmount`. */}
+              {quote.taxAmount > 0 && (
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>Tax</span>
+                  <span className="font-semibold">${quote.taxAmount.toLocaleString()}</span>
+                </div>
+              )}
               {discountPct > 0 && (
                 <div className="flex justify-between items-center text-green-400">
                   <span className="flex items-center gap-2">
@@ -764,7 +875,14 @@ export default function CustomerQuoteApproval() {
               <CreditCard className="w-6 h-6 text-[#ea580c]" />
               Payment Schedule
             </h2>
-            <p className="text-gray-400">Your project cost of ${quote.totalCost.toLocaleString()} will be paid in 4 installments</p>
+            {/* The DISCOUNTED total, which is the figure shown as the project
+                cost above. This line quoted `quote.totalCost` — the one the
+                page crosses out for a subscriber — and promised "4
+                installments" regardless of how many were listed. */}
+            <p className="text-gray-400">
+              Your project cost of ${discountedTotal.toLocaleString()}, in{' '}
+              {paymentSchedule.length === 2 ? 'two stages' : `${paymentSchedule.length} stages`}
+            </p>
           </div>
 
           <div className="p-6">
@@ -838,21 +956,25 @@ export default function CustomerQuoteApproval() {
                   ${paymentSchedule.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}
                 </span>
               </div>
-              <div className="grid grid-cols-4 gap-4 text-sm">
-                <div>
-                  <div className="text-gray-500 mb-1">Deposit</div>
-                  <div className="text-white font-bold">${paymentSchedule.find(p => p.type === 'deposit')?.amount.toLocaleString()}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500 mb-1">Milestones</div>
-                  <div className="text-white font-bold">
-                    ${paymentSchedule.filter(p => p.type === 'milestone').reduce((sum, p) => sum + p.amount, 0).toLocaleString()}
+              {/*
+                Built from the schedule rather than from three fixed headings.
+
+                The old grid had a "Milestones" column summing every entry of
+                that type — zero of them now — and rendered `undefined` into
+                any column whose type was absent, because
+                `.find(...)?.amount.toLocaleString()` yields undefined rather
+                than a dash. "$undefined" is worse than a column that is not
+                there.
+              */}
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                {paymentSchedule.map((payment) => (
+                  <div key={payment.id}>
+                    <div className="text-gray-500 mb-1">
+                      {payment.type === 'deposit' ? 'Deposit' : 'Balance'}
+                    </div>
+                    <div className="text-white font-bold">${payment.amount.toLocaleString()}</div>
                   </div>
-                </div>
-                <div>
-                  <div className="text-gray-500 mb-1">Final</div>
-                  <div className="text-white font-bold">${paymentSchedule.find(p => p.type === 'completion')?.amount.toLocaleString()}</div>
-                </div>
+                ))}
                 <div>
                   <div className="text-gray-500 mb-1">Payments</div>
                   <div className="text-white font-bold">{paymentSchedule.length}</div>
@@ -962,15 +1084,23 @@ export default function CustomerQuoteApproval() {
             <p className="text-gray-400 mb-6">Thank you! Secure your project by paying your deposit now.</p>
           <button
             onClick={async () => {
-              const depositAmt = Math.round(quote.totalCost * 0.30);
+              /**
+               * The same `depositAmount` the schedule above shows.
+               *
+               * This read `quote.totalCost * 0.30` — the total the page crosses
+               * out when a subscription discount applies — so a subscriber was
+               * charged a deposit on a price we had just told them they were
+               * not paying, and the figure on the button disagreed with the
+               * figure in the schedule.
+               */
               const res = await fetch(
                 `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`,
                 {
                   method: 'POST',
                   headers: await authedHeadersOrAnon(publicAnonKey),
                   body: JSON.stringify({
-                    amount: depositAmt,
-                    description: `30% Deposit — ${quote.projectTitle}`,
+                    amount: depositAmount,
+                    description: `${Math.round(DEPOSIT_RATE * 100)}% Deposit — ${quote.projectTitle || 'your project'}`,
                     clientName: quote.customerName,
                     clientEmail: quote.customerEmail,
                     clientPhone: quote.customerPhone,
@@ -985,7 +1115,7 @@ export default function CustomerQuoteApproval() {
             className="flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-500 hover:to-emerald-600 text-white font-bold text-lg rounded-xl transition shadow-xl shadow-green-500/30"
           >
             <CreditCard className="w-6 h-6" />
-            Pay 30% Deposit — ${Math.round(quote.totalCost * 0.30).toLocaleString()}
+            Pay {Math.round(DEPOSIT_RATE * 100)}% Deposit — ${depositAmount.toLocaleString()}
           </button>
           </div>
         ) : (
