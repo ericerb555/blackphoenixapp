@@ -168,7 +168,12 @@ export default function SimpleCompanyManager() {
       // The editor is where logos are set, so it is one of the two screens
       // that asks for the base64 columns. See LIST_COLUMNS for why that is
       // opt-in rather than the default.
-      const { data: dbCompanies, error } = await CompanyDatabaseService.getCompanies({ withLogos: true });
+      // The editor sets the logos and the bank details, so it is the one
+      // screen that asks for both. Everything else gets neither.
+      const { data: dbCompanies, error } = await CompanyDatabaseService.getCompanies({
+        withLogos: true,
+        withBanking: true,
+      });
 
       console.log('[SimpleCompanyManager] 📊 Database result:', {
         companiesCount: dbCompanies?.length || 0,

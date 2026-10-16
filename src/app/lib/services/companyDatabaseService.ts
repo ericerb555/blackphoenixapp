@@ -130,9 +130,31 @@ export class CompanyDatabaseService {
     'primary_color', 'secondary_color', 'accent_color',
     'industry', 'description',
     'tax_id', 'tax_label', 'license_number', 'insurance_number',
-    'bank_name', 'bank_account_name', 'bank_account_number', 'bank_routing_number',
     'payment_terms',
     'created_at', 'updated_at',
+  ].join(', ');
+
+  /**
+   * The account money is paid into. Asked for separately, and rarely.
+   *
+   * Row level security means a user only ever sees their own, so this is not a
+   * leak — but an account number and a sort code riding along on the query
+   * that draws a list of company names is a payload nobody chose. One screen
+   * reads these: the editor, which is where they are typed.
+   *
+   * `tax_id` is deliberately NOT here. It stays in the default list because
+   * the invoice and contract builders put an EIN on the document, and they
+   * call `getCompanies()` with no options — moving it would have blanked a
+   * field on an invoice with nothing to show it had gone.
+   */
+  private static readonly BANKING_COLUMNS = [
+    'bank_name', 'bank_account_name', 'bank_account_number', 'bank_routing_number',
+  ].join(', ');
+
+  /** The base64 artwork. About 350 kB per company; see LIST_COLUMNS. */
+  private static readonly LOGO_COLUMNS = [
+    'logo_primary', 'logo_secondary', 'logo_icon', 'logo_square',
+    'logo_horizontal', 'logo_vertical', 'logo_white', 'logo_black',
   ].join(', ');
 
   /**
@@ -144,7 +166,7 @@ export class CompanyDatabaseService {
    * name and an address, and should not pay for artwork it will not render.
    */
   static async getCompanies(
-    options: { withLogos?: boolean } = {},
+    options: { withLogos?: boolean; withBanking?: boolean } = {},
   ): Promise<{ data: Company[] | null; error: any }> {
     try {
       const userId = await this.getUserId();
@@ -154,9 +176,17 @@ export class CompanyDatabaseService {
         return this.getCompaniesFromLocalStorage();
       }
 
+      /* Built up rather than nested, so each option reads as the one thing
+         it adds. `*` when both are wanted, which is the editor and nothing
+         else. */
+      const wanted = [CompanyDatabaseService.LIST_COLUMNS];
+      if (options.withBanking) wanted.push(CompanyDatabaseService.BANKING_COLUMNS);
+      if (options.withLogos) wanted.push(CompanyDatabaseService.LOGO_COLUMNS);
+      const columns = options.withLogos && options.withBanking ? '*' : wanted.join(', ');
+
       const { data, error } = await supabase
         .from('companies')
-        .select(options.withLogos ? '*' : CompanyDatabaseService.LIST_COLUMNS)
+        .select(columns)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
