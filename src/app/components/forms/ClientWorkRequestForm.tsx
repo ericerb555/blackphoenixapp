@@ -16,7 +16,8 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { InlineVideoCapture } from '../media/InlineVideoCapture';
 import AdvancedVideoCapture from '../media/AdvancedVideoCapture';
-import { VideoAnalysisResult } from '../../lib/services/aiVideoAnalysisService';
+// Names an uploaded clip after what is actually in it. See videoCapture.ts.
+import { extensionForMimeType } from '../../lib/videoCapture';
 import { toast } from 'sonner';
 import { TextInput } from '../ui/input/TextInput';
 import { NumberInput } from '../ui/input/NumberInput';
@@ -64,6 +65,14 @@ interface VideoFile {
   blob: Blob;
   url: string;
   duration: number;
+  /**
+   * What the recorder — or the phone's own camera app — said this is.
+   *
+   * Carried so the upload names the file after its contents. The filename was
+   * hard-coded `.webm`, which was wrong for every iPhone recording and for
+   * anything picked from a camera roll.
+   */
+  mimeType?: string;
 }
 
 interface FormData {
@@ -195,7 +204,6 @@ interface FormData {
   photos: File[];
   blueprints: File[]; // AI-analyzable blueprints/floor plans
   blueprintAnalysis?: any; // AI blueprint analysis results
-  aiVideoAnalysis?: VideoAnalysisResult; // Professional AI analysis results
   
   // Materials & Products Selection
   selectedProducts: Array<{
@@ -625,7 +633,6 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
     aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiConversation, aiIsThinking]);
   const [showVideoAnalysis, setShowVideoAnalysis] = useState(false);
-  const [aiVideoAnalysisResults, setAiVideoAnalysisResults] = useState<any>(null);
   const [showAIVideoStudio, setShowAIVideoStudio] = useState(false);
   const [showKeyboardHint, setShowKeyboardHint] = useState(true);
 
@@ -1044,10 +1051,21 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
       // Upload videos to Supabase Storage
       const uploadedVideoUrls: string[] = [];
       for (const video of formData.videos) {
-        const fileName = `${user?.id || 'guest'}/${Date.now()}_${Math.random().toString(36).substring(7)}.webm`;
+        /**
+         * Named and typed after what is in it.
+         *
+         * The extension was hard-coded `.webm` and `contentType` was never
+         * sent, so the bucket stored an iPhone's mp4 under a webm name with
+         * whatever type Supabase guessed. The server's `VIDEO_TYPES` maps mp4,
+         * mov and webm by extension, so a mislabelled file is one the server
+         * would later refuse to recognise.
+         */
+        const type = video.mimeType || video.blob?.type || 'video/mp4';
+        const ext = extensionForMimeType(type);
+        const fileName = `${user?.id || 'guest'}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from('project-videos')
-          .upload(fileName, video.blob);
+          .upload(fileName, video.blob, { contentType: type });
 
         if (!uploadError) {
           // These buckets are private, so there is no durable link to keep.
@@ -1250,22 +1268,6 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           photos: uploadedPhotoUrls,
           blueprints: uploadedBlueprintUrls,
           blueprintAnalysis: blueprintAnalysis,
-          aiVideoAnalysis: formData.aiVideoAnalysis ? {
-            analysisId: formData.aiVideoAnalysis.id,
-            roomType: formData.aiVideoAnalysis.roomType,
-            dimensions: formData.aiVideoAnalysis.dimensions,
-            materials: formData.aiVideoAnalysis.materials,
-            doors: formData.aiVideoAnalysis.doors,
-            windows: formData.aiVideoAnalysis.windows,
-            overallCondition: formData.aiVideoAnalysis.overallCondition,
-            estimatedCost: formData.aiVideoAnalysis.estimatedRenovationCost,
-            analysisConfidence: formData.aiVideoAnalysis.analysisConfidence,
-            completeness: formData.aiVideoAnalysis.completeness,
-            issues: formData.aiVideoAnalysis.issues,
-            recommendations: formData.aiVideoAnalysis.recommendations,
-            floorPlan: formData.aiVideoAnalysis.floorPlan, // Include floor plan data
-            timestamp: formData.aiVideoAnalysis.timestamp
-          } : null
         },
         site_info: {
           lot_width: formData.lotWidth,
@@ -1358,95 +1360,6 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
       console.log('[Work Request] Work request created successfully:', workRequest.id);
 
       if (workRequest) {
-        // 🚨 NEW: Generate AI Floor Plan and Send Admin Alert
-        if (formData.aiVideoAnalysis && formData.aiVideoAnalysis.floorPlan) {
-          console.log('🎨 AI Floor Plan detected in work request - Triggering quote workflow...');
-          
-          // Send admin alert about new work request with AI floor plan
-          try {
-            const adminAlertResponse = await fetch(
-              `${API_BASE}/notifications/admin-alert`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${authToken}`
-                },
-                body: JSON.stringify({
-                  category: 'Work Requests',
-                  title: `New ${formData.serviceType || 'Project'} - ${formData.clientName}`,
-                  description: `${formData.clientName} submitted a work request for ${formData.serviceType}. Budget: ${budgetRangeLabel(formData.budgetMin, formData.budgetMax) || "not specified"}. AI Video Analysis complete with floor plan generated. Ready for quote generation in Design Studio Pro.`,
-                  priority: 'high',
-                  metadata: {
-                    workRequestId: workRequest.id,
-                    clientName: formData.clientName,
-                    clientEmail: formData.clientEmail,
-                    clientPhone: formData.clientPhone,
-                    serviceType: formData.serviceType,
-                    budgetRange: budgetRangeLabel(formData.budgetMin, formData.budgetMax),
-                    hasAIFloorPlan: true,
-                    floorPlanId: formData.aiVideoAnalysis.floorPlan.id,
-                    dimensions: formData.aiVideoAnalysis.dimensions,
-                    estimatedCost: formData.aiVideoAnalysis.estimatedRenovationCost,
-                    analysisConfidence: formData.aiVideoAnalysis.analysisConfidence,
-                    actionRequired: 'Review AI-generated floor plan and create quote in Design Studio Pro'
-                  }
-                })
-              }
-            );
-            
-            if (adminAlertResponse.ok) {
-              console.log('✅ Admin alert sent successfully');
-              toast.success('Admin has been notified about your request!', {
-                description: 'We\'ll start working on your quote right away with the AI-generated floor plan'
-              });
-            }
-          } catch (alertError) {
-            console.error('Failed to send admin alert:', alertError);
-            // Don't fail the whole submission if alert fails
-          }
-
-          // 📧 Send Email & SMS Notifications to Admins
-          try {
-            console.log('📧 Sending email and SMS notifications to admins...');
-            const notificationResponse = await fetch(
-              `${API_BASE}/notifications/work-request`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${authToken}`
-                },
-                body: JSON.stringify({
-                  workRequestId: workRequest.id,
-                  clientName: formData.clientName,
-                  clientEmail: formData.clientEmail,
-                  clientPhone: formData.clientPhone,
-                  serviceType: formData.serviceType,
-                  budgetRange: budgetRangeLabel(formData.budgetMin, formData.budgetMax),
-                  hasAIFloorPlan: formData.aiVideoAnalysis?.floorPlan?.id ? true : false,
-                  estimatedCost: formData.aiVideoAnalysis?.estimatedRenovationCost,
-                  dimensions: formData.aiVideoAnalysis?.dimensions
-                })
-              }
-            );
-
-            if (notificationResponse.ok) {
-              const notificationResult = await notificationResponse.json();
-              console.log('✅ Notifications sent:', notificationResult);
-              
-              if (notificationResult.results.emailSent) {
-                console.log('📧 Email sent to:', notificationResult.results.emailRecipients);
-              }
-              if (notificationResult.results.smsSent) {
-                console.log('📱 SMS sent to:', notificationResult.results.smsRecipients);
-              }
-            }
-          } catch (notificationError) {
-            console.error('Failed to send email/SMS notifications:', notificationError);
-            // Don't fail the whole submission if notifications fail
-          }
-        }
 
         // 🚨 NEW: Auto-generate quote from blueprint analysis
         if (blueprintAnalysis && blueprintAnalysis.totalSquareFootage > 0) {
@@ -2542,16 +2455,72 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
       </div>
 
       <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6">
-        <h4 className="text-white font-semibold mb-4">Record Video Walkthrough</h4>
-        <button
-          onClick={() => setShowAIVideoStudio(true)}
-          className="w-full px-6 py-4 bg-orange-600 hover:bg-orange-500 rounded-xl transition flex items-center justify-center gap-2 text-white font-semibold"
-        >
-          <Video className="w-5 h-5" />
-          Start Video Recording
-        </button>
+        <h4 className="text-white font-semibold mb-4">Video walkthrough (optional)</h4>
+
+        {/*
+          THE PHONE'S OWN CAMERA FIRST, AND THE IN-PAGE RECORDER SECOND.
+
+          `capture="environment"` on a file input hands over to the handset's
+          camera app. It is the only path that works on every handset: no
+          getUserMedia permission dance, no MediaRecorder format to negotiate,
+          the phone's own stabilisation, and it survives the browser being
+          backgrounded mid-recording — which an in-page recording does not.
+
+          It is also what the photo buttons above already do, so this is the
+          pattern this form established rather than a second way in.
+
+          The in-page recorder stays as the second option because it shows a
+          live preview with a timer, which is genuinely better on a desktop
+          with a webcam.
+        */}
+        <input
+          id="video-capture-input"
+          type="file"
+          accept="video/*"
+          capture="environment"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            // A File IS a Blob, so it goes straight in as one — and it carries
+            // its own type, which is what the upload now names it after.
+            updateFormData('videos', [
+              ...formData.videos,
+              { blob: file, url: URL.createObjectURL(file), duration: 0, mimeType: file.type },
+            ]);
+            toast.success('Video added.');
+            e.target.value = '';
+          }}
+          className="hidden"
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => document.getElementById('video-capture-input')?.click()}
+            className="w-full px-6 py-4 bg-orange-600 hover:bg-orange-500 rounded-xl transition flex items-center justify-center gap-2 text-white font-semibold"
+          >
+            <Video className="w-5 h-5" />
+            Take a video
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAIVideoStudio(true)}
+            className="w-full px-6 py-4 bg-[#0A0A0A] border-2 border-dashed border-[#2A2A2A] hover:border-orange-500/50 rounded-xl transition flex items-center justify-center gap-2 text-gray-400 hover:text-white"
+          >
+            <Camera className="w-5 h-5" />
+            Record in this page
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-500 mt-3">
+          A slow walk round what needs taking away, about a minute. Show the doors,
+          hallways and stairs on the way out — that is what decides how long a job takes.
+        </p>
+
         {formData.videos.length > 0 && (
-          <p className="text-sm text-green-400 mt-2">{formData.videos.length} video(s) recorded</p>
+          <p className="text-sm text-green-400 mt-2">
+            {formData.videos.length} video{formData.videos.length === 1 ? '' : 's'} attached
+          </p>
         )}
       </div>
 
@@ -2584,12 +2553,24 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         </div>
       )}
 
-      {/* AI Video Studio Modal */}
+      {/*
+        Recording a walkthrough.
+
+        It was called the "AI Video Studio" and had an `onAIAnalysisComplete`
+        handler that stored a fabricated analysis on the request. Both are
+        gone — see the note at the top of `AdvancedVideoCapture`.
+
+        The handler takes ONE object now, and that is the fix for a silent
+        data-loss bug: the component called `onVideoRecorded(blob, url)` while
+        this stored the first argument as the whole VideoFile, so `video.blob`
+        was undefined at upload time and every video recorded here was lost
+        into `uploadFailures`.
+      */}
       {showAIVideoStudio && (
-        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4">
-          <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-2xl max-w-4xl w-full p-6">
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-2xl max-w-4xl w-full p-6 my-8">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-white">AI Video Studio</h3>
+              <h3 className="text-xl font-bold text-white">Record a walkthrough</h3>
               <button
                 onClick={() => setShowAIVideoStudio(false)}
                 className="p-2 hover:bg-[#1A1A1A] rounded-lg transition"
@@ -2598,13 +2579,9 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
               </button>
             </div>
             <AdvancedVideoCapture
-              onVideoRecorded={(videoFile) => {
-                updateFormData('videos', [...formData.videos, videoFile]);
-                toast.success('Video recorded successfully!');
-              }}
-              onAIAnalysisComplete={(analysis) => {
-                updateFormData('aiVideoAnalysis', analysis);
-                toast.success('AI analysis complete!');
+              onVideoRecorded={(video) => {
+                updateFormData('videos', [...formData.videos, video]);
+                setShowAIVideoStudio(false);
               }}
             />
           </div>

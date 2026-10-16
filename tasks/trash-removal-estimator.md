@@ -86,13 +86,13 @@ Two live bugs fall out of reading it:
   `undefined`, and fails into `uploadFailures` (line 1050). Every video
   walkthrough recorded through this modal is lost.
 
-- [ ] **Delete the fabrications before anything else is built.** Not refactor —
+- [x] **Delete the fabrications before anything else is built.** Not refactor —
       delete. `extractKeyFrames`, `analyzeRoomStructure`, `detectMaterials`,
       `extractMeasurements`, `detectIssues`, `generateRecommendations`,
       `estimateRenovationCost` and `mockResults` are all invention, and a new
       honest estimator standing next to them is indistinguishable from them to
       anybody using the app.
-- [ ] Keep the capture shell of `AdvancedVideoCapture` / `InlineVideoCapture`.
+- [x] Keep the capture shell of `AdvancedVideoCapture` / `InlineVideoCapture`.
       The recording, preview and permission handling are real and worth having.
       It is only the analysis that is fiction.
 
@@ -149,20 +149,20 @@ more: `new Blob(chunks, { type: 'video/webm' })` (line 128) and the upload
 filename `${...}.webm` (ClientWorkRequestForm.tsx:1047), so even an Android clip
 is stored under a type nothing checked.
 
-- [ ] Choose the mimeType from what the browser actually supports — try
+- [x] Choose the mimeType from what the browser actually supports — try
       `video/mp4`, then `video/webm;codecs=vp9`, then `video/webm`, then let
       `MediaRecorder` pick its own default — and refuse with a sentence rather
       than an exception if none is available.
-- [ ] Take the type from `mediaRecorder.mimeType` after construction and use it
+- [x] Take the type from `mediaRecorder.mimeType` after construction and use it
       for the `Blob` and for the file extension. The server side already accepts
       all three: `VIDEO_TYPES` in `design-projects.tsx:185` maps mp4, mov and
       webm.
-- [ ] Fix the `onVideoRecorded` signature mismatch at the same time, or the
+- [x] Fix the `onVideoRecorded` signature mismatch at the same time, or the
       recording still will not upload.
 
 ### What else a handheld needs
 
-- [ ] **Offer the native camera app first for video too** —
+- [x] **Offer the native camera app first for video too** —
       `accept="video/*" capture="environment"`. It is the only path that works on
       every handset, it gets the phone's stabilisation and its own storage, and
       it survives the app being backgrounded mid-recording. The in-page recorder
@@ -173,7 +173,7 @@ is stored under a type nothing checked.
       at about 90 seconds for an estimate, and say both on screen *before* the
       recording starts — "a slow walk round the pile, about a minute" is better
       guidance and a smaller file.
-- [ ] **Rear camera and inline playback**: `facingMode: 'environment'` and
+- [x] **Rear camera and inline playback**: `facingMode: 'environment'` and
       `playsInline` are already set in both components. Keep them; a preview
       that goes fullscreen on iOS loses the record button underneath it.
 - [ ] **Secure context**: `getUserMedia` needs HTTPS. Vercel gives us that in
@@ -340,6 +340,66 @@ standing in a flooded basement when it lapses.
 - [ ] Said plainly: confirmed on arrival. A photo cannot see the back of the
       pile, and the estimate should say so in its own words rather than in terms
       and conditions.
+
+---
+
+## Done: steps 1 and 2, 2026-10-16
+
+### The fabrications are deleted
+
+`aiVideoAnalysisService.tsx` is gone — all 640 lines. Worth knowing why that was
+cheap: `analyzeVideo` **had no caller anywhere**. The only live export was a
+type, so the entire service was dead code wearing the costume of a feature.
+
+`AdvancedVideoCapture` keeps its recorder and loses the rest: the fake progress
+bar, the three-second wait, `mockResults`, the "AI Analysis Enabled" badge, and
+the three cards promising automatic measurements, material detection and instant
+cost estimates. It says the honest thing now instead — *"Nothing is read
+automatically yet — a person watches this when they price your job."*
+
+Two blocks came out of `ClientWorkRequestForm`: the invented analysis copied onto
+the submitted record, and an 89-line block gated on `formData.aiVideoAnalysis`
+that sent an admin alert and an email/SMS notification. **That block never ran**,
+because of the prop-name typo — and removing it loses nothing, because
+`POST /work-requests` calls `notifyStaffInBackground` unconditionally on the
+server. Checked before cutting rather than assumed.
+
+### Capture is fixed, and typecheck had been saying so
+
+`videoCapture.ts` holds the format negotiation, shared by both components, with
+17 tests. The rule it pins is the one the old code had backwards: **never return
+a type the browser has not confirmed**, and treat "none of them" as "let
+MediaRecorder choose" rather than as a reason to insist. mp4 is preferred where
+both are available — not for iOS, which would reach it anyway, but because a
+webm recorded on Chrome will not play on the iPhone of whoever reviews it.
+
+The native camera comes first for video now, as it already did for photos:
+`accept="video/*" capture="environment"`. No permission dance, no format to
+negotiate, the phone's own stabilisation, and it survives the browser being
+backgrounded mid-recording, which an in-page recording does not. The in-page
+recorder is the second button, because its live preview and timer are genuinely
+better on a desktop with a webcam.
+
+**The data-loss bug was sitting in the typecheck baseline the whole time.**
+Three of the four findings in `ClientWorkRequestForm` were exactly it:
+
+    Type 'Blob | VideoFile' is not assignable to type 'VideoFile'
+    Type 'Blob' is missing the following properties: blob, url, duration
+    Type '{ onVideoRecorded: (videoFile: Blob) => void; ... }' is not assignable
+
+A baseline is a promise to come back to something, and this is what living in
+one costs: every video a customer recorded was being dropped on the floor, and
+the compiler had been saying so in three separate lines. App findings went
+313 → 307.
+
+### Not done, of what step 2 listed
+
+- No **byte-size ceiling before upload**. Resolution is capped at 1080p and the
+  in-page recorder stops at 120 seconds, which bounds it in practice, but a clip
+  chosen from the camera roll is still only checked by the server, at 200MB,
+  after the upload has already happened.
+- The **secure-context note** is documentation rather than code, and belongs
+  wherever the dev brief lives.
 
 ---
 

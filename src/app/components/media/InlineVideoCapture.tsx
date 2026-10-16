@@ -18,11 +18,22 @@ import {
   Download
 } from 'lucide-react';
 import { toast } from 'sonner';
+// Shared with AdvancedVideoCapture, which had the identical recorder bug.
+import {
+  pickRecorderMimeType, extensionForMimeType, NO_RECORDER_MESSAGE,
+} from '../../lib/videoCapture';
 
 interface VideoFile {
   blob: Blob;
   url: string;
   duration: number;
+  /**
+   * What the recorder said it produced.
+   *
+   * Carried so the upload can name the file after its contents. Optional
+   * because callers hold arrays of these and an older one may predate it.
+   */
+  mimeType?: string;
 }
 
 interface InlineVideoCaptureProps {
@@ -109,12 +120,32 @@ export function InlineVideoCapture({
         videoRef.current.play();
       }
 
-      const options = { mimeType: 'video/webm;codecs=vp9' };
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'video/webm';
+      /**
+       * A format this browser has CONFIRMED it records, or none at all.
+       *
+       * This asked for `video/webm;codecs=vp9` and fell back to `video/webm` —
+       * a second type iOS Safari also does not support, since its
+       * MediaRecorder does `video/mp4` only. The constructor threw, so every
+       * iPhone customer who tapped record got an error. See `videoCapture.ts`,
+       * where the rule now lives and is tested.
+       */
+      const chosen = pickRecorderMimeType(
+        typeof MediaRecorder !== 'undefined' ? MediaRecorder : null,
+      );
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = chosen
+          ? new MediaRecorder(stream, { mimeType: chosen })
+          : new MediaRecorder(stream);
+      } catch {
+        try {
+          mediaRecorder = new MediaRecorder(stream);
+        } catch {
+          stream.getTracks().forEach((t) => t.stop());
+          toast.error(NO_RECORDER_MESSAGE, { duration: 10_000 });
+          return;
+        }
       }
-
-      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -125,11 +156,14 @@ export function InlineVideoCapture({
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        // The type the recorder reports, not the one we asked for. Hard-coded
+        // `video/webm` here mislabelled every Android recording too.
+        const recorded = mediaRecorder.mimeType || chosen || 'video/mp4';
+        const blob = new Blob(chunksRef.current, { type: recorded });
         const url = URL.createObjectURL(blob);
         const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
 
-        const newVideo: VideoFile = { blob, url, duration };
+        const newVideo: VideoFile = { blob, url, duration, mimeType: recorded };
         const updatedVideos = [...recordedVideos, newVideo];
         
         setRecordedVideos(updatedVideos);
@@ -227,7 +261,8 @@ export function InlineVideoCapture({
   const downloadVideo = (video: VideoFile, index: number) => {
     const a = document.createElement('a');
     a.href = video.url;
-    a.download = `video-${index + 1}-${Date.now()}.webm`;
+    // Named after what is in it, not always .webm.
+    a.download = `video-${index + 1}-${Date.now()}.${extensionForMimeType(video.mimeType)}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
