@@ -58,8 +58,29 @@ interface Match {
   postcode: string | null;
 }
 
+/**
+ * What somebody asked for here and did not find.
+ *
+ * No actor, deliberately and all the way down: the route does not select
+ * `actor_user_id`, so there is nothing to show even by accident. The promise
+ * made when the demand ledger was designed was the phrase and the town.
+ */
+interface Gap {
+  categoryId: string | null;
+  category: string | null;
+  territorySlug: string | null;
+  town: string | null;
+  searches: number;
+  phrases: string[];
+}
+
 export default function ExchangeTowns() {
   const [towns, setTowns] = useState<Territory[]>([]);
+  const [gaps, setGaps] = useState<Gap[]>([]);
+  const [gapDays, setGapDays] = useState(90);
+  /* Distinguishes "nobody asked for anything" from "we could not ask". The
+     two look identical on screen and mean opposite things. */
+  const [gapsAsked, setGapsAsked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refused, setRefused] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +117,34 @@ export default function ExchangeTowns() {
     }
   }, [auth]);
 
+  /**
+   * The recruitment worklist.
+   *
+   * Its own request, so a demand query that fails or runs slowly cannot stop
+   * somebody opening a town — which is what this screen is actually for.
+   */
+  const loadGaps = useCallback(async () => {
+    try {
+      const token = await auth();
+      if (!token) return;
+      const res = await fetch(
+        `${SERVER}/exchange/admin/demand?days=${gapDays}`,
+        { headers: { Authorization: token } },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body?.success) {
+        setGaps(Array.isArray(body.gaps) ? body.gaps : []);
+        setGapsAsked(true);
+      }
+    } catch {
+      /* The worklist is a bonus on this screen, not the job. Silence beats an
+         error panel in front of the town controls — but the empty state below
+         says which silence this is. */
+    }
+  }, [auth, gapDays]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadGaps(); }, [loadGaps]);
 
   const call = useCallback(async (path: string, init: RequestInit, label: string) => {
     setBusy(label);
@@ -238,6 +286,92 @@ export default function ExchangeTowns() {
         {!loading && !refused && !error && (
           <>
             {said && <div className={said.ok ? 'bpxb-said' : 'bpxb-failed'}>{said.text}</div>}
+
+            {/*
+              ── what people asked for and did not find ─────────────────
+
+              Above the controls for opening a town, because it is the
+              evidence for using them. `rankDemandGaps` was written with the
+              ledger, tested, and then never called by anything: the worklist
+              existed as arithmetic nobody could read. This is the screen it
+              was waiting for.
+
+              410 of the 413 rows carry a category and no words, because the
+              "tell us who is missing" box was one nobody ever filled in. The
+              find assistant is the only thing that has ever recorded what
+              somebody actually said, which is why the phrases matter more
+              than their number suggests.
+            */}
+            <div className="bpxb-section">
+              <div className="bpxb-section-head">
+                <div className="bpxb-section-name">Asked for, and not found</div>
+                <div className="bpxb-section-tag">
+                  who to recruit, and where to open next
+                </div>
+              </div>
+
+              <div className="bpx-row">
+                <span className="bpxb-note">Over the last</span>
+                {[30, 90, 365].map((days) => (
+                  <button
+                    key={days}
+                    className="bpx-chip"
+                    data-on={gapDays === days}
+                    onClick={() => setGapDays(days)}
+                  >
+                    {days === 365 ? 'year' : `${days} days`}
+                  </button>
+                ))}
+              </div>
+
+              {gaps.length === 0 && gapsAsked && (
+                <div className="bpxb-note">
+                  Nothing recorded in this window. A row lands here when
+                  somebody searches, or asks the find assistant, and the
+                  directory has nobody for it.
+                </div>
+              )}
+
+              {/* Not the same thing at all, and saying "nothing recorded"
+                  when the question never reached the server would be a
+                  comfortable lie. */}
+              {!gapsAsked && (
+                <div className="bpxb-note">
+                  We could not read the worklist. The server may be running an
+                  older build than this screen.
+                </div>
+              )}
+
+              {gaps.map((gap, index) => (
+                <div key={`${gap.categoryId ?? 'none'}-${gap.territorySlug ?? 'none'}-${index}`} className="bpx-card">
+                  <div className="bpx-card-body bpxb-biz">
+                    <div className="bpxb-biz-top">
+                      <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                        <div className="bpxb-biz-name">
+                          {/* A gap with no category is a phrase nothing could
+                              be made of — the most interesting kind, and not
+                              to be hidden for having no name. */}
+                          {gap.category ?? 'No category matched'}
+                        </div>
+                        {gap.phrases.length > 0 && (
+                          <div className="bpxb-tile-services">
+                            {/* Their words. "47 people asked for this" lands
+                                harder with two of them beside it. */}
+                            {gap.phrases.map((phrase) => `"${phrase}"`).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                      <div className="bpx-tags">
+                        {gap.town && <span className="bpx-pill bpxb-pill-listed">{gap.town}</span>}
+                        <span className="bpx-pill bpxb-pill-claimed">
+                          {gap.searches} {gap.searches === 1 ? 'search' : 'searches'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {/* ── open a new one ──────────────────────────────────────── */}
             <div className="bpxb-section">

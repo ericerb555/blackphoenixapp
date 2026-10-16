@@ -30,6 +30,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isStaffRequest } from "./requireStaff.ts";
+import { demandGaps } from "./exchangeLedger.ts";
 
 export const exchangeTerritoryRoutes = new Hono();
 
@@ -52,6 +53,87 @@ const SETTLEMENT_TYPES = [
 ];
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// ── what people asked for and did not find ──────────────────────────────────
+
+/**
+ * The recruitment worklist, and the answer to "which town next".
+ *
+ * `demandGaps` and `rankDemandGaps` were written with the ledger and tested,
+ * and then nothing ever called them: the worklist existed as arithmetic with
+ * no way to read it. This is the route that was missing.
+ *
+ * WHY IT BELONGS WITH THE TOWN ROUTES
+ *
+ * Because it answers the same question they do. These routes decide where the
+ * directory operates; this is the evidence for that decision, taken from what
+ * residents actually tried to find.
+ *
+ * WHAT IT WILL NOT RETURN
+ *
+ * The table carries `actor_user_id` and this never selects it — `demandGaps`
+ * asks for the category, the town and the phrase and nothing else. The
+ * standing rule is that a business learns how many and never who, and a staff
+ * screen about unmet demand has even less reason to know. The plan this came
+ * from promised the phrase and the town, so that is all there is to show.
+ */
+exchangeTerritoryRoutes.get("/exchange/admin/demand", async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required." }, 403);
+  }
+
+  try {
+    const sb = service();
+    const territory = String(c.req.query("territory") ?? "").trim();
+    const days = Math.min(365, Math.max(1, Number(c.req.query("days") ?? 90) || 90));
+    const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+    const gaps = await demandGaps(sb, {
+      territorySlug: territory || null,
+      since,
+      limit: 100,
+    });
+
+    /*
+     * A category id is not a thing to put on a screen, so the names are
+     * resolved here rather than leaving the browser to do a second round trip
+     * for a lookup the server already has to hand.
+     */
+    const ids = [...new Set(gaps.map((g) => g.categoryId).filter(Boolean))] as string[];
+    const names = new Map<string, string>();
+    if (ids.length) {
+      const rows = must(
+        await sb.from("exchange_category").select("id, name, slug").in("id", ids),
+        "reading the categories",
+      ) as any[];
+      for (const row of rows ?? []) names.set(String(row.id), String(row.name));
+    }
+
+    const towns = must(
+      await sb.from("exchange_territory").select("slug, name"),
+      "reading the towns",
+    ) as any[];
+    const townNames = new Map((towns ?? []).map((t: any) => [String(t.slug), String(t.name)]));
+
+    return c.json({
+      success: true,
+      days,
+      gaps: gaps.map((gap) => ({
+        categoryId: gap.categoryId,
+        // A gap with no category is a phrase nothing could be made of, which
+        // is the most interesting kind and must not be dropped for having no
+        // name to show.
+        category: gap.categoryId ? names.get(gap.categoryId) ?? null : null,
+        territorySlug: gap.territorySlug,
+        town: gap.territorySlug ? townNames.get(gap.territorySlug) ?? gap.territorySlug : null,
+        searches: gap.searches,
+        phrases: gap.phrases,
+      })),
+    });
+  } catch (error) {
+    return c.json({ success: false, error: String((error as Error).message) }, 500);
+  }
+});
 
 // ── what we cover, and how full each one is ──────────────────────────────────
 
