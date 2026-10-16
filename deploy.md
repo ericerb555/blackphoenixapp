@@ -97,25 +97,33 @@ exchange_follow_and_deals   local 20261013160000   remote 20261013151118
 ```
 
 `db push` compares version numbers, not names. It would attempt **22**
-migrations, of which **18 have already run** — the Exchange taxonomy and its
-seed, the claim tables, the catalogue, two backfills — against a live directory
-of 1,100 businesses.
+migrations — the Exchange taxonomy and its seed, the claim tables, the
+catalogue, two backfills — against a live directory of 1,100 businesses.
 
-The other four are the genuinely unapplied ones, and they are worth knowing
-about on their own:
+**Every one of those 22 has already run.** Checked against the database on
+2026-10-15, not inferred from the history table. Four of them are not in the
+history at all, because they were applied by hand or through the dashboard
+rather than through the migration system, and it was verified that the work
+they describe is really there:
 
 ```
-20260920000000  investment_system
-20260927201500  one_provider_org_per_email
-20260928140000  drop_dead_plan_tables      <- DROPS TABLES, and is armed
-20261015120000  exchange_listing_logo      <- applied 2026-10-15
+20260920000000  investment_system            tables exist
+20260927201500  one_provider_org_per_email   index exists
+20260928140000  drop_dead_plan_tables        both tables are gone
+20261015120000  exchange_listing_logo        columns exist
 ```
 
-`drop_dead_plan_tables` drops `plans` and `subscriptions`. It guards itself and
-refuses if either holds a row, and `tasks/todo.md` records it as deliberately
-held back — but it is named `.sql`, not `.sql.pending`, so a `db push` would
-run it. That mismatch between what was decided and what the filename says is
-the clearest argument in this document for applying migrations by hand.
+That last one is the general lesson: **the history table is not the record of
+what this database contains.** Migrations here have been applied by at least
+four routes over time, and only some of them wrote a row. So the question "has
+this run?" is answered by looking for the table, column or index — never by
+reading the list.
+
+These files are therefore records of what was done, kept so a fresh environment
+reaches the same state. They are written to survive a re-run — `if not exists`,
+`to_regclass` guards, `exception when duplicate_object` — which is why `db
+push` would probably be survivable. "Probably survivable" against the live
+directory is not a reason to run it.
 
 So a migration is applied **one at a time**, through the Supabase dashboard's
 SQL editor or the management API, and then verified by reading the result back:

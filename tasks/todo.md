@@ -501,6 +501,19 @@ cohorts and they are not this task, but they are worth naming:
       backing up, and running it against a non-production project first.
       **Needs Eric's go-ahead; a dropped table does not come back.**
 
+      **DONE 2026-09-29 — everything above this line is how it looked before
+      that.** Eric gave the go-ahead, both tables were dropped, and the
+      migration was renamed from `.sql.pending` to `.sql` deliberately: it is
+      now the record of what was done, idempotent through `to_regclass`, and
+      kept so a fresh environment reaches the same state. See "Done — the dead
+      plan tables" further down this file.
+
+      Leaving this paragraph standing as written cost real time on 2026-10-15:
+      it was read as current, the file was reported as an armed un-run
+      migration that drops tables, and the next step proposed was renaming it
+      back to `.pending` — which would have undone the decision. Verified
+      instead against the database: `to_regclass` returns null for both tables.
+
 - [x] W5. **A past-due account leaves its cohort entirely.** — decided and fixed. Noticed while
       checking W1. On `customer.subscription.updated` with a non-live status
       the webhook sets `tierId: undefined`, so the grant no longer names a
