@@ -98,6 +98,8 @@ import aiFloorplanRouter from "./ai-floorplan.tsx";
 import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
+import { automationOverviewRoutes } from "./automationOverview.tsx";
+import { exchangeUpkeepRoutes } from "./exchangeUpkeepRoutes.tsx";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
 import { registerStoreWatchJob } from "./storeWatchJob.ts";
@@ -858,6 +860,27 @@ const PUBLIC_POST_PATHS = [
   '/store/cron-tick',
   '/autopilot/cron-tick',
   /**
+   * The Exchange refresh, and the fifth time this trap has been written down.
+   *
+   * Listed BEFORE the schedule exists, deliberately, because that is the order
+   * the four entries above were each learned in the hard way: the autopilot
+   * tick was written, its migration prepared, and the omission found only
+   * because somebody went to arm it. Armed without this line, every tick would
+   * be answered 401 "Sign in required." by the gate before the route's own
+   * secret check ran — and the failure is silent in the worst way, because a
+   * refresh that never happens looks exactly like a town where nothing
+   * changed. Eric would have gone on seeing no new businesses, which is the
+   * question that started this.
+   *
+   * Guarded inside the route by `exchange_cron_secret`, read from
+   * `private_cron_config` so it can be rotated without a deploy, and REFUSING
+   * EVERYTHING while unset rather than falling open. Only this exact path —
+   * `/exchange/upkeep/status` and `/exchange/upkeep/run` stay behind the wall
+   * and behind a staff check, because one reports on the directory and the
+   * other rewrites it.
+   */
+  '/exchange/cron-tick',
+  /**
    * The dead-man's switch, and the fourth time this trap has come up.
    *
    * `/store/watchdog` guards the same secret as `/store/cron-tick` through the
@@ -1325,6 +1348,23 @@ app.route("/", maintenanceConfigRouter);
 // paths out in full, so they mount at "/".
 app.route("/", storeAutonomyRouter);
 app.route("/", storeCatalogueRouter);
+/**
+ * What every clock is doing, and what is waiting on a person. Staff only, and
+ * it spells its own path out in full like the two above.
+ *
+ * Mounted next to the store clock deliberately: that one reports on itself,
+ * and this one reports on all of them INCLUDING the work nothing is doing. See
+ * the note at the top of the file for why the gaps are first-class rows.
+ */
+app.route("/", automationOverviewRoutes);
+/**
+ * The Exchange's own clock. Spells its paths out in full like the two above.
+ *
+ * `/exchange/cron-tick` is in PUBLIC_POST_PATHS — see the note there — because
+ * a scheduler carries no session. It guards itself on a shared secret and
+ * refuses everything while none is configured.
+ */
+app.route("/", exchangeUpkeepRoutes);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/", marketplaceRouter);

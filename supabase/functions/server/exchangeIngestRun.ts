@@ -67,6 +67,15 @@ const USER_AGENT = "PhoenixExchange/1.0 (local business directory; contact black
 
 export interface IngestOutcome {
   territory: string;
+  /**
+   * Whether residents can see this town yet.
+   *
+   * Reported because compiling now works on a hidden town — see the note on
+   * the territory lookup — and a run that created 400 listings nobody can see
+   * must say so. Otherwise "Compiled hudson-nh: 412 new" reads as done, and
+   * the town stays invisible with nothing to suggest a step is outstanding.
+   */
+  status?: string;
   found: number;
   outsideTerritory: number;
   notListable: number;
@@ -340,11 +349,35 @@ export async function ingestTerritory(
     dryRun: options.dryRun,
   };
 
+  /**
+   * ANY status, and that is the fix for a flow that could not complete.
+   *
+   * This filtered on `status = 'active'`, which made the documented way of
+   * opening a town impossible. `ExchangeTowns.tsx` states the order of the
+   * work — *"open it → create it HIDDEN — residents see nothing yet"*, then
+   * *"compile it"*, then *"show it"* — and says after creating one: "X is open
+   * and hidden. Compile it, then show it when it is worth visiting."
+   *
+   * Compiling it threw `no such territory`, every time, because the town it
+   * had just told you to compile was hidden. So step three of a four-step flow
+   * could never run, and the only way to compile a town was to promote it
+   * first — publishing an empty town to residents, which is the precise thing
+   * hiding it exists to prevent.
+   *
+   * Found on 2026-10-16 while answering why Hudson and Windham held no
+   * listings. Both were created, both hidden, both with zero businesses, and
+   * nothing anywhere said why.
+   *
+   * The filter was copied from the read path, where it is right: a resident is
+   * served active towns only. Compiling is a staff act on a town that is
+   * deliberately not yet visible, so the statuses it accepts are both of them.
+   * `status` is constrained to `active` or `hidden` by the table, so there is
+   * no third thing this now lets in.
+   */
   const { data: territory, error: territoryError } = await sb
     .from("exchange_territory")
-    .select("slug, name, state, postcodes, center_lat, center_lng")
+    .select("slug, name, state, postcodes, center_lat, center_lng, status")
     .eq("slug", territorySlug)
-    .eq("status", "active")
     .maybeSingle();
 
   if (territoryError) throw new Error(`exchange_territory: ${territoryError.message}`);
@@ -352,6 +385,7 @@ export async function ingestTerritory(
   if (territory.center_lat == null || territory.center_lng == null) {
     throw new Error(`${territorySlug} has no centre, so there is nowhere to search`);
   }
+  outcome.status = String(territory.status || '');
 
   const aliases = await aliasIndex(sb);
   const { elements, truncated } = await fetchTown(

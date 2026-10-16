@@ -165,7 +165,18 @@ export default function ExchangeTowns() {
         ok: true,
         text: `${apply ? 'Compiled' : 'A dry run of'} ${slug}: ${o.created ?? 0} new, ${o.filled ?? 0} filled in, `
           + `${o.untouched ?? 0} left alone, ${o.uncategorised ?? 0} with no category`
-          + (o.truncated?.length ? `. Overpass capped: ${o.truncated.join(', ')}` : ''),
+          + (o.truncated?.length ? `. Overpass capped: ${o.truncated.join(', ')}` : '')
+          /*
+            A compile that produced a town nobody can see has to say so.
+
+            Without this, "Compiled hudson-nh: 412 new" reads as finished, and
+            the last step — showing it — is the one left undone. Which is
+            exactly the state Hudson and Windham sat in: created, hidden, and
+            nothing anywhere suggesting anything was outstanding.
+          */
+          + (apply && o.status === 'hidden'
+            ? '. Still hidden — press "show it" when the town is worth visiting.'
+            : ''),
       });
       if (apply) await load();
     }

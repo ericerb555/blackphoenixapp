@@ -190,3 +190,63 @@ deploy of anything**, then removing it:
 
 The directory's subtitle is built from the same list, so a fourth town does not
 leave that sentence quietly lying about where the Exchange operates.
+
+---
+
+## Built: the upkeep clock — and the bug that was the real answer
+
+2026-10-16, after Eric asked: *"how is the ai automation to keep adding town to
+the phoenix exchange doing i done see any new towns added or adding?"*
+
+### The finding was not the missing clock
+
+Hudson and Windham existed as territory rows, both `hidden`, both holding
+**zero** listings. The obvious reading was that nobody had pressed compile.
+
+**They could not have been compiled.** `ingestTerritory` selected the territory
+with `.eq("status", "active")`, and the documented flow creates a town HIDDEN —
+`ExchangeTowns.tsx` says so in its own header, and the screen tells you after
+creating one: *"X is open and hidden. Compile it, then show it when it is worth
+visiting."* Compiling it threw `no such territory`, every time. Step three of a
+four-step flow could never run, and the only way round it was to promote an
+empty town to residents — the precise thing hiding it exists to prevent.
+
+The filter was copied from the read path, where it is right. Nobody chose it.
+
+So two towns sat opened-and-empty with nothing anywhere reporting why, which is
+the same shape as the question that found it: the absence of a thing is
+invisible unless something is built to say so.
+
+### What now exists
+
+- `exchangeUpkeep.ts` — which town next, and when to leave Overpass alone.
+  Never-compiled towns rank ahead of every stale one; ties break on slug so the
+  choice is deterministic; and **doing nothing is a real outcome**, recorded as
+  one. 21 hand-written tests.
+- `exchangeUpkeepRoutes.tsx` — `POST /exchange/cron-tick` behind a shared
+  secret that refuses everything while unset, plus `GET /exchange/upkeep/status`
+  and `POST /exchange/upkeep/run` for staff.
+- `exchange_territory.last_compiled_at`, backfilled from the newest listing per
+  town — an understatement of the truth, deliberately, so the error costs an
+  extra Overpass query rather than a town going silently unrefreshed.
+- The schedule, held at
+  `20261016140000_schedule_exchange_upkeep.sql.pending`. Arming it starts
+  something that rewrites a live directory, so it carries the three
+  preconditions and stays Eric's decision.
+
+**Daily, not weekly, for a weekly refresh.** With five towns and a seven-day
+window a weekly tick takes five weeks to reach the fifth town. A daily tick
+that usually does nothing reaches each town every seven days and costs four
+cheap no-op requests a week.
+
+### Still not done, and now visible rather than assumed
+
+The **category review queue** for the 131 uncategorised listings is not built.
+It is reported on the Command Center's new Automation tab as a gap rather than
+left to be rediscovered.
+
+The clock still **never opens a town and never promotes one** — Eric's
+decision, unchanged. The second half of "make the ledger able to answer next
+time" is also still open: 3 of 413 demand rows now carry a phrase, up from
+zero, so the box is being used, but every row still names a town we already
+cover.
