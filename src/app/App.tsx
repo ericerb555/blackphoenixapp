@@ -655,6 +655,34 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'privacy-policy',
     'terms',
     'terms-of-service',
+    /**
+     * The refund policy, and the reason it MUST be on this list.
+     *
+     * Its URL is what gets submitted to Stripe as the refund-policy
+     * disclosure, so it is read by people who are not signed in and never will
+     * be: the issuer's analyst reviewing a dispute, and a customer who has
+     * stopped being one. A disclosure that redirects to a login is not a
+     * disclosure.
+     *
+     * `customer-quote-approval` was missing from this list once and every quote
+     * link sent to a signed-out customer was a dead end. Same trap.
+     */
+    'refund-policy',
+    'refunds',
+    'return-policy',
+
+    /**
+     * The security and trust page, and the same trap as the refund policy
+     * above: it is read almost entirely by people with no account. An
+     * enterprise customer's IT reviewer, an acquirer's diligence checklist and
+     * a researcher looking for where to report a vulnerability all arrive
+     * signed out, from a link somebody pasted into an email. A security page
+     * that redirects to a login answers none of them, and the one about
+     * reporting a vulnerability is the one we least want to turn away.
+     */
+    'security',
+    'security-policy',
+    'trust',
   ];
 
   const [redirecting, setRedirecting] = useState(false);
@@ -1776,6 +1804,13 @@ function AppContent() {
                                 className="hover:text-[#ea580c] transition-colors underline underline-offset-4"
                               >
                                 Terms of Service
+                              </button>
+                              <span className="text-[#2A2A2A]">|</span>
+                              <button
+                                onClick={() => navigate("security")}
+                                className="hover:text-[#ea580c] transition-colors underline underline-offset-4"
+                              >
+                                Security
                               </button>
                             </div>
                           </div>

@@ -69,26 +69,33 @@ events arrive nowhere. That is a new axis crossing an existing one, and it is
 the part most likely to be half-done and silently so — the same shape as the
 cron trap that has now been written down five times in this repo.
 
-### There is no published refund policy, and the Terms point at one
+### There is no published refund policy, and the Terms cannot stand in for one
 
-`TermsOfService.tsx:95`:
+`routes.tsx` has `privacy`, `privacy-policy`, `terms` and `terms-of-service`,
+and nothing for refunds or returns. Searching for a policy page returns
+`PrivacyPolicy`, `TermsOfService`, `ReturnPortal` and `ReturnsAdmin` — no
+policy.
+
+**A correction to an earlier draft of this plan**, which claimed the Terms
+pointed at a named document that did not exist. They do not. `TermsOfService`
+says:
 
 > *"Refunds, cancellations, and deposits are handled according to the terms of
-> your…"*
+> your specific order, invoice, or service agreement."*
 
-It defers to a document that has no page and no route. Searching for one returns
-`PrivacyPolicy`, `TermsOfService`, `ReturnPortal` and `ReturnsAdmin` — and no
-policy. `routes.tsx` has `privacy`, `privacy-policy`, `terms`,
-`terms-of-service`, and nothing for refunds or returns.
+That is a real and defensible construction for a contracting business, where
+the deposit schedule genuinely does live in the signed agreement. The earlier
+claim came from reading a truncated search result and inferring a dangling
+reference; it is wrong and the rest of this section does not depend on it.
 
-Two distinct costs:
+What remains true, and is the actual gap:
 
-- **Stripe's dispute evidence submission has explicit fields for the refund
-  policy, the policy disclosure, and where the customer saw it.** With no
-  published page those fields cannot be answered honestly, and an unanswerable
-  evidence field is a dispute you are choosing to lose.
-- **A Terms page naming a document that does not exist is worse than silence**,
-  because the customer can point at the gap and so can the issuing bank.
+- **Stripe's dispute evidence asks for a refund policy and the URL where the
+  customer saw it.** "See your invoice" is not a disclosure a bank can check,
+  and there is no URL to give. That field goes unanswered.
+- **The store is not covered at all.** A dropshipped item has no "service
+  agreement" — it has a return window, and that window has to be published
+  somewhere a shopper passes before paying.
 
 ### Essentially pre-revenue, which makes this the cheapest it will ever be
 
@@ -137,8 +144,9 @@ cannot be reconstructed afterwards. This is the window.
       force at the moment of that sale. A policy that has been edited since is
       not evidence about an older order, and editing it is exactly what somebody
       does after a bad dispute.
-- [ ] Fix `TermsOfService.tsx:95` to name and link the real page, so the Terms
-      stop pointing at nothing.
+- [ ] Link the policy from `TermsOfService` alongside the existing sentence —
+      the per-order agreement stays true for services, and the published page is
+      what a card network can actually be shown.
 
 ### 2. Thresholds, per company
 
@@ -228,6 +236,120 @@ estimator honest: **the machine gathers facts, it does not compose claims.**
       own thresholds.
 - [ ] It must be honest about the same thing the Automation tab is honest about:
       a dispute it could not read is not the same as no disputes.
+
+---
+
+## Built: the policy mechanism, 2026-10-16
+
+Step 1, except the checkout disclosure and the per-order snapshot wiring. **No
+policy is published**, deliberately — see below.
+
+### What exists now
+
+| piece | where |
+|---|---|
+| the rules, 23 tests | `refundPolicy.ts` — versions, `canPublish`, `policyInForce`, `policySnapshot` |
+| public read | `GET /refund-policy/:companyId` — published versions only, in `PUBLIC_PREFIXES` |
+| staff read incl. drafts | `GET /company/:companyId/refund-policy` |
+| save a draft | `PUT /company/:companyId/refund-policy` |
+| publish one version | `POST /company/:companyId/refund-policy/:version/publish` |
+| the page | `RefundPolicy.tsx`, routed as `refund-policy`, `refunds`, `return-policy` |
+| the link | `TermsOfService`, added beside the per-order sentence rather than replacing it |
+
+The page is on App's public route list, for the same reason the read route is
+public: **the URL is the product.** It is what gets submitted to Stripe as the
+disclosure, and it is read by the issuer's analyst reviewing a dispute and by
+somebody who has stopped being a customer. Neither can sign in.
+`customer-quote-approval` was once missing from that list and every quote link
+sent to a signed-out customer was a dead end — the same trap.
+
+### The two rules worth knowing
+
+**`policyInForce` returns the version in effect ON THE DAY OF THE CHARGE, and
+returns null rather than falling back to the current one.** The fallback is one
+line, it reads perfectly on a screen, and it would be a false statement to a
+bank about what the customer could have seen. Null means "this company had no
+published policy when that money was taken", which is the only honest answer.
+
+**`policySnapshot` copies the text onto the order rather than referencing it.**
+A reference follows a later edit, and the moment after a losing dispute is
+exactly when somebody goes and edits the policy. A test mutates the source after
+snapshotting and asserts the frozen copy is unchanged.
+
+### Nothing is published, and nothing was invented
+
+`canPublish` refuses a draft that still reads like one: no sections, a heading
+with nothing under it, `{{placeholder}}` or `TODO`, a body under twenty
+characters — which is there to catch "n/a" and "see invoice" rather than to have
+an opinion about prose — and a missing effective date, because a policy that
+cannot say when it started cannot be matched to an order.
+
+**No starter text is seeded in code.** A refund policy is a term this business
+is bound by; one written by software and published unread is a worse outcome
+than a page that admits the gap. So the page says plainly that nothing is
+published and that the per-order agreement governs — which is true, and is a
+visible gap rather than a plausible invented one.
+
+### Proposed wording, for Eric to edit — NOT published
+
+These are a starting point, not advice, and they should be read by whoever
+handles this company's contracts before anything is published. The store window
+and the deposit terms in particular are commercial decisions.
+
+    Services — deposits and cancellations
+      The deposit secures materials and a place in the schedule. Cancel more
+      than N days before the start date and the deposit is refunded in full,
+      less any materials already ordered specifically for the job. Cancel
+      inside N days and the deposit covers the slot and the ordering already
+      done. Once work has begun, cancellation is settled against work
+      completed and materials supplied to that point.
+
+    Services — if the work is not right
+      Tell us within N days of completion. We come back and put it right at no
+      charge. Where that is not possible we refund the part of the price
+      covering the work in question. This is in addition to the one-year
+      workmanship guarantee in our terms.
+
+    Store items — returns
+      Unused items in original packaging may be returned within N days of
+      delivery for a refund of the item price. Return shipping is the
+      customer's unless the item arrived damaged, wrong, or faulty, in which
+      case we pay it and replace or refund at your choice. Start a return at
+      /start-a-return.
+
+    Store items — what cannot be returned
+      [list the categories, if any]
+
+    How refunds are issued
+      To the original payment method, within N business days of us receiving
+      the return or agreeing the refund. Card refunds then take your bank's
+      own time to appear.
+
+    Talk to us first
+      If something is wrong, email <address> before raising a dispute with your
+      bank. We answer within one business day and we would rather fix it than
+      argue about it.
+
+That last section is there on purpose: a published invitation to contact you
+first is both the decent thing and a reasonable line in a dispute response.
+
+To publish, once the words are agreed — `PUT` the sections as a draft, read the
+page, then `POST` the publish. Two acts, because publishing is a decision.
+
+### Still to do on step 1
+
+- [ ] **The checkout disclosure.** `shownAt` defaults to `'page'`, the weaker
+      claim, and must be asserted as `'checkout'` only where a customer really
+      passed it. "They saw it at checkout" is a far better answer than "it was
+      published somewhere", so it has to be true.
+- [ ] **Wire `policySnapshot` into order creation.** There are several checkout
+      paths and zero orders in production today, so nothing is lost yet — but
+      every sale from here is a sale with no frozen policy, and that cannot be
+      backfilled honestly.
+- [ ] A staff screen for drafting and publishing. The routes work; there is no
+      UI, so today it is a `curl` with a staff token.
+- [ ] Register the company so `bpb-8544` is a real id rather than this page's
+      default. Step 0, still blocked on which accounts are live.
 
 ---
 

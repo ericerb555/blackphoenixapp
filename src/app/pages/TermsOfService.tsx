@@ -91,9 +91,24 @@ export default function TermsOfService({ onNavigate }: TermsOfServiceProps) {
                 You authorize us to charge your selected payment method for the amounts you
                 approve, including applicable taxes and fees.
               </li>
+              {/*
+                The per-order sentence is kept, not replaced. For contracting
+                work it is true and it is the stronger statement: the deposit
+                schedule genuinely does live in the signed agreement.
+
+                What is added is the standing policy and its URL, because a
+                card network cannot be shown "see your invoice". That link is
+                what gets submitted to Stripe as the refund-policy disclosure.
+              */}
               <li>
                 Refunds, cancellations, and deposits are handled according to the terms of your
-                specific order, invoice, or service agreement.
+                specific order, invoice, or service agreement. Our standing refund and returns
+                policy, including the return window for items bought from our store, is published
+                at{' '}
+                <a href="/refund-policy" className="text-[#ea580c] hover:underline">
+                  /refund-policy
+                </a>
+                .
               </li>
             </ul>
           </section>
