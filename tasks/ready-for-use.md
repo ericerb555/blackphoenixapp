@@ -70,8 +70,64 @@ rename. **The on-call one is the most consequential**: a rota that never climbs
 is indistinguishable from a rota nobody needed, and it is sold as an emergency
 service.
 
-- [ ] Arm them one at a time, verifying each in `cron.job_run_details` before
+- [x] Arm them one at a time, verifying each in `cron.job_run_details` before
       the next.
+
+**The clock is running. All of it.** Checked against production 2026-10-15:
+
+    jobname                       schedule      active   24h runs
+    autopilot-tick                */15 * * * *  true           96
+    compliance-expiry-reminders   0 12 * * *    true            1
+    on-call-escalation            * * * * *     true        1,440
+    screening-invitation-expiry   7 * * * *     true           24
+    store-cron-tick               */15 * * * *  true           96
+    store-watchdog                7 * * * *     true           24
+
+`schedule_on_call_escalation`, `schedule_autopilot_tick` and
+`schedule_screening_expiry` were applied on 2026-10-13 and are in
+`schema_migrations`; the store pair was scheduled before that. Every secret
+exists and none is empty — `autopilot_cron_secret`, `compliance_cron_secret`,
+`on_call_cron_secret`, `screening_cron_secret`, `store_cron_secret` and
+`anon_key`, in `private_cron_config`.
+
+**No secret ever had to be pasted anywhere, and the instruction above to put one
+in Vault and in the edge-function environment was wrong.** Each migration mints
+its own with `encode(gen_random_bytes(32), 'base64')` directly into
+`private_cron_config`, and the route reads that same table — `on-call.tsx` was
+changed the same day to prefer the table and keep the environment only as a
+fallback. The value is generated and read inside the database and never passes
+through a person, a terminal or a transcript, which is better than any amount of
+careful pasting. To rotate one, update the row; nothing else needs to know.
+
+### Verifying a clock: `cron.job_run_details` is not enough
+
+Worth writing down, because this item asked for the weaker check. A pg_cron row
+reads `succeeded` when the SQL ran, and the SQL is `net.http_post`, which is
+asynchronous — it queues a request and returns. **A job whose every call comes
+back 401 shows a perfect success record.** All six above read 100% succeeded,
+which on its own proves only that the clock ticked.
+
+The response is in `net._http_response`, and that is where this was actually
+confirmed: **419 responses, every one HTTP 200**, over the roughly six hours
+pg_net retains. One null, at 20:00:00 — a 30-second DNS timeout with no TCP
+handshake, one call in 420, and the following minute succeeded.
+
+### Do not rename the last `.pending` file
+
+`20261003140000_schedule_store_tick.sql.pending` is still parked, and it must
+stay that way or be rewritten before it is armed. Production already runs both
+jobs it would create, and the live definitions carry
+`timeout_milliseconds := 30000` while **the file does not**. Applying it as it
+stands would re-schedule both store jobs down to pg_net's default five seconds,
+which is exactly the regression `20261013150000_cron_jobs_explicit_timeout.sql`
+was written to repair — its own comment records a missed `on-call-escalation`
+tick caused by that default, and excluded the store jobs because they already
+had the timeout. So the file on disk is older than production, and the drift is
+in the direction that bites.
+
+- [ ] Either delete that file, or update it to match the live definitions
+      (timeouts included) so a rebuilt environment gets the same clock. Nothing
+      in production needs it today.
 
 ---
 
