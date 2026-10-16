@@ -88,6 +88,64 @@ export function haversineMiles(from: Point, to: Point): number {
  * compiled listing's coordinate is the centre of an OpenStreetMap feature,
  * which can be the middle of a car park.
  */
+/**
+ * How far away a town can be and still be called yours.
+ *
+ * The Exchange covers three towns in southern New Hampshire. Somebody in
+ * Nashua is a few miles from Pelham and is genuinely well served by it;
+ * somebody in Hartford is not, and showing them Pelham under a heading about
+ * what is near them would be a lie told by a helpful feature.
+ *
+ * So beyond this the answer is "nowhere near you", and the switcher stays on
+ * All towns rather than snapping to the least distant of three wrong answers.
+ */
+export const TOWN_NEAR_ENOUGH_MILES = 30;
+
+/** Only what measuring a town needs, so this file keeps importing nothing. */
+export interface PlaceableTown {
+  slug: string;
+  name?: string;
+  center?: { lat: number; lng: number } | null;
+}
+
+/**
+ * Which covered town somebody is in, worked out in the browser.
+ *
+ * THE COORDINATE DOES NOT LEAVE THIS BROWSER, AND THIS IS WHY IT CAN
+ *
+ * The towns arrive carrying their centres, so the whole question is answered
+ * by arithmetic against a three-row list already in memory. No lookup, no
+ * geocoding service, nothing sent anywhere. That is the only reason a
+ * GPS-chosen town is compatible with the standing rule that a position never
+ * reaches our server or anybody else's — a geocoder would answer this better
+ * and would have to be told where somebody is to do it.
+ *
+ * A town with no centre is skipped rather than measured against nothing:
+ * `FALLBACK_TOWNS` carries none, and treating a missing centre as 0,0 would
+ * put every town off the coast of Africa and let the first one win always.
+ */
+export function nearestTown<T extends PlaceableTown>(
+  point: Point | null | undefined,
+  towns: readonly T[],
+  withinMiles: number = TOWN_NEAR_ENOUGH_MILES,
+): { town: T; miles: number } | null {
+  const from = asPoint(point);
+  if (!from) return null;
+
+  let best: { town: T; miles: number } | null = null;
+  for (const town of towns) {
+    if (!town?.slug) continue;
+    const at = asPoint(town.center);
+    if (!at) continue;
+    const miles = haversineMiles(from, at);
+    if (!Number.isFinite(miles)) continue;
+    if (!best || miles < best.miles) best = { town, miles };
+  }
+
+  if (!best || best.miles > withinMiles) return null;
+  return best;
+}
+
 export function formatDistance(miles: number | null): string | null {
   if (miles == null || !Number.isFinite(miles) || miles < 0) return null;
   if (miles < 0.1) {

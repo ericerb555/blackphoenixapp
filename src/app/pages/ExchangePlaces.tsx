@@ -66,7 +66,7 @@ import {
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
-import { useTowns, readTown, writeTown, townName } from '../lib/exchangeTowns';
+import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
 import { measureListings, formatDistance, normalise } from '../lib/exchangeGeo';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
@@ -126,7 +126,17 @@ export default function ExchangePlaces() {
      deploy. Falls back to the built-in list only when the server cannot be
      reached. */
   const towns = useTowns();
-  const [town, setTown] = useState(() => readTown() || 'manchester-nh');
+  /*
+   * Where they are, unless they have said otherwise.
+   *
+   * This page has no "everywhere" option — every town at once is a payload
+   * nobody asked for on a map — so an unanswered choice falls back to
+   * Manchester, the largest. The fallback is the cold-start case only: a
+   * resident who has ever pressed Near me arrives on their own town, silently,
+   * on every later visit.
+   */
+  const { town: chosenTown, locating, tooFar, choose, locate } = useTownChoice(towns);
+  const town = chosenTown || 'manchester-nh';
   const [places, setPlaces] = useState<Place[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,8 +283,7 @@ export default function ExchangePlaces() {
   }, [query, town, towns]);
 
   const changeTown = useCallback((slug: string) => {
-    writeTown(slug);
-    setTown(slug);
+    choose(slug);
     setCategoryId(null);
     setChosenId(null);
     setShowing(SHOW_AT_FIRST);
@@ -283,7 +292,7 @@ export default function ExchangePlaces() {
     setAnswer(null);
     setDrivenId(null);
     setAskFailed(null);
-  }, []);
+  }, [choose]);
 
   /**
    * Put the answer away, and undo what it did.
@@ -401,6 +410,16 @@ export default function ExchangePlaces() {
             </div>
 
             <div className="bpxb-towns">
+              {/* The opt-in. Nothing reads a position until this is pressed,
+                  or until the browser confirms permission was already given. */}
+              <button
+                className="bpxb-town"
+                onClick={() => locate()}
+                disabled={locating}
+                title="Use my location to pick the town"
+              >
+                {locating ? 'Finding you…' : 'Near me'}
+              </button>
               {towns.filter((t) => t.slug).map((t) => (
                 <button
                   key={t.slug}
@@ -631,6 +650,7 @@ export default function ExchangePlaces() {
                 {here.kind === 'refused' && 'No problem — without a location we cannot work out distances.'}
                 {here.kind === 'failed' && here.why}
                 {here.kind === 'unsupported' && 'This browser cannot share a location, so distances are not available.'}
+              {tooFar && ' You are not near one of the towns the Exchange covers yet, so this is showing the nearest one we do.'}
               </div>
             </div>
 

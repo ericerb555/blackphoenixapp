@@ -35,13 +35,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Store, Loader2, AlertCircle, ChevronRight, MapPin, RefreshCw,
-  KeyRound, Bookmark, ArrowRight, Building2, X, Search,
+  KeyRound, Bookmark, ArrowRight, Building2, X, Search, Navigation,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
-import { useTowns, readTown, writeTown, townName } from '../lib/exchangeTowns';
+import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import ExchangeBizRow from '../components/exchange/ExchangeBizRow';
@@ -80,9 +80,11 @@ export default function ExchangeDirectory() {
   const [services, setServices] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [town, setTown] = useState<string>(() => readTown());
   /* From the database, so opening a town does not need a front-end deploy. */
   const towns = useTowns();
+  /* Where they are, unless they have said otherwise. Never prompts on arrival
+     — see the note on the hook for why that restraint is deliberate. */
+  const { town, locating, tooFar, choose, locate } = useTownChoice(towns);
 
   /*
    * THE MAP'S OWN DATA, FETCHED SEPARATELY FROM THE TREE.
@@ -171,11 +173,6 @@ export default function ExchangeDirectory() {
   /* A new search starts at the top of the list rather than forty rows down
      into the answer to the last one. */
   useEffect(() => { setShowing(SHOW_AT_FIRST); }, [find, town]);
-
-  const chooseTown = useCallback((slug: string) => {
-    setTown(slug);
-    writeTown(slug);
-  }, []);
 
   /** Services grouped under their parent, for the prose line on each tile. */
   const servicesByParent = useMemo(() => {
@@ -274,17 +271,44 @@ export default function ExchangeDirectory() {
           <span className="bpxb-note" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <MapPin size={13} /> Looking in
           </span>
+          {/*
+            Near me, first in the row, because it is the one that answers the
+            question people actually arrived with. Pressing it is the opt-in:
+            nothing asks for a position until somebody does.
+          */}
+          <button
+            className="bpx-chip"
+            onClick={() => locate()}
+            disabled={locating}
+            title="Use my location to pick the town"
+          >
+            {locating
+              ? <Loader2 size={12} className="animate-spin" />
+              : <Navigation size={12} />}
+            {' '}Near me
+          </button>
           {[{ slug: '', name: 'All towns' }, ...towns].map((t) => (
             <button
               key={t.slug || 'all'}
               className="bpx-chip"
               data-on={town === t.slug}
-              onClick={() => chooseTown(t.slug)}
+              onClick={() => choose(t.slug)}
             >
               {t.name}
             </button>
           ))}
         </div>
+
+        {/*
+          A fix from outside the three towns. Said plainly rather than snapped
+          to the nearest of three wrong answers — see `nearestTown`.
+        */}
+        {tooFar && (
+          <div className="bpxb-note">
+            You are not near one of the towns the Exchange covers yet. Showing
+            everywhere instead — pick a town above to look somewhere specific.
+          </div>
+        )}
 
         {/*
           THE MAP ITSELF, ON THE FRONT DOOR.

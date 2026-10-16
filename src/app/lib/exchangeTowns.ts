@@ -28,8 +28,14 @@
  * the other's chunk, which is a silly thing to ship for the sake of four
  * strings.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+/* The rule itself lives in `exchangeGeo.ts`, which imports nothing and is
+   therefore testable under `node --test`. This module cannot be: it imports
+   React and the Supabase config. Re-exported so callers have one place to look. */
+export { nearestTown, TOWN_NEAR_ENOUGH_MILES } from './exchangeGeo';
+import type { Point } from './exchangeGeo';
+import { nearestTown } from './exchangeGeo';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -64,6 +70,31 @@ export const LAUNCH_TOWNS: readonly Town[] = [
 ] as const;
 
 const TOWN_KEY = 'bpx_territory';
+/**
+ * Whether the town is being chosen by where they are, or by them.
+ *
+ * Needed because `readTown()` cannot answer it on its own: an empty slug means
+ * "All towns", and "All towns" is a perfectly good thing to pick on purpose.
+ * Without this, a resident who deliberately chose to see everywhere would have
+ * their choice quietly overruled by their own GPS on the next visit, which is
+ * the rudest possible reading of a helpful feature.
+ */
+const MODE_KEY = 'bpx_territory_mode';
+
+export type TownMode = 'auto' | 'manual';
+
+export function readTownMode(): TownMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'manual' ? 'manual' : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+export function writeTownMode(mode: TownMode): void {
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* refused storage is not a failure */ }
+}
+
 
 /**
  * Towns from the server, fetched once per page and shared.
@@ -138,6 +169,117 @@ export function townName(slug: string, towns: readonly Town[] = LAUNCH_TOWNS): s
     // A town opened since this bundle shipped: say the slug rather than
     // "All towns", which would be a lie about what is on screen.
     ?? slug.replace(/-nh$/, '').replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+/**
+ * The chosen town: where they are, unless they said otherwise.
+ *
+ * Eric: "it should be whatever town the gps is pinging from but can be changed
+ * manually by users." This is that, with one deliberate restraint.
+ *
+ * IT DOES NOT PROMPT ON ARRIVAL, AND THAT IS NOT ME IGNORING THE ASK
+ *
+ * `exchangeHere.ts` states the rule: "a directory that demands your location
+ * before it will show you anything is the behaviour people resent about the
+ * lead-resale sites." A permission dialog in front of the Exchange front door
+ * would meet every visitor arriving from a search engine, which is the traffic
+ * the whole directory is built to earn.
+ *
+ * So the position is read in exactly two situations, neither of which puts a
+ * dialog in front of anybody who did not ask for one:
+ *
+ *   1. Permission is ALREADY granted. Asked of the Permissions API, not by
+ *      calling geolocation and seeing what happens — the question itself is
+ *      silent, and the answer means no dialog can appear. After somebody has
+ *      opted in once, every later visit lands on their town with no
+ *      interaction at all, which is the behaviour Eric described.
+ *
+ *   2. They pressed the Near me control. That is the opt-in.
+ *
+ * A browser with no Permissions API (older Safari) is treated as "would
+ * prompt", so it waits to be asked.
+ *
+ * WHAT A MANUAL CHOICE MEANS
+ *
+ * It wins, and it keeps winning. Tapping any town writes `manual` and the GPS
+ * stops choosing until they press Near me again. That includes choosing "All
+ * towns", which is a real preference and not an absence of one — the mode key
+ * exists precisely so those two can be told apart.
+ */
+export function useTownChoice(towns: readonly Town[]) {
+  const [town, setTownState] = useState<string>(() => readTown());
+  const [mode, setMode] = useState<TownMode>(() => readTownMode());
+  const [locating, setLocating] = useState(false);
+  /** Set when a fix came back from somewhere the Exchange does not cover. */
+  const [tooFar, setTooFar] = useState(false);
+
+  /** Read a position and pick the town nearest it. */
+  const resolve = useCallback((towns: readonly Town[], onDone?: () => void) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { onDone?.(); return; }
+
+    setLocating(true);
+    setTooFar(false);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const near = nearestTown(
+          { lat: position?.coords?.latitude, lng: position?.coords?.longitude } as Point,
+          towns,
+        );
+        if (near) {
+          setTownState(near.town.slug);
+          writeTown(near.town.slug);
+        } else {
+          // Nowhere near a covered town. Saying so beats snapping them to the
+          // least distant of three wrong answers.
+          setTooFar(true);
+        }
+        setLocating(false);
+        onDone?.();
+      },
+      () => { setLocating(false); onDone?.(); },
+      // A coarse, two-minute-old fix is ideal here: this decides which of three
+      // towns somebody is in, not where they are standing.
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 120_000 },
+    );
+  }, []);
+
+  /* Silent resolution, only where the browser confirms no dialog can appear. */
+  useEffect(() => {
+    if (mode !== 'auto' || !towns.length) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const status = await (navigator as any)?.permissions?.query?.({ name: 'geolocation' });
+        if (cancelled || status?.state !== 'granted') return;
+        resolve(towns);
+      } catch {
+        /* no Permissions API: wait to be asked rather than guess */
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // Towns arrive after the first render, so this runs again once they do —
+    // which is when the centres needed to measure against actually exist.
+  }, [mode, towns, resolve]);
+
+  /** A town somebody picked. Theirs, and remembered as theirs. */
+  const choose = useCallback((slug: string) => {
+    setTownState(slug);
+    writeTown(slug);
+    setMode('manual');
+    writeTownMode('manual');
+    setTooFar(false);
+  }, []);
+
+  /** The Near me control: opts back in, and asks if it has to. */
+  const locate = useCallback(() => {
+    setMode('auto');
+    writeTownMode('auto');
+    resolve(towns);
+  }, [towns, resolve]);
+
+  return { town, mode, locating, tooFar, choose, locate };
 }
 
 /**
