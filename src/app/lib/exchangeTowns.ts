@@ -177,27 +177,29 @@ export function townName(slug: string, towns: readonly Town[] = LAUNCH_TOWNS): s
  * Eric: "it should be whatever town the gps is pinging from but can be changed
  * manually by users." This is that, with one deliberate restraint.
  *
- * IT DOES NOT PROMPT ON ARRIVAL, AND THAT IS NOT ME IGNORING THE ASK
+ * IT ASKS ON ARRIVAL, WHICH IS A DECISION THAT WAS MADE TWICE
  *
- * `exchangeHere.ts` states the rule: "a directory that demands your location
- * before it will show you anything is the behaviour people resent about the
- * lead-resale sites." A permission dialog in front of the Exchange front door
- * would meet every visitor arriving from a search engine, which is the traffic
- * the whole directory is built to earn.
+ * The first version only read a position when the Permissions API confirmed
+ * one had already been granted, so nothing could put a dialog in front of
+ * somebody arriving from a search engine — the deference `exchangeHere.ts`
+ * argues for.
  *
- * So the position is read in exactly two situations, neither of which puts a
- * dialog in front of anybody who did not ask for one:
+ * It did not work, and Eric said so: "it still isnt bringing me to the gps
+ * read town i am in." Of course it did not. Nobody had granted anything yet,
+ * so the silent path never ran — and on an iPhone it could never run at all,
+ * because Safari does not implement `permissions.query` for geolocation, so
+ * the check meant as a safe shortcut was instead a permanent no.
  *
- *   1. Permission is ALREADY granted. Asked of the Permissions API, not by
- *      calling geolocation and seeing what happens — the question itself is
- *      silent, and the answer means no dialog can appear. After somebody has
- *      opted in once, every later visit lands on their town with no
- *      interaction at all, which is the behaviour Eric described.
+ * Asked for twice, and shipped not working once, is enough. It now asks on
+ * arrival whenever the town is still being chosen automatically. The one
+ * protection kept is the one that matters: somebody who has said no is never
+ * asked again, because `denied` stops it before the call. Picking any town
+ * stops it too — that is what `manual` means.
  *
- *   2. They pressed the Near me control. That is the opt-in.
- *
- * A browser with no Permissions API (older Safari) is treated as "would
- * prompt", so it waits to be asked.
+ * The rule in `exchangeHere.ts` is untouched, and so is everything built on
+ * it: distances, "show me what is nearest" and Follow me all still wait to be
+ * pressed. What changed is this one question — which of three towns to show —
+ * and it is the question a resident arrives already asking.
  *
  * WHAT A MANUAL CHOICE MEANS
  *
@@ -244,24 +246,35 @@ export function useTownChoice(towns: readonly Town[]) {
   }, []);
 
   /* Silent resolution, only where the browser confirms no dialog can appear. */
+  /*
+   * Only once the REAL towns have arrived.
+   *
+   * `useTowns` starts on the offline fallback, which carries no centres, and
+   * measuring against that list answers "nowhere near a covered town" for
+   * somebody standing in the middle of one. The first version ran against it
+   * and could flash exactly that.
+   */
+  const placeable = towns.some((t) => t.center);
+
   useEffect(() => {
-    if (mode !== 'auto' || !towns.length) return;
+    if (mode !== 'auto' || !placeable) return;
     let cancelled = false;
 
     void (async () => {
       try {
         const status = await (navigator as any)?.permissions?.query?.({ name: 'geolocation' });
-        if (cancelled || status?.state !== 'granted') return;
-        resolve(towns);
+        // Somebody who has said no is never asked again. Everything else —
+        // granted, not yet asked, or a browser that cannot answer the question
+        // — goes on to ask, which on iOS is the only path there has ever been.
+        if (status?.state === 'denied') return;
       } catch {
-        /* no Permissions API: wait to be asked rather than guess */
+        /* No Permissions API. Not a reason to give up; a reason to ask. */
       }
+      if (!cancelled) resolve(towns);
     })();
 
     return () => { cancelled = true; };
-    // Towns arrive after the first render, so this runs again once they do —
-    // which is when the centres needed to measure against actually exist.
-  }, [mode, towns, resolve]);
+  }, [mode, placeable, towns, resolve]);
 
   /** A town somebody picked. Theirs, and remembered as theirs. */
   const choose = useCallback((slug: string) => {
