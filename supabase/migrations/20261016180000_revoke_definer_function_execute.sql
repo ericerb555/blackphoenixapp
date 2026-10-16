@@ -1,0 +1,96 @@
+-- Two SECURITY DEFINER functions stop being callable over the API.
+--
+-- The advisors raise `anon_security_definer_function_executable` and its
+-- signed-in twin for ELEVEN functions in `public`. PostgREST publishes every
+-- function in that schema at `/rest/v1/rpc/<name>`, so each was reachable by
+-- anybody holding the publishable key.
+--
+-- The obvious remedy is `revoke execute`, and for nine of the eleven it would
+-- have broken the bid room. This file revokes the two it is safe to revoke and
+-- records why the other nine are being left alone, because the next person to
+-- read that advisory will reach for the same obvious remedy.
+--
+-- WHY NINE OF THEM CANNOT BE REVOKED
+--
+-- They are the RLS helpers, and an RLS policy is evaluated AS THE QUERYING
+-- USER — so that user needs EXECUTE on every function the policy calls. Take
+-- EXECUTE away and the policy cannot be evaluated, which does not fail open, it
+-- fails closed: nobody can read their own bids any more.
+--
+-- Counted from `pg_policies` rather than guessed at — 35 policy usages across
+-- eleven tables:
+--
+--   my_owned_bid_request_ids        10   bid_invitations, bid_request_lines,
+--                                        bid_request_media, bid_requests, bids
+--   my_org_ids                       7   bid_invitations, bids, feature_grants,
+--                                        organization_members, organizations
+--   my_admin_org_ids                 4   bid_requests, organization_members,
+--                                        organizations
+--   my_invited_bid_request_ids       4   bid_invitations, bid_request_lines,
+--                                        bid_request_media, bid_requests
+--   my_admin_owned_bid_request_ids   3   bid_request_lines
+--   my_editable_bid_ids              3   bid_line_prices
+--   my_open_bid_request_ids          2   bids
+--   is_platform_operator             1   organizations
+--   my_visible_bid_ids               1   bid_line_prices
+--
+-- AND WHY LEAVING THEM IS DEFENSIBLE RATHER THAN LAZY
+--
+-- Each answers "which rows are mine" from `auth.uid()` and takes no argument a
+-- caller can steer. Called as `anon` there is no uid, so they return nothing —
+-- checked against production, not reasoned about:
+--
+--   POST /rest/v1/rpc/my_org_ids   with the publishable key   ->   200  []
+--
+-- Called as a signed-in user they return that user's own ids, which is
+-- information they are entitled to by definition. So the exposure is a function
+-- that tells you what you already know.
+--
+-- The proper fix, if it is ever wanted, is the one the advisor's own remediation
+-- lists third: move them out of the exposed schema. A policy keeps working
+-- because it binds the function by OID, so `alter function ... set schema
+-- private` leaves all 35 intact while PostgREST stops publishing them. That is a
+-- larger change touching every policy on the bid room, for an exposure measured
+-- above at nothing, so it is written down rather than done.
+--
+-- WHAT THE TWO BELOW ACTUALLY WERE
+--
+-- `sync_bid_amount_from_lines` keeps `bids.amount` equal to the sum of
+-- `bid_line_prices` for that bid. It is a trigger function, so **no caller ever
+-- needs EXECUTE on it**: PostgreSQL checks that privilege when the trigger is
+-- created, not each time it fires. Verified rather than taken on trust — with
+-- the grant already revoked, an `authenticated` role inserting priced lines
+-- still fired it, while a direct call answered "permission denied for function
+-- sync_bid_amount_from_lines". Both in a transaction that was then aborted.
+--
+-- `org_has_feature(uuid, text)` is worse and better at once. Its first clause is
+-- `auth.uid() is null or exists(member of org)`, so a caller with no identity
+-- skips the membership test entirely and asks after any organisation it likes —
+-- and organisation ids are not secret. That would be a plan-and-entitlement
+-- oracle over every business in the directory.
+--
+-- Except it cannot answer, because it reads `subscriptions` and `plans` and
+-- NEITHER TABLE EXISTS. Confirmed over the API:
+--
+--   POST /rest/v1/rpc/org_has_feature   ->   404  relation "subscriptions" does not exist
+--
+-- Nothing calls it either — no policy, no view, no other function, nothing in
+-- `src/` or the edge function. It is dead by construction: written against a
+-- subscriptions schema that was never built, while the live money model is the
+-- cohorts. It is revoked rather than dropped because it encodes an intended
+-- design and dropping it is Eric's call, not a side effect of a security sweep.
+-- If it is ever revived, that first clause is the line to fix first.
+--
+-- Note both were reachable through a grant to `PUBLIC` (`=X/postgres` in
+-- `proacl`), not only through the explicit `anon` and `authenticated` grants, so
+-- `revoke ... from public` is the part that matters. `postgres` and
+-- `service_role` keep theirs, which is how the server still calls them.
+--
+-- APPLIED 2026-10-16 by hand through the management API; `supabase db push` is
+-- not safe in this repository. After applying, both answer PostgREST's
+-- `PGRST202` "function not found" to the publishable key, and `my_org_ids` still
+-- answers `200 []`, unchanged.
+
+revoke execute on function public.sync_bid_amount_from_lines() from public, anon, authenticated;
+
+revoke execute on function public.org_has_feature(uuid, text) from public, anon, authenticated;

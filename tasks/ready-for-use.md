@@ -666,13 +666,50 @@ fallback**, since it is the reason nobody looks further.
 
 ### Still open from the same advisor sweep, in priority order
 
-- [ ] **A trap, not a quick fix.** Eleven `SECURITY DEFINER` functions are
-      executable by `anon` and `authenticated` — `my_org_ids()`,
-      `my_visible_bid_ids()`, `is_platform_operator()` and friends. The obvious
-      remedy is `revoke execute`, and it would **break the live bid room**:
-      policies on `bids`, `bid_requests`, `bid_line_prices` and others call
-      these, and the invoking role needs EXECUTE for a policy to evaluate. Needs
-      reading each policy first.
+- [x] **Eleven `SECURITY DEFINER` functions executable by `anon`. Done
+      2026-10-16 — two revoked, nine deliberately left**, in
+      `20261016180000_revoke_definer_function_execute.sql`.
+
+      The trap was real: nine of the eleven are the RLS helpers, and a policy is
+      evaluated **as the querying user**, so that user needs EXECUTE on every
+      function it calls. Revoking does not fail open, it fails closed — nobody
+      can read their own bids. Counted from `pg_policies`: **35 usages across
+      eleven tables**, `my_owned_bid_request_ids` alone in ten policies.
+
+      Leaving them is defensible rather than lazy. Each answers "which rows are
+      mine" from `auth.uid()` and takes no argument a caller can steer, so as
+      `anon` they return nothing — `POST /rest/v1/rpc/my_org_ids` with the
+      publishable key answers `200 []`, checked — and as a signed-in user they
+      return that user's own ids, which is information they are entitled to by
+      definition. The exposure is a function that tells you what you already
+      know. The proper fix, if ever wanted, is the advisor's own third option:
+      move them to an unexposed schema, which keeps all 35 policies intact
+      because a policy binds the function by OID. A large change against an
+      exposure of nothing, so it is written down rather than done.
+
+      The two that were safe to revoke, and the second is the real find:
+
+      `sync_bid_amount_from_lines` is a trigger function, so no caller ever
+      needs EXECUTE — Postgres checks that when the trigger is created, not when
+      it fires. Verified, not assumed: with the grant already gone, an
+      `authenticated` role inserting priced lines still fired it, while a direct
+      call answered "permission denied". Both inside an aborted transaction.
+
+      `org_has_feature(uuid, text)` opens with
+      `auth.uid() is null or exists(member of org)` — so a caller with **no
+      identity skips the membership test** and may ask after any organisation,
+      and org ids are not secret. That is a plan-and-entitlement oracle over
+      every business in the directory. Except it cannot answer: it reads
+      `subscriptions` and `plans` and **neither table exists**, so the endpoint
+      returned `404 relation "subscriptions" does not exist`. Nothing calls it —
+      no policy, view, function, or application code. Dead by construction,
+      written against a subscriptions schema that was never built while the live
+      money model is the cohorts.
+
+- [ ] Decide whether `org_has_feature` is revived or dropped. Revoked, not
+      dropped, because it encodes an intended design and that is a product call
+      rather than a side effect of a security sweep. If it is revived, the
+      `auth.uid() is null` clause is the first line to fix.
 - [x] Six functions have a mutable `search_path`. **Done 2026-10-16** —
       `20261016170000_pin_function_search_path.sql`, applied by hand, and the
       lint no longer appears. Two corrections to this entry as written: the
