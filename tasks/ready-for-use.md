@@ -2,7 +2,44 @@
 
 ---
 
-## 0. THE SERVER CANNOT BE DEPLOYED. READ THIS FIRST — 2026-10-16
+## 0. The server could not be deployed — FIXED 2026-10-16, AND NOT WITH DOCKER
+
+**Resolved the same day by the other session, and better than the two options
+below.** Deploy the server with `npm run deploy:server`, not a bare
+`supabase functions deploy`.
+
+`scripts/build-server.mjs` transpiles the server into `functions/server-dist/`
+with comments and type annotations stripped by TypeScript's own compiler —
+4.47 MB in, 3.13 MB out, 1.87 MB of headroom — and `config.toml` points the
+entrypoint there. The insight the diagnosis below missed: **30% of the source is
+comments**, 1.34 MB of it, and the runtime never reads a word. So the source
+keeps every explanation and the upload does not carry them. Nothing had to be
+deleted and no tooling had to be installed.
+
+Two corrections to what I wrote below, worth keeping because both were wrong in
+instructive ways:
+
+- **Docker was never needed.** Installing it would have worked, and would have
+  been the wrong fix: it raises the ceiling for whoever has Docker running and
+  leaves the next person's deploy failing. A build in the repo fixes it for
+  everybody.
+- **"Removing live code" was not the only other lever.** I had measured the
+  source and concluded the only thing left was to delete features. The thing to
+  measure was what the *runtime* needs, which is a different and much smaller
+  number.
+
+The two cleanups made while diagnosing it still stand on their own merits — 213
+KB of unimported modules out of the upload, and one registry per library instead
+of two — and, as recorded at the time, neither fixed this.
+
+Verified afterwards: `make-server-3eae23a6` v664 deployed 15:25, which carries
+the bid-router authorisation fix from item 9 (`requireStaffForBidRouter` is
+present in the built `server-dist/index.tsx`), and an unauthenticated call to
+`/bid-router/ai-analyze` is refused with no provider contact in the body.
+
+### The original diagnosis, kept because the limits still apply
+
+## 0b. THE SERVER CANNOT BE DEPLOYED. READ THIS FIRST — 2026-10-16
 
 `supabase functions deploy make-server-3eae23a6` fails:
 
@@ -31,15 +68,25 @@ It is not a slow drift we can measure our way out of either: v659 deployed on
 
 ### The fix, and it needs a decision
 
-- [ ] **Install Docker Desktop**, then deploy with `--use-docker`. Checked
-      2026-10-16: Docker is not installed on this machine, so `--use-docker`
-      silently falls back to the API path and fails identically. This is the
-      recommended answer — it bundles locally, raises the ceiling to 20 MB, and
-      gives roughly four times the headroom instead of fighting for kilobytes.
-- [ ] Or get the server-side bundle under 5 MB, which now means removing live
-      code. The dead weight is already gone (see below) and it was not enough.
-      `index.tsx` is 1.3 MB of the remaining 4.47 MB and is the only lever of
-      that size left.
+As written at the time, both of these were wrong. Kept verbatim because the
+reasoning is the useful part — the second one in particular is how a correct
+measurement leads to a wrong conclusion.
+
+- [x] ~~**Install Docker Desktop**, then deploy with `--use-docker`. Docker is
+      not installed on this machine, so `--use-docker` silently falls back to
+      the API path and fails identically. This is the recommended answer — it
+      bundles locally, raises the ceiling to 20 MB, and gives roughly four times
+      the headroom instead of fighting for kilobytes.~~
+      **Not needed.** It would have worked for whoever had Docker running and
+      left the next person's deploy broken.
+- [x] ~~Or get the server-side bundle under 5 MB, which now means removing live
+      code. The dead weight is already gone and it was not enough. `index.tsx`
+      is 1.3 MB of the remaining 4.47 MB and is the only lever of that size
+      left.~~
+      **Done, by building rather than removing.** The measurement was right and
+      the conclusion was wrong: I had measured the source, when the number that
+      mattered was what the runtime needs. A third of that source is comments
+      the runtime never reads.
 
 Two things were done while diagnosing it. Both are worth keeping and **neither
 fixed the deploy**, which is worth saying plainly:
