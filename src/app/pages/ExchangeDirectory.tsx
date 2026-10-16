@@ -45,6 +45,7 @@ import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import ExchangeBizRow from '../components/exchange/ExchangeBizRow';
+import ExchangeSponsored from '../components/exchange/ExchangeSponsored';
 import { measureListings, RADIUS_CHOICES } from '../lib/exchangeGeo';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
@@ -608,6 +609,16 @@ export default function ExchangeDirectory() {
             </span>
           </a>
         </div>
+
+        {/*
+          A paying advertiser, below the doors and above the category tree.
+
+          Not in the listing flow, and never between a resident and the thing
+          they came for — the map, the search and the list are all above this.
+          It renders nothing at all unless something has been sold, so today it
+          is invisible.
+        */}
+        <ExchangeSponsored />
 
         {loading && (
           <div className="bpx-empty">

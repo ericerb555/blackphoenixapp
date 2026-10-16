@@ -268,6 +268,22 @@ export const BROWSE_CSS = `
 .bpxb-ours-line { font-size:13.5px; font-weight:650; line-height:1.45; }
 .bpxb-ours svg { flex-shrink:0; color:#fdba74; }
 
+/* ── a paying advertiser, which must never look like a listing ───────── */
+/* Deliberately NOT the card the directory uses. A resident should be able to
+   tell at a glance that this is a different kind of thing from the businesses
+   above it, and the surest way to fail at that is to reuse the listing card
+   and rely on a word to carry the difference. Different border, different
+   ground, an outward arrow, and the heading says "Advertisement" in plain
+   English. */
+.bpxb-ad { display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;
+  border:1px dashed var(--bpx-line-lit); border-radius:14px; padding:13px;
+  background:rgba(255,255,255,.025); transition:border-color .16s, background .16s; }
+.bpxb-ad:hover { border-color:rgba(234,88,12,.55); background:rgba(234,88,12,.05); }
+.bpxb-ad svg { flex-shrink:0; color:var(--bpx-faint); }
+.bpxb-ad-image { width:56px; height:56px; flex-shrink:0; border-radius:11px; overflow:hidden;
+  display:flex; align-items:center; justify-content:center; background:#fff; }
+.bpxb-ad-image img { max-width:100%; max-height:100%; object-fit:contain; }
+
 /* ── a logo, which only a claimed listing can have ───────────────── */
 /* A fixed frame rather than a loose image. Logos arrive as any aspect ratio a
    business happens to have, and a row of differently-shaped images reads as a

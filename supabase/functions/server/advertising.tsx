@@ -211,7 +211,18 @@ advertisingRouter.post("/advertising/creatives", async (c) => {
       imageUrl: await ourImageUrl(who.email, safeUrl(body.imageUrl ?? existing?.imageUrl)),
       // Where it is allowed to appear. `marquee` is the strip the platform
       // already renders on nineteen surfaces.
-      placement: ["marquee", "banner", "reel"].includes(String(body.placement)) ? body.placement : (existing?.placement || "marquee"),
+      /*
+       * `exchange` is its own inventory, not the marquee with a wider reach.
+       *
+       * The marquee runs across the portals and the store, where the audience
+       * is already a customer or a tenant. Phoenix Exchange is a public
+       * directory read by residents who came to find a local business, and an
+       * advertiser there is buying a different thing in front of different
+       * people. Keeping it a separate placement is what lets it be priced,
+       * counted and switched off on its own — and what stops a portal ad
+       * appearing on the Exchange because nobody thought about it.
+       */
+      placement: ["marquee", "banner", "reel", "exchange"].includes(String(body.placement)) ? body.placement : (existing?.placement || "marquee"),
       isActive: body.isActive === undefined ? (existing?.isActive ?? true) : Boolean(body.isActive),
       /**
        * Whether anybody but its author may see it yet.

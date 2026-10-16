@@ -411,6 +411,7 @@ export function AdvertiserMediaTab({ session, creatives, campaigns, adByCreative
                 <option value="marquee">Marquee strip</option>
                 <option value="banner">Banner</option>
                 <option value="reel">Reel</option>
+                <option value="exchange">Phoenix Exchange (residents)</option>
               </select>
             </label>
             <div className="sm:col-span-2">
