@@ -2,7 +2,7 @@
 --
 -- WHY THIS EXISTS
 --
--- This database has one scheduled job in it: `compliance-expiry-reminders`.
+-- Written when this database had one scheduled job in it, `compliance-expiry-reminders`.
 -- Everything "automatic" about the store is really advanced by somebody opening
 -- a page — fulfilment retries when an administrator loads the Orders screen,
 -- tracking by a button, the supplier catalogue when somebody remembers. So
@@ -17,10 +17,36 @@
 -- thing to rotate. A job can be switched off without touching this file, and
 -- this file can be unscheduled without editing any job.
 --
--- WHY .pending
+-- ALREADY RUNNING IN PRODUCTION. THIS FILE IS THE RECORD, NOT THE SWITCH.
 --
--- Named `.sql.pending` like the on-call and autopilot migrations, so a deploy
--- does NOT apply it. Rename to `.sql` to arm it, deliberately.
+-- Both jobs below have been live since 2026-10-03 — they were applied by hand,
+-- the way the rest of this history was written, and this file was never updated
+-- to match. Checked against `cron.job` on 2026-10-15: `store-cron-tick` every
+-- fifteen minutes and `store-watchdog` at seven past the hour, both succeeding.
+--
+-- It had drifted three ways, and arming it as it stood would have done real
+-- damage rather than nothing:
+--
+--   job name    the file said `store-tick`, production runs `store-cron-tick`,
+--               so `cron.unschedule` would have matched nothing and the
+--               `cron.schedule` below would have added a SECOND tick against
+--               /store/cron-tick alongside the live one
+--   schedule    the watchdog said `*/30 * * * *`, production runs `7 * * * *`
+--   timeout     neither job set `timeout_milliseconds`, and both live ones are
+--               at 30000
+--
+-- That last one is the dangerous one. `20261013150000_cron_jobs_explicit_timeout`
+-- exists because pg_net's default is five seconds and an on-call tick was
+-- missed to it; that migration skipped the store jobs precisely because they
+-- already had the timeout. Re-running this file would have taken it back off
+-- them. All three are now corrected to match what is live.
+--
+-- It keeps the `.pending` suffix, but the reason has changed: not "do not arm
+-- this yet" but "there is nothing left to arm". Renaming it is now harmless
+-- rather than harmful — unschedule-then-schedule with identical definitions —
+-- and that is the point of making it match. Do not reach for `supabase db push`
+-- to do it; see the note in `20261015120000_exchange_listing_logo.sql` for why
+-- that command is unsafe in this repository.
 --
 -- WHAT IT WILL DO ON THE FIRST DAY: NOTHING
 --
@@ -60,8 +86,8 @@ values (
 on conflict (key) do nothing;
 
 -- Unschedule first so re-running this is safe.
-select cron.unschedule('store-tick')
-where exists (select 1 from cron.job where jobname = 'store-tick');
+select cron.unschedule('store-cron-tick')
+where exists (select 1 from cron.job where jobname = 'store-cron-tick');
 
 -- Every fifteen minutes.
 --
@@ -73,7 +99,7 @@ where exists (select 1 from cron.job where jobname = 'store-tick');
 -- Fifteen minutes is close enough that a customer is told about their parcel
 -- within the hour, without asking the function to wake up constantly.
 select cron.schedule(
-  'store-tick',
+  'store-cron-tick',
   '*/15 * * * *',
   $$
   select net.http_post(
@@ -83,7 +109,8 @@ select cron.schedule(
       'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
       'X-Store-Cron-Secret', (select value from private_cron_config where key = 'store_cron_secret')
     ),
-    body    := '{}'::jsonb
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
   );
   $$
 );
@@ -92,14 +119,14 @@ select cron.schedule(
 --
 -- Everything above argues for one schedule rather than five, and this is the
 -- one exception. A watchdog inside the thing it watches is not a watchdog: if
--- `store-tick` stops firing, nothing inside it runs either, including any check
+-- `store-cron-tick` stops firing, nothing inside it runs either, including any check
 -- on whether it is running. So the staleness check has to be triggered by
 -- something else.
 --
 -- It is cheap and it cannot cause harm: it reads one record, compares a
 -- timestamp, and sends at most one email a day per state. It places no orders
--- and changes no prices. Half-hourly against a one-hour silence threshold means
--- a stopped clock is noticed inside ninety minutes.
+-- and changes no prices. Hourly against a one-hour silence threshold means
+-- a stopped clock is noticed within about two hours.
 --
 -- WHAT NEITHER OF THESE CAN CATCH
 --
@@ -115,7 +142,7 @@ where exists (select 1 from cron.job where jobname = 'store-watchdog');
 
 select cron.schedule(
   'store-watchdog',
-  '*/30 * * * *',
+  '7 * * * *',
   $$
   select net.http_post(
     url     := 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/store/watchdog',
@@ -124,7 +151,8 @@ select cron.schedule(
       'Authorization', 'Bearer ' || (select value from private_cron_config where key = 'anon_key'),
       'X-Store-Cron-Secret', (select value from private_cron_config where key = 'store_cron_secret')
     ),
-    body    := '{}'::jsonb
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
   );
   $$
 );
@@ -140,7 +168,7 @@ select cron.schedule(
 --
 -- TO STOP IT
 --
---     select cron.unschedule('store-tick');
+--     select cron.unschedule('store-cron-tick');
 --     select cron.unschedule('store-watchdog');
 --
 -- Stop the watchdog too, or it will correctly report that the clock has

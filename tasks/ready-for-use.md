@@ -125,9 +125,26 @@ tick caused by that default, and excluded the store jobs because they already
 had the timeout. So the file on disk is older than production, and the drift is
 in the direction that bites.
 
-- [ ] Either delete that file, or update it to match the live definitions
+- [x] Either delete that file, or update it to match the live definitions
       (timeouts included) so a rebuilt environment gets the same clock. Nothing
       in production needs it today.
+
+**Updated rather than deleted**, because the file is the only written account of
+why the store has a clock at all and what each job may and may not do. It had
+drifted three ways, and the first of those is worse than the timeout this entry
+originally reported:
+
+    job name    the file said `store-tick`; production runs `store-cron-tick`,
+                so its `cron.unschedule` would have matched nothing and its
+                `cron.schedule` would have added a SECOND tick against
+                /store/cron-tick beside the live one
+    schedule    the watchdog said `*/30 * * * *`; production runs `7 * * * *`
+    timeout     neither job set `timeout_milliseconds`; both live ones are 30000
+
+All three now match `cron.job` as read on 2026-10-15. It keeps the `.pending`
+suffix with the reason restated: not "do not arm this yet" but "there is nothing
+left to arm" — and renaming it is now harmless rather than harmful, which is the
+whole point of making it match.
 
 ---
 
