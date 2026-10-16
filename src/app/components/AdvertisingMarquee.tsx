@@ -1,7 +1,57 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { adFrequencyController } from '../utils/adFrequencyController';
+import { projectId, publicAnonKey } from '../utils/supabase/info';
+
+const AD_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/**
+ * WHERE THESE ADS COME FROM, AND WHERE THEY USED TO COME FROM
+ *
+ * They come from the server now. They used to come from `localStorage`, and
+ * the only thing that ever WROTE that key was this component's own click
+ * handler, incrementing a count on ads nobody could create. So every marquee
+ * on every portal has rendered nothing, for everybody, since it was built —
+ * while `advertising.tsx` kept campaigns, creatives, an approval queue and
+ * impression counters that nothing ever asked for, and the advertiser portal
+ * reported on figures nothing incremented.
+ *
+ * That is the entire change here. Nothing about how this looks has moved: the
+ * rotation, the dismissal, the scrolling variant and every class name are as
+ * they were, per the standing rule about not restyling the portals.
+ *
+ * THE TWO VOCABULARIES, WHICH ARE NOT THE SAME
+ *
+ * Callers say where they are — `portal-header`, `customer-portal`,
+ * `territory-portal`. The server sells four inventories: `marquee`, `banner`,
+ * `reel` and `exchange`. An advertiser buys "the marquee", which the server's
+ * own note calls "a marquee on nineteen surfaces" — so every portal position
+ * asks for that one, and a caller naming a real inventory gets it directly.
+ *
+ * This matters in the direction nobody would notice. Without the mapping,
+ * `serve?placement=portal-header` matches nothing, the marquee keeps rendering
+ * nothing, and it looks exactly like it did before — which is how this gets
+ * reported as connected when it is not.
+ */
+const SERVER_INVENTORY = ['marquee', 'banner', 'reel', 'exchange'];
+
+function inventoryFor(placement: string): string {
+  return SERVER_INVENTORY.includes(placement) ? placement : 'marquee';
+}
+
+/** Report what was shown or clicked. Never allowed to break the page. */
+function reportAdEvents(events: { creativeId: string; kind: 'impression' | 'click' }[]) {
+  if (!events.length) return;
+  void fetch(`${AD_API}/advertising/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
+    body: JSON.stringify({ events }),
+  }).catch(() => {
+    /* An uncounted impression is a far smaller problem than a portal that
+       throws while drawing its own header. */
+  });
+}
 
 interface Advertisement {
   id: string;
@@ -32,10 +82,14 @@ interface AdvertisingMarqueeProps {
 /**
  * Only http and https may become a link target.
  *
- * These ads are read from localStorage, so the server-side `safeUrl()` that
- * guards the advertising API never sees them. Without this check a stored
- * `javascript:` scheme reached `window.location.href` and executed — an
- * advertiser-supplied field running as the person viewing the page.
+ * The server sanitises these on the way in and again on the way out, so this
+ * is the third check rather than the only one. It stays because it is the last
+ * one before the value reaches a browser: without it a stored `javascript:`
+ * scheme reached `window.location.href` and executed — an advertiser-supplied
+ * field running as the person viewing the page.
+ *
+ * It also still guards a case the server cannot: anything already sitting in a
+ * viewer's open tab from before this component started asking the server.
  */
 function safeAdUrl(raw: unknown): string {
   const value = String(raw ?? '').trim();
@@ -57,12 +111,16 @@ export default function AdvertisingMarquee({
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
   const [isDismissed, setIsDismissed] = useState(false);
 
+  /** Creatives already counted, so rotation and refetching do not re-count. */
+  const counted = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    loadAdvertisements();
-    
+    void loadAdvertisements();
+
     // Reload ads every 30 seconds
-    const interval = setInterval(loadAdvertisements, 30000);
+    const interval = setInterval(() => { void loadAdvertisements(); }, 30000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placement]);
 
   useEffect(() => {
@@ -75,64 +133,64 @@ export default function AdvertisingMarquee({
     }
   }, [advertisements]);
 
-  const loadAdvertisements = () => {
+  const loadAdvertisements = useCallback(async () => {
     try {
-      const saved = localStorage.getItem('advertisements');
-      if (saved) {
-        const allAds: Advertisement[] = JSON.parse(saved);
-        
-        // Filter ads for this placement and check subscription/frequency limits
-        const relevantAds = allAds
-          .filter(ad => {
-            if (!ad.isActive || ad.type !== 'marquee') return false;
-            if (!ad.placement || !Array.isArray(ad.placement)) return false;
-            if (!ad.placement.includes(placement)) return false;
-            
-            // Check if ad can be displayed based on subscription
-            const { allowed } = adFrequencyController.canDisplayAd(ad.id);
-            if (!allowed) {
-              console.log(`Ad ${ad.id} (${ad.title}) blocked by frequency controller`);
-              return false;
-            }
-            
-            return true;
-          })
-          .sort((a, b) => b.priority - a.priority);
-        
-        setAdvertisements(relevantAds);
-        
-        // Track impressions
-        if (relevantAds.length > 0) {
-          relevantAds.forEach(ad => {
-            window.dispatchEvent(new CustomEvent('adImpression', {
-              detail: { adId: ad.id, placement }
-            }));
-          });
-        }
+      const res = await fetch(
+        `${AD_API}/advertising/serve?placement=${encodeURIComponent(inventoryFor(placement))}&limit=12`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success || !Array.isArray(body.ads)) return;
+
+      /*
+       * The server has already decided what is live: approved by an
+       * administrator, switched on by its author, and inside its campaign’s
+       * dates. What is left to decide here is the only thing the browser
+       * knows — how often this viewer has already been shown it.
+       */
+      const relevantAds: Advertisement[] = body.ads
+        .filter((ad: any) => adFrequencyController.canDisplayAd(String(ad?.id ?? '')).allowed)
+        .map((ad: any) => ({
+          id: String(ad.id),
+          type: 'marquee',
+          title: String(ad.title ?? ''),
+          content: String(ad.content ?? ''),
+          linkUrl: ad.linkUrl ?? undefined,
+          placement: [placement],
+          isActive: true,
+          priority: 0,
+        }));
+
+      setAdvertisements(relevantAds);
+
+      /*
+       * Two impressions, to two different counters, and both are wanted.
+       *
+       * The CustomEvent is what `adFrequencyController` listens for, and is how
+       * this viewer’s own frequency cap is kept. The server call is what the
+       * advertiser is billed and reported on. Dropping either one quietly
+       * breaks something a long way from here.
+       */
+      const fresh = relevantAds.filter((ad) => !counted.current.has(ad.id));
+      for (const ad of fresh) counted.current.add(ad.id);
+
+      for (const ad of relevantAds) {
+        window.dispatchEvent(new CustomEvent('adImpression', {
+          detail: { adId: ad.id, placement },
+        }));
       }
-    } catch (error) {
-      console.error('Error loading marquee advertisements:', error);
-      // Clear corrupted data
-      localStorage.removeItem('advertisements');
+      reportAdEvents(fresh.map((ad) => ({ creativeId: ad.id, kind: 'impression' as const })));
+    } catch {
+      /* A portal header is not the place to report that an advertisement could
+         not be fetched. It shows nothing, exactly as it did before. */
     }
-  };
+  }, [placement]);
 
   const handleAdClick = (ad: Advertisement) => {
-    // Track click
-    try {
-      const saved = localStorage.getItem('advertisements');
-      if (saved) {
-        const allAds: Advertisement[] = JSON.parse(saved);
-        const updatedAds = allAds.map(a => 
-          a.id === ad.id 
-            ? { ...a, clickCount: (a.clickCount || 0) + 1 }
-            : a
-        );
-        localStorage.setItem('advertisements', JSON.stringify(updatedAds));
-      }
-    } catch (error) {
-      console.error('Error tracking ad click:', error);
-    }
+    /* Counted where the advertiser can see it. This used to increment a number
+       inside this browser’s own localStorage, which nobody could ever read and
+       which was the only thing that ever wrote that key. */
+    reportAdEvents([{ creativeId: ad.id, kind: 'click' }]);
     
     // Navigate. Anything that is not http(s) is discarded rather than followed —
     // see safeAdUrl. A rejected link simply does nothing.
