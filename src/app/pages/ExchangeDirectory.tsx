@@ -35,7 +35,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Store, Loader2, AlertCircle, ChevronRight, MapPin, RefreshCw,
-  KeyRound, Bookmark, ArrowRight, Building2, X,
+  KeyRound, Bookmark, ArrowRight, Building2, X, Search,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
@@ -44,8 +44,15 @@ import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { useTowns, readTown, writeTown, townName } from '../lib/exchangeTowns';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
+import ExchangeBizRow from '../components/exchange/ExchangeBizRow';
+import { measureListings } from '../lib/exchangeGeo';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+
+/** How many businesses the list renders before asking. The map is unaffected:
+    it always holds every pin, because a map that only drew the first sixty
+    would be lying about the town. */
+const SHOW_AT_FIRST = 40;
 
 /** A business the map can draw. */
 interface Place {
@@ -89,6 +96,9 @@ export default function ExchangeDirectory() {
   const [mapLoading, setMapLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
+  const [find, setFind] = useState('');
+  /** How much of the list is rendered. The map always holds every pin. */
+  const [showing, setShowing] = useState(SHOW_AT_FIRST);
 
   /**
    * A session is used when there is one and never required. These pages are
@@ -158,6 +168,9 @@ export default function ExchangeDirectory() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadPlaces(); }, [loadPlaces]);
+  /* A new search starts at the top of the list rather than forty rows down
+     into the answer to the last one. */
+  useEffect(() => { setShowing(SHOW_AT_FIRST); }, [find, town]);
 
   const chooseTown = useCallback((slug: string) => {
     setTown(slug);
@@ -186,18 +199,34 @@ export default function ExchangeDirectory() {
     return map;
   }, [categories]);
 
-  /** The pins. Nothing is highlighted here: the front door has no search box,
-      and a map where everything is lit means nothing is. */
+  /*
+   * Matched in one pass, for the map and the list together.
+   *
+   * `null` as the point because the front door measures no distances — it asks
+   * for no location, so there is nowhere to measure from. What this is here for
+   * is `highlighted`, which is what makes a searched-for business bigger on the
+   * map and lit in the list.
+   */
+  const searching = find.trim().length > 0;
+  const measured = useMemo(
+    () => measureListings(places, null, find),
+    [places, find],
+  );
+  const hits = useMemo(
+    () => measured.filter((m) => m.highlighted).length,
+    [measured],
+  );
+
   const pins = useMemo<MapPinData[]>(
-    () => places.map((place) => ({
-      id: place.id,
-      name: place.name,
-      slug: place.slug,
-      claimed: place.claimed,
-      location: place.location,
-      highlighted: false,
+    () => measured.map(({ listing, highlighted }) => ({
+      id: listing.id,
+      name: listing.name,
+      slug: listing.slug,
+      claimed: listing.claimed,
+      location: listing.location,
+      highlighted,
     })),
-    [places],
+    [measured],
   );
 
   const chosen = useMemo(
@@ -309,6 +338,39 @@ export default function ExchangeDirectory() {
             </a>
           </div>
 
+          {/*
+            Searching makes a match BIGGER rather than hiding everything else.
+
+            That is the rule the whole map obeys and it is worth stating: a
+            category chip filters, a search highlights. Somebody who typed
+            "pizza" is still well served by noticing the bakery next door, and a
+            map of a town that quietly removed nine hundred businesses would be
+            a worse map than one that marked six.
+          */}
+          {!mapLoading && !mapError && places.length > 0 && (
+            <label className="bpxb-find-field">
+              <Search size={15} />
+              <input
+                type="search"
+                placeholder="Find a business by name or trade"
+                value={find}
+                maxLength={120}
+                onChange={(e) => setFind(e.target.value)}
+                aria-label="Find a business on the map"
+              />
+              {searching && (
+                <button
+                  type="button"
+                  className="bpxb-find-clear"
+                  onClick={() => setFind('')}
+                  aria-label="Clear the search"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </label>
+          )}
+
           {mapLoading && (
             <div className="bpxb-mapwait">
               <Loader2 size={22} className="animate-spin" color="#9ca3af" />
@@ -376,6 +438,52 @@ export default function ExchangeDirectory() {
             </div>
           )}
         </div>
+
+        {/*
+          The list under the map, which is the half of the answer a map cannot
+          give: a name you can read, a pill saying whether anybody stands
+          behind the listing, and a link into it.
+
+          Paged rather than truncated — the count says what is left, so a short
+          list never reads as the whole town.
+        */}
+        {!mapLoading && !mapError && measured.length > 0 && (
+          <>
+            <div className="bpxb-note">
+              {searching
+                ? hits === 0
+                  ? `Nothing here is called "${find.trim()}". The categories below search the whole directory, including businesses with no address to put on a map.`
+                  : `${hits} of ${measured.length} match "${find.trim()}" — bigger on the map, lit in the list.`
+                : `${measured.length} ${measured.length === 1 ? 'business' : 'businesses'}${town ? ` in ${townName(town, towns)}` : ''}.`}
+            </div>
+
+            <div className="bpx-list">
+              {measured.slice(0, showing).map(({ listing, highlighted }) => (
+                <ExchangeBizRow
+                  key={listing.id}
+                  listing={listing}
+                  hit={highlighted}
+                  searching={searching}
+                  chosen={listing.id === chosenId}
+                  onSelect={setChosenId}
+                />
+              ))}
+            </div>
+
+            {measured.length > showing && (
+              <button
+                className="bpx-btn"
+                onClick={() => setShowing((count) => count + SHOW_AT_FIRST)}
+              >
+                {/* "Show 10 more of 10" is what the old wording produced on a
+                    last page, which reads like a glitch. */}
+                {measured.length - showing > SHOW_AT_FIRST
+                  ? `Show ${SHOW_AT_FIRST} more of ${measured.length - showing}`
+                  : `Show the last ${measured.length - showing}`}
+              </button>
+            )}
+          </>
+        )}
 
         {/*
           The two doors this page has been missing.

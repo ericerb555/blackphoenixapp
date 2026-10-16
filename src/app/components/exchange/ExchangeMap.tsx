@@ -335,7 +335,21 @@ export default function ExchangeMap({
             // non-match stays visible but recedes. Dimming rather than hiding
             // is deliberate — see the note on the category page.
             'circle-color': ['case', ['get', 'hit'], ACCENT, QUIET],
-            'circle-radius': ['case', ['get', 'hit'], 9, ['get', 'claimed'], 7, 6],
+            /*
+             * A match is nearly twice the radius of everything else, which on
+             * a town holding 961 pins is the difference between spotting your
+             * answer and hunting for it. It was 9 against 6 — visible once you
+             * knew where to look, which is not the same thing.
+             *
+             * Zoom-aware, because a size that reads well across a whole town
+             * is lost once somebody has zoomed into one street.
+             */
+            'circle-radius': [
+              'interpolate', ['linear'], ['zoom'],
+              10, ['case', ['get', 'hit'], 9, ['get', 'claimed'], 5, 4],
+              14, ['case', ['get', 'hit'], 13, ['get', 'claimed'], 7, 6],
+              17, ['case', ['get', 'hit'], 17, ['get', 'claimed'], 10, 8],
+            ],
             /*
              * A claimed listing is not dimmed, even when it is not a match.
              * That is the whole visible reward for claiming on this surface:
@@ -346,8 +360,10 @@ export default function ExchangeMap({
              * that reads as solid rather than faint.
              */
             'circle-opacity': ['case', ['get', 'hit'], 1, ['get', 'claimed'], 1, 0.75],
-            'circle-stroke-width': ['case', ['get', 'hit'], 2.5, ['get', 'claimed'], 1.8, 1],
-            'circle-stroke-color': 'rgba(255,255,255,0.7)',
+            'circle-stroke-width': ['case', ['get', 'hit'], 3, ['get', 'claimed'], 1.8, 1],
+            // A white ring on a match, so it reads against the map as well as
+            // against the pins beside it.
+            'circle-stroke-color': ['case', ['get', 'hit'], '#ffffff', 'rgba(255,255,255,0.7)'],
           },
         });
 

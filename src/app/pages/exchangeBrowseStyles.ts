@@ -306,6 +306,10 @@ export const BROWSE_CSS = `
   border:1px solid rgba(234,88,12,.45); border-radius:18px; padding:16px;
   background:linear-gradient(135deg, rgba(234,88,12,.12), rgba(255,255,255,.015)); }
 .bpxb-maphead { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+/* The search field is written for a ROW (flex:1 1 220px, so it grows along a
+   toolbar). Dropped into this column, that 220px basis becomes a height and
+   leaves a gap the size of a paragraph above and below it. */
+.bpxb-mapwrap > .bpxb-find-field { flex:0 0 auto; }
 /* Every state the map can be in gets the same height, so the page does not
    jump as it loads, fails or fills. */
 .bpxb-mapwait { height:320px; border-radius:15px; display:flex; gap:10px;

@@ -71,6 +71,7 @@ import { measureListings, formatDistance, normalise } from '../lib/exchangeGeo';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
+import ExchangeBizRow, { listingHref } from '../components/exchange/ExchangeBizRow';
 
 const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
 
@@ -372,7 +373,6 @@ export default function ExchangePlaces() {
 
   useEffect(() => { setShowing(SHOW_AT_FIRST); }, [categoryId, query]);
 
-  const listingHref = (slug: string) => `/exchange-listing?slug=${encodeURIComponent(slug)}`;
   /* Where a business with no placeable address can still be read: the category
      tree lists everybody, while this map can only draw the ones it can place. */
   const categoryHref = (slug: string) => `/exchange-category?slug=${encodeURIComponent(slug)}`;
@@ -657,51 +657,15 @@ export default function ExchangePlaces() {
 
             <div className="bpx-list">
               {measured.slice(0, showing).map(({ listing, miles, highlighted }) => (
-                <div key={listing.id} className="bpx-card">
-                  <div
-                    className="bpx-card-body bpxb-biz"
-                    data-claimed={listing.claimed}
-                    data-hit={searching && highlighted}
-                    data-dim={searching && !highlighted}
-                    data-chosen={listing.id === chosenId}
-                    onClick={() => setChosenId(listing.id)}
-                  >
-                    <div className="bpxb-biz-top">
-                      {/* The logo beside the name, not instead of it. A row
-                          that led with an image would make the thousand
-                          listings without one look broken rather than plain. */}
-                      {listing.logo && (
-                        <div className="bpxb-logo-chip">
-                          <img src={listing.logo} alt="" />
-                        </div>
-                      )}
-                      <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-                        <a
-                          className="bpxb-biz-name"
-                          href={listingHref(listing.slug)}
-                          style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}
-                        >
-                          {listing.name}
-                        </a>
-                      </div>
-                      <div className="bpx-tags">
-                        {formatDistance(miles) && (
-                          <span className="bpxb-away">
-                            <MapPin size={11} /> {formatDistance(miles)}
-                          </span>
-                        )}
-                        <span className={`bpx-pill ${listing.claimed ? 'bpxb-pill-claimed' : 'bpxb-pill-listed'}`}>
-                          {listing.claimed ? 'Claimed' : 'Public record'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="bpxb-contact">
-                      <a href={listingHref(listing.slug)}>
-                        <Building2 size={13} /> Full listing
-                      </a>
-                    </div>
-                  </div>
-                </div>
+                <ExchangeBizRow
+                  key={listing.id}
+                  listing={listing}
+                  miles={miles}
+                  hit={highlighted}
+                  searching={searching}
+                  chosen={listing.id === chosenId}
+                  onSelect={setChosenId}
+                />
               ))}
             </div>
 
@@ -712,8 +676,11 @@ export default function ExchangePlaces() {
                 className="bpx-btn"
                 onClick={() => setShowing((n) => n + SHOW_AT_FIRST)}
               >
-                Show {Math.min(SHOW_AT_FIRST, measured.length - showing)} more
-                {' '}of {measured.length - showing}
+                {/* "Show 10 more of 10" is what the old wording produced on a
+                    last page, which reads like a glitch. */}
+                {measured.length - showing > SHOW_AT_FIRST
+                  ? `Show ${SHOW_AT_FIRST} more of ${measured.length - showing}`
+                  : `Show the last ${measured.length - showing}`}
               </button>
             )}
 
