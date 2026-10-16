@@ -31,31 +31,34 @@
 -- for a long time, which is the point: it is what makes a claimed listing look
 -- different from the 1,090 that are not.
 
--- NOBODY APPLIES THIS FOR YOU, SO HERE IS WHAT TO RUN
+-- APPLIED 2026-10-15. AND NOT WITH `db push` -- READ THIS BEFORE THE NEXT ONE.
 --
--- There is no CI in this repository and `deploy.md` documents exactly one
--- command, `supabase functions deploy make-server-3eae23a6`, which applies no
--- migrations at all. So this file does nothing until somebody runs it:
+-- `supabase db push` is NOT safe in this repository, and that is worth knowing
+-- before somebody reaches for it. The remote migration history records 44
+-- migrations whose VERSION NUMBERS do not match the filenames here: they were
+-- applied through the management API, which stamps its own version at apply
+-- time. Only three of the forty-three local files line up.
 --
---   supabase db push --project-ref plzsvzwwcdopnawtiwzm
+--   exchange_follow_and_deals   local 20261013160000   remote 20261013151118
+--   exchange_retail_section     local 20261012120000   remote 20261012191642
 --
--- It is not named `.sql.pending` because it is not being held back — the
--- on-call, autopilot and store-clock migrations carry that suffix because
--- arming them starts something running, and this starts nothing.
+-- So `db push` sees about forty local migrations as unapplied and offers to
+-- run them all again -- taxonomy seeds and backfills included. This one was
+-- therefore applied on its own, the same way the rest of the history was
+-- written, and verified by reading the columns back out of
+-- information_schema afterwards.
 --
--- THE SERVING CODE DOES NOT DEPEND ON IT, DELIBERATELY
+-- There is no CI here and `deploy.md` documents one command,
+-- `supabase functions deploy`, which applies no migrations at all. Nothing
+-- applies a migration on its own; a person does, deliberately, one at a time.
 --
--- Since the two steps are separate and manual, either can happen first and the
--- gap between them can be long. `exchangeDirectory.tsx` therefore asks for
--- these columns and falls back to asking without them if the database has never
--- heard of them — `looksLikeMissingLogoColumn` in `exchangeLogo.ts`, which has
--- tests. The reason is proportion: a logo not appearing is a disappointment,
--- while a hard dependency would have made a missing migration into a 500 on
--- every listing in the directory.
+-- THE SERVING CODE STILL DOES NOT DEPEND ON IT
 --
--- Until this runs, then: everything works as it does today and no logo can be
--- uploaded, because `/exchange/business/logo` is the one place that does need
--- the columns and says so.
+-- `exchangeDirectory.tsx` asks for these columns and falls back to asking
+-- without them if the database has never heard of them, which is what kept the
+-- directory up during the gap between the frontend shipping and this running.
+-- That stays: it costs one query per cold start in a state that no longer
+-- happens, and it is what makes the two deploys independent.
 --
 -- WHAT IT DOES, SO THE DECISION IS AN INFORMED ONE
 --
@@ -72,6 +75,23 @@
 -- exactly as today. The first change a resident could notice needs a business
 -- to claim a listing, upload an image, and a member of staff to approve it.
 
+do $$ begin
+  create type public.exchange_logo_state as enum
+    ('none','submitted','approved','rejected');
+exception when duplicate_object then null; end $$;
+
+alter table public.organizations
+  add column if not exists logo_path          text,
+  add column if not exists logo_state         public.exchange_logo_state not null default 'none',
+  add column if not exists logo_submitted_at  timestamptz,
+  add column if not exists logo_decided_at    timestamptz,
+  add column if not exists logo_decided_by    text,
+  add column if not exists logo_reject_reason text;
+
+-- A state that claims to be anything but 'none' has to have an image behind it.
+-- Without this a bug that wrote the state and lost the path would publish an
+-- approved logo that does not exist, which renders as a broken image on a
+-- business's own listing -- worse than no logo at all.
 do $$ begin
   alter table public.organizations
     add constraint organizations_logo_path_present
