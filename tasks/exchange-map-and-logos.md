@@ -221,21 +221,36 @@ thing shown have to be the same thing. Otherwise approval is bypassed by anybody
 willing to submit something inoffensive and swap it afterwards. The business
 side says so before they upload, because finding out later would feel like a bug.
 
-### The migration, and a correction to what I first said about it
+### The migration, and two wrong things I said about it
 
-I first wrote that the migration was "written but not applied, and Eric's to
-authorise". That was wrong, and the repo's own convention is what showed it: a
-`.sql` migration is applied by a deploy, and `.sql.pending` is the name for one
-that is deliberately held back. Mine was named `.sql` while being described as
-unapplied, which is the one combination that means nothing.
+**First I said** it was "written but not applied, and Eric's to authorise" while
+naming it `.sql` — and `.sql.pending` is this repo's name for one deliberately
+held back. Named and described inconsistently, which is the one combination that
+means nothing.
 
-Holding it back is the unsafe option here, not the cautious one. The serving
-code shipped with it SELECTs the new columns on the **public** listing and map
-routes, so an unapplied migration would not leave the logo feature inert — it
-would answer 500 on every listing in the directory. So it stays armed, and the
-file now carries that reasoning in its own header.
+**Then I said** a `.sql` migration is applied by a deploy. Also wrong, and worse,
+because it sounded reassuring. There is no CI here, and `deploy.md` documents
+exactly one command — `supabase functions deploy make-server-3eae23a6` — which
+applies no migrations at all. **Nothing applies migrations automatically. A
+person runs `supabase db push`.**
 
-What it actually does is additive and dull: six nullable columns and one enum
+That matters because it makes the two steps independent and manual, in either
+order, with an arbitrary gap between them. So the fix was not to argue about
+which should go first:
+
+**The serving code no longer depends on the migration.** `exchangeDirectory.tsx`
+asks for the logo columns and falls back to asking without them if the database
+has never heard of them, remembering the answer per isolate —
+`looksLikeMissingLogoColumn`, which has tests, including one asserting that an
+unrelated missing column is *not* swallowed as "no logo yet". A logo not
+appearing is a disappointment; a hard dependency would have made a missing
+migration into a 500 on every listing in the directory.
+
+So the order genuinely stops mattering. Until somebody runs `db push`,
+everything works as it does today and no logo can be uploaded — the upload route
+is the one place that does need the columns, and it says so.
+
+What the migration does is additive and dull: six nullable columns and one enum
 type, no existing column altered, no row rewritten, a NOT NULL default that
 Postgres records as metadata rather than a table rewrite, a check constraint
 every existing row already satisfies, and a partial index on a condition no row

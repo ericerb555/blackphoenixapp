@@ -31,14 +31,31 @@
 -- for a long time, which is the point: it is what makes a claimed listing look
 -- different from the 1,090 that are not.
 
--- WHY THIS IS NOT .pending, UNLIKE THE SCHEDULING MIGRATIONS
+-- NOBODY APPLIES THIS FOR YOU, SO HERE IS WHAT TO RUN
 --
--- The on-call, autopilot and store-clock migrations are held back as
--- `.sql.pending` because arming them starts something running. This one is the
--- opposite case: the serving code shipped alongside it SELECTS these columns,
--- including on the public listing and map routes. Held back, it would not merely
--- leave the logo feature inert — it would take the whole directory down with a
--- 500 on every listing. There is no version of "later" that is safer.
+-- There is no CI in this repository and `deploy.md` documents exactly one
+-- command, `supabase functions deploy make-server-3eae23a6`, which applies no
+-- migrations at all. So this file does nothing until somebody runs it:
+--
+--   supabase db push --project-ref plzsvzwwcdopnawtiwzm
+--
+-- It is not named `.sql.pending` because it is not being held back — the
+-- on-call, autopilot and store-clock migrations carry that suffix because
+-- arming them starts something running, and this starts nothing.
+--
+-- THE SERVING CODE DOES NOT DEPEND ON IT, DELIBERATELY
+--
+-- Since the two steps are separate and manual, either can happen first and the
+-- gap between them can be long. `exchangeDirectory.tsx` therefore asks for
+-- these columns and falls back to asking without them if the database has never
+-- heard of them — `looksLikeMissingLogoColumn` in `exchangeLogo.ts`, which has
+-- tests. The reason is proportion: a logo not appearing is a disappointment,
+-- while a hard dependency would have made a missing migration into a 500 on
+-- every listing in the directory.
+--
+-- Until this runs, then: everything works as it does today and no logo can be
+-- uploaded, because `/exchange/business/logo` is the one place that does need
+-- the columns and says so.
 --
 -- WHAT IT DOES, SO THE DECISION IS AN INFORMED ONE
 --

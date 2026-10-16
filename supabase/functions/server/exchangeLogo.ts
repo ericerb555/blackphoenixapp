@@ -177,6 +177,47 @@ export function publicLogoUrl(
   return logoObjectUrl(row!.logo_path, (row as any).logo_submitted_at, supabaseUrl);
 }
 
+/**
+ * The logo columns, as a select list.
+ *
+ * Separate from the rest of a listing on purpose — see
+ * `looksLikeMissingLogoColumn` directly below for why a caller needs to be able
+ * to leave them out.
+ */
+export const LOGO_SELECT_COLUMNS = "logo_path, logo_state, logo_submitted_at";
+
+/**
+ * Did this query fail because the logo migration has not been run?
+ *
+ * WHY THIS HAS TO EXIST AT ALL
+ *
+ * Deploys here are manual and the function is deployed on its own:
+ * `deploy.md` documents one command, `supabase functions deploy`, and nothing
+ * in it applies a migration. So the serving code can perfectly well be live
+ * against a database that has not had `20261015120000_exchange_listing_logo`
+ * applied yet — whichever order somebody happens to do the two steps in.
+ *
+ * A hard dependency on those columns would turn a missing migration into a 500
+ * on every listing in the directory, which is a far worse outcome than a logo
+ * not showing. So the public routes ask for the logo, and fall back to asking
+ * without it if the database says it has never heard of it.
+ *
+ * Matched on the column name as well as the code, so an unrelated 42703 — a
+ * typo in some other select — is not quietly swallowed as "no logo yet".
+ */
+export function looksLikeMissingLogoColumn(error: unknown): boolean {
+  if (!error) return false;
+  const e = error as { code?: unknown; message?: unknown };
+  const code = String(e.code ?? "");
+  const message = String(e.message ?? error).toLowerCase();
+  // 42703 is Postgres’ undefined_column. PostgREST passes it straight through.
+  const undefinedColumn = code === "42703" || message.includes("does not exist");
+  if (!undefinedColumn) return false;
+  return message.includes("logo_path")
+    || message.includes("logo_state")
+    || message.includes("logo_submitted_at");
+}
+
 /** What an owner is told their logo is doing. */
 export function phraseLogoState(state: unknown, reason?: unknown): string {
   switch (String(state ?? "")) {

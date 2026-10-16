@@ -16,6 +16,7 @@ import {
   logoIsPublic, businessMayMove, staffMayMove, logoObjectPath,
   refuseLogo, phraseLogoState, MAX_LOGO_BYTES, PUBLISHED_STATE,
   publicLogoUrl, logoObjectUrl,
+  looksLikeMissingLogoColumn, LOGO_SELECT_COLUMNS,
 } from '../supabase/functions/server/exchangeLogo.ts';
 import { sniffImage } from '../supabase/functions/server/imageSniff.ts';
 
@@ -231,4 +232,51 @@ test('no path and no project url produce nothing rather than a broken address', 
   assert.equal(logoObjectUrl('', '2026-10-15T12:00:00.000Z', 'https://p.supabase.co'), null);
   assert.equal(logoObjectUrl('exchange-logos/a.png', null, ''), null);
   assert.equal(logoObjectUrl(null, null, null), null);
+});
+
+// ── surviving a migration that has not been run ────────────────────────────
+
+test('a missing logo column is recognised, by code or by message', () => {
+  /*
+   * Deploys here are manual and the function deploys on its own — deploy.md
+   * documents `supabase functions deploy` and nothing in it applies a
+   * migration. So this code can be live against a database without these
+   * columns, and the directory must not go down because a logo cannot be
+   * found. These are the shapes PostgREST actually returns.
+   */
+  assert.ok(looksLikeMissingLogoColumn({
+    code: '42703',
+    message: 'column organizations.logo_path does not exist',
+  }));
+  assert.ok(looksLikeMissingLogoColumn({
+    message: 'column organizations.logo_state does not exist',
+  }));
+  assert.ok(looksLikeMissingLogoColumn({
+    code: '42703',
+    message: 'column organizations.logo_submitted_at does not exist',
+  }));
+});
+
+test('an unrelated missing column is not swallowed as "no logo yet"', () => {
+  // A typo in some other select must surface as the error it is, not quietly
+  // turn into a listing served without its logo for the rest of the isolate.
+  assert.ok(!looksLikeMissingLogoColumn({
+    code: '42703',
+    message: 'column organizations.phonee does not exist',
+  }));
+});
+
+test('an ordinary failure is not mistaken for a missing column', () => {
+  assert.ok(!looksLikeMissingLogoColumn({ code: '57014', message: 'canceling statement due to statement timeout' }));
+  assert.ok(!looksLikeMissingLogoColumn({ message: 'FetchError: network timeout' }));
+  assert.ok(!looksLikeMissingLogoColumn(null));
+  assert.ok(!looksLikeMissingLogoColumn(undefined));
+});
+
+test('the logo columns name exactly what logoIsPublic and the url need', () => {
+  // If these drift apart, the fallback query succeeds and every logo silently
+  // stops appearing — the worst kind of failure, because nothing errors.
+  for (const column of ['logo_path', 'logo_state', 'logo_submitted_at']) {
+    assert.ok(LOGO_SELECT_COLUMNS.includes(column), `${column} must be selected`);
+  }
 });

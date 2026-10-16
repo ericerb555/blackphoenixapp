@@ -31,7 +31,9 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { recordLead, recordDemand } from "./exchangeLedger.ts";
-import { publicLogoUrl } from "./exchangeLogo.ts";
+import {
+  publicLogoUrl, LOGO_SELECT_COLUMNS, looksLikeMissingLogoColumn,
+} from "./exchangeLogo.ts";
 
 export const exchangeDirectory = new Hono();
 
@@ -133,10 +135,61 @@ const PUBLIC_LISTING_COLUMNS = [
   "service_lat", "service_lng", "service_radius_miles",
   "verification_state", "claim_state", "listing_source",
   "license_state", "license_expires_at", "insurance_expires_at",
-  // A logo is the one piece of branding a listing may carry, and it only
-  // exists on a listing somebody claimed and a person then looked at.
-  "logo_path", "logo_state", "logo_submitted_at",
 ].join(", ");
+
+/**
+ * WHETHER THE LOGO COLUMNS ARE IN THE DATABASE YET.
+ *
+ * Deploys here are manual and the function is deployed on its own: deploy.md
+ * documents one command, `supabase functions deploy`, and nothing in it applies
+ * a migration. So this code can perfectly well be live against a database that
+ * has not had `20261015120000_exchange_listing_logo` applied — whichever order
+ * somebody happens to do the two steps in, and for however long sits between.
+ *
+ * A hard dependency would turn a missing migration into a 500 on EVERY LISTING
+ * in the directory. A logo not appearing is a disappointment; the directory
+ * being down is the product being down, and the second must not be a
+ * consequence of the first.
+ *
+ * So: ask for the logo, and if the database says it has never heard of those
+ * columns, remember that and ask without them. One wasted query per isolate
+ * while the migration is outstanding, and nothing wasted once it is applied.
+ * `null` means not yet known.
+ */
+let logoColumnsExist: boolean | null = null;
+
+/** The listing columns, with the logo if this database has it. */
+function listingColumns(): string {
+  return logoColumnsExist === false
+    ? PUBLIC_LISTING_COLUMNS
+    : `${PUBLIC_LISTING_COLUMNS}, ${LOGO_SELECT_COLUMNS}`;
+}
+
+/**
+ * Run a listing query, and run it again without the logo if that is what the
+ * database objected to.
+ *
+ * The callback takes the column list rather than the query, because a Supabase
+ * query builder cannot have its select changed after the fact.
+ */
+async function selectingListings(
+  // `any` to match `must` above: PostgREST row shapes are not typed here, and
+  // a generic would only move the cast to every call site.
+  run: (columns: string) => Promise<{ data: any; error: any }>,
+): Promise<{ data: any; error: any }> {
+  const asked = listingColumns();
+  const first = await run(asked);
+
+  if (!first.error) {
+    // Only proof of presence if we actually asked for them.
+    if (asked !== PUBLIC_LISTING_COLUMNS) logoColumnsExist = true;
+    return first;
+  }
+  if (!looksLikeMissingLogoColumn(first.error)) return first;
+
+  logoColumnsExist = false;
+  return run(PUBLIC_LISTING_COLUMNS);
+}
 
 /**
  * What a listing looks like to a visitor.
@@ -289,21 +342,35 @@ exchangeDirectory.get("/exchange/nearby", async (c) => {
     const embeds = ["organization_category!inner ( category_id )"];
     if (territory) embeds.push("organization_territory!inner ( territory_slug )");
 
-    let query = sb.from("organizations")
-      .select([
-        "id, slug, name, type, status, claim_state, service_lat, service_lng",
-        // The logo, which is the only thing that makes a claimed pin look
-        // different from the 1,090 that are not claimed.
-        "logo_path, logo_state, logo_submitted_at",
-        ...embeds,
-      ].join(", "))
-      .not("service_lat", "is", null)
-      .not("service_lng", "is", null)
-      .limit(NEARBY_LIMIT);
+    /* The same tolerance as the listing routes above, for the same reason: the
+       map must not go down because a migration has not been run yet. */
+    const MAP_COLUMNS = "id, slug, name, type, status, claim_state, service_lat, service_lng";
+    const rows = must(
+      await (async () => {
+        const run = (columns: string) => {
+          let query = sb.from("organizations")
+            .select([columns, ...embeds].join(", "))
+            .not("service_lat", "is", null)
+            .not("service_lng", "is", null)
+            .limit(NEARBY_LIMIT);
+          if (territory) query = query.eq("organization_territory.territory_slug", territory);
+          return query;
+        };
 
-    if (territory) query = query.eq("organization_territory.territory_slug", territory);
-
-    const rows = must(await query, "reading the businesses here") as any[];
+        const asked = logoColumnsExist === false
+          ? MAP_COLUMNS
+          : `${MAP_COLUMNS}, ${LOGO_SELECT_COLUMNS}`;
+        const first = await run(asked);
+        if (!first.error) {
+          if (asked !== MAP_COLUMNS) logoColumnsExist = true;
+          return first;
+        }
+        if (!looksLikeMissingLogoColumn(first.error)) return first;
+        logoColumnsExist = false;
+        return run(MAP_COLUMNS);
+      })(),
+      "reading the businesses here",
+    ) as any[];
 
     // An inner join on categories multiplies a business by its categories, so
     // the same listing arrives more than once. Collapsed here, keeping every
@@ -467,12 +534,12 @@ exchangeDirectory.get("/exchange/listing/:slug", async (c) => {
     const sb = service();
     const slug = c.req.param("slug");
 
-    const { data: row, error } = await sb
+    const { data: row, error } = await selectingListings((columns) => sb
       .from("organizations")
-      .select(PUBLIC_LISTING_COLUMNS)
+      .select(columns)
       .eq("slug", slug)
       .eq("status", "active")
-      .maybeSingle();
+      .maybeSingle());
 
     if (error) throw error;
     if (!row) return c.json({ success: false, error: "No such listing." }, 404);
@@ -704,16 +771,20 @@ exchangeDirectory.get("/exchange/category/:slug", async (c) => {
     const embeds = [`organization_category!inner ( category_id )`];
     if (territory) embeds.push(`organization_territory!inner ( territory_slug )`);
 
-    let query = sb
-      .from("organizations")
-      .select([PUBLIC_LISTING_COLUMNS, ...embeds].join(", "))
-      .eq("organization_category.category_id", holdingId);
+    const rows = must(
+      await selectingListings((columns) => {
+        let query = sb
+          .from("organizations")
+          .select([columns, ...embeds].join(", "))
+          .eq("organization_category.category_id", holdingId);
 
-    if (territory) {
-      query = query.eq("organization_territory.territory_slug", territory);
-    }
-
-    const rows = must(await query, "organizations") ?? [];
+        if (territory) {
+          query = query.eq("organization_territory.territory_slug", territory);
+        }
+        return query as any;
+      }),
+      "organizations",
+    ) ?? [];
 
     /**
      * Deduplicated by id, because a join can repeat a parent.
