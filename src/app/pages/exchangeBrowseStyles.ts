@@ -82,6 +82,10 @@ export const BROWSE_CSS = `
   background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
   font-size:14px; outline:none; }
 .bpxb-find-field input:focus { border-color:rgba(234,88,12,.55); }
+/* type="search" brings its own clear button in WebKit, which sat beside ours.
+   Two crosses in one field is a puzzle rather than a convenience, and the
+   native one ignores everything this app does about focus and colour. */
+.bpxb-find-field input[type="search"]::-webkit-search-cancel-button { display:none; }
 .bpxb-find-clear { position:absolute; right:7px; width:28px; height:28px; border-radius:9px;
   display:inline-flex; align-items:center; justify-content:center; border:0;
   background:transparent; color:var(--bpx-dim); cursor:pointer; }
