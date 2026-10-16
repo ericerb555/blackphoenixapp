@@ -74,6 +74,18 @@ whatever build happens to be lying there. If the build ever reports it is
 still over the limit, stripping comments has stopped being enough and the
 function needs splitting into two — the script says so and exits non-zero.
 
+**In a WORKING clone it does exactly the quiet thing instead**, and that is
+where deploys actually happen. Proved on 2026-10-16, hours after the build was
+introduced: a bare `supabase functions deploy` of a one-line fix printed
+`Deployed Functions`, uploaded the build already sitting in `server-dist`, and
+the fix was not live. Nothing failed. The only tell was `server-dist` in the
+upload log, and it cost two deploys and a round of debugging the wrong thing.
+
+So if you have just edited `supabase/functions/server/` and your change is not
+live, check this before anything else — and prefer `npm run deploy:server`
+even when you are sure the build is current, because being sure is the state
+in which this is missed.
+
 ### Do NOT pass `--no-verify-jwt`
 
 This file used to tell you to, and that was wrong. `supabase/config.toml` sets
