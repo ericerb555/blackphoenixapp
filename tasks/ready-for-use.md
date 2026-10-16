@@ -75,9 +75,9 @@ service.
 
 ---
 
-## 3. Twenty-one digital products are on sale with nothing to deliver
+## 3. Twenty-one digital products are on sale with nothing to deliver — FIXED
 
-Verified in production today:
+Scanned 2026-10-04:
 
     marketplace_product rows      21
     with a file attached           0
@@ -88,8 +88,56 @@ proof — ratings of 4.8 to 4.9 with review counts, against one store order in t
 entire system. The same fabricated-data pattern was already stripped out of the
 sponsors, payroll and cohort screens.
 
-- [ ] Attach a file to each product, or take the ones with no file off sale.
-- [ ] Remove the invented ratings and review counts.
+- [x] Attach a file to each product, or take the ones with no file off sale.
+- [x] Remove the invented ratings and review counts.
+
+**Both done, and the first was answered better than this item asked.** Re-checked
+against production on 2026-10-15, and two of the three numbers above no longer
+describe anything:
+
+    marketplace_product rows      21
+    with a file attached           0      (unchanged)
+    with a rating above zero       0      every row is rating 0, reviews 0
+    on sale to the public          0      filtered, not hidden
+
+Nothing was sold off by hand. `marketplaceProductIsDeliverable` in
+`marketplace.tsx` asks whether a product can actually be handed to somebody who
+pays, and it gates **both** the public catalogue (`marketplace.tsx:296`) and the
+checkout (`index.tsx:7019`) — so a product with no file is unbuyable and
+unlistable without anybody remembering to flip a flag, and it becomes buyable the
+moment a file is attached. `storeWatchJob.ts:68` reports on the set. That is
+strictly better than ticking `visible: false` twenty-one times, which the next
+seed would have undone.
+
+Worth recording that `deliveryMethod: "generated"` counts as undeliverable on
+purpose: three of the 21 claim a report is produced on purchase and there is no
+generator behind them. The claim does not deliver the file, the code does.
+
+The ratings were already zeroed in the data. What was still live was the
+**latent** version, and that is what this session removed:
+
+- `DEFAULT_PRODUCTS` in `MarketplaceAdmin.tsx` still carried all 21 invented
+  pairs — 4.6 to 4.9 stars, up to 321 reviews. The data was clean only until
+  somebody called `POST /marketplace/products/seed`, which would have written
+  every one of them straight back.
+- A brand-new product in the admin form started at `rating: 5.0`, so the first
+  thing a product ever claimed about itself was five stars.
+- Three fallbacks invented a rating where none existed: `product.rating ?? 4.5`
+  and `r.rating ?? 4.5` in `StoreProductDetail.tsx`, and
+  `parseFloat(r.rating) || 4.8` in `PropertyMarketplace.tsx` — that last one
+  turning a legitimate rating of 0 into 4.8, because 0 is falsy.
+- `StoreProductDetail.tsx` drew its star row unconditionally, so a product with
+  no rating showed gold stars beside the words "0 reviews". It is now guarded on
+  a real review count, which is the rule the other three surfaces already had.
+
+The admin catalogue's star column is now "No file attached" or "N files
+attached" — the fact that actually decides whether the product can be sold.
+
+`StoreReviews.tsx` states the governing rule and states it in capitals: there
+are no seed reviews and there must not be. Product ratings are the same claim one
+layer up. There is no server-side review store to derive an honest aggregate
+from — reviews live in `localStorage` per browser — so until there is, a product
+rating can only be fabricated, and the fields are gone rather than defaulted.
 
 ---
 

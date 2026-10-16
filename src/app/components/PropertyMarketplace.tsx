@@ -36,7 +36,7 @@ interface Product {
   originalPrice?: number; // for sale items
   pricingModel: PricingModel;
   audience: string[];
-  rating: number;
+  rating?: number;
   reviews: number;
   icon: any;
   color: string;
@@ -415,7 +415,10 @@ export default function PropertyMarketplace() {
                 originalPrice: r.original_price,
                 pricingModel: (r.pricing_model || 'one_time') as PricingModel,
                 audience: r.audience || [],
-                rating: parseFloat(r.rating) || 4.8,
+                // Was `|| 4.8`, which handed a 4.8 to any product the row had no
+                // rating for. The displays below already refuse to draw stars
+                // without a review count behind them, so absent is correct.
+                rating: Number.isFinite(parseFloat(r.rating)) ? parseFloat(r.rating) : undefined,
                 reviews: r.reviews || 0,
                 icon: fallback?.icon || BookOpen,
                 color: r.color || fallback?.color || 'text-orange-400',
@@ -488,7 +491,9 @@ export default function PropertyMarketplace() {
       if (sortBy === 'popular') return (b.popular ? 1 : 0) - (a.popular ? 1 : 0) || b.reviews - a.reviews;
       if (sortBy === 'price_asc') return a.price - b.price;
       if (sortBy === 'price_desc') return b.price - a.price;
-      if (sortBy === 'rating') return b.rating - a.rating;
+      // An unrated product sorts last rather than being treated as a zero-star
+      // one — there is a difference between "nobody rated it" and "rated badly".
+      if (sortBy === 'rating') return (b.rating ?? -1) - (a.rating ?? -1);
       return 0;
     });
   }, [products, search, catFilter, sortBy]);

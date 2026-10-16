@@ -74,7 +74,19 @@ export default function StoreProductDetail({
   const [color, setColor] = useState('');
   const [qty, setQty] = useState(1);
 
-  const rating = product.rating ?? 4.5;
+  /*
+   * NO DEFAULT RATING. A PRODUCT NOBODY HAS REVIEWED HAS NO STARS.
+   *
+   * These were `product.rating ?? 4.5` and `product.reviews ?? 0`, and the
+   * block below drew them unconditionally — so a product with no rating at all
+   * rendered four and a half gold stars beside the words "0 reviews". The
+   * fallback invented the number and the layout then presented it as measured.
+   *
+   * Same rule as the seeded reviews in `StoreReviews.tsx` and the seeded
+   * ratings in the digital catalogue: social proof is shown when it exists and
+   * not otherwise.
+   */
+  const rating = product.rating;
   const reviews = product.reviews ?? 0;
   const inStock = product.inStock !== false;
   const discount = product.originalPrice && product.originalPrice > product.price
@@ -137,12 +149,14 @@ export default function StoreProductDetail({
 
               <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight mb-2">{product.name}</h1>
 
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex">{[1, 2, 3, 4, 5].map(s => (
-                  <Star key={s} className={`w-4 h-4 ${s <= Math.round(rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-700'}`} />
-                ))}</div>
-                <span className="text-xs text-gray-400">{rating.toFixed(1)} · {reviews.toLocaleString()} review{reviews === 1 ? '' : 's'}</span>
-              </div>
+              {reviews > 0 && rating != null && (
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="flex">{[1, 2, 3, 4, 5].map(s => (
+                    <Star key={s} className={`w-4 h-4 ${s <= Math.round(rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-700'}`} />
+                  ))}</div>
+                  <span className="text-xs text-gray-400">{rating.toFixed(1)} · {reviews.toLocaleString()} review{reviews === 1 ? '' : 's'}</span>
+                </div>
+              )}
 
               <div className="flex items-end gap-3 mb-1">
                 <span className="text-4xl font-black text-white">${product.price.toFixed(2)}</span>
@@ -292,11 +306,16 @@ export default function StoreProductDetail({
                     </div>
                     <div className="p-3">
                       <p className="text-xs font-bold text-white line-clamp-2 leading-snug mb-1">{r.name}</p>
-                      <div className="flex items-center gap-1 mb-1">
-                        {[1, 2, 3, 4, 5].map(s => (
-                          <Star key={s} className={`w-2.5 h-2.5 ${s <= Math.round(r.rating ?? 4.5) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-800'}`} />
-                        ))}
-                      </div>
+                      {/* Was `r.rating ?? 4.5`, which gave every related
+                          product four and a half stars whether or not anybody
+                          had rated it. */}
+                      {r.rating != null && (
+                        <div className="flex items-center gap-1 mb-1">
+                          {[1, 2, 3, 4, 5].map(s => (
+                            <Star key={s} className={`w-2.5 h-2.5 ${s <= Math.round(r.rating!) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-800'}`} />
+                          ))}
+                        </div>
+                      )}
                       <span className="text-sm font-black" style={{ color: '#fb923c' }}>${r.price.toFixed(2)}</span>
                     </div>
                   </button>

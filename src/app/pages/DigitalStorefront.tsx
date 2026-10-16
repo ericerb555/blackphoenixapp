@@ -39,8 +39,11 @@ interface Product {
   originalPrice?: number;
   pricingModel: 'one_time' | 'subscription';
   audience: string[];
-  rating: number;
-  reviews: number;
+  // Optional because the catalogue no longer carries either. The guards below
+  // already refused to draw stars without a review behind them; now there is
+  // nothing to draw. They stay for the day a real review exists.
+  rating?: number;
+  reviews?: number;
   color: string;
   badge?: string;
   nhRelevant: boolean;

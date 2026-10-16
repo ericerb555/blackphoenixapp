@@ -91,8 +91,6 @@ interface AdminProduct {
   originalPrice?: number;
   pricingModel: PricingModel;
   audience: string[];
-  rating: number;
-  reviews: number;
   color: string;
   badge?: string;
   nhRelevant: boolean;
@@ -130,7 +128,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'NH Landlord Operations Manual', subtitle: 'The complete legal and operational guide for NH landlords',
     description: 'A professionally authored 85-page guide covering every aspect of NH landlord operations — from RSA 540 compliance and tenant screening to lease drafting, habitability standards, and the eviction process.',
     features: ['RSA 540 and RSA 540-A compliance guide', 'NH-specific tenant screening framework', 'Sample lease clauses (NH-compliant)', 'Security deposit rules and timelines', 'Step-by-step eviction process flowchart', 'Habitability standards checklist', 'Vendor contract guidance'],
-    price: 2900, audience: ['Landlords', 'Property Managers'], rating: 4.9, reviews: 142,
+    price: 2900, audience: ['Landlords', 'Property Managers'],
     color: 'text-teal-400', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'EPUB'], pages: 85, visible: true, sortOrder: 1,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -140,7 +138,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Condo Board Governance Handbook', subtitle: 'Run your NH association with legal confidence',
     description: 'A 72-page guide for NH condo and HOA board members. Covers RSA 356-B in detail, board meeting procedures, fiduciary duties, budget governance, reserve funds, vendor contracts, and owner communication.',
     features: ['RSA 356-B plain-English guide', 'Board meeting agenda and minute templates', 'Fiduciary duty explained', 'Special assessment procedures', 'Reserve fund adequacy framework', 'Vendor contract red flags', 'Owner dispute resolution'],
-    price: 2400, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'], rating: 4.8, reviews: 98,
+    price: 2400, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'],
     color: 'text-violet-400', nhRelevant: true, popular: true,
     fileTypes: ['PDF'], pages: 72, visible: true, sortOrder: 2,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -150,7 +148,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'First-Time Homeowner Complete Guide', subtitle: 'Your first year of ownership — done right',
     description: 'Everything a new NH homeowner needs to know — from day one orientation to seasonal maintenance, building systems, emergency preparedness, and smart budgeting.',
     features: ['First 30-day orientation checklist', 'NH seasonal maintenance calendar', 'Building systems life expectancy chart', 'Emergency preparedness plan template', 'Annual budget worksheet', 'Eversource NH rebate guide', 'Contractor hiring checklist'],
-    price: 1400, audience: ['Homeowners', 'First-Time Buyers'], rating: 4.7, reviews: 215,
+    price: 1400, audience: ['Homeowners', 'First-Time Buyers'],
     color: 'text-blue-400', nhRelevant: true,
     fileTypes: ['PDF', 'EPUB'], pages: 58, visible: true, sortOrder: 3,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -160,7 +158,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Capital Planning for Property Managers', subtitle: 'Forecast, fund, and execute large capital projects',
     description: 'A technical 45-page guide to 10-year capital planning for multi-family and commercial properties. Covers reserve study interpretation, funding models, project financing, and special assessment management.',
     features: ['Reserve study interpretation guide', 'Straight-line vs. percent-funded models', 'Financing vs. special assessment analysis', 'NH CDFA financing overview', 'Project bidding and contractor selection', '10-year capital planning spreadsheet', 'Owner communication templates'],
-    price: 3400, audience: ['Property Managers', 'Condo Boards', 'Commercial Owners'], rating: 4.8, reviews: 67,
+    price: 3400, audience: ['Property Managers', 'Condo Boards', 'Commercial Owners'],
     color: 'text-orange-400', nhRelevant: true,
     fileTypes: ['PDF', 'XLSX'], pages: 45, visible: true, sortOrder: 4,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -170,7 +168,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'DIY Home Repair Encyclopedia', subtitle: 'Fix it yourself — safely and correctly',
     description: 'An illustrated 120-page guide to the most common home repairs. Covers plumbing basics, electrical safety, drywall, painting, weatherproofing, and NH-specific winterization.',
     features: ['100+ repair procedures with photos', 'NH winterization deep-dive', 'When to DIY vs. hire a pro', 'Tools required for each repair', 'Material cost estimates', 'Safety checklist per category', 'Eversource NH weatherization rebates'],
-    price: 2900, audience: ['Homeowners', 'DIY Enthusiasts'], rating: 4.6, reviews: 189,
+    price: 2900, audience: ['Homeowners', 'DIY Enthusiasts'],
     color: 'text-amber-400', nhRelevant: true,
     fileTypes: ['PDF'], pages: 120, visible: true, sortOrder: 5,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -180,7 +178,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'NH Lease Agreement Template Pack', subtitle: 'NH lease templates drafted to RSA 540 — for attorney review before use',
     description: 'A comprehensive template pack with three NH lease agreement formats: standard 12-month lease, month-to-month lease, and room rental agreement. All reviewed for RSA 540 compliance.',
     features: ['Standard 12-month lease (RSA 540-compliant)', 'Month-to-month lease agreement', 'Room rental agreement', 'Pet addendum (NH law)', 'Move-in inspection checklist addendum', 'Security deposit receipt', 'Lead paint disclosure', 'Editable Word and PDF formats'],
-    price: 4900, audience: ['Landlords'], rating: 4.9, reviews: 321,
+    price: 4900, audience: ['Landlords'],
     color: 'text-green-400', nhRelevant: true, popular: true,
     fileTypes: ['DOCX', 'PDF'], visible: true, sortOrder: 6,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -190,7 +188,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Property Inspection Report Template', subtitle: 'Document every unit condition with professional precision',
     description: 'A comprehensive move-in/move-out inspection template with room-by-room checklists, condition ratings, photo attachment slots, and signature fields.',
     features: ['Room-by-room condition checklist (16 areas)', 'Numerical condition rating system', 'Photo documentation log', 'Dual-party signature section', 'Damage cost estimation worksheet', 'NH RSA 540-A compliance notes', 'Fillable PDF and Word formats'],
-    price: 1900, audience: ['Landlords', 'Property Managers'], rating: 4.8, reviews: 178,
+    price: 1900, audience: ['Landlords', 'Property Managers'],
     color: 'text-indigo-400', nhRelevant: true,
     fileTypes: ['PDF', 'DOCX'], visible: true, sortOrder: 7,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -200,7 +198,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Vendor Contract Template Pack', subtitle: 'Professional contracts for every property service',
     description: 'Five vendor contract templates for the most common property services: HVAC, landscaping/snow removal, cleaning, general handyman, and management agreement.',
     features: ['HVAC maintenance agreement', 'Landscaping and snow removal contract', 'Cleaning services agreement', 'General handyman contract', 'Property management agreement', 'Certificate of insurance checklist', 'NH contractor license verification guide'],
-    price: 5900, audience: ['Property Managers', 'Condo Boards', 'Landlords'], rating: 4.7, reviews: 94,
+    price: 5900, audience: ['Property Managers', 'Condo Boards', 'Landlords'],
     color: 'text-amber-400', nhRelevant: true,
     fileTypes: ['DOCX', 'PDF'], visible: true, sortOrder: 8,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -210,7 +208,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Board Meeting Package', subtitle: 'Everything your association needs to run meetings professionally',
     description: 'A complete meeting package for condo and HOA boards: agenda template, minutes template, action item tracker, owner notification letter, proxy form, and annual meeting package.',
     features: ['Board meeting agenda template', 'Meeting minutes template (RSA 356-B compliant)', 'Action item tracker spreadsheet', 'Owner notification letter templates', 'Proxy voting form', 'Annual meeting package', 'Executive session documentation guide'],
-    price: 2400, audience: ['Condo Boards', 'HOA Boards'], rating: 4.8, reviews: 112,
+    price: 2400, audience: ['Condo Boards', 'HOA Boards'],
     color: 'text-violet-400', nhRelevant: true,
     fileTypes: ['DOCX', 'XLSX', 'PDF'], visible: true, sortOrder: 9,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -220,7 +218,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Property ROI Calculator', subtitle: 'Analyze any investment in minutes',
     description: 'An interactive Excel-based calculator that models cash-on-cash return, cap rate, net operating income, debt service coverage, and 10-year equity growth for any residential or commercial property.',
     features: ['Cash-on-cash return model', 'Cap rate and NOI calculator', 'Mortgage amortization table', 'Vacancy and expense scenario modeling', '10-year equity projection', 'Comparison tool for multiple properties', 'NH-specific tax rate inputs'],
-    price: 3900, audience: ['Real Estate Investors', 'Landlords', 'Commercial Owners'], rating: 4.9, reviews: 267,
+    price: 3900, audience: ['Real Estate Investors', 'Landlords', 'Commercial Owners'],
     color: 'text-lime-400', badge: 'INTERACTIVE', nhRelevant: true, popular: true,
     fileTypes: ['XLSX'], visible: true, sortOrder: 10,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -230,7 +228,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Reserve Fund Adequacy Calculator', subtitle: 'Know exactly where your reserve fund stands',
     description: 'A spreadsheet calculator that inventories capital components, calculates current funding percentage, and projects future funding under different contribution scenarios.',
     features: ['Component inventory worksheet (50 line items)', 'Current percent-funded score', '3 funding scenario models', 'Annual contribution optimizer', 'Special assessment probability estimator', '10-year projection chart', 'Board presentation chart pack'],
-    price: 2900, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'], rating: 4.8, reviews: 83,
+    price: 2900, audience: ['Condo Boards', 'HOA Boards', 'Property Managers'],
     color: 'text-orange-400', nhRelevant: true,
     fileTypes: ['XLSX'], visible: true, sortOrder: 11,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -240,7 +238,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'EV Charging Revenue Calculator', subtitle: 'Model your EV charging ROI with Eversource NH rebates',
     description: 'Calculate the exact ROI on EV charging station installation — accounting for Eversource NH rebates (up to $500/port), installation costs, usage rates, and annual revenue projections.',
     features: ['Eversource NH rebate calculator', 'Installation cost estimator', 'Revenue projection by port count', 'Payback period analysis', 'Pricing strategy comparison', 'NH net metering integration model', 'Residential vs. commercial comparison'],
-    price: 1900, audience: ['Condo Boards', 'Property Managers', 'Commercial Owners'], rating: 4.7, reviews: 45,
+    price: 1900, audience: ['Condo Boards', 'Property Managers', 'Commercial Owners'],
     color: 'text-emerald-400', nhRelevant: true,
     fileTypes: ['XLSX'], visible: true, sortOrder: 12,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -250,7 +248,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'Rental Pricing Optimizer', subtitle: 'Set the right rent for every unit',
     description: 'A market-driven rental pricing model that factors in comparable rents, vacancy sensitivity, seasonal adjustment, and unit-level features to recommend the optimal rent for each unit.',
     features: ['Comparable rent analysis framework', 'Vacancy rate sensitivity model', 'Seasonal pricing adjustment table', 'Unit feature value matrix', 'Optimal rent recommendation engine', 'Revenue maximization scenario planner', 'NH market benchmark data (2026)'],
-    price: 2400, audience: ['Landlords', 'Property Managers'], rating: 4.6, reviews: 61,
+    price: 2400, audience: ['Landlords', 'Property Managers'],
     color: 'text-cyan-400', nhRelevant: true,
     fileTypes: ['XLSX'], visible: true, sortOrder: 13,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -260,7 +258,7 @@ const DEFAULT_PRODUCTS: AdminProduct[] = [
     title: 'AI Property Health Report', subtitle: 'A personalized property assessment powered by AI',
     description: 'Submit your property details and receive a 12-page AI-generated health assessment covering maintenance status, risk flags, capital needs, and a 90-day action plan specific to your property type and NH climate.',
     features: ['AI-generated maintenance health score', 'System-by-system risk assessment', '90-day action plan', 'Estimated capital needs (1-3 year horizon)', 'NH seasonal risk flags', 'Vendor recommendation list', 'Executive summary PDF'],
-    price: 7900, audience: ['Homeowners', 'Landlords', 'Property Managers'], rating: 4.9, reviews: 38,
+    price: 7900, audience: ['Homeowners', 'Landlords', 'Property Managers'],
     color: 'text-violet-400', badge: 'AI-POWERED', nhRelevant: true, popular: true,
 fileTypes: ['PDF'], visible: true, sortOrder: 14,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -270,7 +268,7 @@ fileTypes: ['PDF'], visible: true, sortOrder: 14,
     title: 'Revenue Opportunity Analysis', subtitle: 'Uncover hidden revenue in your property portfolio',
     description: 'A data-driven AI report identifying underperforming assets, pricing gaps, and revenue opportunities across your portfolio — including ADU potential, EV charging, storage, and laundry.',
     features: ['Portfolio revenue gap analysis', 'Rent optimization recommendations', 'ADU feasibility assessment', 'Ancillary revenue opportunities', 'EV charging revenue model', 'Expense reduction targets', '12-month revenue growth roadmap'],
-    price: 9900, audience: ['Landlords', 'Property Managers', 'Real Estate Investors'], rating: 4.8, reviews: 29,
+    price: 9900, audience: ['Landlords', 'Property Managers', 'Real Estate Investors'],
     color: 'text-emerald-400', badge: 'AI-POWERED', nhRelevant: true,
 fileTypes: ['PDF'], visible: true, sortOrder: 15,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -280,7 +278,7 @@ fileTypes: ['PDF'], visible: true, sortOrder: 15,
     title: 'AI 10-Year Capital Plan', subtitle: 'Your complete capital roadmap built by AI',
     description: 'A custom 10-year capital plan generated from your property inventory — modeling component lifespans, replacement costs, funding scenarios, and annual contribution schedules.',
     features: ['Full component lifecycle model', 'Annual contribution schedule', '3 funding scenario comparison', 'Special assessment risk score', 'NH contractor cost benchmarks', 'Reserve fund growth projections', 'Board-ready presentation deck'],
-    price: 12900, audience: ['Condo Boards', 'Property Managers', 'HOA Boards'], rating: 4.9, reviews: 17,
+    price: 12900, audience: ['Condo Boards', 'Property Managers', 'HOA Boards'],
     color: 'text-orange-400', badge: 'AI-POWERED', nhRelevant: true,
 fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -290,7 +288,7 @@ fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     title: 'NH Winter Prep Package', subtitle: 'Get your property ready for New Hampshire winters',
     description: 'A complete NH winter preparation kit: 47-item winterization checklist, vendor call scheduling template, emergency contact log, and a storm response protocol designed for NH\'s freeze-thaw climate.',
     features: ['47-item winterization checklist', 'System-by-system prep guide', 'Vendor call scheduling template', 'Emergency contact log', 'Storm response protocol', 'Pipe freeze prevention guide', 'Eversource weatherization rebate checklist'],
-    price: 3400, audience: ['Homeowners', 'Landlords', 'Property Managers'], rating: 4.8, reviews: 156,
+    price: 3400, audience: ['Homeowners', 'Landlords', 'Property Managers'],
     color: 'text-blue-400', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'DOCX'], visible: true, sortOrder: 17,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -300,7 +298,7 @@ fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     title: 'Annual Maintenance Planner', subtitle: '12-month property maintenance calendar',
     description: 'A complete 12-month property maintenance planning kit with month-by-month checklists, vendor scheduling templates, budget tracking worksheets, and NH-specific seasonal timelines.',
     features: ['12-month maintenance calendar', 'Month-by-month task checklists', 'Vendor scheduling template', 'Maintenance budget tracker', 'System inspection schedules', 'NH seasonal timeline guide', 'Annual review worksheet'],
-    price: 2400, audience: ['Homeowners', 'Landlords', 'Condo Boards'], rating: 4.7, reviews: 203,
+    price: 2400, audience: ['Homeowners', 'Landlords', 'Condo Boards'],
     color: 'text-green-400', nhRelevant: true,
     fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 18,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -310,7 +308,7 @@ fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     title: 'Landlord Starter Bundle', subtitle: 'Everything a new NH landlord needs — one price',
     description: 'The essential bundle for new NH landlords: NH Landlord Operations Manual + NH Lease Agreement Pack + Property Inspection Report Template. Saves $121 vs. buying separately.',
     features: ['NH Landlord Operations Manual (85 pages)', 'NH Lease Agreement Pack (3 leases + addenda)', 'Property Inspection Report Template', 'NH RSA 540 compliance guide included', 'Editable Word and PDF formats', 'Instant download', '30-day satisfaction guarantee'],
-    price: 8900, originalPrice: 21000, audience: ['Landlords', 'First-Time Landlords'], rating: 4.9, reviews: 74,
+    price: 8900, originalPrice: 21000, audience: ['Landlords', 'First-Time Landlords'],
     color: 'text-orange-400', badge: 'SAVE $121', nhRelevant: true, popular: true,
     fileTypes: ['PDF', 'DOCX', 'EPUB'], visible: true, sortOrder: 19,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -320,7 +318,7 @@ fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     title: 'Condo Board Complete Bundle', subtitle: 'The full governance toolkit for NH condo boards',
     description: 'Everything a condo board needs to operate professionally: Condo Board Governance Handbook + Board Meeting Package + Reserve Fund Adequacy Calculator. Saves $55 vs. buying separately.',
     features: ['Condo Board Governance Handbook (72 pages)', 'Board Meeting Package (6 templates)', 'Reserve Fund Adequacy Calculator (Excel)', 'RSA 356-B compliance guide', 'Instant download', '30-day satisfaction guarantee'],
-    price: 14900, originalPrice: 17700, audience: ['Condo Boards', 'HOA Boards'], rating: 4.8, reviews: 41,
+    price: 14900, originalPrice: 17700, audience: ['Condo Boards', 'HOA Boards'],
     color: 'text-violet-400', badge: 'SAVE $28', nhRelevant: true,
     fileTypes: ['PDF', 'DOCX', 'XLSX', 'EPUB'], visible: true, sortOrder: 20,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -330,7 +328,7 @@ fileTypes: ['PDF', 'XLSX'], visible: true, sortOrder: 16,
     title: 'Property Manager Pro Bundle', subtitle: 'The complete toolkit for professional property managers',
     description: 'The ultimate bundle for property managers: Capital Planning Guide + Vendor Contract Pack + Property ROI Calculator + Annual Maintenance Planner. Saves $100 vs. buying separately.',
     features: ['Capital Planning for Property Managers (45 pages)', 'Vendor Contract Template Pack (5 contracts)', 'Property ROI Calculator (Excel)', 'Annual Maintenance Planner (12-month)', 'NH CDFA financing overview included', 'Instant download', '30-day satisfaction guarantee'],
-    price: 19900, originalPrice: 29700, audience: ['Property Managers', 'Commercial Owners'], rating: 4.9, reviews: 33,
+    price: 19900, originalPrice: 29700, audience: ['Property Managers', 'Commercial Owners'],
     color: 'text-orange-400', badge: 'SAVE $100', nhRelevant: true,
     fileTypes: ['PDF', 'DOCX', 'XLSX'], visible: true, sortOrder: 21,
     createdAt: '2026-01-01', updatedAt: '2026-07-01',
@@ -366,8 +364,6 @@ function newProduct(): AdminProduct {
     price: 2900,
     pricingModel: 'one_time',
     audience: [''],
-    rating: 5.0,
-    reviews: 0,
     color: 'text-blue-400',
     nhRelevant: true,
     fileTypes: ['PDF'],
@@ -1192,9 +1188,6 @@ export default function MarketplaceAdmin() {
                     <span className={`text-xs ${meta.color}`}>{meta.label}</span>
                     <span className="text-xs text-gray-500">{p.fileTypes.join(', ')}</span>
                     {p.pages && <span className="text-xs text-gray-500">{p.pages}pp</span>}
-                    <span className="text-xs text-gray-500 flex items-center gap-1">
-                      <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" /> {p.rating} ({p.reviews})
-                    </span>
                   </div>
                 </div>
 
@@ -1258,10 +1251,17 @@ export default function MarketplaceAdmin() {
                 </div>
                 <p className="text-xs text-gray-400 line-clamp-2">{p.subtitle}</p>
                 <div className="flex items-center justify-between pt-1 border-t border-[#2A2A2A]">
-                  <div className="flex items-center gap-1">
-                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                    <span className="text-xs text-gray-400">{p.rating} · {p.reviews} reviews</span>
-                  </div>
+                  {/* Was a star rating and a review count, both invented. This
+                      is the fact that actually decides whether this product can
+                      be sold: a `download` product with nothing attached is a
+                      sale somebody has to fulfil by hand. */}
+                  {(p.files?.length ?? 0) > 0 ? (
+                    <span className="text-xs text-gray-400">
+                      {p.files!.length} file{p.files!.length === 1 ? '' : 's'} attached
+                    </span>
+                  ) : (
+                    <span className="text-xs text-amber-400/90">No file attached</span>
+                  )}
                   <div className="flex gap-1">
                     <button onClick={() => toggleVisible(p.id)}
                       className={`p-1.5 rounded-lg transition ${p.visible ? 'text-green-400' : 'text-gray-500'}`}>
