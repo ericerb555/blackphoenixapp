@@ -30,6 +30,7 @@ import { exchangeTerritoryRoutes } from "./exchangeTerritoryRoutes.tsx";
 import { exchangeAssistantRoutes } from "./exchangeAssistantRoutes.tsx";
 import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
 import { queryPerfRoutes } from "./queryPerfRoutes.tsx";
+import { companyLogoRoutes } from "./companyLogoRoutes.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
@@ -1278,6 +1279,11 @@ app.route("/make-server-3eae23a6", exchangeLogoRoutes);
  * tables and columns across the whole system, which is a map of the schema.
  */
 app.route("/make-server-3eae23a6", queryPerfRoutes);
+/**
+ * Moving a company's logos out of its row and into storage. Owner or staff;
+ * never public, because it rewrites what a business shows as its own mark.
+ */
+app.route("/make-server-3eae23a6", companyLogoRoutes);
 // Routes carry the full prefix themselves, so this mounts at the root.
 app.route("/", returnsRouter);
 app.route("/", shippingLabelsRouter);

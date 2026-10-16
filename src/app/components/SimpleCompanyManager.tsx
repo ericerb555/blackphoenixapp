@@ -16,6 +16,8 @@ import { useActiveCompany } from '../contexts/ActiveCompanyContext';
 import { BrandingService } from '../lib/services/brandingService';
 import { CompanyDatabaseService, Company as DBCompany } from '../lib/services/companyDatabaseService';
 import { EnhancedCompanyForm } from './EnhancedCompanyForm';
+import { supabase } from '../lib/supabase';
+import { projectId } from '../utils/supabase/info';
 
 interface Company {
   id: string;
@@ -586,6 +588,40 @@ export default function SimpleCompanyManager() {
       }
 
       console.log('✅ [Logo Save] Database save successful!');
+
+      /*
+       * Move whatever base64 just landed in the row out into storage.
+       *
+       * The file picker reads a logo with `readAsDataURL`, so saving puts the
+       * whole image into the `companies` row as text — two companies came to
+       * 695 kB that way, and the list query shipped it to a browser 2,525
+       * times before the slow query log noticed.
+       *
+       * The sweep replaces each base64 column with a link to the stored file.
+       * Nothing downstream changes: every consumer renders these with
+       * `<img src>`, and a browser treats a URL and a data URL identically
+       * there. Best effort on purpose — a logo that stays base64 is slow, and
+       * a save that failed because of a follow-up step is lost work.
+       */
+      void (async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) return;
+          await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/company/logos/store`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ companyId: companyData.id }),
+            },
+          );
+        } catch {
+          /* see above: never allowed to fail the save */
+        }
+      })();
       console.log('✅ [Logo Save] Logos in saved data returned from database:');
       console.log('   logo_primary:', data.logo_primary ? `${(data.logo_primary.length / 1024).toFixed(2)} KB` : 'NOT SET');
       console.log('   logo_secondary:', data.logo_secondary ? `${(data.logo_secondary.length / 1024).toFixed(2)} KB` : 'NOT SET');
