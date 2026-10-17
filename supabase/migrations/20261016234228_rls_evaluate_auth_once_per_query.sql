@@ -82,6 +82,14 @@
 -- exercised, so a rewrite that quietly dropped one would show up as a probe
 -- returning nothing rather than as nobody noticing.
 
+-- FILENAME NOTE
+--
+-- Applied through the management API, which stamps its own version from the
+-- clock rather than from the filename. It recorded 20261016234228, so this
+-- file is named to match: a file whose name disagrees with the history table
+-- shows up as unapplied in `supabase migration list` for ever, and the next
+-- person reasonably concludes it never ran and runs it again.
+
 begin;
 
 -- ── companies ────────────────────────────────────────────────────────────
