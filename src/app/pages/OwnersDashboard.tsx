@@ -59,7 +59,6 @@ import CompanyBrandingCenter from '../components/CompanyBrandingCenter';
 import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
-import PlanTierAdmin from '../components/PlanTierAdmin';
 import PricingAttentionBanner from '../components/PricingAttentionBanner';
 import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
@@ -778,7 +777,29 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             us. One screen, because those three questions are always asked
             together and answering one without the others is misleading. */}
         {activeTab === 'messages' && <Messaging />}
-        {activeTab === 'plans' && <PlanTierAdmin />}
+        {/*
+          The plan editor moved to Cohort Management, where the catalogue view
+          sits beside it — Eric asked for one place to read and change pricing,
+          and two places is what he was objecting to. A pointer rather than a
+          silent removal, because this tab is where it has always been.
+        */}
+        {activeTab === 'plans' && (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
+            <DollarSign className="w-7 h-7 text-[#ea580c] mx-auto mb-3" />
+            <div className="text-white font-semibold text-lg">Pricing has moved</div>
+            <p className="text-zinc-400 text-sm mt-2 max-w-md mx-auto">
+              Plans, add-ons and their Stripe prices are now edited in Cohort
+              Management, alongside a catalogue view that says what can actually
+              be bought and what is blocked.
+            </p>
+            <button
+              onClick={() => (onNavigate ? onNavigate('cohort-management') : (window.location.href = '/cohort-management'))}
+              className="mt-4 px-4 py-2 rounded-lg bg-[#ea580c] hover:bg-[#f97316] text-white text-sm font-medium"
+            >
+              Open pricing
+            </button>
+          </div>
+        )}
         {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
 
         {/*

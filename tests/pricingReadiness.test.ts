@@ -1,28 +1,35 @@
 /**
- * Whether a plan can actually be bought.
+ * Whether a plan can actually be bought, for a screen.
  *
- * The fixtures here are not invented. They are the two states that were live
- * in production on 2026-10-17 and that no screen reported:
+ * The fixtures are not invented. They are states that were live in production
+ * on 2026-10-17 and that no screen reported:
  *
  *   plan_tier:content:studio   superseded 2026-09-29, note says do not
  *                              reactivate, priced 19900, no Stripe price
  *   plan_addon:vendor:content-studio
  *                              active:false, priced 19900, a Stripe TEST
  *                              price and no live price
- *   plan_tier:vendor:preferred active, live Stripe price — the one shape that
- *                              does work, kept here so a change that breaks
- *                              sellability fails loudly
+ *   plan_tier:vendor:preferred active, live Stripe price — the shape that does
+ *                              work, kept so a change breaking sellability
+ *                              fails loudly
  *
- * A predicate about whether money can be charged is exactly the code that
- * looks obviously right and has a hole in it, so both the refusals and the
- * acceptances are asserted.
+ * THE MOST IMPORTANT TEST IN HERE
+ *
+ * `agrees with isPurchasable`. This module delegates to `planTier.ts` rather
+ * than deciding for itself, because the first version of it did decide for
+ * itself and the two already disagreed about `active: undefined`. A screen and
+ * a checkout disagreeing about whether a plan is on sale surfaces as a
+ * customer complaint, not as a failing test — so it is pinned here as one.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  readinessOf, priceIdFor, hasAmount, isSuperseded, summarise,
+  readinessOf, hasBandedPrice, isSuperseded, summarise,
   type SellableRecord,
 } from '../supabase/functions/server/pricingReadiness.ts';
+// `priceIdFor` comes from its owner: it returns '' for absent, where this
+// module reports null, and the two spellings must not be confused.
+import { isPurchasable, priceIdFor } from '../supabase/functions/server/planTier.ts';
 
 /* ── the real records ─────────────────────────────────────────────────── */
 
@@ -32,8 +39,6 @@ const SUPERSEDED_TIER: SellableRecord = {
   active: false,
   priceCents: 19900,
   interval: 'month',
-  stripePriceId: null,
-  stripePriceIdTest: null,
   supersededNote: 'Superseded 2026-09-29. … Do not reactivate.',
   supersededByAddOn: 'content-studio',
 };
@@ -44,18 +49,15 @@ const TEST_PRICED_ADDON: SellableRecord = {
   active: false,
   priceCents: 19900,
   interval: 'month',
-  stripePriceId: null,
   stripePriceIdTest: 'price_1ULBAwEufRAAXCAlC79v6Pdw',
 };
 
 const UNPRICED_ADDON: SellableRecord = {
-  id: 'content-studio',
-  name: 'Content Centre — Studio',
-  active: false,
-  priceCents: 19900,
+  id: 'content-solo',
+  name: 'Content Centre — Solo',
+  active: true,
+  priceCents: 7900,
   interval: 'month',
-  stripePriceId: null,
-  stripePriceIdTest: null,
 };
 
 const SELLABLE_TIER: SellableRecord = {
@@ -67,6 +69,42 @@ const SELLABLE_TIER: SellableRecord = {
   stripePriceId: 'price_1UIIbNEufRAAXCAlB6titwyx',
 };
 
+/* ── the one that must never drift ────────────────────────────────────── */
+
+test('agrees with isPurchasable on every non-superseded, non-banded record', () => {
+  const records: SellableRecord[] = [
+    SELLABLE_TIER,
+    TEST_PRICED_ADDON,
+    UNPRICED_ADDON,
+    { active: true, priceCents: 9900, stripePriceId: 'p', interval: 'month' },
+    { active: false, priceCents: 9900, stripePriceId: 'p', interval: 'month' },
+    { active: true, priceCents: 0, stripePriceId: 'p', interval: 'month' },
+    { active: true, priceCents: 9900, interval: 'month' },
+    // The case the two versions actually disagreed about. `isPurchasable`
+    // grandfathers a missing `active`; the standalone copy called it switched
+    // off. Whatever the answer is, both must give the same one.
+    { priceCents: 9900, stripePriceId: 'p', interval: 'month' },
+    {},
+  ];
+
+  for (const mode of ['live', 'test'] as const) {
+    for (const record of records) {
+      assert.equal(
+        readinessOf(record, mode).sellable,
+        isPurchasable(record, mode),
+        `disagreed in ${mode} mode on ${JSON.stringify(record)}`,
+      );
+    }
+  }
+});
+
+test('a missing active field is sellable, matching the grandfathering upstream', () => {
+  // Pinned explicitly, because this is the behaviour the duplicate got wrong.
+  const grandfathered: SellableRecord = { priceCents: 9900, stripePriceId: 'p', interval: 'month' };
+  assert.equal(isPurchasable(grandfathered, 'live'), true);
+  assert.equal(readinessOf(grandfathered, 'live').sellable, true);
+});
+
 /* ── the shape that works ─────────────────────────────────────────────── */
 
 test('an active tier with a live price is sellable, with no complaints', () => {
@@ -77,15 +115,17 @@ test('an active tier with a live price is sellable, with no complaints', () => {
   assert.equal(verdict.priceId, 'price_1UIIbNEufRAAXCAlB6titwyx');
 });
 
-test('the same tier is NOT sellable in test mode, because it has no test price', () => {
-  // The two modes are separate answers. Conflating them is how a rehearsal
-  // ends up charging somebody real money.
+test('the same tier is not sellable in test mode, and the reason names the mode', () => {
+  // The two Stripe worlds are separate answers; conflating them is how a
+  // rehearsal charges somebody real money.
   const verdict = readinessOf(SELLABLE_TIER, 'test');
   assert.equal(verdict.sellable, false);
-  assert.ok(verdict.reasons.includes('No Stripe test price.'));
+  assert.match(verdict.reasons.join(' '), /test/);
+  assert.equal(verdict.priceId, null);
+  assert.equal(priceIdFor(SELLABLE_TIER, 'test'), '', 'upstream spells absent as an empty string');
 });
 
-/* ── failure one: the superseded tier ─────────────────────────────────── */
+/* ── superseded: the one thing this module adds ───────────────────────── */
 
 test('a superseded tier is flagged superseded, not merely unsellable', () => {
   const verdict = readinessOf(SUPERSEDED_TIER, 'live');
@@ -94,95 +134,86 @@ test('a superseded tier is flagged superseded, not merely unsellable', () => {
 });
 
 test('the superseded reason names its replacement and says not to reactivate', () => {
-  // This is the sentence whose absence let a task file ask for Stripe prices
-  // on three tiers their own records forbade reviving.
+  // The sentence whose absence let a task file ask for Stripe prices on three
+  // tiers their own records forbade reviving.
   const [first] = readinessOf(SUPERSEDED_TIER, 'live').reasons;
   assert.match(first, /content-studio/);
   assert.match(first, /[Dd]o not reactivate/);
 });
 
-test('superseded is reported first, before the switched-off and price noise', () => {
-  const reasons = readinessOf(SUPERSEDED_TIER, 'live').reasons;
-  assert.match(reasons[0], /Superseded/);
+test('superseded is reported before anything else', () => {
+  assert.match(readinessOf(SUPERSEDED_TIER, 'live').reasons[0], /Superseded/);
 });
 
-/* ── failure two: priced in cents, no Stripe price ────────────────────── */
+test('a superseded record with no named replacement still says do not reactivate', () => {
+  const verdict = readinessOf({ supersededNote: 'replaced', active: true }, 'live');
+  assert.equal(verdict.superseded, true);
+  assert.match(verdict.reasons[0], /[Dd]o not reactivate/);
+});
 
-test('an add-on with cents but no Stripe price is refused for the price, not the amount', () => {
+test('isSuperseded ignores whitespace-only markers', () => {
+  assert.equal(isSuperseded({ supersededNote: '   ' }), false);
+  assert.equal(isSuperseded({ supersededByAddOn: '  ' }), false);
+  assert.equal(isSuperseded({ supersededNote: 'replaced' }), true);
+  assert.equal(isSuperseded({}), false);
+  assert.equal(isSuperseded(null), false);
+});
+
+/* ── priced but unsellable, the state 15 add-ons are in ───────────────── */
+
+test('an active add-on priced in cents with no Stripe price is refused', () => {
   const verdict = readinessOf(UNPRICED_ADDON, 'live');
   assert.equal(verdict.sellable, false);
-  assert.ok(verdict.reasons.includes('No Stripe live price.'));
-  // It HAS an amount — 19900 — so that must not be among the complaints.
-  assert.ok(!verdict.reasons.includes('No price set.'));
+  assert.match(verdict.reasons.join(' '), /Stripe/);
+  assert.equal(verdict.priceId, null);
+  assert.equal(isPurchasable(UNPRICED_ADDON, 'live'), false);
 });
 
-test('a test price does not make something sellable live', () => {
-  // The exact state of the three vendor content add-ons: rehearsed, not sold.
-  const live = readinessOf(TEST_PRICED_ADDON, 'live');
-  assert.equal(live.sellable, false);
-  assert.ok(live.reasons.includes('No Stripe live price.'));
-  assert.equal(live.priceId, null);
+test('a test price is reported as a test price, not as a live one', () => {
+  assert.equal(priceIdFor(TEST_PRICED_ADDON, 'test'), 'price_1ULBAwEufRAAXCAlC79v6Pdw');
+  assert.equal(priceIdFor(TEST_PRICED_ADDON, 'live'), '');
+  // …and this module normalises that to null.
+  assert.equal(readinessOf(TEST_PRICED_ADDON, 'live').priceId, null);
 });
 
-test('that same add-on needs only switching on to be sellable in test', () => {
-  const verdict = readinessOf(TEST_PRICED_ADDON, 'test');
-  assert.deepEqual(verdict.reasons, ['Switched off.']);
-  assert.equal(verdict.priceId, 'price_1ULBAwEufRAAXCAlC79v6Pdw');
-});
+/* ── cohorts price by band, which planTier.ts knows nothing about ─────── */
 
-/* ── both halves of the invariant ─────────────────────────────────────── */
-
-test('switched on with no price is caught — a plan a customer cannot buy', () => {
-  const verdict = readinessOf(
-    { active: true, priceCents: 19900, interval: 'month', stripePriceId: null },
-    'live',
-  );
-  assert.equal(verdict.sellable, false);
-  assert.ok(verdict.reasons.includes('No Stripe live price.'));
-});
-
-test('a price with nothing switched on is caught — money left on the table', () => {
-  const verdict = readinessOf(
-    { active: false, priceCents: 19900, interval: 'month', stripePriceId: 'price_x' },
-    'live',
-  );
-  assert.equal(verdict.sellable, false);
-  assert.deepEqual(verdict.reasons, ['Switched off.']);
-});
-
-test('every reason is collected, not just the first', () => {
-  const verdict = readinessOf({ active: false }, 'live');
-  assert.ok(verdict.reasons.length >= 2, `expected several, got ${JSON.stringify(verdict.reasons)}`);
-  assert.ok(verdict.reasons.includes('Switched off.'));
-  assert.ok(verdict.reasons.includes('No price set.'));
-});
-
-/* ── cohorts price by band ────────────────────────────────────────────── */
-
-test('a cohort priced only by bands counts as having an amount', () => {
+test('a cohort priced only by bands is sellable with a price id', () => {
   const cohort: SellableRecord = {
-    active: true, priceCents: null, interval: 'month',
+    active: true, interval: 'month',
     stripePriceId: 'price_c', bands: [{ priceCents: 0 }, { priceCents: 14900 }],
   };
-  assert.equal(hasAmount(cohort), true);
+  assert.equal(hasBandedPrice(cohort), true);
   assert.equal(readinessOf(cohort, 'live').sellable, true);
 });
 
-test('bands that are all zero are not an amount', () => {
-  // Free may well be deliberate, but it is indistinguishable from a field
-  // nobody filled in, so it is reported rather than guessed at.
-  assert.equal(hasAmount({ bands: [{ priceCents: 0 }, { priceCents: 0 }] }), false);
-  assert.equal(hasAmount({ bands: [] }), false);
-  assert.equal(hasAmount({ priceCents: 0 }), false);
+test('a banded cohort is not refused for having no flat price', () => {
+  // Delegating this one would produce "no price set", which is wrong rather
+  // than merely unhelpful — the price is in the bands.
+  const cohort: SellableRecord = {
+    active: true, interval: 'month', stripePriceId: 'price_c',
+    bands: [{ priceCents: 14900 }],
+  };
+  assert.ok(!readinessOf(cohort, 'live').reasons.some((r) => /no price set/i.test(r)));
 });
 
-/* ── the interval, which Stripe refuses in front of the customer ──────── */
+test('a banded cohort still needs a Stripe price and to be switched on', () => {
+  const off = readinessOf({ active: false, bands: [{ priceCents: 14900 }], stripePriceId: 'p' }, 'live');
+  assert.equal(off.sellable, false);
+  assert.ok(off.reasons.some((r) => /not currently offered/i.test(r)));
 
-test('a missing interval is only complained about once there is an amount', () => {
-  assert.ok(readinessOf({ active: true, priceCents: 9900, stripePriceId: 'p' }, 'live')
-    .reasons.includes('No billing interval.'));
-  // Nothing priced yet: naming the interval would be noise.
-  assert.ok(!readinessOf({ active: true }, 'live').reasons.includes('No billing interval.'));
+  const unpriced = readinessOf({ active: true, bands: [{ priceCents: 14900 }] }, 'live');
+  assert.equal(unpriced.sellable, false);
+  assert.ok(unpriced.reasons.some((r) => /Stripe/i.test(r)));
+});
+
+test('bands that are all zero are not a price', () => {
+  // Free may be deliberate, but it cannot be told apart from a field nobody
+  // filled in, so it is reported rather than guessed at.
+  assert.equal(hasBandedPrice({ bands: [{ priceCents: 0 }, { priceCents: 0 }] }), false);
+  assert.equal(hasBandedPrice({ bands: [] }), false);
+  assert.equal(hasBandedPrice({}), false);
+  assert.equal(hasBandedPrice(null), false);
 });
 
 /* ── shapes that arrive from a JSON column ────────────────────────────── */
@@ -192,29 +223,32 @@ test('a missing record is refused rather than throwing', () => {
     const verdict = readinessOf(nothing, 'live');
     assert.equal(verdict.sellable, false);
     assert.equal(verdict.priceId, null);
+    assert.equal(verdict.reasons.length, 1);
   }
 });
 
 test('a blank or whitespace Stripe id is no id at all', () => {
-  assert.equal(priceIdFor({ stripePriceId: '   ' }, 'live'), null);
-  assert.equal(priceIdFor({ stripePriceId: '' }, 'live'), null);
-  assert.equal(priceIdFor({}, 'live'), null);
-});
-
-test('a whitespace-only superseded note does not retire a record', () => {
-  assert.equal(isSuperseded({ supersededNote: '   ' }), false);
-  assert.equal(isSuperseded({ supersededNote: 'replaced' }), true);
-  assert.equal(isSuperseded({}), false);
+  assert.equal(priceIdFor({ stripePriceId: '   ' }, 'live'), '');
+  assert.equal(priceIdFor({}, 'live'), '');
+  // What a caller of THIS module sees.
+  assert.equal(readinessOf({ stripePriceId: '   ', active: true, priceCents: 100 }, 'live').priceId, null);
 });
 
 /* ── the summary a heading shows ──────────────────────────────────────── */
 
 test('superseded records are counted apart, not as failures', () => {
-  // "3 of 24 sellable" reads like a fault when some of the 24 are history.
+  // "1 of 3 sellable" reads like a fault when one of the 3 is history.
   const counts = summarise([SELLABLE_TIER, SUPERSEDED_TIER, UNPRICED_ADDON], 'live');
   assert.deepEqual(counts, { sellable: 1, blocked: 1, superseded: 1, total: 3 });
 });
 
 test('an empty catalogue summarises to zeroes rather than throwing', () => {
   assert.deepEqual(summarise([], 'live'), { sellable: 0, blocked: 0, superseded: 0, total: 0 });
+});
+
+test('the summary counts every record exactly once', () => {
+  const records = [SELLABLE_TIER, SUPERSEDED_TIER, UNPRICED_ADDON, TEST_PRICED_ADDON, null];
+  const { sellable, blocked, superseded, total } = summarise(records, 'live');
+  assert.equal(sellable + blocked + superseded, total);
+  assert.equal(total, records.length);
 });

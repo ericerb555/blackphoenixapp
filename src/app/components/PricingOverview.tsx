@@ -1,10 +1,13 @@
 /**
- * Every price in one place — the read half.
+ * Every price in one place.
  *
- * Phase 1 of `tasks/pricing-in-one-place.md`. Eric: *"i want one place to read
- * and change all the pricing for plans and subscription that link to stripe."*
- * This is the reading. It deliberately cannot write anything, which is what
- * lets it ship before the editing is designed.
+ * Phases 1 and 2 of `tasks/pricing-in-one-place.md`. Eric: *"i want one place to
+ * read and change all the pricing for plans and subscription that link to
+ * stripe."* Two views under one tab: the catalogue, which says what can be
+ * bought and why not, and the editor, which is where that is changed.
+ *
+ * The editor is `PlanTierAdmin` rendered whole rather than reimplemented. See
+ * the note above the component.
  *
  * WHAT IT IS FOR, CONCRETELY
  *
@@ -32,6 +35,7 @@ import {
 import { publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { supabase } from '../lib/supabase';
+import PlanTierAdmin from './PlanTierAdmin';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -81,7 +85,23 @@ const money = (cents: number | null) => {
   })}`;
 };
 
+/**
+ * Read, or change.
+ *
+ * Phase 2 of the plan says MOVE `PlanTierAdmin` rather than rewrite it, and
+ * this is the move. Those 1,422 lines already hold every Stripe refusal that
+ * stops a live price being created by accident — no fallback from a missing
+ * test key to the live one, no second price for something that already has
+ * one, the product reused across price changes. A fresh editor built against
+ * the same routes is how those get lost one at a time.
+ *
+ * So the catalogue view and the editor sit side by side under one tab, which
+ * is what "one place to read and change all the pricing" actually asks for.
+ */
+type View = 'catalogue' | 'edit';
+
 export default function PricingOverview() {
+  const [view, setView] = useState<View>('catalogue');
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState<Record<string, Counts> | null>(null);
   const [cohortsExist, setCohortsExist] = useState(true);
@@ -135,18 +155,38 @@ export default function PricingOverview() {
           <h2 className="text-xl font-bold text-white">Pricing — everything that links to Stripe</h2>
           <p className="text-zinc-400 text-sm mt-1 max-w-2xl">
             Every plan tier, add-on and cohort, with what it costs and whether
-            anybody can actually buy it. Read-only for now — editing arrives in
-            the next phase.
+            anybody can actually buy it. Switch to <strong>Edit plans</strong> to
+            change a price or attach a Stripe one.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {/*
+            Read or change, in one place. The catalogue answers "what can
+            somebody buy"; the editor is where that is altered.
+          */}
+          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg">
+            {([['catalogue', 'Catalogue'], ['edit', 'Edit plans']] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  view === id
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/*
             The two Stripe worlds are separate answers, and conflating them is
             how a rehearsal charges somebody real money. So the mode is always
             on screen rather than implied.
           */}
-          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg">
+          <div className="flex gap-1 bg-zinc-900 p-1 rounded-lg" hidden={view !== 'catalogue'}>
             {(['live', 'test'] as const).map((m) => (
               <button
                 key={m}
@@ -165,6 +205,7 @@ export default function PricingOverview() {
           <button
             onClick={() => void load()}
             disabled={loading}
+            hidden={view !== 'catalogue'}
             className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-sm flex items-center gap-1.5 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -173,13 +214,20 @@ export default function PricingOverview() {
         </div>
       </div>
 
-      {loading && (
+      {/*
+        The editor keeps its own loading, refusals and Stripe controls, so it
+        is rendered whole rather than having its pieces re-plumbed through this
+        component's state.
+      */}
+      {view === 'edit' && <PlanTierAdmin />}
+
+      {view === 'catalogue' && loading && (
         <div className="flex items-center gap-3 text-zinc-400 py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" /> Reading the catalogue…
         </div>
       )}
 
-      {!loading && refused && (
+      {view === 'catalogue' && !loading && refused && (
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
           <CreditCard className="w-7 h-7 text-zinc-500 mx-auto mb-3" />
           <div className="text-white font-semibold">Company access is required</div>
@@ -190,7 +238,7 @@ export default function PricingOverview() {
         </div>
       )}
 
-      {!loading && !refused && error && (
+      {view === 'catalogue' && !loading && !refused && error && (
         <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-6 text-center">
           <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
           <div className="text-white">{error}</div>
@@ -200,7 +248,7 @@ export default function PricingOverview() {
         </div>
       )}
 
-      {!loading && !refused && !error && (
+      {view === 'catalogue' && !loading && !refused && !error && (
         <>
           {/* ── the headline numbers ──────────────────────────────────── */}
           {everything && (

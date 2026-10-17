@@ -965,7 +965,28 @@ planCatalogRouter.get("/make-server-3eae23a6/public/plan-tiers", async (c) => {
 
   try {
     const rows = ((await kv.getByPrefix(`plan_tier:${audience}:`)) as PlanTier[] || []).filter(Boolean);
-    const onSale = rows.filter((t) => t.active !== false);
+
+    /*
+     * On sale means BUYABLE, not merely switched on.
+     *
+     * This filtered on `active !== false` alone, so a tier switched on before
+     * its Stripe price existed was published to the public pricing page with
+     * `purchasable: false` attached — and `SubscriptionPlans`, the only reader
+     * of this route, does not look at that field. The result would have been a
+     * plan a customer could read, choose, and not buy, finding out at checkout.
+     *
+     * No record is affected today: all three live vendor tiers have a
+     * live-mode price and the server is on a live key, so the same three are
+     * returned either way. It is closed now because the catalogue has
+     * twenty-four add-ons priced with no Stripe price at all, and the only
+     * thing standing between that state and this page was that nobody had
+     * switched one on yet.
+     *
+     * Belt and braces with the retired-audience check above, and for the same
+     * stated reason: the public route is what a customer actually sees, so it
+     * is the one that must not depend on a screen elsewhere behaving.
+     */
+    const onSale = rows.filter((t) => isPurchasable(t, activeMode()));
     onSale.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || String(a.name).localeCompare(String(b.name)));
     return c.json({
       success: true,

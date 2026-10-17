@@ -111,8 +111,18 @@ export function SubscriptionPlans({ onSelectPlan }: SubscriptionPlansProps) {
    * Read the published ladder for the categories on screen.
    *
    * Anonymous on purpose: this component renders the public pricing page, so it
-   * cannot depend on a session. /public/plan-tiers returns only tiers that are
-   * on sale and strips both Stripe price ids before answering.
+   * cannot depend on a session. /public/plan-tiers strips both Stripe price ids
+   * before answering, and returns only tiers that can actually be BOUGHT —
+   * switched on, priced above zero, and holding a Stripe price in the mode the
+   * server's key is for.
+   *
+   * That last part is load-bearing and was not always true. The route used to
+   * filter on `active` alone, so a tier switched on before its Stripe price
+   * existed arrived here with `purchasable: false` attached — and this
+   * component has never read that field, so the plan would have rendered as an
+   * ordinary buyable option and failed at checkout. The filter moved to the
+   * route rather than a check being added here, because this page is not the
+   * only thing that could ever read it.
    *
    * A failure is silent by design. If the catalogue cannot be reached the page
    * shows the prices it ships with, which is a working pricing page rather than

@@ -116,20 +116,56 @@ read all the pricing".
 - [x] 1d. Tests for 1a covering both real failures above as fixtures: a
       superseded tier, and an add-on priced in cents with no Stripe price.
 
-## Phase 2 — editing in that same place
+## Phase 2 — editing in that same place · **DONE 2026-10-17**
 
-- [ ] 2a. Edit price (cents), interval, bands, blurb, features, limits, active
-      — through the routes that already exist: `POST /plan-tiers/:audience`,
-      `POST /plan-addons/:audience`, `PUT /cohorts/:id`.
-- [ ] 2b. Stripe actions in the same row: create test price, create live
-      price, attach an existing price. The existing route already refuses to
-      fall back from a missing test key to the live one, and refuses to make a
-      "test" price against a live account — reuse it, do not reimplement it.
-- [ ] 2c. Enforce the invariant on write: refuse `active: true` without a
-      Stripe price for that mode, with the reason in the refusal.
-- [ ] 2d. **Move `PlanTierAdmin`, do not rewrite it.** Those 1,422 lines hold
-      the Stripe refusals currently preventing an accidental live price. A
-      rewrite is how those get lost.
+Mostly not what this section expected, and the differences are the useful part.
+
+- [x] 2d. **`PlanTierAdmin` moved, not rewritten.** It now renders inside the
+      Pricing tab under an "Edit plans" view beside the catalogue, and the old
+      Owner dashboard "Plans" tab is a pointer to it rather than a second copy.
+      Two places was the thing being complained about.
+- [x] 2a/2b. **Already existed, and are what moved.** `PlanTierAdmin` already
+      edits price, interval, bands, blurb, features, limits and active through
+      `POST /plan-tiers/:audience` and `/plan-addons/:audience`, and already
+      offers create-test-price, create-live-price and attach-existing. Building
+      a second editor against the same routes was the plan; reading them first
+      showed there was nothing to build.
+- [x] 2c. **Not done, because it was already enforced — and refusing would
+      have been wrong.** The write route already refuses retired audiences via
+      `retiredAudiences.ts`, carries Stripe linkage across an edit, detaches a
+      price whose amount changed, and warns when the result cannot be bought.
+      It deliberately WARNS rather than refusing `active: true` without a
+      price, and that is correct: activating and then pricing is a legitimate
+      order of work, and the sale is gated on the read paths instead.
+
+### What auditing 2c found instead
+
+- [x] **The public catalogue filtered on `active`, not on buyable.**
+      `GET /public/plan-tiers` returned every tier with `active !== false`,
+      attaching `purchasable: false` where there was no Stripe price — and
+      `SubscriptionPlans`, its only reader, has never looked at that field. A
+      tier switched on before its price existed would have rendered as an
+      ordinary buyable plan and failed at checkout. The comment on that route
+      already claimed it returned only tiers on sale; now it does.
+
+      No record was affected: all three live vendor tiers hold a live-mode
+      price and the server runs a live key, verified by calling the route.
+      Closed because twenty-four add-ons are priced with no Stripe price, and
+      the only thing standing between that and the pricing page was that
+      nobody had switched one on.
+
+- [x] **`pricingReadiness.ts` was a duplicate, and has been reconciled.**
+      Written in Phase 1 with its own active/price/id checks, beside the
+      `isPurchasable()`, `notPurchasableReason()` and `priceIdFor()` in
+      `planTier.ts` that the write, checkout and public paths all use. The two
+      already disagreed: `isPurchasable` grandfathers `active: undefined` as
+      sellable, the copy called it switched off. No stored record omits
+      `active`, so nothing broke.
+
+      It now delegates, keeping only what it adds — superseded records, which
+      nothing else in the codebase reads, and banded cohort pricing, which
+      `planTier.ts` has never known about. A test asserts the two agree on
+      every shape in both modes, so they cannot drift again.
 
 ## Phase 3 — the assistant
 
