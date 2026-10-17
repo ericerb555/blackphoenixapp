@@ -569,10 +569,50 @@ later cannot be forgotten here silently.
       cohort screen will show 1 member across the whole platform while eight
       accounts are being served. Worth deciding whether a trial should be
       provisioned against a tier.
-- [ ] X3b. **The content tiers cannot be sold.** Solo, Studio and Agency are
-      the platform's core product and all three are `active: false` with no
-      Stripe price. Creating those prices is the single change that would let
-      anybody buy the thing the platform is for.
+- [x] X3b. **WRONG AS WRITTEN — do not act on it. Corrected 2026-10-17.**
+      It said: Solo, Studio and Agency are `active: false` with no Stripe price,
+      and creating those prices is the single change that would let anybody
+      buy the platform. Both halves are stale.
+
+      The three `plan_tier:content:*` records were superseded on 2026-09-29,
+      two days after this item was written. Each carries a `supersededNote`
+      saying the content centre is sold as an add-on ON TOP of an existing
+      portal rather than as a portal of its own — nobody can be on the
+      `content` audience, so those tiers were unreachable — and each ends
+      **"Do not reactivate."** `active: false` is the correct state. Creating
+      Stripe prices against them, as this item instructed, would have made
+      three unreachable tiers buyable.
+
+      They now live as `plan_addon:{audience}:content-{solo,studio,agency}`
+      across vendor, subcontractor, advertiser, condo_association,
+      property_manager and landlord, with `sourceTierId` pointing back at the
+      tier for provenance. The tiers are kept as that provenance, not as
+      stock.
+
+      WHAT IS ACTUALLY TRUE, read off production 2026-10-17:
+
+        18 add-on records (3 levels x 6 audiences), all `active: false`
+        priced 7900 / 19900 / 49900 cents
+        vendor x solo, studio, agency  — have stripePriceIdTest, no live price
+        the other 15                    — no price at all, test or live
+
+      So somebody rehearsed the vendor audience and stopped. Nothing has a
+      live price anywhere, which is why the content centre cannot be bought.
+
+      Vendor PORTAL plans are a different story and are sellable now:
+      `plan_tier:vendor:{listed,preferred,stocked}` are all active with live
+      Stripe prices. The gap is the content add-on on top, not the platform.
+
+      THE REAL SEQUENCE, in order:
+        1. test prices for the remaining 15, via
+           POST /plan-addons/:audience/:id/stripe-price?mode=test
+        2. one rehearsed purchase end to end in test mode
+        3. live prices — Eric's call, real money
+        4. active: true, last, once a purchase has been proved
+
+      Note the route defaults to test, refuses to fall back from a missing
+      test key to the live one, and refuses to make a "test" price against a
+      live account. The machinery is careful; it has simply not been run.
 
 - [ ] X1. Tests for the banding and for the derived figures: the right band at
       a boundary seat count, spots remaining, MRR summed from memberships
