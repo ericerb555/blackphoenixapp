@@ -5,9 +5,21 @@
  */
 import { useState, useEffect } from 'react';
 import { Play, Tag, ExternalLink, Star, Clock, ChevronRight, Percent, Gift, Video } from 'lucide-react';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import { publicAnonKey } from '../../utils/supabase/info';
 
-const SERVER = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
-const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTczMTIsImV4cCI6MjA4NTEzMzMxMn0.HcaTHZrVUG1qWfHnKr7ItKOHrDhDWoDaPFG46O1lu6o';
+/**
+ * Both of these were typed out as literals here.
+ *
+ * The key is publishable, so it was never a leak — but it and the project ref
+ * were pinned in this file where no change to `info.tsx` or `apiConfig.ts`
+ * could reach them. Rotating the key or moving the API behind the firewall
+ * (docs/security/waf.md) would have left this one component still calling the
+ * old host with the old key, and the only symptom would have been an empty
+ * deals strip that nobody reads as a fault.
+ */
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
+const ANON_KEY = publicAnonKey;
 
 // No placeholder deals or reels. A portal member only ever sees offers the
 // owner actually published in Deal Publisher and reels that were approved —

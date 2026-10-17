@@ -31,11 +31,11 @@ import {
   ChevronLeft, Search, Percent, Loader2, RefreshCw, Plus,
   AlertTriangle, Ban, Clock, CheckCircle2, X,
 } from 'lucide-react';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** Mirrors the server's caps so the form can warn before somebody saves. */
 const QUOTE_CAP = 20;

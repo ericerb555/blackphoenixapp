@@ -12,16 +12,16 @@ import {
   CheckCircle, Clock, AlertCircle, DollarSign, Package, Mail,
   X, Save, Key, Globe, Phone, MapPin, Building2
 } from 'lucide-react';
-import { PageHeader } from '../components/PageHeader';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner';
 import { SupplierRfqTab } from '../components/suppliers/SupplierRfqTab';
 import { SupplierAuditTab } from '../components/suppliers/SupplierAuditTab';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { PageHeader } from '../components/PageHeader';
 
 type TabType = 'connect' | 'respond' | 'audit' | 'purchase-orders';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function SupplierManagementHub() {
   const [activeTab, setActiveTab] = useState<TabType>('connect');

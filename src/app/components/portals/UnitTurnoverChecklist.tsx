@@ -4,9 +4,9 @@ import {
   ClipboardCheck, LoaderCircle, Wrench, CheckSquare, Square,
   ChevronDown, ChevronRight, RotateCcw,
 } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Property { id: string; name?: string; address?: string; }
 

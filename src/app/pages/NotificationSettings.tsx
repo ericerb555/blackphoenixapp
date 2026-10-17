@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Mail, Phone, Bell, Check, AlertCircle, Send, Settings, Users, UserPlus, CreditCard, AlertTriangle, Plus, Trash2, Crown } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface NotificationTriggers {
   customerSignup: boolean;
@@ -116,7 +117,7 @@ export default function NotificationSettings() {
     setIsTesting(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-email`,
+        `${API_BASE_URL}/make-server-3eae23a6/notifications/test-email`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -154,7 +155,7 @@ export default function NotificationSettings() {
     setIsTesting(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/test-sms`,
+        `${API_BASE_URL}/make-server-3eae23a6/notifications/test-sms`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

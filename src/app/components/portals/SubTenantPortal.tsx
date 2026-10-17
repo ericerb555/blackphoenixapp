@@ -20,9 +20,9 @@ import NotificationBell from './NotificationBell';
 import NotificationPreferences from './NotificationPreferences';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
 import { useCompanyInfo } from '../../lib/hooks/useCompanyInfo';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -111,7 +111,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     setLoadingRequests(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/work-requests`,
+        `${API_BASE_URL}/make-server-3eae23a6/tenant/work-requests`,
         { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       const payload = await response.json().catch(() => ({}));
@@ -137,7 +137,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     setLoadingLeases(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/leases`,
+        `${API_BASE_URL}/make-server-3eae23a6/tenant/leases`,
         { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       const payload = await response.json().catch(() => ({}));
@@ -155,7 +155,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     setSigningId(leaseId);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/leases/${leaseId}/sign`,
+        `${API_BASE_URL}/make-server-3eae23a6/tenant/leases/${leaseId}/sign`,
         { method: 'PATCH', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ signature: signatureName.trim() }) }
       );
       const payload = await response.json().catch(() => ({}));
@@ -171,7 +171,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     if (!session?.access_token) { toast.error('Sign in to download this lease.'); return; }
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/leases/${leaseId}/download`,
+        `${API_BASE_URL}/make-server-3eae23a6/leases/${leaseId}/download`,
         { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       const payload = await response.json().catch(() => ({}));
@@ -190,7 +190,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     setLoadingRent(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/rent`,
+        `${API_BASE_URL}/make-server-3eae23a6/tenant/rent`,
         { headers: { Authorization: `Bearer ${session.access_token}` } }
       );
       const payload = await response.json().catch(() => ({}));
@@ -210,7 +210,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     (async () => {
       try {
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/rent/confirm`,
+          `${API_BASE_URL}/make-server-3eae23a6/tenant/rent/confirm`,
           { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ paymentId }) }
         );
         const payload = await response.json().catch(() => ({}));
@@ -229,7 +229,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
     setPayingRent(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/rent/pay`,
+        `${API_BASE_URL}/make-server-3eae23a6/tenant/rent/pay`,
         { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ method }) }
       );
       const payload = await response.json().catch(() => ({}));
@@ -263,7 +263,7 @@ export default function SubTenantPortal({ onNavigate, landlordId, propertyAddres
 
       if (session?.access_token) {
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/tenant/work-requests`,
+          `${API_BASE_URL}/make-server-3eae23a6/tenant/work-requests`,
           { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: formData }
         );
         const payload = await response.json().catch(() => ({}));

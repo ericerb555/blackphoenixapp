@@ -6,7 +6,8 @@
 import { useState, useEffect } from 'react';
 import { X, Save, RotateCcw, Settings, DollarSign, Users, MapPin, Crown, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CohortSettingsModalProps {
   isOpen: boolean;
@@ -53,7 +54,7 @@ export function CohortSettingsModal({ isOpen, onClose, onSave }: CohortSettingsM
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
   useEffect(() => {
     if (isOpen) {

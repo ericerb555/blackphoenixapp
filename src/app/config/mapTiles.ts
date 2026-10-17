@@ -28,9 +28,10 @@
  * is OpenStreetMap's and is credited; the tiles are a separate thing we have
  * to pay for or host.
  */
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** The credit shown on the map if the server does not name one. */
 export const MAP_ATTRIBUTION = '© MapTiler © OpenStreetMap contributors';

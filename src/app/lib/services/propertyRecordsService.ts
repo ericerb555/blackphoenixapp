@@ -8,9 +8,10 @@
  * The parcel `geometry` is raw GeoJSON (Polygon / MultiPolygon) used to draw the
  * plot-plan outline. `lat`/`lon` position the OpenStreetMap view.
  */
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface ParcelFacts {
   parcelNumber?: string;

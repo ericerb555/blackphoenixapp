@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Star, ThumbsUp, Trash2, Eye, CheckCircle, XCircle, Search, Filter, TrendingUp, MessageSquare, Award, BarChart2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getStoreReviews, type StoreReview } from '../components/StoreReviews';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const ALL_PRODUCT_IDS = ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10'];

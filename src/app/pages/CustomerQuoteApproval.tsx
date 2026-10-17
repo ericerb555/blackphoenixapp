@@ -8,7 +8,7 @@
 import { toast } from 'sonner';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 /**
  * Reused rather than rewritten: it returns null for a date it cannot parse,
@@ -45,6 +45,7 @@ import {
   ArrowRight, Check, ChevronDown, ChevronRight, Building, AlertCircle,
   Sparkles, TrendingUp, Zap, Star, Award
 } from 'lucide-react';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface PaymentScheduleItem {
   id: string;
@@ -89,7 +90,7 @@ export default function CustomerQuoteApproval() {
     // Deliberately the anon key. The share token IS the credential here — a
     // customer follows this link from an email to approve their quote, and
     // requiring them to be signed in would defeat the point of sending it.
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}`, {
+    fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/by-token/${token}`, {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
     })
       // Read the body either way: a 404 carries the server's own sentence for
@@ -192,7 +193,7 @@ export default function CustomerQuoteApproval() {
         : null;
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/by-token/${token}/sign`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/by-token/${token}/sign`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -1094,7 +1095,7 @@ export default function CustomerQuoteApproval() {
                * figure in the schedule.
                */
               const res = await fetch(
-                `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`,
+                `${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`,
                 {
                   method: 'POST',
                   headers: await authedHeadersOrAnon(publicAnonKey),

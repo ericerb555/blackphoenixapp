@@ -25,10 +25,11 @@ import InvestmentApplication from './InvestmentApplication';
 import InvestmentContract from './InvestmentContract';
 import PlanBuilderTab from './PlanBuilderTab';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const INVEST_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
+const INVEST_API = `${API_BASE_URL}/make-server-3eae23a6/investments`;
 
 export default function InvestorPortalView() {
   

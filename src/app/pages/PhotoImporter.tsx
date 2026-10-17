@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { Image, Facebook, Globe, CheckCircle, AlertCircle, Upload, RefreshCw, ExternalLink, Key, Info, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { saveDual, loadDual } from '../lib/database';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // Mirror the current media library to the shared server-backed store so imports
 // show up in the Media Library across devices.

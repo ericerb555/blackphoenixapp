@@ -8,7 +8,8 @@ import { motion } from 'motion/react';
 import { Mail, Lock, Eye, EyeOff, User, ArrowRight, Building, Shield, ArrowLeft, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface SignUpProps {
   onNavigate: (page: string) => void;
@@ -74,7 +75,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
       // The endpoint is idempotent by code + new email, so a retry cannot double-count it.
       const referralCode = new URLSearchParams(window.location.search).get('ref')?.trim();
       if (referralCode) {
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/referrals/attributions`, {
+        fetch(`${API_BASE_URL}/make-server-3eae23a6/referrals/attributions`, {
           method: 'POST', headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: referralCode, referredEmail: formData.email, referredName: formData.fullName.trim() }),
         }).catch(() => undefined);

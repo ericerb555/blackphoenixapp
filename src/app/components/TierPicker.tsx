@@ -5,9 +5,10 @@
  */
 import { useState, useEffect } from 'react';
 import { TIER_STYLES, type TechTier } from './TechRosterManager';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // Canonical default tiers — must match the server's DEFAULT_TECH_TIERS. Used ONLY
 // as a fallback if the network request fails; the live source of truth is the

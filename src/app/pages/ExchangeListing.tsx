@@ -40,7 +40,7 @@ import {
   MapPin, Phone, Globe, ShieldCheck, Loader2, Building2,
   BadgeCheck, AlertCircle, ArrowUpRight, Tag,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
 import FollowBusinessButton from '../components/exchange/FollowBusinessButton';
@@ -48,8 +48,9 @@ import { useSavedBusinesses } from '../lib/exchangeSaved';
 import { useFollowedBusinesses } from '../lib/exchangeFollow';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { LISTING_CSS } from './exchangeListingStyles';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface ListingCategory { slug: string; name: string; section_slug?: string }
 

@@ -9,10 +9,10 @@ import { toast } from 'sonner';
 import { constructionTax } from '../lib/constructionTax';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { loadPricingConfig, savePricingConfig, loadPricingConfigFromServer, savePricingConfigToServer, defaultPricingConfig, PricingConfig } from '../lib/pricingConfig';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function PricingSettings() {
   const [config, setConfig] = useState<PricingConfig>(loadPricingConfig());

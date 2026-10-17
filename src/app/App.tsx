@@ -26,8 +26,6 @@ import {
   Home,
   TrendingUp,
 } from "lucide-react";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { projectId } from "./utils/supabase/info";
 import { CompanyContextProvider, useCompany } from "./contexts/CompanyContext";
 import { ActiveCompanyProvider } from "./contexts/ActiveCompanyContext";
 import { CompanySwitcher } from "./components/CompanySwitcher";
@@ -80,6 +78,8 @@ import { pageMap, Login, SignUp, ForgotPassword, ResetPassword, DirectoryLanding
 import { rememberReturnTo, clearReturnTo } from "./lib/returnTo";
 import ExitIntentPopup from "./components/ExitIntentPopup";
 import LiveChatWidget from "./components/LiveChatWidget";
+import { API_BASE_URL } from './lib/apiConfig';
+import { useAuth, AuthProvider } from './contexts/AuthContext';
 
 // Create Navigation Context
 export const NavigationContext = createContext<{ navigate: (page: string) => void }>({
@@ -1063,7 +1063,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setStateSafe("allowed"); return; }
     if (!session?.access_token) { setStateSafe("blocked"); return; }
     setStateSafe("checking");
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, {
+    fetch(`${API_BASE_URL}/make-server-3eae23a6/intake/my-access`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     }).then(async response => ({ response, data: await response.json() }))
       .then(({ data }) => {

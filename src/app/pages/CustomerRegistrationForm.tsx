@@ -5,9 +5,10 @@ import {
   CreditCard, Crown, Star, CheckCircle2, Eye, EyeOff, Sparkles
 } from 'lucide-react';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders, authedHeadersOrAnon } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CustomerRegistrationFormProps {
   onNavigate?: (page: string) => void;
@@ -177,7 +178,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
     setLoading(true);
 
     try {
-      const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+      const base = `${API_BASE_URL}/make-server-3eae23a6`;
       const fullName = `${formData.firstName} ${formData.lastName}`.trim();
 
       // 1) Create the real auth account (also creates profile, role, CRM entry).

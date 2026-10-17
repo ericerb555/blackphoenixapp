@@ -20,10 +20,11 @@ import {
   Monitor, CheckCircle, Tag, Loader2, Store, Building2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { consumePendingAdProduct, type PendingAdProduct } from '../../lib/adStudioHandoff';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const AUTH = { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' };
 
 // ─── Formats & themes (shared vocabulary with Ad Creator) ───────────────────────

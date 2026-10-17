@@ -8,7 +8,7 @@
 // frequency tiers, and regional pricing without a code change.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import {
   ENTITY_TYPES,
   SKILL_LEVELS,
@@ -22,6 +22,7 @@ import {
   type Region,
   type ServiceItem,
 } from './maintenancePlans';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 export type {
   EntityType,
@@ -40,7 +41,7 @@ export interface MaintenanceConfig {
   catalog: Record<EntityType, ServiceItem[]>;
 }
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = {
   'Content-Type': 'application/json',
   Authorization: `Bearer ${publicAnonKey}`,

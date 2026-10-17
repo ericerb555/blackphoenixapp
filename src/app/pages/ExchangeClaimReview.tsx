@@ -41,12 +41,13 @@ import {
   ShieldQuestion, Loader2, AlertCircle, CheckCircle2, XCircle, Clock,
   Phone, Globe, BadgeCheck, Building2, Mail, Lock, RefreshCw, ArrowUpRight,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { REVIEW_CSS } from './exchangeReviewStyles';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Attempt {
   factor: string;

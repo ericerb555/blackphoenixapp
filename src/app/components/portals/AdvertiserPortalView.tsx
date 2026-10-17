@@ -34,11 +34,11 @@ import MaintenancePlanTracker from './MaintenancePlanTracker';
 import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
-import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import { useAuth } from '../../contexts/AuthContext';
 
-const AD_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const AD_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function AdvertiserPortalView() {
   const { user, session } = useAuth();

@@ -11,14 +11,15 @@ import {
   CircleDot
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 import {
   materialsHubService,
   Material,
 } from '../lib/services/materialsHubService';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface MaterialItem {
   id: string;

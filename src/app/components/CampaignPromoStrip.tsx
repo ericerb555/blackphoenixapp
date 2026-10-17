@@ -5,10 +5,11 @@
  */
 import { useEffect, useState } from 'react';
 import { ArrowRight, Sparkles } from 'lucide-react';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export function CampaignPromoStrip() {
   const [campaigns, setCampaigns] = useState<any[]>([]);

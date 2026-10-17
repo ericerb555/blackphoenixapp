@@ -13,14 +13,15 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { TextInput, Select, NumberInput, ToggleSwitch } from './ui/input/index';
 import { StandardButton } from './ui/button/StandardButton';
 import ProductCatalogBrowser from './ProductCatalogBrowser';
 import ProductCatalogAdmin from '../pages/ProductCatalogAdmin';
 import ReturnsAdmin from './ReturnsAdmin';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_URL = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function secureHeaders(contentType = false) {
   const { supabase } = await import('../lib/supabase');

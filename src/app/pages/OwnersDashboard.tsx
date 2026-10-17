@@ -68,8 +68,9 @@ import { useAuth } from '../contexts/AuthContext';
 import Messaging from './Messaging';
 import { authedHeaders } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
@@ -99,7 +100,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     (async () => {
       try {
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/messaging/waiting`,
+          `${API_BASE_URL}/make-server-3eae23a6/messaging/waiting`,
           { headers: await authedHeaders() },
         );
         if (!res.ok) return;
@@ -164,7 +165,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
   useEffect(() => {
     const loadCommandSummary = async () => {
-      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center summary.'); setCommandSummary(result.summary); } catch (error) { console.error('[OwnersDashboard] Command Center summary unavailable:', error); }
+      try { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) return; const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center summary.'); setCommandSummary(result.summary); } catch (error) { console.error('[OwnersDashboard] Command Center summary unavailable:', error); }
     };
     loadCommandSummary(); const interval = setInterval(loadCommandSummary, 60000); return () => clearInterval(interval);
   }, []);
@@ -391,7 +392,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
             return;
           }
           const res = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/access-requests`,
+            `${API_BASE_URL}/make-server-3eae23a6/access-requests`,
             { headers: { Authorization: `Bearer ${session.access_token}` } },
           );
           const json = await res.json();
@@ -453,7 +454,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in again before creating a portal invite.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/owner-provisioning/invites`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/owner-provisioning/invites`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ ...freePortalInvite, sendEmail: inviteChannels.email, sendSms: inviteChannels.sms, generateQr: inviteChannels.qr }),

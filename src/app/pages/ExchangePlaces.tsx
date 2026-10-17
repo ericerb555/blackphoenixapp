@@ -63,7 +63,7 @@ import {
   Loader2, AlertCircle, ChevronLeft, MapPin, Search, X, Navigation,
   Crosshair, Building2, Store, Sparkles, ArrowRight,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { useTowns, useTownChoice, townName } from '../lib/exchangeTowns';
@@ -74,8 +74,9 @@ import { useHere, pointOf } from '../lib/exchangeHere';
 import ExchangeMap from '../components/exchange/ExchangeMap';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import ExchangeBizRow, { listingHref } from '../components/exchange/ExchangeBizRow';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Place {
   id: string;

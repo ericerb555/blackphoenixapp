@@ -5,8 +5,9 @@ import {
   Activity, Star, User, Globe, MessageSquare, Briefcase
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CustomerDetailProps {
   customerId: string;
@@ -51,7 +52,7 @@ export default function CustomerDetail({ customerId, onBack, onEdit }: CustomerD
     try {
       setLoading(true);
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/customers/${encodeURIComponent(customerId)}`,
+        `${API_BASE_URL}/make-server-3eae23a6/customers/${encodeURIComponent(customerId)}`,
         { headers: await authedHeaders() }
       );
       if (!res.ok) {

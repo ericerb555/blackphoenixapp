@@ -8,12 +8,11 @@
  * 4. Creating versioned backups
  * 5. Detecting and preventing data corruption
  */
-
-import { projectId } from './supabase/info';
 import { supabase } from '../lib/supabase';
 import LZString from 'lz-string';
 import { migrateLocalImages } from './migrateLocalImages';
 import { stripDataUrlsDeep } from './imageStorage';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 // Marker key used inside backup.data when the real payload is compressed.
 // The server stores this envelope verbatim; only the client understands it.
@@ -120,7 +119,7 @@ class DataPersistenceManager {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1${SERVER_PREFIX}/data/restore`,
+        `${API_BASE_URL}${SERVER_PREFIX}/data/restore`,
         {
           method: 'GET',
           headers: {
@@ -288,7 +287,7 @@ class DataPersistenceManager {
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1${SERVER_PREFIX}/data/backup`,
+        `${API_BASE_URL}${SERVER_PREFIX}/data/backup`,
         {
           method: 'POST',
           headers: {

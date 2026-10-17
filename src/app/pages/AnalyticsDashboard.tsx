@@ -9,9 +9,10 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // Map an activity event type from the server to an icon + color.

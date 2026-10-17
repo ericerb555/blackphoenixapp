@@ -21,12 +21,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, dataUrlBytes } from '../lib/imageCapture';
 import type { DeckModel } from '../lib/deckModel';
 import LocalFolderPicker from './LocalFolderPicker';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const MAX_PAYLOAD_BYTES = 4_000_000;
 
 /** Only these come off a sketch; finishes and the like are not drawn on one. */

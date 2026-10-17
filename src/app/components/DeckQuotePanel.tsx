@@ -32,11 +32,12 @@ import { toast } from 'sonner';
 import type { DeckModel } from '../lib/deckModel';
 import { buildQuoteLines, quoteTotals, DEFAULT_QUOTE_OPTIONS, type PriceBook, type QuoteOptions } from '../lib/deckQuote';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { publishDeckQuote } from '../lib/publishQuote';
 import type { DesignLink } from './ProjectLinkPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();

@@ -57,12 +57,12 @@ import { toast } from 'sonner';
 import { PROJECT_KINDS, projectKind, type ProjectKind } from '../../lib/trades';
 import { saveDesignProject, getDesignProject, ownerKeyForCurrentUser } from '../../lib/designProjectService';
 import { authedHeaders } from '../../utils/authHeaders';
-import { projectId as supabaseProjectId } from '../../utils/supabase/info';
 import { DEFAULT_DECK } from '../../lib/deckModel';
 import { BLANK_HOUSE } from '../../lib/houseModel';
 import SectionCapture from '../design/SectionCapture';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 type Step = 'kind' | 'place' | 'photos' | 'brief' | 'done';
 

@@ -3,10 +3,11 @@
  * Connects Revenue & Monetization Hub with Advanced Cohort Management System
  */
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
+import { API_BASE_URL } from '../apiConfig';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * The signed-in user's token, not the public anon key.

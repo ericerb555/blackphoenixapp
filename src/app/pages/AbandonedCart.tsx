@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { ShoppingCart, Mail, Clock, DollarSign, TrendingUp, Send, Eye, RefreshCw, Search, X, CheckCircle, AlertCircle, Zap, Users, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface AbandonedCart {
   id: string;

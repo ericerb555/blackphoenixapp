@@ -25,10 +25,10 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Props {
   workRequestId: string;

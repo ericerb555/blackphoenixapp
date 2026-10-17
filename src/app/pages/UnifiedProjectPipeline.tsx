@@ -57,6 +57,7 @@ import {
 import { useNavigate } from '../hooks/useNavigate';
 import { constructionTax } from '../lib/constructionTax';
 import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInvoice';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -301,7 +302,7 @@ export default function UnifiedProjectPipeline() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices`, {
+        const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/invoices`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!res.ok) return;
@@ -358,7 +359,7 @@ export default function UnifiedProjectPipeline() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in as an owner or administrator before updating the pipeline.');
-      const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`;
+      const base = `${API_BASE_URL}/make-server-3eae23a6/pipeline/items`;
       const headers = { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
       let response = await fetch(`${base}/${encodeURIComponent(item.id)}`, { method: 'PUT', headers, body: JSON.stringify(item) });
       if (response.status === 404) response = await fetch(base, { method: 'POST', headers, body: JSON.stringify(item) });
@@ -452,7 +453,7 @@ export default function UnifiedProjectPipeline() {
         const token = session?.access_token || publicAnonKey;
 
         const wrRes = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`,
+          `${API_BASE_URL}/make-server-3eae23a6/work-requests`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
@@ -536,7 +537,7 @@ export default function UnifiedProjectPipeline() {
           setLoadProblem({ kind: 'signed-out', detail: 'Sign in to see the pipeline.' });
         }
         if (session?.access_token) {
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/pipeline/items`, { headers: { Authorization: `Bearer ${session.access_token}` } });
           const data = await response.json();
           /**
            * 403 here means the signed-in account is not staff.
@@ -917,7 +918,7 @@ export default function UnifiedProjectPipeline() {
       
       try {
         const ratesResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/labor-rates/get`,
+          `${API_BASE_URL}/make-server-3eae23a6/labor-rates/get`,
           {
             headers: await authedHeaders()
           }
@@ -985,7 +986,7 @@ export default function UnifiedProjectPipeline() {
       });
 
       const { data: { session } } = await supabase.auth.getSession();
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes`, {
+      await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes`, {
         method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({ id: updatedItem.quote?.id, number: updatedItem.quote?.quoteNumber, clientName: updatedItem.customerName, clientEmail: updatedItem.customerEmail, clientPhone: updatedItem.customerPhone, items: [...(updatedItem.quote?.materials || []), ...(updatedItem.quote?.labor || [])], notes: updatedItem.description, status: 'draft', workRequestId: updatedItem.id, total: quoteTotal(updatedItem.quote) ?? 0 })
       });
@@ -1083,7 +1084,7 @@ export default function UnifiedProjectPipeline() {
       const token = session?.access_token || publicAnonKey;
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/generate-link`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/generate-link`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1105,7 +1106,7 @@ export default function UnifiedProjectPipeline() {
         const saved = await saveItemToBackend(updated);
         setItems(items.map(i => i.id === item.id ? saved : i));
         // Schedule automated follow-ups (3-day and 7-day)
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/follow-ups/schedule`, {
+        fetch(`${API_BASE_URL}/make-server-3eae23a6/follow-ups/schedule`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1192,7 +1193,7 @@ export default function UnifiedProjectPipeline() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
       fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${item.id}/viewed`,
+        `${API_BASE_URL}/make-server-3eae23a6/work-requests/${item.id}/viewed`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

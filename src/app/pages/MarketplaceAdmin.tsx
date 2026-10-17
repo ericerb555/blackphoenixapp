@@ -14,11 +14,12 @@ import {
   ExternalLink, Link2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import CreateContentMenu from '../components/CreateContentMenu';
 import type { UnifiedProduct } from '../lib/useAllProducts';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 /** Public, shareable page for a single product. Every product added here gets one. */

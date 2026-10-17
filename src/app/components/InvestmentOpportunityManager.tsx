@@ -7,7 +7,8 @@ import {
 import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 const DEFAULT_OPPORTUNITIES = [
     {
@@ -272,7 +273,7 @@ const DEFAULT_OPPORTUNITIES = [
     }
   ];
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function InvestmentOpportunityManager() {
   const [opportunities, setOpportunities] = useState<any[]>([]);

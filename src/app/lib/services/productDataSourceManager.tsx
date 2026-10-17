@@ -22,7 +22,8 @@
  * grows back — but from a server route that exists.
  */
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../apiConfig';
 
 export type DataSourceType = 
   | 'direct-api'          // Official store APIs (Home Depot, Lowe's, Grainger)
@@ -54,7 +55,7 @@ export interface DataSourceConfig {
 }
 
 class ProductDataSourceManager {
-  private serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  private serverUrl = `${API_BASE_URL}/make-server-3eae23a6`;
 
   /**
    * Get all configured data sources

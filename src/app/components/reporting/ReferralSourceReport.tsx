@@ -5,10 +5,10 @@ import {
   Search, Filter, Star, MapPin, Radio, Smartphone, Mail
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { projectId } from '../../utils/supabase/info';
 import { toast } from 'sonner';
 import { DataTable } from '../ui/table/DataTable';
 import type { DataTableColumn } from '../ui/table/DataTable';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 interface ReferralSourceData {
   source_name: string;
@@ -54,7 +54,7 @@ export default function ReferralSourceReport() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in as the Platform Owner to view referral reporting.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/reporting/referral-sources`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/reporting/referral-sources`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load referral reporting.');
       setReferralData(result.sources || []); setFunnelData(result.funnel || null);

@@ -9,9 +9,9 @@ import { toast } from 'sonner';
 import { Mail, Eye, RotateCcw, Save, Sparkles, RefreshCw, Send, MessageSquare, QrCode, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const ONBOARDING_BASE = 'https://www.theblackphoenixcompany.com/portal-onboarding';
 type Channel = 'email' | 'sms' | 'qr';
 

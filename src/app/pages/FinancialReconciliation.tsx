@@ -28,16 +28,16 @@ import {
   Eye,
   BarChart3,
 } from 'lucide-react';
-import { BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { useCompany } from '../contexts/CompanyContext';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { BankTransaction, ReconciliationMatch, ReconciliationPeriod, ReconciliationDiscrepancy } from '../lib/services/reconciliationService';
 
 interface FinancialReconciliationProps {
   onNavigate: (path: string) => void;

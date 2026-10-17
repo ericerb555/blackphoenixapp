@@ -24,13 +24,13 @@ import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import { CondoService } from '../../lib/services/propertyManagementService';
 import { useAuth } from '../../contexts/AuthContext';
-import CondoOffersSection from './CondoOffersSection';
-import { projectId } from '../../utils/supabase/info';
 import { PropertyRecordsPanel } from '../property/PropertyRecordsPanel';
 import { lookupParcel } from '../../lib/services/propertyRecordsService';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import CondoOffersSection from './CondoOffersSection';
 
-const CONDO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const CONDO_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // Role types for the condo association
 /**

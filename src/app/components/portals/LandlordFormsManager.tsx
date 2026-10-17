@@ -4,13 +4,13 @@ import {
   ClipboardList, PawPrint, Plus, X, Send, LoaderCircle, Trash2,
   CheckCircle2, FileText, Camera, Video, Image as ImageIcon,
 } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 import ConditionAreas, {
   DEFAULT_AREAS, blankAreas,
   type AreaRow,
 } from './ConditionAreas';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Tenant { id: string; name: string; email?: string; unit?: string; rent?: number; }
 

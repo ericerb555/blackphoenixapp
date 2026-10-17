@@ -16,16 +16,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, Save, Loader2, RotateCcw, Search, Check, AlertTriangle, Users } from 'lucide-react';
-import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import {
   SEED_TASKS, LABOR_CONDITIONS, mergeTasks, seedCoverage, estimateTaskLabor,
   TRADE_LABELS,
   type LaborTask,
 } from '../lib/laborTasks';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { toast } from 'sonner';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function LaborTasksConfig() {
   const [tasks, setTasks] = useState<LaborTask[]>(SEED_TASKS);

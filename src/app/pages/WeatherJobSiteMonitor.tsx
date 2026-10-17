@@ -19,7 +19,8 @@ import { TextArea } from '../components/ui/input/TextArea';
 import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface JobSite {
   id: string;
@@ -138,7 +139,7 @@ const DELAY_COST_RATES = {
 };
 
 export default function WeatherJobSiteMonitor({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
   const [activeTab, setActiveTab] = useState<'monitor' | 'alerts' | 'delays' | 'schedule' | 'calculator' | 'historical'>('monitor');
   

@@ -6,11 +6,10 @@
  */
 import { useState } from 'react';
 import { CheckCircle, MapPin, Star, Zap, Shield, Users, ArrowRight, ChevronDown } from 'lucide-react';
-import { projectId } from '../utils/supabase/info';
-
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVICES = [
   { icon: '🔨', label: 'Construction & Remodeling' },

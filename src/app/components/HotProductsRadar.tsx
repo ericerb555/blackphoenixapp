@@ -18,11 +18,12 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface SourcingEntry { key: string; label: string; type: string; availability: 'connected' | 'search'; url: string; }
 

@@ -23,11 +23,12 @@ import {
   Loader2, Save, Trash2, Sparkles, RefreshCw, AudioLines, FileVideo,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { pickRecordingFormat, checkReel, totalSeconds } from '../lib/reelSpec';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 const VOICES = ['nova', 'alloy', 'echo', 'fable', 'onyx', 'shimmer'];
 const ASPECTS: { id: string; label: string; w: number; h: number }[] = [

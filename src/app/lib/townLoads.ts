@@ -14,9 +14,10 @@
  * which is the honest state of a number nobody has checked yet.
  */
 import { supabase } from './supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface TownLoadCase {
   townId: string;

@@ -6,8 +6,9 @@
 import { useState } from 'react';
 import { Activity, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_BASE = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface DiagnosticResult {
   test: string;

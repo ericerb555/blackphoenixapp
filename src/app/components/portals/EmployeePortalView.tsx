@@ -5,11 +5,9 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
 import TimeOffPanel from '../schedule/TimeOffPanel';
 
-const TIME_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking`;
+const TIME_API = `${API_BASE_URL}/make-server-3eae23a6/time-tracking`;
 import {
   Briefcase, Bell, MessageSquare, Settings, Clock, Star,
   ArrowUpRight, ClipboardList, CheckCircle, Calendar,
@@ -26,6 +24,8 @@ import AdvertisingVideoReel from '../AdvertisingVideoReel';
 import ReferralRewards from '../ReferralRewards';
 import AddJobPhotosButton from '../AddJobPhotosButton';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function EmployeePortalView() {
   

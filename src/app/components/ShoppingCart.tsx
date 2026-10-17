@@ -9,9 +9,10 @@ import {
 import { StandardButton, CompactStandardButton } from './ui/button/StandardButton';
 import UnifiedCheckout from './UnifiedCheckout';
 import * as hybridCart from '../utils/hybridCartApi';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface CartItem {
   id: string;

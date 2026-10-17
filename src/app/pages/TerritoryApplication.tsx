@@ -17,7 +17,8 @@ import {
 import { toast } from 'sonner';
 import { PageHeader } from '../components/PageHeader';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface TerritoryApplicationProps {
   onNavigate?: (page: string) => void;
@@ -122,7 +123,7 @@ export default function TerritoryApplication({ onNavigate }: TerritoryApplicatio
       };
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/applications`,
+        `${API_BASE_URL}/make-server-3eae23a6/applications`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },

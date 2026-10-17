@@ -33,10 +33,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Gift, Clock, Percent, Loader2, Check, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId as supabaseProjectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface Attachable {
   kind: 'grant' | 'promotion' | 'giftcard' | 'hours' | 'addon';

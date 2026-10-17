@@ -31,11 +31,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { companyInfo } from '../lib/config/companyInfo';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 import AIContentStudio from '../components/AIContentStudio';
 import ContentPackageGenerator from '../components/ContentPackageGenerator';
 import ReelStudio from '../components/ReelStudio';
@@ -75,6 +75,7 @@ import MediaLibraryManager from '../components/MediaLibraryManager';
 import SocialMediaHub from '../components/SocialMediaHub';
 import StoreBoostersManager from '../components/StoreBoostersManager';
 import PromotionsEngineManager from '../components/PromotionsEngineManager';
+import { API_BASE_URL } from '../lib/apiConfig';
 import FulfillmentManager from '../components/FulfillmentManager';
 import HotProductsRadar from '../components/HotProductsRadar';
 import StoreContentStudio from '../components/StoreContentStudio';
@@ -1391,7 +1392,7 @@ export default function EnterpriseContentCenter() {
       };
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`,
+        `${API_BASE_URL}/make-server-3eae23a6/public/reels`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1473,7 +1474,7 @@ export default function EnterpriseContentCenter() {
       });
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/video/ai-edit`,
+        `${API_BASE_URL}/make-server-3eae23a6/video/ai-edit`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

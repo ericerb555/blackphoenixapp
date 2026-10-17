@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { constructionTax } from '../lib/constructionTax';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface ChangeOrder {
   id: string;
@@ -70,7 +71,7 @@ interface Annotation {
 }
 
 export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
   // Current step in the flow
   const [currentStep, setCurrentStep] = useState<'select_project' | 'capture' | 'annotate' | 'details' | 'pricing' | 'review' | 'send'>('select_project');

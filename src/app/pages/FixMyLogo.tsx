@@ -6,9 +6,10 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, CheckCircle, AlertCircle, Zap, Upload, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type Step = 'idle' | 'uploading' | 'publishing' | 'done' | 'error';
 
@@ -54,7 +55,7 @@ export default function FixMyLogo() {
     // Check what the live site public endpoint returns
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
+        `${API_BASE_URL}/make-server-3eae23a6/public/branding`,
         { headers: await authedHeadersOrAnon(publicAnonKey) }
       );
       if (res.ok) {
@@ -88,7 +89,7 @@ export default function FixMyLogo() {
       // Upload base64 to Supabase Storage
       setMessage('Uploading logo to permanent storage...');
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
+        `${API_BASE_URL}/make-server-3eae23a6/logo/upload`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -136,7 +137,7 @@ export default function FixMyLogo() {
 
     // Bust server cache
     await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding/refresh`,
+      `${API_BASE_URL}/make-server-3eae23a6/public/branding/refresh`,
       { method: 'POST', headers: await authedHeadersOrAnon(publicAnonKey) }
     );
 

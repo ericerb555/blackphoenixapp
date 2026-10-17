@@ -19,12 +19,13 @@ import {
   AlertCircle, Tag, Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { useStoreConfig, effectiveUnitPrice } from '../hooks/useStoreConfig';
 import UnifiedCheckout from '../components/UnifiedCheckout';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const PURCHASED_KEY = 'bp_mkt_purchased';
 const BUYER_EMAIL_KEY = 'bp_mkt_buyer_email';
 // The order number from the receipt. A guest download needs it, because an

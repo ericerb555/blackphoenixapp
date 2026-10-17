@@ -26,10 +26,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Check, X, CalendarOff, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { projectId } from '../../utils/supabase/info';
 import type { UnavailabilityRecord } from './TimeOffPanel';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/unavailability`;
+const API = `${API_BASE_URL}/make-server-3eae23a6/unavailability`;
 
 /** A range as a person would read it. */
 export const rangeLabel = (r: { from: string; to?: string }) =>

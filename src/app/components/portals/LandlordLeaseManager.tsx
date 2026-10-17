@@ -4,9 +4,9 @@ import {
   Sparkles, Upload, Send, FileText, LoaderCircle, CheckCircle2,
   Plus, X, Download, Wand2, PenLine,
 } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Tenant { id: string; name: string; email?: string; unit?: string; rent?: number; }
 interface Lease {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 /**
  * DataInitializer - Automatically seeds the database with sample data on first load
@@ -31,7 +32,7 @@ export default function DataInitializer() {
     console.log('💾 This app uses localStorage as primary data store - server init is optional');
     
     try {
-      const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+      const baseUrl = `${API_BASE_URL}/make-server-3eae23a6`;
       const headers = {
         'Authorization': `Bearer ${publicAnonKey}`,
         'Content-Type': 'application/json'

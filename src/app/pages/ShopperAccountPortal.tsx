@@ -11,12 +11,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Package, RotateCcw, Star, ChevronDown, ChevronRight, ShoppingBag, Truck, CheckCircle, Clock, X, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { getLoyaltyAccount, loadLoyaltyFromServer, type LoyaltyAccount } from './LoyaltyProgram';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface OrderItem { id: string; name: string; price: number; qty: number; image?: string; }
 interface StoreOrder {

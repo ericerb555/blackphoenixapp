@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Employee {
   id: string;
@@ -63,7 +63,7 @@ interface WeatherData {
 }
 
 export default function ServiceScheduling() {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
   const { user } = useAuth();
 
   const [currentDate, setCurrentDate] = useState(new Date());

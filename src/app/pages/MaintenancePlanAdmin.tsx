@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import {
   Save, RotateCcw, Plus, Trash2, Wrench, Users, CalendarClock, MapPin,
   ArrowLeft, Loader2, Star, BadgeCheck, ClipboardCheck, Check, X, RefreshCw,
@@ -23,6 +23,7 @@ import {
   type FrequencyTier,
   type Region,
 } from '../data/maintenanceConfig';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type TabId = 'services' | 'skills' | 'frequency' | 'regions' | 'requests';
 type CustomPlanItem = { id: string; name: string; details?: string; frequency?: string; status: 'pending_pricing' | 'approved' | 'rejected'; price?: number; reviewNote?: string };
@@ -107,7 +108,7 @@ export default function MaintenancePlanAdmin({
   const loadCustomRequests = async () => {
     setRequestsLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/maintenance-drafts`, { headers: await adminHeaders() });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/maintenance-drafts`, { headers: await adminHeaders() });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Could not load custom plan requests.');
       setDrafts(result.drafts || []);
@@ -123,7 +124,7 @@ export default function MaintenancePlanAdmin({
     if (status === 'approved' && (priceInput.trim() === '' || !Number.isFinite(price) || price < 0)) { toast.error('Enter a valid price before approving this item.'); return; }
     setReviewingId(key);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/maintenance-drafts/${encodeURIComponent(email)}/custom-items/${encodeURIComponent(item.id)}`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/maintenance-drafts/${encodeURIComponent(email)}/custom-items/${encodeURIComponent(item.id)}`, {
         method: 'PATCH', headers: await adminHeaders(true), body: JSON.stringify({ status, price, reviewNote: notes[key] || '' }),
       });
       const result = await response.json();

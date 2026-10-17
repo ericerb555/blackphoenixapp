@@ -5,8 +5,9 @@
 
 import { supabase } from './supabase';
 import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from './apiConfig';
 
-const API_BASE = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * Get current user's access token for authenticated requests

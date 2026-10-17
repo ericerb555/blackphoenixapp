@@ -6,10 +6,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Percent, CalendarClock, Layers3, Plus, Trash2, Save, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface ScheduledDiscount {
   id: string;

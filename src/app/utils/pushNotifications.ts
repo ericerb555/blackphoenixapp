@@ -3,11 +3,12 @@
  * Handles service worker registration, push subscription, and sending pushes.
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * Detect the Figma Make preview environment. The preview serves the app inside

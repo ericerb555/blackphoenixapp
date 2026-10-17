@@ -41,13 +41,14 @@ import ServerDeploymentGuide from '../components/ServerDeploymentGuide';
 import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
 import { usePendingApprovals } from '../lib/hooks/usePendingApprovals';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { StartQuoteModal } from '../components/quotes/StartQuoteModal';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface ModuleCard {
   label: string;
@@ -209,7 +210,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   useEffect(() => {
     const fetchCompanyBranding = async () => {
       try {
-        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+        const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
         const response = await fetch(`${API_BASE}/business-profiles`, {
           headers: await authedHeaders()
         });
@@ -246,7 +247,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   useEffect(() => {
     const fetchZendropStatus = async () => {
       try {
-        const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+        const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
         const res = await fetch(`${API_BASE}/zendrop/status`, {
           headers: await authedHeaders(),
         });
@@ -270,7 +271,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/command-center/summary`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const result = await response.json();
         if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load Command Center metrics.');
         const summary = result.summary;

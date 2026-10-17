@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../apiConfig';
 
 export interface Customer {
   id: string;
@@ -56,7 +57,7 @@ export interface CustomerFilters {
   tags?: string[];
 }
 
-const CUSTOMER_ENDPOINT = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/customers`;
+const CUSTOMER_ENDPOINT = `${API_BASE_URL}/make-server-3eae23a6/customers`;
 
 async function apiHeaders(contentType = false) {
   const { data: { session } } = await supabase.auth.getSession();

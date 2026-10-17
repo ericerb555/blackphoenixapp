@@ -30,11 +30,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { fileToDataUrl } from '../../lib/imageCapture';
 import MarkArea, { buildMask, type MarkedArea } from '../MarkArea';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();

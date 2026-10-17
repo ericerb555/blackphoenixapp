@@ -3,9 +3,10 @@ import { ArrowRight, Building2, CheckCircle2, CircleDashed, FileUp, Loader2, Loc
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../contexts/AuthContext";
-import { projectId, publicAnonKey } from "../utils/supabase/info";
+import { publicAnonKey } from "../utils/supabase/info";
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 type Task = { id: string; label: string; required?: boolean; status: string; submittedAt?: string; reviewedAt?: string };
 type DocumentRecord = { id: string; taskId: string; name: string; status: string; uploadedAt?: string; reviewNote?: string };

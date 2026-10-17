@@ -3,9 +3,10 @@
  * Handles all service management with API integration
  */
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
 import { authedHeadersOrAnon } from '../../utils/authHeaders';
+import { API_BASE_URL } from '../apiConfig';
 
 export interface ServiceData {
   id?: string;
@@ -98,7 +99,7 @@ export class ServiceManager {
       
       // Insert via API
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
+        `${API_BASE_URL}/make-server-3eae23a6/services`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -140,7 +141,7 @@ export class ServiceManager {
       
       // Update via API
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/services/${serviceId}`,
         {
           method: 'PUT',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -184,7 +185,7 @@ export class ServiceManager {
   static async getServices(companyId: string, includeInactive: boolean = false): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services`,
+        `${API_BASE_URL}/make-server-3eae23a6/services`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey)
         }
@@ -227,7 +228,7 @@ export class ServiceManager {
   static async getService(serviceId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/services/${serviceId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/services/${serviceId}`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey)
         }

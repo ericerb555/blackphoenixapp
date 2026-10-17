@@ -7,11 +7,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Star, Quote, ChevronLeft, ChevronRight, Plus, X, Send, RefreshCw } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * THERE ARE NO PLACEHOLDER REVIEWS, AND THERE MUST NOT BE.

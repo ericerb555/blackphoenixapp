@@ -45,7 +45,6 @@ import type { ScopeLine } from '../lib/scopeModel';
 import { toast } from 'sonner';
 import type { DesignLink } from './ProjectLinkPanel';
 import RoomViewer3D from './RoomViewer3D';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import {
   type CabinetGrade, type CounterMaterial, GRADES, COUNTER_MATERIALS,
@@ -54,8 +53,9 @@ import {
 import { tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
 import { DEFAULT_QUOTE_OPTIONS, type QuoteOptions } from '../lib/deckQuote';
 import type { DesignStage } from '../lib/designStage';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();

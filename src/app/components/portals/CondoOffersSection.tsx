@@ -26,12 +26,13 @@ import {
   Sparkles, Send, Loader2, MapPin, Info, Home, Building2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import { offersForAudience, townBasis, seasonOf, type CondoFacts, type CondoOffer } from '../../lib/condoOffers';
 import { lookupTownLoads } from '../../lib/townLoads';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** Pull a town and state out of a free-text address, if one is written there. */
 function townFromAddress(address: string): { town: string; state: string } | null {

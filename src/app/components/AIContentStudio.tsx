@@ -22,9 +22,10 @@ import { ConfirmModal } from './ui/modal/ConfirmModal';
 import { useContentManagement, ContentTemplate, BrandGuideline } from '../lib/useContentManagement';
 import { useCompany } from '../contexts/CompanyContext';
 import ProfessionalReelGenerator from '../lib/professionalReelGenerator';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 const composeHeaders = {
   Authorization: `Bearer ${publicAnonKey}`,
   apikey: publicAnonKey,

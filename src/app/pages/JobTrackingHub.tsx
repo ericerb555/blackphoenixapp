@@ -12,10 +12,10 @@ import {
   CheckCircle, XCircle, RefreshCw, Download, Eye, MapPin, Receipt, FileText
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
-import { jobFinancialService, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { TimeEntry, PurchaseEntry, jobFinancialService } from '../lib/services/jobFinancialService';
 
 type TabType = 'active-jobs' | 'projects' | 'job-financial' | 'master-schedule' | 'service-schedule' | 'change-orders' | 'weather';
 
@@ -57,7 +57,7 @@ export default function JobTrackingHub() {
   const loadChangeOrders = async () => {
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/change-orders`,
+        `${API_BASE_URL}/make-server-3eae23a6/change-orders`,
         { headers: await authedHeaders() }
       );
       if (!res.ok) throw new Error(`change-orders ${res.status}`);

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Gift, Users, DollarSign, Plus, TrendingUp, Award, Search, Edit2, Share2, Copy, ArrowLeft, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Referral {
   id: string;

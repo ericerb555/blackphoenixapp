@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Building2, Plus, AlertCircle, CheckCircle, RefreshCw, FileText, Shield, DollarSign, Hash } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CompanySetupProps {
   onNavigate: (page: string) => void;
@@ -93,7 +94,7 @@ export default function CompanySetup({ onNavigate }: CompanySetupProps) {
         return;
       }
 
-      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`;
+      const apiUrl = `${API_BASE_URL}/make-server-3eae23a6/companies`;
       const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -182,7 +183,7 @@ export default function CompanySetup({ onNavigate }: CompanySetupProps) {
       }
 
       // Create company via API
-      const apiUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`;
+      const apiUrl = `${API_BASE_URL}/make-server-3eae23a6/companies`;
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {

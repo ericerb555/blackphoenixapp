@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import {
   ArrowLeft, Save, Settings, Palette, Bell, Mail, Image,
   Shield, Lock, Users, Globe, Zap, AlertCircle, Check,
@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { BrandingHub } from '../components/branding/BrandingHub';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type SettingsTab = 'branding' | 'notifications' | 'email' | 'access' | 'security' | 'integrations' | 'defaults';
 
@@ -357,7 +358,7 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
     }
   });
 
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
   // Load any previously saved settings from the server, merging over the defaults
   // so newly-added setting fields still have sensible values.

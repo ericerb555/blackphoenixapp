@@ -5,8 +5,9 @@
 
 import { useState } from 'react';
 import { Search, Package, CreditCard, CheckCircle, Truck, Clock, MapPin, User, Mail, Phone, ArrowRight, Box, Loader2 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type TrackingType = 'order' | 'payment';
 
@@ -42,7 +43,7 @@ export default function OrderTracking() {
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
+        `${API_BASE_URL}/make-server-3eae23a6${endpoint}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`

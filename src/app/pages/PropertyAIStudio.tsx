@@ -4,11 +4,12 @@ import {
   ArrowUpNarrowWide, Compass, Clock, DollarSign, AlertTriangle, CheckCircle2,
   Crown, Lock, Zap, History, FileText, ChevronRight, ShieldCheck,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 const CATEGORY_ICON: Record<string, typeof Hammer> = {
   rezone: Landmark,

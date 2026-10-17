@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Send, Check, Upload, X, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import ApplicationPlanBuilderSection from './ApplicationPlanBuilderSection';
 import TradeRatingSelector, { claimedTrades } from './TradeRatingSelector';
@@ -14,6 +14,7 @@ import { levelLabel, tradeLabel, certificationLabel, isLapsed } from '../lib/tec
  * of this module are unaffected.
  */
 import { selectedSkillIds, describeSkill, previewText, type SkillItem } from '../lib/applicationAnswers';
+import { API_BASE_URL } from '../lib/apiConfig';
 export { selectedSkillIds, describeSkill, previewText };
 export type { SkillItem };
 
@@ -225,7 +226,7 @@ export function GenericApplicationForm({ config, onNavigate }: GenericApplicatio
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
+        `${API_BASE_URL}/make-server-3eae23a6${endpoint}`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

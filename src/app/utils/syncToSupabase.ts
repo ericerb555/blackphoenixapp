@@ -3,9 +3,10 @@
  * This ensures data persists across deployments and browsers
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * Sync company/business profile data to Supabase

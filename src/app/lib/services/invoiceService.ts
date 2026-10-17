@@ -5,7 +5,8 @@
  */
 
 import { supabase } from '../supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../apiConfig';
 
 // Mock data for development (when Supabase tables aren't created yet)
 const MOCK_INVOICES: Invoice[] = [
@@ -191,7 +192,7 @@ export interface ValidationError {
 }
 
 export class InvoiceService {
-  private static readonly endpoint = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/invoices`;
+  private static readonly endpoint = `${API_BASE_URL}/make-server-3eae23a6/invoices`;
 
   private static async headers(contentType = false) {
     const { data: { session } } = await supabase.auth.getSession();

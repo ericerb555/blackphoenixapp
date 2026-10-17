@@ -13,16 +13,22 @@ import {
   Music2, Globe, Lock, Unlock, Loader2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_BASE = (() => {
-  try {
-    // dynamically get from the same supabase info the rest of the app uses
-    const { projectId } = require('../utils/supabase/info');
-    return `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
-  } catch {
-    return 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6';
-  }
-})();
+/**
+ * The try/catch this replaces never once took its try branch.
+ *
+ * It called `require('../utils/supabase/info')` to "dynamically get" the
+ * project id. There is no `require` in a Vite browser bundle — the call threw
+ * on every single evaluation, the catch ran, and the hardcoded literal in it
+ * was the value this file actually used. So the fallback was the code path,
+ * and the project ref was pinned here where no change to `info.tsx` could
+ * reach it.
+ *
+ * A plain import does what the IIFE was reaching for, at build time, with no
+ * branch to get wrong.
+ */
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Reel {
   id: string;
@@ -243,7 +249,7 @@ export default function SocialMediaManager() {
     setTimeout(() => setCopied(''), 2000);
   }
 
-  const REDIRECT_URI = 'https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/social/callback';
+  const REDIRECT_URI = `${API_BASE_URL}/make-server-3eae23a6/social/callback`;
   const platformMeta = PLATFORMS.find(p => p.id === oauthTab)!;
 
   const PlatformIcon: Record<string, any> = { instagram: Instagram, facebook: Facebook, youtube: Youtube, tiktok: Music2, custom: Globe };

@@ -1,7 +1,8 @@
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import type { InvoicePDFData } from './pdfService';
 import { companyInfo } from '../config/companyInfo';
+import { API_BASE_URL } from '../apiConfig';
 
 export interface EmailData {
   to: string;
@@ -26,7 +27,7 @@ export class EmailService {
       const body = this.generateInvoiceEmailBody(invoiceData, customMessage);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/send`,
+        `${API_BASE_URL}/make-server-3eae23a6/email-center/send`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -209,7 +210,7 @@ export class EmailService {
   static async getEmailHistory(): Promise<any[]> {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center/log`,
+        `${API_BASE_URL}/make-server-3eae23a6/email-center/log`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey),
         }

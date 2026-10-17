@@ -11,10 +11,10 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { autoSyncBranding } from '../utils/autoSyncBranding';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { consumeReturnTo } from '../lib/returnTo';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -214,8 +214,8 @@ export default function Login({ onNavigate }: LoginProps) {
         };
         try {
           const [identity, onboarding] = await Promise.all([
-            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/me`),
-            optionalJson(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-onboarding`),
+            optionalJson(`${API_BASE_URL}/make-server-3eae23a6/auth/me`),
+            optionalJson(`${API_BASE_URL}/make-server-3eae23a6/intake/my-onboarding`),
           ]);
           if (identity?.user?.role && !isOwnerEmail) {
             const verifiedRole = String(identity.user.role).toLowerCase();

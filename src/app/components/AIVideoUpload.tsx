@@ -1,8 +1,9 @@
 // AI Video/Image Upload Component for Floor Plan Generation
 import { useState, useRef } from 'react';
 import { Upload, Camera, Video, Image as ImageIcon, Wand2, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CanvasElement {
   id: string;
@@ -94,7 +95,7 @@ export default function AIVideoUpload({
 
       // Call AI analysis endpoint
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/analyze-image`,
+        `${API_BASE_URL}/make-server-3eae23a6/ai-floorplan/analyze-image`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -147,7 +148,7 @@ export default function AIVideoUpload({
       console.log('📝 Generating floor plan from description...');
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-floorplan/generate-from-description`,
+        `${API_BASE_URL}/make-server-3eae23a6/ai-floorplan/generate-from-description`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

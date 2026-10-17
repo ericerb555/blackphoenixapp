@@ -28,11 +28,12 @@
  */
 
 import { supabase } from './supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import type { QuoteLine, QuoteTotals } from './deckQuote';
 import type { DesignLink } from '../components/ProjectLinkPanel';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function authed() {
   const { data: { session } } = await supabase.auth.getSession();

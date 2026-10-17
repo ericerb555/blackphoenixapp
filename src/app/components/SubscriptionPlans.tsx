@@ -23,11 +23,12 @@ import {
   type SubscriptionPlan,
   type PlanCategory,
 } from '../config/subscriptionPlans';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { applyCatalogue, audiencesFor, type CatalogueTier } from '../config/catalogueBridge';
 import MaintenancePlanEditor from './MaintenancePlanEditor';
 
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type PricingDisplay = 'regular' | 'first12';
 
@@ -46,7 +47,7 @@ const CATEGORY_TABS: { id: PlanCategory; label: string; icon: any; color: string
 
 const subscriptionPlans: SubscriptionPlan[] = ALL_SUBSCRIPTION_PLANS;
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // overrides[category][tier][feature] = boolean (owner-defined; absent = plan default)
 type TierOverrideMap = Record<string, Record<string, Record<string, boolean>>>;

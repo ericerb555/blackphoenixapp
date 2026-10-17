@@ -1,8 +1,9 @@
 // Project Selector - Import Quote/Project to Design Studio
 import { useState, useEffect } from 'react';
 import { FolderOpen, Search, FileText, Calendar, User, DollarSign, Clock, Image, Video, FileEdit, ChevronRight } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Quote {
   id: string;
@@ -41,7 +42,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
 
       // Fetch active quotes
       const quotesResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/list`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/list`,
         {
           headers: await authedHeaders()
         }
@@ -54,7 +55,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
 
       // Fetch recent studio projects from KV store
       const recentResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/recent-projects`,
+        `${API_BASE_URL}/make-server-3eae23a6/studio/recent-projects`,
         {
           headers: await authedHeaders()
         }
@@ -82,7 +83,7 @@ export default function ProjectSelector({ onClose, onSelectProject }: ProjectSel
     // Save to recent projects
     try {
       await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/studio/save-recent`,
+        `${API_BASE_URL}/make-server-3eae23a6/studio/save-recent`,
         {
           method: 'POST',
           headers: await authedHeaders(),

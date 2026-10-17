@@ -66,6 +66,7 @@ import HousePanel from '../components/HousePanel';
 import RoomCapture from '../components/RoomCapture';
 import AdditionPanel from '../components/AdditionPanel';
 import PaintPanel from '../components/PaintPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
 import { TRADES, type TradeId } from '../lib/trades';
 import { type House, BLANK_HOUSE, activeView, viewFromAnalysis, mergeRead, upsertView } from '../lib/houseModel';
 import { setCurrentJob } from '../lib/currentJob';
@@ -74,7 +75,7 @@ import {
   type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
 } from '../lib/deckModel';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface SiteInfo { projectName: string; address: string; town: string; state: string; parcel: string }
 

@@ -26,11 +26,12 @@ import {
   ThumbsUp, Ban, Pencil, Wand2, ShieldCheck, Save, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { useStoreProducts, StoreCatalogProduct } from '../lib/useStoreProducts';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const HEARTBEAT_MS = 60_000;
 
 async function authToken(): Promise<string> {

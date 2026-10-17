@@ -5,11 +5,12 @@
  * local cache/offline fallback; this layer syncs it to the backend.
  */
 
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from './supabase';
 import type { UserContext } from './userStorageManager';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * The namespace deck designs live in.

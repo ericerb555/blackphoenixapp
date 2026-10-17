@@ -11,8 +11,9 @@ import {
   Upload, Plus, RefreshCw
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Props {
   workRequest: any;
@@ -129,7 +130,7 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${wrId}`, {
+      await fetch(`${API_BASE_URL}/make-server-3eae23a6/work-requests/${wrId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ media_attachments: { photos, videos } }),

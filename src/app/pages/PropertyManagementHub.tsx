@@ -8,8 +8,8 @@ import {
 import { toast } from 'sonner';
 import { BackToDashboard } from '../components/BackToDashboard';
 import SendOfferModal from '../components/SendOfferModal';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface WorkRequest {
   id: string;
@@ -55,7 +55,7 @@ export default function PropertyManagementHub() {
   const [filterPriority, setFilterPriority] = useState<'all' | 'low' | 'medium' | 'high' | 'urgent'>('all');
   const [selectedRequest, setSelectedRequest] = useState<WorkRequest | null>(null);
 
-  const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
+  const baseUrl = `${API_BASE_URL}/make-server-3eae23a6/property-management`;
 
   useEffect(() => {
     loadData();

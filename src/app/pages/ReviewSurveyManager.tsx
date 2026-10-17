@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Star, Send, MessageSquare, ThumbsUp, ThumbsDown, Copy, CheckCircle, ExternalLink, Search, Filter, Download, Plus, Trash2, Eye, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────

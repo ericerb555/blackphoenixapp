@@ -12,8 +12,9 @@ import {
   Package,
   AlertCircle
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import type { Product } from '../types/ecommerce';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CartItem {
   id: string;
@@ -77,7 +78,7 @@ export default function PersistentCartWishlistWidget({
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/${sessionId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/${sessionId}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -125,7 +126,7 @@ export default function PersistentCartWishlistWidget({
       if (!sessionId) return;
 
       await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/remove`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/remove`,
         {
           method: 'DELETE',
           headers: {

@@ -24,12 +24,12 @@ import {
   ClipboardCheck, LoaderCircle, Plus, Camera, CheckCircle2,
   Trash2, ChevronLeft, AlertTriangle, Sparkles, CalendarDays, Wallet, Save, Send,
 } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 import ConditionAreas, {
   PROPERTY_AREAS, blankAreas, type AreaRow,
 } from './ConditionAreas';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Property { id: string; name?: string; address?: string; }
 

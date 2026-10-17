@@ -6,10 +6,10 @@ import {
   Building2, Sparkles, Circle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 /**
  * THIS PAGE USED THE PUBLISHABLE ANON KEY, AND SO NEVER LOADED.
  *

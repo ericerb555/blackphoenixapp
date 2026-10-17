@@ -43,9 +43,9 @@ import {
   ClipboardList, UserPlus, CheckCircle2, WifiOff, FileText,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface ModuleCard {
   label: string; path: string; icon: any; color: string;

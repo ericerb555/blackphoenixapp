@@ -2,8 +2,9 @@
 // Provides resilient cart functionality regardless of server status
 // Version: 2.0.0 - Silent Mode (No Console Errors)
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
 import { localCartManager } from './localCartManager';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 let serverAvailable = true; // Optimistically assume server is available
 let lastServerCheck = 0;
@@ -21,7 +22,7 @@ async function checkServerAvailability(): Promise<boolean> {
   
   try {
     const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/health`,
+      `${API_BASE_URL}/make-server-3eae23a6/health`,
       {
         method: 'GET',
         headers: {
@@ -47,7 +48,7 @@ export async function getCart(): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/${sessionId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/${sessionId}`,
         {
           method: 'GET',
           headers: {
@@ -83,7 +84,7 @@ export async function addToCart(productId: string, quantity: number, productDeta
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/add`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/add`,
         {
           method: 'POST',
           headers: {
@@ -121,7 +122,7 @@ export async function updateCartItem(itemId: string, quantity: number): Promise<
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/update`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/update`,
         {
           method: 'PUT',
           headers: {
@@ -159,7 +160,7 @@ export async function removeFromCart(itemId: string): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/remove`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/remove`,
         {
           method: 'DELETE',
           headers: {
@@ -197,7 +198,7 @@ export async function clearCart(): Promise<any> {
   if (serverAvailable) {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cart/clear`,
+        `${API_BASE_URL}/make-server-3eae23a6/cart/clear`,
         {
           method: 'DELETE',
           headers: {

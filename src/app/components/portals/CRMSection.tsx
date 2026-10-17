@@ -5,7 +5,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { projectId } from '../../utils/supabase/info';
 import { toast } from 'sonner';
 import {
   Users, Plus, Search, Upload, Phone, Mail, MapPin,
@@ -13,6 +12,7 @@ import {
   ChevronDown, ChevronUp, CheckCircle, Clock, Star,
   Download, Filter,
 } from 'lucide-react';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 interface Contact {
   id: string;
@@ -60,7 +60,7 @@ export default function CRMSection({ portalType }: Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const api = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/portal-crm/${portalType}`;
+  const api = `${API_BASE_URL}/make-server-3eae23a6/portal-crm/${portalType}`;
 
   async function request(path = '', options: RequestInit = {}) {
     const { data: { session } } = await supabase.auth.getSession();

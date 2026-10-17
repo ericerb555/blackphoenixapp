@@ -26,9 +26,10 @@ import { toast } from 'sonner';
 import { generateDemoQuote } from '../../lib/demoQuoteGenerator';
 import { QuotePricingBasisBanner } from './QuotePricingBasisBanner';
 import { QuoteToContractEditor } from '../QuoteToContractEditor';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 interface StartQuoteModalProps {
   onClose: () => void;
@@ -144,7 +145,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auto-generate-quote`,
+          `${API_BASE_URL}/make-server-3eae23a6/auto-generate-quote`,
           {
             method: 'POST',
             headers: await authedHeaders(),
@@ -307,7 +308,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
       // Persist the new quote so it shows up across the app.
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes`, {
+        await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes`, {
           method: 'POST',
           headers: await authedHeaders(),
           body: JSON.stringify({
@@ -343,7 +344,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const now = new Date().toISOString();
-        await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/pipeline/items`, {
+        await fetch(`${API_BASE_URL}/make-server-3eae23a6/pipeline/items`, {
           method: 'POST',
           headers: await authedHeaders(),
           body: JSON.stringify({

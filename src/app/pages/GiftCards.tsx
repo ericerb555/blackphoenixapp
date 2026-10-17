@@ -3,10 +3,11 @@ import { Gift, Copy, Check, Send, Star, Heart, Sparkles, ArrowRight, RefreshCw, 
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface GiftCard {
   code: string;

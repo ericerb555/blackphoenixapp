@@ -1,12 +1,13 @@
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../supabase';
+import { API_BASE_URL } from '../apiConfig';
 
 // Test function to verify Supabase info is loaded
 console.log('🔧 Property Management Service Initialized');
 console.log('  - Project ID:', projectId);
 console.log('  - Public Key:', publicAnonKey ? '✓ Loaded' : '✗ Missing');
 
-const BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
+const BASE_URL = `${API_BASE_URL}/make-server-3eae23a6/property-management`;
 
 console.log('  - BASE_URL:', BASE_URL);
 

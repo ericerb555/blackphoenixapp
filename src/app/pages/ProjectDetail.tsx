@@ -6,8 +6,9 @@ import {
   Building2, Target, Activity, BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -62,7 +63,7 @@ export default function ProjectDetail({ projectId, onBack, onEdit }: ProjectDeta
     try {
       setLoading(true);
       const res = await fetch(
-        `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6/projects/${encodeURIComponent(projectId)}`,
+        `${API_BASE_URL}/make-server-3eae23a6/projects/${encodeURIComponent(projectId)}`,
         { headers: await authedHeadersOrAnon(publicAnonKey) }
       );
       if (!res.ok) {

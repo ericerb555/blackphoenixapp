@@ -7,10 +7,11 @@ import {
   Palette, Repeat, CalendarDays, Loader2, Save, Sparkles, Copy, Trash2,
   Plus, X, Check, Send,
 } from 'lucide-react';
-import { publicAnonKey, projectId } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { sendDraftToScheduler, sendDraftsToScheduler, channelToPlatform } from '../../lib/contentHandoff';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' };
 
 interface BrandKit {

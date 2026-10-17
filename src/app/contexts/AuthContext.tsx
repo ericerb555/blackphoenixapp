@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import type { CompanyScope, CompanyContext } from '../lib/companyScope';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface UserRole {
   role_id: string;
@@ -117,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: { session: s } } = await supabase.auth.getSession();
       if (!s?.access_token) return;
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/me/permissions`,
+        `${API_BASE_URL}/make-server-3eae23a6/me/permissions`,
         { headers: { Authorization: `Bearer ${s.access_token}` } },
       );
       const json = await res.json().catch(() => null);
@@ -223,7 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A password-setup invitation signs the user in. Record that first real
       // portal login server-side and complete the approved intake checklist.
       if (event === 'SIGNED_IN' && session?.access_token) {
-        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/complete-onboarding`, {
+        fetch(`${API_BASE_URL}/make-server-3eae23a6/auth/complete-onboarding`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         }).catch((error) => console.error('[Auth] Could not mark portal activation:', error));
@@ -302,7 +303,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
        * a working signup rather than a broken one.
        */
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/signup`,
+        `${API_BASE_URL}/make-server-3eae23a6/auth/signup`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
@@ -337,7 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void (async () => {
         try {
           await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/auth/register-crm`,
+            `${API_BASE_URL}/make-server-3eae23a6/auth/register-crm`,
             {
               method: 'POST',
               headers: await authedHeadersOrAnon(publicAnonKey),

@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import SponsoredMarquee from '../components/SponsoredMarquee';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import {
@@ -44,11 +44,12 @@ import {
   type ExchangeFilters, type SortKey, type Coords,
 } from '../lib/exchangeFilters';
 import { summarisePriceEntry, priceEntryWarning } from '../lib/bidPackageModel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 // Only used for the invitation email. Every other call on this page goes
 // straight to Postgres — sending mail is the one thing that needs a secret the
 // browser must not hold.
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -519,7 +520,7 @@ export default function BidRoom({ onNavigate }: { onNavigate?: (page: string) =>
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/bid-room/award`,
+        `${API_BASE_URL}/make-server-3eae23a6/bid-room/award`,
         {
           method: 'POST',
           headers: {

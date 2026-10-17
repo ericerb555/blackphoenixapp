@@ -53,10 +53,10 @@ import {
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import UnifiedPaymentService from '../lib/services/unifiedPaymentService';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const PC_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const PC_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 async function paymentCenterHeaders() { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage payment gateways.'); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }; }
 
 // Persist only non-secret gateway state to the server; API keys/secrets stay local.
@@ -75,6 +75,7 @@ import type {
 } from '../lib/services/unifiedPaymentService';
 import { PrimaryButton, SecondaryButton } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type TabType = 'all' | 'gateways' | 'analytics';
 

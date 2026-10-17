@@ -12,10 +12,11 @@
  */
 import { useEffect, useState } from 'react';
 import { Home, Loader2, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 function getToken() {
   const p = new URLSearchParams(window.location.search);

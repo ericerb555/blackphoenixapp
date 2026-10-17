@@ -14,11 +14,12 @@ import {
 } from '@stripe/react-stripe-js';
 import { Building2, CreditCard, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { STRIPE_PUBLISHABLE_KEY } from '../utils/stripe/config';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 interface Company {

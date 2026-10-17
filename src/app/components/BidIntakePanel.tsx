@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
 import { fileToDataUrl, framesFromVideo } from '../lib/imageCapture';
 import {
   type BidReading, type ProposedMatch,
@@ -32,8 +31,9 @@ import {
   readingNote, sumOfLines, totalDisagreement,
 } from '../lib/bidIntakeModel';
 import type { Scope } from '../lib/scopeModel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 
 async function headers() {

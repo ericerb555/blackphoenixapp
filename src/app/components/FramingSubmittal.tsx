@@ -19,15 +19,15 @@ import {
   ShieldCheck, HelpCircle, Ban,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '../lib/supabase';
-import { projectId as supabaseProjectId } from '../utils/supabase/info';
 import {
   type FramingSubmittal as Submittal, type MemberRow, type OpenQuestion,
   STATE_LABEL, assumptionLines, memberPasses, submittalGaps, submittalNote,
   isSendable, architectView, reviseFor,
 } from '../lib/framingModel';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const tiny = 'px-2 py-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white text-xs focus:outline-none focus:border-[#ea580c]';
 

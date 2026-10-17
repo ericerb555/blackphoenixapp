@@ -26,11 +26,11 @@ import {
   ChevronLeft, Search, Briefcase, FileText, Receipt, Package,
   PencilRuler, Loader2, RefreshCw, MapPin, User, ExternalLink,
 } from 'lucide-react';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Job {
   id: string;

@@ -24,13 +24,14 @@ import { tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
 import { publishDeckQuote } from '../lib/publishQuote';
 import ProjectLinkPanel, { type DesignLink } from './ProjectLinkPanel';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import HouseImportBanner from './HouseImportBanner';
 import type { House } from '../lib/houseModel';
 import { flooringOffer, roomsFromHouse } from '../lib/houseToTrades';
 import type { DesignStage } from '../lib/designStage';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function headers() {
   const { data: { session } } = await supabase.auth.getSession();

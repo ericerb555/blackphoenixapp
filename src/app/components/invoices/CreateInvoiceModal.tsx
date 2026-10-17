@@ -8,8 +8,9 @@ import { supabase } from '../../lib/supabase';
 import CompanyHeader from '../branding/CompanyHeader';
 import AttachablesSearchPanel from './AttachablesSearchPanel';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface CreateInvoiceModalProps {
   isOpen: boolean;

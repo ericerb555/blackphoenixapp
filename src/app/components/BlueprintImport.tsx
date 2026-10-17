@@ -22,16 +22,16 @@ import {
   FileInput, Loader2, Check, AlertTriangle, ShieldCheck, Info, Ruler,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '../lib/supabase';
-import { projectId as supabaseProjectId } from '../utils/supabase/info';
 import { fileToDataUrl } from '../lib/imageCapture';
 import {
   type BlueprintRead, type MergeResult,
   readBlueprint, mergeIntoPlan, mergeNote, readWarnings,
 } from '../lib/blueprintRecord';
 import type { FloorPlan } from '../lib/floorPlanModel';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { supabase } from '../lib/supabase';
 
-const SERVER = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 
 export default function BlueprintImport({ plan, onChange }: {

@@ -16,7 +16,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import {
   Search, Package, Filter, Star, TrendingUp, ShoppingCart,
@@ -40,6 +40,7 @@ import {
 } from '../lib/services/materialsHubService';
 import { productDataSourceManager } from '../lib/services/productDataSourceManager';
 import ProductMergeReview from '../components/materials/ProductMergeReview';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type TabType = 'catalog' | 'vendor-portal' | 'quote-builder' | 'duplicates' | 'database' | 'procurement' | 'analytics';
 type ViewMode = 'grid' | 'list';
@@ -86,7 +87,7 @@ function MaterialsAIChat({ onClose }: { onClose: () => void }) {
     setMessages(history);
     setLoading(true);
     try {
-      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/permit-ai/chat`, {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/permit-ai/chat`, {
         method: 'POST',
         headers: await authedHeaders(),
         body: JSON.stringify({
@@ -209,7 +210,7 @@ export default function MaterialsCenter() {
     // four screens that call it during render, and this is what fills it.
     try {
       const result = await materialsHubService.refreshFromVendors(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`,
+        `${API_BASE_URL}/make-server-3eae23a6`,
         await authedHeaders(),
       );
       if (result.ok && result.count > 0) {
@@ -344,7 +345,7 @@ export default function MaterialsCenter() {
     setLoadingCustomerSelections(true);
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`,
+        `${API_BASE_URL}/make-server-3eae23a6/work-requests`,
         { headers: await authedHeaders() },
       );
       const data = await res.json();
@@ -827,7 +828,7 @@ function MyStoreSection({ quickAddToQuote }: { quickAddToQuote: (m: any) => void
     try {
       const { supabase } = await import('../lib/supabase');
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
-      const server = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+      const server = `${API_BASE_URL}/make-server-3eae23a6`;
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
 
@@ -845,7 +846,7 @@ function MyStoreSection({ quickAddToQuote }: { quickAddToQuote: (m: any) => void
     try {
       const { supabase } = await import('../lib/supabase');
       const { projectId, publicAnonKey } = await import('../utils/supabase/info');
-      const server = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+      const server = `${API_BASE_URL}/make-server-3eae23a6`;
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || publicAnonKey;
 
@@ -1232,7 +1233,7 @@ function QuoteBuilderTab({ quoteMaterials, quoteContext, removeMaterialFromQuote
     try {
       const searchTerm = material.description || material.name;
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-pricing/compare`,
+        `${API_BASE_URL}/make-server-3eae23a6/vendor-pricing/compare`,
         {
           method: 'POST',
           headers: await authedHeaders(),
@@ -1322,7 +1323,7 @@ function QuoteBuilderTab({ quoteMaterials, quoteContext, removeMaterialFromQuote
     setSendingPOs(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/from-materials`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders/from-materials`,
         {
           method: 'POST',
           headers: await authedHeaders(),
@@ -1748,7 +1749,7 @@ function QuoteBuilderTab({ quoteMaterials, quoteContext, removeMaterialFromQuote
 
 // ─── Shared procurement types ─────────────────────────────────────────────────
 
-const PO_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const PO_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface POLineItem {
   materialId: string;

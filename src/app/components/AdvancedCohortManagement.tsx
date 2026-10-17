@@ -31,7 +31,6 @@ import {
   HardHat
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 
 /**
@@ -48,7 +47,7 @@ import { authedHeaders } from '../utils/authHeaders';
  * there is no session instead of quietly falling back, which turns "you are
  * signed out" into a message rather than a 401 that reads like a broken page.
  */
-const COHORTS_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const COHORTS_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** What the server returns for a cohort. Money figures are derived by it. */
 interface ServerCohort {
@@ -68,6 +67,7 @@ interface ServerCohort {
   spotsRemaining?: number | null;
 }
 import { SubscriptionPlans } from './SubscriptionPlans';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type ViewMode = 'subscriptions' | 'cohorts' | 'maintenance' | 'vendors' | 'advertisers' | 'construction';
 

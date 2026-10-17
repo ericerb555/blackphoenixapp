@@ -4,14 +4,15 @@ import {
   Target, Calendar, User, Mail, Phone, CheckCircle2, Sparkles, ArrowRight,
   Layers, Handshake, Info, Loader2,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import {
   recommendStrategy, STRATEGY_LABELS,
   type PropertyInputs, type StrategyKey, type StrategyRecommendation,
 } from '../lib/propertyStrategy';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 const STRATEGY_ICON: Record<StrategyKey, typeof Home> = {
   'fix-flip': Hammer,

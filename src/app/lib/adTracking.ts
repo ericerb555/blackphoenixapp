@@ -16,10 +16,11 @@
  * events are batched rather than sent one request at a time.
  */
 
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
+import { API_BASE_URL } from './apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/advertising`;
+const API = `${API_BASE_URL}/make-server-3eae23a6/advertising`;
 
 export interface ServedAd {
   id: string;

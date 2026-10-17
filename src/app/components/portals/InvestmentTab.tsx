@@ -22,11 +22,12 @@ import {
   ArrowUpRight, CheckCircle, Users, Percent, Clock, X, Sparkles,
   Search, CreditCard, Crown, SlidersHorizontal,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/investments`;
+const API = `${API_BASE_URL}/make-server-3eae23a6/investments`;
 
 // Mirrors the server-authoritative AI_TIER_PRICING (investments-kv.tsx). Display
 // only — the server re-validates pricing on checkout.

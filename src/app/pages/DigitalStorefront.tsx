@@ -14,13 +14,14 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { useStoreConfig, effectiveUnitPrice, volumeDiscountPercent, lineTotal } from '../hooks/useStoreConfig';
 import UnifiedCheckout from '../components/UnifiedCheckout';
 import { Truck } from 'lucide-react';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const STORAGE_KEY = 'bp_mkt_products';
 const PURCHASED_KEY = 'bp_mkt_purchased';
 

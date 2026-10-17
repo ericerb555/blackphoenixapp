@@ -7,8 +7,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, MessageSquare, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Props {
   workRequestId: string;
@@ -19,7 +20,7 @@ interface Props {
   onClose?: () => void;
 }
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function PipelineMessagePanel({ workRequestId, customerName, customerEmail, customerPhone, adminName = 'Black Phoenix Team', onClose }: Props) {
   const [messages, setMessages] = useState<any[]>([]);

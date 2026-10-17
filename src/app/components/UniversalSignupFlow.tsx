@@ -11,7 +11,8 @@ import {
   DollarSign, Users, TrendingUp, Megaphone, Store, Home
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface SignupData {
   accountType: string;
@@ -122,7 +123,7 @@ export default function UniversalSignupFlow({
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/signup/universal`,
+        `${API_BASE_URL}/make-server-3eae23a6/signup/universal`,
         {
           method: 'POST',
           headers: {

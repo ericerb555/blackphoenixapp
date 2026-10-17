@@ -40,8 +40,8 @@ import {
   formatNumber,
   initializeCohorts
 } from '../lib/services/revenueService';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type TabType = 'payments' | 'subscriptions' | 'advertising' | 'vendor-ops' | 'subcontractor-ops' | 'promotions' | 'referrals' | 'marketing' | 'cohorts';
 
@@ -266,7 +266,7 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
   const [subcontractors, setSubcontractors] = useState<any[]>([]);
 
   useEffect(() => {
-    const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+    const base = `${API_BASE_URL}/make-server-3eae23a6`;
     const getJson = async (path: string) => {
       const res = await fetch(`${base}${path}`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`${path} → ${res.status}`);

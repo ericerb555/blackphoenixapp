@@ -36,11 +36,11 @@ import CatalogImport from './CatalogImport';
 import VendorApiFeed from './VendorApiFeed';
 import VendorImageConsent from './VendorImageConsent';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
 import NotificationBell from './NotificationBell';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const VENDOR_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const VENDOR_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Order {
   id: string;

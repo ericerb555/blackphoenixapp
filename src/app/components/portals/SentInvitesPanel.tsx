@@ -4,9 +4,9 @@ import {
   Send, RefreshCw, CheckCircle2, Clock, AlertTriangle, Mail, Phone, Search, Users, Ban, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Invite {
   applicationId: string;

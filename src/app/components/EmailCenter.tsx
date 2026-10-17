@@ -11,10 +11,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Mail, Send, FileText, Save, Trash2, Clock, CheckCircle2, XCircle, RefreshCw, Eye } from 'lucide-react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/email-center`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6/email-center`;
 
 interface Template {
   key: string;

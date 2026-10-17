@@ -7,6 +7,7 @@ import { Users, Clock, DollarSign, Plus, Search, Edit2, Trash2, ChevronDown, Che
 import { toast } from 'sonner';
 import TimeOffApprovals from '../components/schedule/TimeOffApprovals';
 import { TRADE_IDS, TRADE_LABELS } from '../lib/laborTasks';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type PayType = 'hourly' | 'salary' | 'contract';
 /**
@@ -87,7 +88,7 @@ interface HeldShift {
 }
 
 const TIME_API = (id: string) =>
-  `https://${id}.supabase.co/functions/v1/make-server-3eae23a6/time-tracking`;
+  `${API_BASE_URL}/make-server-3eae23a6/time-tracking`;
 
 /**
  * A datetime-local value for the punch-out box, defaulted to the placeholder

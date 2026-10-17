@@ -29,10 +29,11 @@ import { StandardButton } from './ui/button/StandardButton';
 import { CompactStandardButton } from './ui/button/StandardButton';
 import ProductDetailModal from './ProductDetailModal';
 import type { Product } from '../types/ecommerce';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface VendorStorefrontProps {
   vendorId: string;
@@ -80,7 +81,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/product-favorites`,
+          `${API_BASE_URL}/make-server-3eae23a6/product-favorites`,
           { headers: { Authorization: `Bearer ${session.access_token}` } },
         );
         const data = await res.json().catch(() => ({}));
@@ -98,7 +99,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
 
       // Load vendor profile
       const vendorResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/vendor-profile/${vendorId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/vendor-profile/${vendorId}`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey),
         }
@@ -106,7 +107,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
 
       // Load products
       const productsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/products?vendorId=${vendorId}&isActive=true`,
+        `${API_BASE_URL}/make-server-3eae23a6/products?vendorId=${vendorId}&isActive=true`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey),
         }
@@ -144,7 +145,7 @@ export default function VendorStorefront({ vendorId, onBack }: VendorStorefrontP
         return;
       }
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/product-favorites`,
+        `${API_BASE_URL}/make-server-3eae23a6/product-favorites`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },

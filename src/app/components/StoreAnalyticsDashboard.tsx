@@ -15,13 +15,14 @@ import {
   Star, RefreshCw, CreditCard, Truck,
   ChevronDown, ChevronUp, Minus, AlertCircle,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type DashTab = 'overview' | 'products' | 'orders' | 'financials' | 'customers';
 
@@ -111,7 +112,7 @@ export default function StoreAnalyticsDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/analytics/store`, {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/analytics/store`, {
         headers: await authedHeadersOrAnon(publicAnonKey),
       });
       const body = await res.json().catch(() => ({}));

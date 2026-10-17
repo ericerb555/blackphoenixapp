@@ -38,11 +38,12 @@ import {
   getDefaultConfig,
   type MaintenanceConfig,
 } from '../../data/maintenanceConfig';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeadersOrAnon } from "../../utils/authHeaders";
 import { createPlan, listPlans, bridgePlanGiftCards, type PlanRecord } from '../../utils/plansApi';
 import PortalUpgradeModal from './PortalUpgradeModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 type PortalType =
   | 'customer' | 'vendor' | 'subcontractor' | 'advertiser' | 'investor'
@@ -233,7 +234,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     setPricingCustom(true);
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/price-custom`,
+        `${API_BASE_URL}/make-server-3eae23a6/plan-builder/price-custom`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -300,7 +301,7 @@ export default function PlanBuilderTab({ portalType, ownerName, currentTier = 'b
     setFollowUp('');
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/plan-builder/generate`,
+        `${API_BASE_URL}/make-server-3eae23a6/plan-builder/generate`,
         {
           method: 'POST',
           /**

@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { Zap, Plus, Trash2, Clock, TrendingUp, Eye, ToggleLeft, ToggleRight, Copy, Check, Flame, Tag, Gift, ArrowRight, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 const STORAGE_KEY = 'bp_flash_sales';
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const flashAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 async function fetchSalesFromServer(): Promise<FlashSale[] | null> {

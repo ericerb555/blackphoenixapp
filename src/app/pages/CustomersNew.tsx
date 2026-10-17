@@ -17,8 +17,9 @@ import {
   type CustomerFilters 
 } from '../lib/services/customerService';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'lead' | 'active' | 'vip' | 'inactive';
@@ -64,7 +65,7 @@ export default function CustomersNew() {
     try {
       if (localStorage.getItem('crm_backfill_done') === 'true') return;
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/admin/backfill-crm`,
+        `${API_BASE_URL}/make-server-3eae23a6/admin/backfill-crm`,
         {
           method: 'POST',
           headers: await authedHeaders(),

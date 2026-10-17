@@ -12,11 +12,12 @@ import {
   AlertTriangle, BarChart3, Globe, X, Save, Edit2,
   Sparkles, Wand2, TrendingUp, Check, Megaphone,
 } from 'lucide-react';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { sendProductToAdStudio } from '../lib/adStudioHandoff';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // ── Supported suppliers ────────────────────────────────────────────────────────
 

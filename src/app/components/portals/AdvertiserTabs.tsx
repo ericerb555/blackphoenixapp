@@ -28,11 +28,11 @@ import {
   Eye, Image as ImageIcon, TrendingUp, TrendingDown, CreditCard, Check, AlertCircle, Upload, Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../../utils/supabase/info';
 import { ADVERTISER_PLANS, ADVERTISER_WEEKLY_PLANS, type SubscriptionPlan } from '../../config/subscriptionPlans';
 import SubscriptionAddOnsPanel from './SubscriptionAddOnsPanel';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 const num = (n: unknown) => (Number(n) || 0).toLocaleString();
 const pct = (n: unknown) => `${(Number(n) || 0).toFixed(2)}%`;

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Home, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 const inputCls = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100';
 const labelCls = 'mb-1 block text-sm font-medium text-slate-700';
 

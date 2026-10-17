@@ -8,9 +8,10 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, ShoppingCart, Mail, Star, Users, QrCode, BarChart3, RefreshCw, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
 import { getLoyaltyAccount } from './LoyaltyProgram';
 import { useAuth } from '../contexts/AuthContext';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const RA_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const RA_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const raAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

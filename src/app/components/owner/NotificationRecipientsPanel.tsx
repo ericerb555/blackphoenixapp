@@ -14,10 +14,10 @@ import {
   Loader2, CheckCircle2, XCircle, RefreshCw, Lock, Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * The events a person can subscribe to.

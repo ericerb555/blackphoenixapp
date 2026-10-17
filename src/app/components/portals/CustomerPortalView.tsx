@@ -57,12 +57,11 @@ import HomeVisualiser from './HomeVisualiser';
 import CustomerDesignTab from './CustomerDesignTab';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../lib/apiConfig';
-import { publicAnonKey, projectId } from '../../utils/supabase/info';
-
+import { publicAnonKey } from '../../utils/supabase/info';
 // Module scope: it was declared 1,200 lines into the component, below several
 // effects that use it. Those worked only because an effect body runs after
 // render; anything reaching for it during render would have thrown.
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 import { authedHeaders, authedHeadersOrAnon } from '../../utils/authHeaders';
 import { VendorProductPicker, type PickedProduct } from './VendorProductPicker';
 import { mergeProductLine, catalogKey } from '../../lib/quoteLines';
@@ -166,7 +165,7 @@ export default function CustomerPortalView() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Sign in to view your work requests.');
 
-        const url = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`);
+        const url = new URL(`${API_BASE_URL}/make-server-3eae23a6/work-requests`);
         url.searchParams.append('userId', user.id);
         // Also send email as fallback — catches requests where user_id wasn't saved
         if (user.email) url.searchParams.append('email', user.email);
@@ -455,7 +454,7 @@ export default function CustomerPortalView() {
   useEffect(() => {
     // Published reels are public by design and allowlisted as such on the
     // server, so this stays on the anon key.
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`, {
+    fetch(`${API_BASE_URL}/make-server-3eae23a6/public/reels`, {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })
@@ -567,7 +566,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/giveaways/entries`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/giveaways/entries`, { headers: { Authorization: `Bearer ${session.access_token}` } });
         const payload = await response.json().catch(() => ({}));
         if (active && response.ok && payload.success) setEnteredGiveaways((payload.entries || []).map((entry: any) => entry.giveawayId));
       } catch { /* The giveaway card remains available; submit will surface any error. */ }
@@ -580,7 +579,7 @@ export default function CustomerPortalView() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Sign in before entering a giveaway.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/giveaways/entries`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ giveawayId, giveawayTitle }) });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/giveaways/entries`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ giveawayId, giveawayTitle }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not enter the giveaway.');
       setEnteredGiveaways((current) => [...current, giveawayId]);
@@ -769,7 +768,7 @@ export default function CustomerPortalView() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || publicAnonKey;
-        const convUrl = new URL(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/messaging/conversations/${user.id || 'guest'}`);
+        const convUrl = new URL(`${API_BASE_URL}/make-server-3eae23a6/messaging/conversations/${user.id || 'guest'}`);
         if (user.email) convUrl.searchParams.set('email', user.email);
         const res = await fetch(convUrl.toString(), { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
@@ -1570,7 +1569,7 @@ export default function CustomerPortalView() {
                             onClick={async () => {
                               const { data: { session } } = await supabase.auth.getSession();
                               const token = session?.access_token || publicAnonKey;
-                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
+                              const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ amount: Math.round((quote.amount || quote.total || 0) * 0.30), description: `30% Deposit — ${quote.title || 'Project'}`, clientName: user?.email, clientEmail: user?.email, workRequestId: quote.workRequestId }),
                               });
@@ -1639,7 +1638,7 @@ export default function CustomerPortalView() {
                             onClick={async () => {
                               const { data: { session } } = await supabase.auth.getSession();
                               const tok = session?.access_token || publicAnonKey;
-                              const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
+                              const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ amount: invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total ?? invoice.amount, description: `Invoice #${invoice.invoice_number || invoice.id}`, clientEmail: user?.email, clientName: user?.email?.split('@')[0], invoiceId: invoice.id, workRequestId: invoice.workRequestId }),
                               });
@@ -1702,7 +1701,7 @@ export default function CustomerPortalView() {
               const payInvoice = async (invoice: any) => {
                 const { data: { session } } = await supabase.auth.getSession();
                 const tok = session?.access_token || publicAnonKey;
-                const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/payments/create-checkout`, {
+                const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
                   body: JSON.stringify({

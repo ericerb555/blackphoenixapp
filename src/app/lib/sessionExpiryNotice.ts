@@ -29,10 +29,10 @@
  */
 import { toast } from 'sonner';
 import { supabase } from './supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from './apiConfig';
 
 /** Our own API. A 401 from somewhere else is not ours to explain. */
-const OUR_API = `https://${projectId}.supabase.co/functions/v1/`;
+const OUR_API = `${API_BASE_URL}/`;
 
 /** One notice per lull, because a screen can fire a dozen calls at once. */
 const QUIET_MS = 30_000;

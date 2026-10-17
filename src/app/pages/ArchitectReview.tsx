@@ -22,9 +22,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   FileCheck2, Loader2, Check, AlertTriangle, ShieldCheck, HelpCircle, Clock,
 } from 'lucide-react';
-import { projectId as supabaseProjectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${supabaseProjectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Member {
   id: string; role: string; location: string; size: string;

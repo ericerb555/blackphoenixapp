@@ -35,13 +35,14 @@ import {
   ShieldCheck, Loader2, AlertCircle, CheckCircle2, Clock, LogIn,
   Phone, Mail, Globe, FileText, ArrowRight, Store,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
 import { CLAIM_CSS } from './exchangeClaimStyles';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface FactorOption {
   factor: string;

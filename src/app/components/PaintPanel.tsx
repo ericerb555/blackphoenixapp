@@ -35,7 +35,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Paintbrush, Loader2, Info, Plus, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import {
   type PaintColor, type PaintProduct, type PaintSurface,
@@ -46,8 +45,9 @@ import type { House } from '../lib/houseModel';
 import { netWallArea } from '../lib/houseModel';
 import { elevationViews, roomViews } from '../lib/houseToTrades';
 import type { ScopeLine } from '../lib/scopeModel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 const field =

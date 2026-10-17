@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { adFrequencyController } from '../utils/adFrequencyController';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const AD_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const AD_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
  * WHERE THESE ADS COME FROM, AND WHERE THEY USED TO COME FROM

@@ -33,8 +33,9 @@ import AIRecommendations from './AIRecommendations';
 import PersistentCartWishlistWidget from './PersistentCartWishlistWidget';
 import VendorStorefront from './VendorStorefront';
 import type { Product } from '../types/ecommerce';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import * as hybridCart from '../utils/hybridCartApi';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CartItem {
   productId: string;
@@ -65,7 +66,7 @@ export default function CustomerMarketplace() {
     
     try {
       const productsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/products?isActive=true`,
+        `${API_BASE_URL}/make-server-3eae23a6/products?isActive=true`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,

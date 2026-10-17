@@ -6,7 +6,8 @@
 
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Database, RefreshCw } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER_PREFIX = '/make-server-3eae23a6';
 
@@ -48,7 +49,7 @@ export default function DataPersistenceDiagnostics() {
 
       try {
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1${SERVER_PREFIX}/data/restore`,
+          `${API_BASE_URL}${SERVER_PREFIX}/data/restore`,
           {
             method: 'GET',
             headers: {

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 export default function CompanyRecovery({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [backups, setBackups] = useState<Array<{ key: string; data: any; timestamp: number }>>([]);
@@ -64,7 +64,7 @@ export default function CompanyRecovery({ onNavigate }: { onNavigate?: (page: st
           console.log('Uploading company:', company.name);
           
           const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`,
+            `${API_BASE_URL}/make-server-3eae23a6/companies`,
             {
               method: 'POST',
               headers: {

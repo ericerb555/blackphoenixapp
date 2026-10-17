@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Receipt, Loader2, Send, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import type { Scope } from '../lib/scopeModel';
 import { priceScope, skusToPrice, quoteConfidence, type PricedScopeLine } from '../lib/scopePricing';
@@ -27,8 +26,9 @@ import { tradeRatesFrom, type TradeRates } from '../lib/sidingPricing';
 import { DEFAULT_QUOTE_OPTIONS, type QuoteOptions } from '../lib/deckQuote';
 import { publishDeckQuote, quoteRefusalReason } from '../lib/publishQuote';
 import type { DesignLink } from './ProjectLinkPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const card = 'rounded-2xl border border-[#2A2A2A] bg-[#111] p-4';
 
 async function headers() {

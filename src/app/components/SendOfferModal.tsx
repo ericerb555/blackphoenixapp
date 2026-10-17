@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { X, Send, DollarSign, Calendar, Clock, Package, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface SendOfferModalProps {
   workRequest: any;
@@ -34,7 +34,7 @@ export default function SendOfferModal({ workRequest, propertyType, onClose, onS
     setSending(true);
     
     try {
-      const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-management`;
+      const API_BASE = `${API_BASE_URL}/make-server-3eae23a6/property-management`;
       
       const response = await fetch(`${API_BASE}/offers/send`, {
         method: 'POST',

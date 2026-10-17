@@ -53,7 +53,7 @@ import {
   Loader2, AlertCircle, ChevronLeft, Phone, Globe, BadgeCheck,
   Building2, Store, Send, MapPin, Search, X, Navigation, Crosshair,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
@@ -64,8 +64,9 @@ import SaveBusinessButton from '../components/exchange/SaveBusinessButton';
 import type { MapPinData } from '../components/exchange/ExchangeMap';
 import { useHere, pointOf } from '../lib/exchangeHere';
 import { useSavedBusinesses } from '../lib/exchangeSaved';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Listing {
   id: string;

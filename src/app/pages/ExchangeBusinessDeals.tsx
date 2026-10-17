@@ -27,13 +27,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, AlertCircle, ChevronLeft, Store, Tag, Send, Undo2, Building2,
 } from 'lucide-react';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
 import ExchangeLogoPanel from '../components/exchange/ExchangeLogoPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Listing { id: string; slug: string; name: string; claimed: boolean }
 interface Deal {

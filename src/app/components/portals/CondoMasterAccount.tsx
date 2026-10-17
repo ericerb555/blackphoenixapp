@@ -28,9 +28,9 @@ import {
   Trash2, ChevronLeft, AlertCircle, Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** The roles an association can grant, and what each one is for. */
 const ROLES: { id: string; label: string; hint: string; governing: boolean }[] = [

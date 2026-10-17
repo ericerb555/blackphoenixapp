@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useCompany } from '../contexts/CompanyContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import { CampaignPromoStrip } from '../components/CampaignPromoStrip';
 import { getLoyaltyAccount, awardPoints } from './LoyaltyProgram';
@@ -28,8 +28,9 @@ import SocialProofWidget from '../components/SocialProofWidget';
 import StoreReviews from '../components/StoreReviews';
 import UnifiedCheckout from '../components/UnifiedCheckout';
 import DigitalProductsRail from '../components/DigitalProductsRail';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Product {
   id: string;
@@ -424,7 +425,7 @@ export default function PublicStore() {
   async function submitLead(source = 'store_popup') {
     if (!leadEmail) return;
     try {
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/leads/capture`, {
+      await fetch(`${API_BASE_URL}/make-server-3eae23a6/leads/capture`, {
         method: 'POST',
         headers: await authedHeadersOrAnon(publicAnonKey),
         body: JSON.stringify({

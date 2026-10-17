@@ -14,10 +14,10 @@ import {
   DollarSign, Pencil, Save, X, ExternalLink, KeyRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 // Human labels for the secret-key env vars (values never touch the browser).
 const KEY_ENV_LABELS: Record<string, string> = {

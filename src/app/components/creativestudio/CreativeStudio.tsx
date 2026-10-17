@@ -11,9 +11,10 @@ import {
   Image as ImageIcon, Video, Music, LayoutGrid, Sparkles, Loader2, Download,
   Trash2, Wand2, Lock, RefreshCw, X, Check,
 } from 'lucide-react';
-import { publicAnonKey, projectId } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const authHeaders = { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' };
 
 interface Preset { id: string; name: string; emoji: string; category: string }

@@ -18,6 +18,7 @@ import { Select } from '../components/ui/input/Select';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface WasteEntry {
   id: string;
@@ -112,7 +113,7 @@ const COMMON_MATERIALS = [
 ];
 
 export default function WasteDisposalTracking({ onNavigate }: { onNavigate?: (page: string) => void }) {
-  const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+  const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
   const [activeTab, setActiveTab] = useState<'entries' | 'runs' | 'reports' | 'compliance'>('entries');
   const [wasteEntries, setWasteEntries] = useState<WasteEntry[]>([]);

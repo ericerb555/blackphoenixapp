@@ -7,9 +7,10 @@
 import { useState, useEffect } from 'react';
 import { X, ArrowRight, Clock, User, AlertCircle, CheckCircle, Loader2, Phone, Shield } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import * as SupabaseData from '../lib/supabase-data';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface HourTransferModalProps {
   isOpen: boolean;
@@ -112,7 +113,7 @@ export default function HourTransferModal({
       const targetSub = subscriptions.find(s => s.id === selectedTargetId);
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/send-verification`,
+        `${API_BASE_URL}/make-server-3eae23a6/hour-transfers/send-verification`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),
@@ -167,7 +168,7 @@ export default function HourTransferModal({
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/verify-and-request`,
+        `${API_BASE_URL}/make-server-3eae23a6/hour-transfers/verify-and-request`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

@@ -9,10 +9,10 @@ import {
   CheckCircle, Phone, Mail, ArrowRight, AlertCircle, Play
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 async function adminHeaders() { const { data: { session } } = await supabase.auth.getSession(); if (!session?.access_token) throw new Error('Sign in as the Platform Owner to manage live chat.'); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }; }
 
 interface ChatConfig {

@@ -28,10 +28,11 @@ import { DangerButton } from './ui/button/DangerButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
 import { DataTable, DataTableColumn } from './ui/table/DataTable';
 import { getAdminAlerts, addAdminAlert, updateAlertStatus, deleteAlert as deleteAdminAlert, type AdminAlert } from '../utils/adminAlerts';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface AdminAlertsPanelProps {
   onNavigate?: (route: string) => void;
@@ -360,7 +361,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || publicAnonKey;
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/notifications/admin-alerts`,
+          `${API_BASE_URL}/make-server-3eae23a6/notifications/admin-alerts`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (res.ok) {
@@ -409,7 +410,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
         // Try server endpoint
         try {
           const res = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests`,
+            `${API_BASE_URL}/make-server-3eae23a6/work-requests`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (res.ok) {

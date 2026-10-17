@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { useCompany } from '../contexts/CompanyContext';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from './apiConfig';
 
 export interface ContentPiece {
   id: string;
@@ -148,7 +149,7 @@ export function useContentManagement() {
   const [error, setError] = useState<string | null>(null);
 
 
-  const CMS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/cms`;
+  const CMS_BASE = `${API_BASE_URL}/make-server-3eae23a6/cms`;
 
   // Shared fetch helper: attaches the user's access token when available, otherwise
   // falls back to the public anon key. Throws with contextual info on failure.

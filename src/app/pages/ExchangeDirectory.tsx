@@ -37,7 +37,7 @@ import {
   Store, Loader2, AlertCircle, ChevronRight, MapPin, RefreshCw,
   KeyRound, Bookmark, ArrowRight, Building2, X, Search, Navigation,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
 import { BROWSE_CSS } from './exchangeBrowseStyles';
@@ -47,8 +47,9 @@ import type { MapPinData } from '../components/exchange/ExchangeMap';
 import ExchangeBizRow from '../components/exchange/ExchangeBizRow';
 import ExchangeSponsored from '../components/exchange/ExchangeSponsored';
 import { measureListings, RADIUS_CHOICES } from '../lib/exchangeGeo';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** How many businesses the list renders before asking. The map is unaffected:
     it always holds every pin, because a map that only drew the first sixty

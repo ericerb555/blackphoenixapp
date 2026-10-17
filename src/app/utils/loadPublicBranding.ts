@@ -3,7 +3,8 @@
  * Fetches company branding from server for public (unauthenticated) visitors
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 export interface PublicBranding {
   company_name?: string;
@@ -28,7 +29,7 @@ export async function loadPublicBranding(): Promise<PublicBranding | null> {
     const timer = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
+      `${API_BASE_URL}/make-server-3eae23a6/public/branding`,
       {
         headers: { 'Authorization': `Bearer ${publicAnonKey}` },
         signal: controller.signal,

@@ -9,8 +9,9 @@ import {
   AlertCircle, Loader2, Calendar, MessageSquare 
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface HourTransferRequest {
   id: string;
@@ -62,7 +63,7 @@ export default function TransferApprovalPanel({
         : '/hour-transfers/all';
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6${endpoint}`,
+        `${API_BASE_URL}/make-server-3eae23a6${endpoint}`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey)
         }
@@ -103,7 +104,7 @@ export default function TransferApprovalPanel({
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/hour-transfers/review/${transferId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/hour-transfers/review/${transferId}`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

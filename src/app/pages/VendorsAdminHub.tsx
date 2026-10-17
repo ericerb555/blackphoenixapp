@@ -22,7 +22,7 @@ import { BackToDashboard } from '../components/BackToDashboard';
 import { VendorProfile } from '../lib/services/vendorPortalService';
 import { supabase } from '../lib/supabase';
 import { vendorPriorityService } from '../lib/services/vendorPriorityService';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { ChartContainer } from '../components/ChartContainer';
@@ -35,6 +35,7 @@ import { AdvancedCohortManagement } from '../components/AdvancedCohortManagement
 import ProductAdCreator from '../components/ProductAdCreator';
 import { ProductAdCreatorErrorBoundary } from '../components/ProductAdCreatorErrorBoundary';
 import AdPerformanceDashboard from '../components/vendor/AdPerformanceDashboard';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 // Types for API Management
 interface Vendor {
@@ -66,7 +67,7 @@ interface VendorStatus {
   }>;
 }
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 type TabId = 'relationships' | 'billing' | 'advertising' | 'api-integrations';
 

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, LoaderCircle, ArrowRight, RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const SAFE_PORTALS = new Set(['customer-portal-app', 'vendor-portal', 'advertiser-portal', 'subcontractor-portal', 'employee-portal', 'investor-portal', 'property-manager-portal', 'condo-manager-portal', 'condo-association-portal', 'landlord-portal', 'territory-portal']);
 
 export default function PaymentComplete({ onNavigate }: { onNavigate?: (page: string) => void }) {

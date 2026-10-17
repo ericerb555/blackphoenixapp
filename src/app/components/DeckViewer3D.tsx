@@ -33,7 +33,7 @@ import { Box, Layers, Ruler, Hammer, Sparkles, Loader2, Download, X } from 'luci
 import type { HouseView as HouseElevation } from '../lib/houseModel';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import {
   buildMembers, MEMBER_COLOR, STRUCTURAL_KINDS,
   type DeckModel, type Member,
@@ -47,6 +47,7 @@ import {
   deckingFinish, railFinish, finishSummary,
   type DeckingFinish, type RailFinish,
 } from '../lib/deckFinishes';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 export type ViewMode = '3d' | 'framing' | 'plan' | 'framing-detail';
 
@@ -700,7 +701,7 @@ export default function DeckViewer3D({
       const res = await fetch(
         // `-3d` because `/house-capture/photoreal` is the composite-and-mask
         // render. This one sends a frame off the measured model instead.
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/house-capture/photoreal-3d`,
+        `${API_BASE_URL}/make-server-3eae23a6/house-capture/photoreal-3d`,
         {
           method: 'POST',
           headers: {

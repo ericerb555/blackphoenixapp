@@ -30,8 +30,8 @@
  */
 import { useEffect, useState } from 'react';
 import { FileText, Check, Lock, LoaderCircle, ExternalLink, AlertCircle } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
 interface Requirement { met: boolean; need: string; have: string }
 interface ReportOffer {
@@ -58,7 +58,7 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
         if (!session?.access_token) { if (live) setError('Sign in to see what is available for this property.'); return; }
         if (live) setToken(session.access_token);
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-reports/${encodeURIComponent(propertyId)}`,
+          `${API_BASE_URL}/make-server-3eae23a6/property-reports/${encodeURIComponent(propertyId)}`,
           { headers: { Authorization: `Bearer ${session.access_token}` } },
         );
         const json = await res.json();
@@ -129,7 +129,7 @@ export function PropertyReportsPanel({ propertyId }: { propertyId: string }) {
               </div>
               {report.available && token && addOn?.held && (
                 <a
-                  href={`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-reports/${encodeURIComponent(propertyId)}/${report.id}/view`}
+                  href={`${API_BASE_URL}/make-server-3eae23a6/property-reports/${encodeURIComponent(propertyId)}/${report.id}/view`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-teal-500"

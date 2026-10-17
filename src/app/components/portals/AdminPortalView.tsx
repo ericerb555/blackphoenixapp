@@ -25,9 +25,9 @@ import SentInvitesPanel from './SentInvitesPanel';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import { useAuth } from '../../contexts/AuthContext';
 import AddJobPhotosButton from '../AddJobPhotosButton';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Alert {
   id: string;

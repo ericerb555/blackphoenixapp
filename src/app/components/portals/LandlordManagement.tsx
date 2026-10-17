@@ -4,9 +4,9 @@ import {
   FileText, FileSignature, Upload, Trash2, Plus, Check, X, RefreshCw, Send, Copy,
   Repeat, Loader2, Download, ExternalLink,
 } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 function money(n: any) {
   const v = Number(n) || 0;

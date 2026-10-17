@@ -3,17 +3,17 @@ import {
   FileText, Users, CheckCircle, XCircle, Clock, Eye, Search, Filter, Download,
   ArrowLeft, Loader2, AlertCircle, Mail, Phone, Calendar, ShieldCheck
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 import {
   applicationFields, unlistedKeys, normalizeApplicationStatus,
   isTechnicianApplication, technicianTrades, technicianCertifications,
 } from '../lib/applicationFields';
 import TechnicianProbationPanel from '../components/TechnicianProbationPanel';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { toast } from 'sonner';
 
 interface Application {
   id: string;

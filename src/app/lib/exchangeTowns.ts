@@ -29,15 +29,16 @@
  * strings.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 /* The rule itself lives in `exchangeGeo.ts`, which imports nothing and is
    therefore testable under `node --test`. This module cannot be: it imports
    React and the Supabase config. Re-exported so callers have one place to look. */
 export { nearestTown, TOWN_NEAR_ENOUGH_MILES } from './exchangeGeo';
 import type { Point } from './exchangeGeo';
 import { nearestTown } from './exchangeGeo';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface Town {
   slug: string;

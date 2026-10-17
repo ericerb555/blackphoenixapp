@@ -27,9 +27,10 @@ import { FLOOR_FINISHES, floorRenderPrompt, type FloorFinish } from '../../lib/f
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../../lib/imageCapture';
 import { isVideoFile } from '../../lib/localFolder';
 import { supabase } from '../../lib/supabase';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 /** Comfortably inside the edge request limit. */
 const MAX_PAYLOAD_BYTES = 4_000_000;
 /** Three at a time: enough to compare, and it keeps the spend obvious. */

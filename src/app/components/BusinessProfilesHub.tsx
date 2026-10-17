@@ -8,8 +8,9 @@ import { Building2, Plus, Edit2, Trash2, Save, X, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Company {
   id: string;
@@ -213,7 +214,7 @@ export default function BusinessProfilesHub() {
       toast.loading('Saving logo permanently...', { id: 'logo-upload' });
       try {
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/logo/upload`,
+          `${API_BASE_URL}/make-server-3eae23a6/logo/upload`,
           {
             method: 'POST',
             headers: await authedHeadersOrAnon(publicAnonKey),

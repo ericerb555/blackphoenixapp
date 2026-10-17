@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '../hooks/useNavigate';
 import { ChevronLeft, Plus, Search, Filter, Download, Eye, Edit, Trash2, Check, X, Clock, AlertCircle } from 'lucide-react';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { toast } from 'sonner';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface PurchaseOrder {
   id: string;
@@ -123,7 +123,7 @@ export default function PurchaseOrders() {
   const fetchOrders = async () => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders`,
         {
           headers: await authedHeaders(),
         }
@@ -163,7 +163,7 @@ export default function PurchaseOrders() {
       };
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders`,
         {
           method: 'POST',
           headers: await authedHeaders(),
@@ -197,7 +197,7 @@ export default function PurchaseOrders() {
     setSendingId(orderId);
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${encodeURIComponent(orderId)}/send`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders/${encodeURIComponent(orderId)}/send`,
         { method: 'POST', headers: await authedHeaders(), body: JSON.stringify({ resend }) },
       );
       const data = await res.json().catch(() => ({}));
@@ -228,7 +228,7 @@ export default function PurchaseOrders() {
   const handleUpdateStatus = async (orderId: string, newStatus: PurchaseOrder['status']) => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}/status`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders/${orderId}/status`,
         {
           method: 'PATCH',
           headers: await authedHeaders(),
@@ -253,7 +253,7 @@ export default function PurchaseOrders() {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/purchase-orders/${orderId}`,
+        `${API_BASE_URL}/make-server-3eae23a6/purchase-orders/${orderId}`,
         {
           method: 'DELETE',
           headers: await authedHeaders(),

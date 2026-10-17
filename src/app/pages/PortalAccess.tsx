@@ -22,8 +22,8 @@ import {
 import { toast } from 'sonner';
 import { useUserProfile } from '../lib/hooks/useUserProfile';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../lib/apiConfig';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
 
 type UserRole = 'subcontractor' | 'investor' | 'vendor' | 'employee' | null;
 
@@ -168,7 +168,7 @@ export default function PortalAccess() {
       else { localStorage.removeItem('rememberMe'); localStorage.removeItem('lastEmail'); }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Your sign-in session could not be verified.');
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/intake/my-access`, { headers: { Authorization: `Bearer ${session.access_token}` } });
       const data = await response.json().catch(() => ({}));
       const roleForAccess: Record<string, UserRole> = { subcontractor: 'subcontractor', vendor: 'vendor', employee: 'employee', investor: 'investor' };
       // A person can hold access to several portals. The server returns the full

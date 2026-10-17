@@ -26,9 +26,9 @@
 import { LoaderCircle, X, Camera, Video, Image as ImageIcon, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** What the media library accepts — refused here so nobody waits for a 400. */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;

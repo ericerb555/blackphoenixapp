@@ -60,7 +60,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
 async function quoteAuthHeaders(contentType = false) { const { data: { session } } = await supabase.auth.getSession(); return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; }
@@ -73,6 +73,7 @@ import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface MaterialItem {
   id: string;
@@ -485,7 +486,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
         { method: 'POST', headers: await quoteAuthHeaders(true), body: JSON.stringify({
           title: currentQuote?.title || currentQuote?.name || workRequest.title || 'Service Contract',
           amount: currentQuote?.total || currentQuote?.grandTotal || currentQuote?.totalCost || undefined,
@@ -515,7 +516,7 @@ export function QuoteToContractEditor({
     setLoadingBids(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote?.id}/bids`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${workRequest.quote?.id}/bids`,
         {
           headers: await quoteAuthHeaders(),
         }
@@ -540,7 +541,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote.id}/request-bids`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${workRequest.quote.id}/request-bids`,
         {
           method: 'POST',
           headers: await quoteAuthHeaders(true),
@@ -925,7 +926,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}/project-schedule`,
+        `${API_BASE_URL}/make-server-3eae23a6/work-requests/${encodeURIComponent(workRequest.id)}/project-schedule`,
         { method: 'PUT', headers: await quoteAuthHeaders(true), body: JSON.stringify({ quoteNumber: currentQuote?.quoteNumber, projectTitle: workRequest.title, tasks: projectSchedule }) }
       );
       const data = await response.json();
@@ -1022,7 +1023,7 @@ export function QuoteToContractEditor({
 
     setLoading(true);
     try {
-      const base = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes`;
+      const base = `${API_BASE_URL}/make-server-3eae23a6/quotes`;
       const headers = await quoteAuthHeaders(true);
       const figures = {
         materials: editedQuote.materials,
@@ -1099,7 +1100,7 @@ export function QuoteToContractEditor({
     const phone = (invitePhone.trim() || workRequest.customerPhone || '').trim();
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/owner-provisioning/invites`,
+        `${API_BASE_URL}/make-server-3eae23a6/owner-provisioning/invites`,
         {
           method: 'POST',
           headers: await quoteAuthHeaders(true),
@@ -1154,7 +1155,7 @@ export function QuoteToContractEditor({
     setLoading(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/quotes/${workRequest.quote?.id}/send-to-customer`,
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${workRequest.quote?.id}/send-to-customer`,
         {
           method: 'POST',
           headers: await quoteAuthHeaders(true),

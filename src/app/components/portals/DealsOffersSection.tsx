@@ -13,10 +13,11 @@ import {
 import { toast } from 'sonner';
 import { useUserData } from '../../lib/hooks/useUserData';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const DEALS_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const DEALS_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function dealsAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();

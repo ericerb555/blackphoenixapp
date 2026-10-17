@@ -28,12 +28,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { SKILL_LEVELS, tradeLabel, type SkillLevelId } from '../lib/technicianSkills';
+import { API_BASE_URL } from '../lib/apiConfig';
+import { toast } from 'sonner';
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface ProbationTrade {
   tradeId: string;

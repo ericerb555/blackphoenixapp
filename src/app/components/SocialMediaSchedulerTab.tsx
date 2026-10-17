@@ -7,9 +7,10 @@ import {
 import { toast } from 'sonner';
 import { consumeContentProduct, consumeSchedulerDraft, consumeSchedulerDraftQueue } from '../lib/contentHandoff';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** Auth header carrying the signed-in owner's token (falls back to anon). */
 async function authHeaders(json = false): Promise<Record<string, string>> {

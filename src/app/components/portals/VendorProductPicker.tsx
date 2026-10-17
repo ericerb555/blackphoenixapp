@@ -19,11 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, Minus, Package, Loader2, Check } from 'lucide-react';
-import { projectId } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
 import { catalogKey } from '../../lib/quoteLines';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface CatalogProduct {
   vendorId: string;

@@ -18,9 +18,9 @@ import PlanBuilderTab from './PlanBuilderTab';
 import InvestmentTab from './InvestmentTab';
 import { MessagesTab, usePortalMessages } from './PortalMessagesSystem';
 import { PortalDocumentVault } from './PortalDocumentVault';
-import { useAuth } from '../../contexts/AuthContext';
-import { projectId } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import { useAuth } from '../../contexts/AuthContext';
 
 class Safe extends Component<{ children: ReactNode }, { err: boolean }> {
   state = { err: false };
@@ -103,7 +103,7 @@ export default function PropertyManagerPortalView() {
     if (!session?.access_token) { setRequests([]); setRequestsLoading(false); return; }
     setRequestsLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-manager/work-requests`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/property-manager/work-requests`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const payload = await response.json().catch(() => ({}));
@@ -121,7 +121,7 @@ export default function PropertyManagerPortalView() {
     if (!session?.access_token) { setProperties([]); setPropertiesLoading(false); return; }
     setPropertiesLoading(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-manager/properties`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/property-manager/properties`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const payload = await response.json().catch(() => ({}));
@@ -138,7 +138,7 @@ export default function PropertyManagerPortalView() {
     if (!session?.access_token || savingProperty) return;
     setSavingProperty(true);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-manager/properties`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/property-manager/properties`, {
         method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...propertyDraft, units: Number(propertyDraft.units), occupied: Number(propertyDraft.occupied) }),
       });
@@ -158,7 +158,7 @@ export default function PropertyManagerPortalView() {
     const loadPayments = async () => {
       setPaymentsLoading(true);
       try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-manager/payments`, {
+        const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/property-manager/payments`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         const payload = await response.json().catch(() => ({}));
@@ -196,7 +196,7 @@ export default function PropertyManagerPortalView() {
     if (!session?.access_token || decisionId) return;
     setDecisionId(id);
     try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/property-manager/work-requests/${id}/decision`, {
+      const response = await fetch(`${API_BASE_URL}/make-server-3eae23a6/property-manager/work-requests/${id}/decision`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision }),

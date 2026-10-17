@@ -7,9 +7,10 @@ import QRCode from 'qrcode';
 import { Download, Copy, Plus, Trash2, ExternalLink, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const QR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const QR_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const qrAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 const BASE_URL = 'https://theblackphoenixcompany.com';

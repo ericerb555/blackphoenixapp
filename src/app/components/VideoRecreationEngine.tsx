@@ -16,9 +16,10 @@ import {
   Instagram, Youtube, Facebook, Video, Sparkles, Package,
   Clock, Tag, DollarSign, Star, Send, Copy, Zap, Film,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const RECREATE_API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const RECREATE_API = `${API_BASE_URL}/make-server-3eae23a6`;
 const recreateHeaders = {
   Authorization: `Bearer ${publicAnonKey}`,
   apikey: publicAnonKey,

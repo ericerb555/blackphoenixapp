@@ -27,15 +27,16 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../lib/imageCapture';
 import { isVideoFile, isImageFile } from '../lib/localFolder';
 import { DEFAULT_LOOKS, applyLook, lookAppearance, lookCaption } from '../lib/deckLooks';
 import type { DeckModel } from '../lib/deckModel';
 import LocalFolderPicker from './LocalFolderPicker';
 import MarkArea, { buildMask, type MarkedArea } from './MarkArea';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /** Ceiling for one analysis request, comfortably inside the edge limit. */
 const MAX_PAYLOAD_BYTES = 4_000_000;

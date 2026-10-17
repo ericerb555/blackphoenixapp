@@ -4,7 +4,6 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
-import { projectId } from '../utils/supabase/info';
 import { authedHeaders } from '../utils/authHeaders';
 import { fetchAccountContacts, type CrmContact } from '../utils/crmContactsApi';
 import { materialsHubService, type Material } from '../lib/services/materialsHubService';
@@ -13,8 +12,9 @@ import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { DEFAULT_TECH_TIERS } from '../components/TierPicker';
 import RecordPaymentDialog from '../components/invoices/RecordPaymentDialog';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface LineItem {
   id: string;

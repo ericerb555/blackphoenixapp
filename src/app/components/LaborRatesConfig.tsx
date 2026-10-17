@@ -13,9 +13,10 @@ import {
   AlertCircle, Loader2, Edit3, Plus, Trash2, ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { useNavigate } from '../hooks/useNavigate';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface LaborRate {
   id: string;
@@ -87,7 +88,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
       console.log('[LaborRatesConfig] Loading rates from server...');
       
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/labor-rates/get`,
+        `${API_BASE_URL}/make-server-3eae23a6/labor-rates/get`,
         {
           headers: await authedHeadersOrAnon(publicAnonKey)
         }
@@ -132,7 +133,7 @@ export default function LaborRatesConfig({ onClose, embedded = false, onNavigate
     setIsSaving(true);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/labor-rates/save`,
+        `${API_BASE_URL}/make-server-3eae23a6/labor-rates/save`,
         {
           method: 'POST',
           headers: await authedHeadersOrAnon(publicAnonKey),

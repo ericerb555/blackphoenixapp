@@ -24,9 +24,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { CalendarOff, Plus, Loader2, X, AlertTriangle, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const API = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/unavailability`;
+const API = `${API_BASE_URL}/make-server-3eae23a6/unavailability`;
 
 export interface UnavailabilityRecord {
   id: string;

@@ -5,9 +5,10 @@
  * who have already signed in show up alongside locally-managed contacts.
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 function authHeaders() {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };

@@ -8,8 +8,9 @@
 import { useState } from 'react';
 import { Upload, Film, CheckCircle, Clock, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface Props {
   submitterName: string;
@@ -35,7 +36,7 @@ export default function SubmitReelForApproval({ submitterName, submitterType }: 
       const token = session?.access_token || publicAnonKey;
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/social/submit-reel`,
+        `${API_BASE_URL}/make-server-3eae23a6/social/submit-reel`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

@@ -7,10 +7,11 @@ import { useState } from 'react';
 import { Upload, Check, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { uploadImageDataUrl } from '../utils/imageStorage';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const LOGO_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const LOGO_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export default function UploadMyLogo() {
   const [uploading, setUploading] = useState(false);

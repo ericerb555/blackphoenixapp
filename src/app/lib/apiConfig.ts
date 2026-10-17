@@ -29,7 +29,31 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
  * suggests a fault, which is why this was found by loading the portal rather
  * than by reading the code.
  */
-export const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1`;
+/**
+ * Where the API lives. THE ONE LINE TO CHANGE.
+ *
+ * Until 2026-10-16 there was no such line. 504 call sites across 361 files
+ * each rebuilt `https://${projectId}.supabase.co/functions/v1` for themselves,
+ * six of them with the project ref typed out as a literal string — so moving
+ * the API anywhere meant a 361-file edit, and the six literals would have
+ * survived it silently and gone on calling the old host.
+ *
+ * That matters now because of the firewall. A WAF in front of this platform
+ * only works if the browser stops talking to `*.supabase.co` and starts
+ * talking to `api.theblackphoenixcompany.com` instead — see
+ * docs/security/waf.md. With the origin in one place that migration is this
+ * line; without it, it was the reason not to bother.
+ *
+ * To move the API: change SUPABASE_ORIGIN and nothing else.
+ */
+export const SUPABASE_ORIGIN = `https://${projectId}.supabase.co`;
+
+/**
+ * The functions root. Every caller appends the function slug itself —
+ * `${API_BASE_URL}/make-server-3eae23a6/quotes` — so nothing may be added
+ * here; see the long note above for what happens when something is.
+ */
+export const API_BASE_URL = `${SUPABASE_ORIGIN}/functions/v1`;
 
 export const API_CONFIG = {
   headers: {

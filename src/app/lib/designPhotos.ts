@@ -16,9 +16,9 @@
  * hands over, so the house-capture step cannot tell a restored photo from a
  * freshly picked one.
  */
-import { projectId } from '../utils/supabase/info';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export interface StoredPhoto {
   photoId: string;

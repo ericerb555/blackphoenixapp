@@ -26,10 +26,11 @@ import {
   type Region,
 } from '../data/maintenanceConfig';
 import { useAuth } from '../contexts/AuthContext';
-import { publicAnonKey, projectId } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 async function draftAuthHeaders() { const { data: { session } } = await supabase.auth.getSession(); return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || publicAnonKey}` }; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

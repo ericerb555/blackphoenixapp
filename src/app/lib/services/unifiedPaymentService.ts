@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '../apiConfig';
 /**
  * Unified Payment Service
  * 
@@ -387,7 +388,7 @@ class UnifiedPaymentService {
         // static imports.
         const { authedHeadersOrAnon } = await import('../../utils/authHeaders');
         const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/stripe/charge`,
+          `${API_BASE_URL}/make-server-3eae23a6/stripe/charge`,
           {
             method: 'POST',
             headers: await authedHeadersOrAnon(publicAnonKey),

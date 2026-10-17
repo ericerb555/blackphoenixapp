@@ -8,9 +8,10 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, User, Clock, Send } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const AR_SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const AR_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 const arAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 function persistAccessRequests(requests: any[]) {

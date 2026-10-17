@@ -30,7 +30,7 @@ import BlueprintUploadWidget from '../BlueprintUploadWidget';
 import { DIRECTORY_SECTIONS, getSectionByCohortType } from '../../config/directoryLandingSections';
 
 // Correct server base — the Edge Function is named "make-server-3eae23a6"
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface ClientWorkRequestFormProps {
   onClose: () => void;
@@ -1845,7 +1845,7 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
 
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/ai-guide-chat`,
+        `${API_BASE_URL}/make-server-3eae23a6/ai-guide-chat`,
         {
           method: 'POST',
           headers: await authedHeaders(),

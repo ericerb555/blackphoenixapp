@@ -8,10 +8,11 @@ import {
   Tag, Plus, Trash2, Edit2, CheckCircle, Clock, Eye, EyeOff,
   Send, ChevronDown, ChevronUp, DollarSign, Percent, X, RefreshCw,
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export const PORTAL_OPTIONS = [
   { id: 'all',              label: 'All Portals',       color: 'bg-white/10 text-white border-white/20' },

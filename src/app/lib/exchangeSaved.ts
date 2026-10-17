@@ -20,10 +20,10 @@
  * failure to report.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { projectId } from '../utils/supabase/info';
 import { supabase } from './supabase';
+import { API_BASE_URL } from './apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 export function useSavedBusinesses() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());

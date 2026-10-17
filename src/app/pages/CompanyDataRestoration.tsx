@@ -7,7 +7,8 @@ import { useState, useEffect } from 'react';
 import { AlertTriangle, Save, Building2, ArrowLeft, Check, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CompanyData {
   id: string;
@@ -57,7 +58,7 @@ export default function CompanyDataRestoration({ onNavigate }: { onNavigate?: (p
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies`,
+        `${API_BASE_URL}/make-server-3eae23a6/companies`,
         {
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -91,7 +92,7 @@ export default function CompanyDataRestoration({ onNavigate }: { onNavigate?: (p
       }
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/companies/${company.id}`,
+        `${API_BASE_URL}/make-server-3eae23a6/companies/${company.id}`,
         {
           method: 'PUT',
           headers: {

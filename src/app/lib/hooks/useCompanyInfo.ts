@@ -25,7 +25,8 @@
  * in, and it is already the endpoint the app uses for company identity.
  */
 import { useEffect, useState } from 'react';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../apiConfig';
 
 export interface CompanyInfo {
   name: string | null;
@@ -59,7 +60,7 @@ async function load(): Promise<CompanyInfo> {
   inFlight = (async () => {
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/branding`,
+        `${API_BASE_URL}/make-server-3eae23a6/public/branding`,
         { headers: { Authorization: `Bearer ${publicAnonKey}` } },
       );
       const body = await res.json().catch(() => ({}));

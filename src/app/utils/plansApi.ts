@@ -3,10 +3,11 @@
  * Handles create, list/search, single fetch, usage logging, and stats.
  */
 
-import { projectId, publicAnonKey } from './supabase/info';
+import { publicAnonKey } from './supabase/info';
 import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 async function authHeaders() {
   const { data: { session } } = await supabase.auth.getSession();

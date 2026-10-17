@@ -31,9 +31,9 @@ import {
   MAX_VIDEO_BYTES, type StoredPhoto,
 } from '../../lib/designPhotos';
 import { authedHeaders } from '../../utils/authHeaders';
-import { projectId } from '../../utils/supabase/info';
+import { API_BASE_URL } from '../../lib/apiConfig';
 
-const SERVER = `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`;
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface Props {
   /** The saved design these attach to. Nothing can be filed before there is one. */

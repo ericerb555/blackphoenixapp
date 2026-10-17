@@ -16,8 +16,8 @@ import { useActiveCompany } from '../contexts/ActiveCompanyContext';
 import { BrandingService } from '../lib/services/brandingService';
 import { CompanyDatabaseService, Company as DBCompany } from '../lib/services/companyDatabaseService';
 import { EnhancedCompanyForm } from './EnhancedCompanyForm';
+import { API_BASE_URL } from '../lib/apiConfig';
 import { supabase } from '../lib/supabase';
-import { projectId } from '../utils/supabase/info';
 
 interface Company {
   id: string;
@@ -613,7 +613,7 @@ export default function SimpleCompanyManager() {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session?.access_token) return;
           await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/company/logos/store`,
+            `${API_BASE_URL}/make-server-3eae23a6/company/logos/store`,
             {
               method: 'POST',
               headers: {
