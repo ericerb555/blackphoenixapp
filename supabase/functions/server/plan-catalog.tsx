@@ -560,7 +560,23 @@ planCatalogRouter.get("/make-server-3eae23a6/plan-addons", async (c) => {
     return c.json({ error: `Unknown audience. One of: ${AUDIENCES.join(", ")}` }, 400);
   }
 
-  const mode = activeMode();
+  /*
+   * The same `mode` parameter the tier listing takes, and for the same reason
+   * its comment gives: without it a freshly created TEST price still reads
+   * "no Stripe price", because the server answers for live.
+   *
+   * This route did not accept it, so the add-on badges disagreed with the
+   * live/test switch sitting directly above them. Creating a test price for an
+   * add-on left the row saying it had none and still offering the button,
+   * which on a second press answers 409 "already has a test-mode price". The
+   * catalogue has twenty-four add-ons waiting for exactly that operation, so
+   * the confusion was about to be the normal case rather than an edge one.
+   *
+   * Defaults to the server's own mode, so nothing that does not ask is
+   * affected — a portal still gets the only answer that matters to a customer.
+   */
+  const asked = c.req.query("mode");
+  const mode: StripeMode = asked === "test" || asked === "live" ? asked : activeMode();
   const rows = ((await kv.getByPrefix(`plan_addon:${audience}:`)) as PlanAddOn[] || []).filter(Boolean);
   const visible = who.isAdmin ? rows : rows.filter((a) => a.active !== false);
   visible.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name));

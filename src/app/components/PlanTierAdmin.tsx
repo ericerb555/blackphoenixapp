@@ -565,7 +565,10 @@ export default function PlanTierAdmin() {
       setTiers(Array.isArray(json?.tiers) ? json.tiers : []);
       setNote(json?.note || null);
       try {
-        const a = await (await fetch(`${SERVER}/plan-addons?audience=${encodeURIComponent(audience)}`, {
+        // `mode` for the same reason the tier call above sends it: without it
+        // a freshly created test price still reads "no Stripe price", because
+        // the server answers for live.
+        const a = await (await fetch(`${SERVER}/plan-addons?audience=${encodeURIComponent(audience)}&mode=${mode}`, {
           headers: await headers(),
         })).json();
         setAddOns(Array.isArray(a?.addOns) ? a.addOns : []);
@@ -597,15 +600,38 @@ export default function PlanTierAdmin() {
    * the path segment differs. An add-on with no Stripe price cannot be sold,
    * exactly like a tier, which is why this button had to exist for both.
    */
+  /**
+   * One price, one request — the half both callers share.
+   *
+   * Pulled out so the single button and the sweep below cannot diverge. Every
+   * refusal that matters is on the server — no fallback from a missing test key
+   * to the live one, no second price for something that already has one, no
+   * "test" price against a live account — so both callers must go through the
+   * same door to inherit them. A second implementation would inherit none.
+   *
+   * `audienceOverride` exists because the sweep crosses audiences while this
+   * component is pinned to whichever one its selector shows.
+   */
+  const createOnePrice = async (
+    kind: 'tier' | 'addon',
+    tierId: string,
+    replace = false,
+    audienceOverride?: string,
+  ): Promise<{ ok: boolean; status: number; json: any }> => {
+    const where = kind === 'tier' ? 'plan-tiers' : 'plan-addons';
+    const forAudience = audienceOverride || audience;
+    const res = await fetch(
+      `${SERVER}/${where}/${encodeURIComponent(forAudience)}/${encodeURIComponent(tierId)}/stripe-price?mode=${mode}${replace ? '&replace=1' : ''}`,
+      { method: 'POST', headers: await headers() },
+    );
+    return { ok: res.ok, status: res.status, json: await res.json().catch(() => ({})) };
+  };
+
   const createPrice = async (kind: 'tier' | 'addon', tierId: string, replace = false) => {
     setWorking(tierId);
     try {
-      const where = kind === 'tier' ? 'plan-tiers' : 'plan-addons';
-      const res = await fetch(
-        `${SERVER}/${where}/${encodeURIComponent(audience)}/${encodeURIComponent(tierId)}/stripe-price?mode=${mode}${replace ? '&replace=1' : ''}`,
-        { method: 'POST', headers: await headers() },
-      );
-      const json = await res.json().catch(() => ({}));
+      const { ok, status, json } = await createOnePrice(kind, tierId, replace);
+      const res = { ok, status };
       if (!res.ok) {
         // 409 means it already has one. Surfaced as a question rather than an
         // error, because replacing is a real and deliberate thing to want.
@@ -625,6 +651,93 @@ export default function PlanTierAdmin() {
       toast.error(e?.message || 'Could not reach Stripe.');
     } finally {
       setWorking(null);
+    }
+  };
+
+  /**
+   * Create every missing TEST price, across every audience, in one press.
+   *
+   * WHY IN BULK
+   *
+   * The catalogue holds twenty-four add-ons that cannot be sold, fifteen of
+   * them with no Stripe price in either mode. By hand that is five changes of
+   * the audience selector and three buttons on each, and the fifth round is
+   * where somebody mis-clicks.
+   *
+   * WHY TEST ONLY
+   *
+   * Live is deliberately not offered in bulk. A live price is a permanent
+   * object something can charge a real card against, and fifteen of those from
+   * one press is precisely the mistake worth making impossible. Live stays one
+   * at a time, with the row and the amount in front of whoever presses it.
+   *
+   * SAFE TO RUN TWICE
+   *
+   * The server answers 409 for anything that already holds a price in this
+   * mode, and those are counted as skipped rather than reported as failures —
+   * so a half-finished sweep can simply be run again.
+   */
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepReport, setSweepReport] = useState<string[]>([]);
+
+  const createMissingTestPrices = async () => {
+    // Belt as well as braces: the button is not rendered in live mode either.
+    if (mode !== 'test') return;
+
+    setSweeping(true);
+    setSweepReport([]);
+    const lines: string[] = [];
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    try {
+      // A flat list of names. 'content' is among them and holds no add-ons of
+      // its own, so it yields nothing and costs one request.
+      for (const forAudience of AUDIENCES) {
+        let rows: any[] = [];
+        try {
+          const read = await fetch(
+            `${SERVER}/plan-addons?audience=${encodeURIComponent(forAudience)}&mode=test`,
+            { headers: await headers() },
+          );
+          const body = await read.json().catch(() => ({}));
+          rows = Array.isArray(body?.addOns) ? body.addOns : [];
+        } catch {
+          lines.push(`! ${forAudience} could not be read`);
+          failed += 1;
+          continue;
+        }
+
+        // Only what is missing a price AND has something to charge. An add-on
+        // priced at zero is included free with a tier and needs no price.
+        const missing = rows.filter((row) => !row.purchasable && Number(row.priceCents) > 0);
+
+        for (const row of missing) {
+          const { ok, status, json } = await createOnePrice('addon', row.id, false, forAudience);
+          if (ok) {
+            created += 1;
+            lines.push(`+ ${forAudience}/${row.id} → ${json?.stripePriceId || 'created'}`);
+          } else if (status === 409) {
+            skipped += 1;
+            lines.push(`= ${forAudience}/${row.id} already had one`);
+          } else {
+            failed += 1;
+            lines.push(`! ${forAudience}/${row.id}: ${json?.error || status}`);
+          }
+        }
+      }
+
+      lines.unshift(`${created} created · ${skipped} already had one · ${failed} failed`);
+      setSweepReport(lines);
+      if (failed > 0) {
+        toast.error(`${created} created, ${failed} failed — see the list.`, { duration: 9000 });
+      } else {
+        toast.success(`${created} test price${created === 1 ? '' : 's'} created.`, { duration: 7000 });
+      }
+      await load();
+    } finally {
+      setSweeping(false);
     }
   };
 
@@ -1242,13 +1355,47 @@ export default function PlanTierAdmin() {
                   the ladder steps without inventing a new product at each rung.
                 </p>
               </div>
-              <button
-                onClick={() => setDraft(draftFrom({ interval: 'month' }, true, 'addon'))}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 hover:text-white"
-              >
-                <Plus className="h-3.5 w-3.5" /> New add-on
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/*
+                  Rendered only in test mode. Fifteen live prices from one
+                  press is the mistake this must not make possible, so live
+                  stays one row at a time with the amount in front of you.
+                */}
+                {mode === 'test' && (
+                  <button
+                    onClick={() => void createMissingTestPrices()}
+                    disabled={sweeping || working !== null}
+                    title="Creates a test-mode Stripe price for every add-on, on every portal, that has a price set but no Stripe price yet. Anything that already has one is left alone."
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-sky-600 disabled:opacity-50"
+                  >
+                    {sweeping
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating…</>
+                      : <>Create missing test prices · all portals</>}
+                  </button>
+                )}
+                <button
+                  onClick={() => setDraft(draftFrom({ interval: 'month' }, true, 'addon'))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-orange-500/40 hover:text-white"
+                >
+                  <Plus className="h-3.5 w-3.5" /> New add-on
+                </button>
+              </div>
             </div>
+
+            {/*
+              What the sweep did, per record. A count alone is not enough when
+              the interesting outcomes are the ones it could not do.
+            */}
+            {sweepReport.length > 0 && (
+              <div className="mb-3 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3">
+                <p className="text-[11px] font-bold text-gray-300">{sweepReport[0]}</p>
+                <ul className="mt-1 space-y-0.5 font-mono text-[10px] text-gray-500">
+                  {sweepReport.slice(1).map((line) => (
+                    <li key={line} className={line.startsWith('!') ? 'text-amber-400' : undefined}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {addOns.length === 0 ? (
               <p className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] p-3 text-xs text-gray-500">
                 No add-ons for this portal yet.
