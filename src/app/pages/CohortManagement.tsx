@@ -9,16 +9,17 @@
 import { useState } from 'react';
 import { TerritoryBasedCohortManagement } from '../components/TerritoryBasedCohortManagement';
 import { AdvancedCohortManagement } from '../components/AdvancedCohortManagement';
-import { ArrowLeft, MapPin, Layers } from 'lucide-react';
+import PricingOverview from '../components/PricingOverview';
+import { ArrowLeft, MapPin, Layers, DollarSign } from 'lucide-react';
 
 interface CohortManagementProps {
   onNavigate?: (path: string) => void;
 }
 
-type SystemMode = 'territory' | 'advanced';
+type SystemMode = 'territory' | 'advanced' | 'pricing';
 
 export default function CohortManagement({ onNavigate }: CohortManagementProps) {
-  const [systemMode, setSystemMode] = useState<SystemMode>('territory');
+  const [systemMode, setSystemMode] = useState<SystemMode>('pricing');
 
   const handleBack = () => {
     if (onNavigate) {
@@ -46,10 +47,21 @@ export default function CohortManagement({ onNavigate }: CohortManagementProps) 
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <h1 className="text-2xl font-bold text-white mb-2">Cohort Management System</h1>
-              <p className="text-zinc-400 text-sm">Manage territories, subscriptions, maintenance plans, vendors, and advertisers</p>
+              <p className="text-zinc-400 text-sm">Pricing, territories, subscriptions, maintenance plans, vendors, and advertisers</p>
             </div>
             
             <div className="flex gap-2 bg-zinc-900 p-1 rounded-lg">
+              <button
+                onClick={() => setSystemMode('pricing')}
+                className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
+                  systemMode === 'pricing'
+                    ? 'bg-[#ea580c] text-white shadow-lg shadow-[#ea580c]/20'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                <DollarSign className="w-4 h-4" />
+                Pricing
+              </button>
               <button
                 onClick={() => setSystemMode('territory')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
@@ -79,7 +91,9 @@ export default function CohortManagement({ onNavigate }: CohortManagementProps) 
 
       {/* Content - Switch between systems */}
       <div className="relative">
-        {systemMode === 'territory' ? (
+        {systemMode === 'pricing' ? (
+          <PricingOverview />
+        ) : systemMode === 'territory' ? (
           <TerritoryBasedCohortManagement />
         ) : (
           <AdvancedCohortManagement />

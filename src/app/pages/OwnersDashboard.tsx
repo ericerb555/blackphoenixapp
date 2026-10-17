@@ -60,6 +60,7 @@ import { CompanySwitcher } from '../components/CompanySwitcher';
 import { RoleSwitcher } from '../components/RoleSwitcher';
 import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
 import PlanTierAdmin from '../components/PlanTierAdmin';
+import PricingAttentionBanner from '../components/PricingAttentionBanner';
 import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
@@ -626,6 +627,13 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
 
       {/* Main Content */}
       <div className="max-w-[1920px] mx-auto px-6 py-8">
+        {/*
+          Shown on every tab, not just "Plans": a plan nobody can buy is the
+          owner's problem wherever they happen to be looking. Renders nothing
+          at all when there is no action to take.
+        */}
+        <PricingAttentionBanner onNavigate={onNavigate} />
+
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
