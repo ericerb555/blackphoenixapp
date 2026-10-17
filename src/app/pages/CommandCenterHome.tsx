@@ -60,10 +60,22 @@ export interface CommandCenterHomeProps {
   companyLogo?: string | null;
   onNavigate: (path: string, tab?: string) => void;
   /**
-   * Opens the quote estimator. Optional, so this screen still renders for any
-   * caller that does not offer it — the action simply does not appear.
+   * Opens the quote estimator. REQUIRED, and it used to be optional.
+   *
+   * "Optional, so this screen still renders for any caller that does not
+   * offer it — the action simply does not appear." That was the old comment,
+   * and it describes the bug rather than a feature. Quoting is the first
+   * thing in the business; a caller that forgets this prop does not get a
+   * slightly reduced screen, it gets a command centre with no way to start
+   * the work the company exists to do, and nothing anywhere says so.
+   *
+   * Eric has now asked "why isn't there a start quote button" twice. The
+   * first time the prop genuinely was not being passed. Required means the
+   * second kind of failure — passed once, dropped later in a refactor — stops
+   * being a silent missing button and becomes a TypeScript error at the call
+   * site, before it ships.
    */
-  onCreateQuote?: () => void;
+  onCreateQuote: () => void;
   summary: {
     totalRevenue: number;
     openInvoiceTotal?: number;
@@ -436,16 +448,21 @@ export default function CommandCenterHome({
             look is signed off and a new shape for one button would stand out
             as a mistake rather than as emphasis. */}
         <div className="mb-4 flex flex-wrap gap-2.5">
-          {onCreateQuote && (
-            <button
-              type="button" onClick={onCreateQuote}
-              className="flex items-center gap-2 rounded-xl border border-orange-500/40 bg-gradient-to-br from-orange-600/20 to-orange-700/10 text-left font-semibold transition hover:border-orange-500/70 hover:brightness-125"
-              style={{ padding: '10px 14px' }}
-            >
-              <FileText className="h-5 w-5 shrink-0 text-orange-400" />
-              <span className="text-sm">Create a quote</span>
-            </button>
-          )}
+          {/*
+            Rendered unconditionally. The `onCreateQuote &&` guard that used to
+            wrap this is gone, and with it the failure where the whole button
+            disappears because a prop was not passed — see the note on the prop.
+            A screen whose first job is "start a quote" should never be able to
+            ship without the control that starts one.
+          */}
+          <button
+            type="button" onClick={onCreateQuote}
+            className="flex items-center gap-2 rounded-xl border border-orange-500/40 bg-gradient-to-br from-orange-600/20 to-orange-700/10 text-left font-semibold transition hover:border-orange-500/70 hover:brightness-125"
+            style={{ padding: '10px 14px' }}
+          >
+            <FileText className="h-5 w-5 shrink-0 text-orange-400" />
+            <span className="text-sm">Create a quote</span>
+          </button>
           <button
             type="button" onClick={() => onNavigate('/unified-project-pipeline')}
             className="flex items-center gap-2 rounded-xl border border-[#2A2A2A] bg-[#141414] text-left font-semibold text-gray-300 transition hover:border-orange-500/40 hover:text-white"
