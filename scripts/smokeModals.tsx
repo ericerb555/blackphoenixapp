@@ -229,15 +229,21 @@ export const modalMap: Record<string, () => JSX.Element> = {
     />
   ),
 
-  /** The same screen for a caller that offers no estimator — no action shown. */
-  'modal:command-center-no-quote-action': () => (
-    <CommandCenterHome
-      tabCategories={[]}
-      companyName="Black Phoenix"
-      onNavigate={noop}
-      summary={{ totalRevenue: 0, activeJobsCount: 0, customersCount: 0, teamCount: 0 }}
-    />
-  ),
+  /*
+    REMOVED: 'modal:command-center-no-quote-action'.
+
+    It rendered CommandCenterHome with no `onCreateQuote`, to prove the screen
+    still worked for "a caller that offers no estimator — no action shown".
+    That state no longer exists: the prop is required and the button renders
+    unconditionally, because a command centre with no way to start a quote is
+    the bug, not a supported configuration.
+
+    Worth noting how this fixture would have aged. `scripts/` is outside the
+    tsconfig `include`, so nothing here is typechecked — the fixture would
+    have gone on omitting a required prop indefinitely, rendering the exact
+    broken screen it was asserting was fine, and reporting ok. Deleted rather
+    than left to do that.
+  */
 
   /*
     The automation screen, with no session.

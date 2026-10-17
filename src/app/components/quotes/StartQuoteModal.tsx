@@ -92,9 +92,73 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
   const update = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  /**
+   * Inviting the customer to their portal, from here.
+   *
+   * The other half of "the customer can be added later": sometimes they are
+   * known, and the useful next step is not typing their details onto a quote
+   * but giving them a way in. Doing it here rather than making somebody
+   * remember to go to Admin Command Center → Create Portal afterwards is the
+   * whole point — the details are already on screen.
+   *
+   * Posts to the same endpoint the Create Portal panel uses, so there is one
+   * provisioning path and invites raised here appear in Sent Invites like any
+   * other. All three of name, email and phone are required because the server
+   * requires them; the button says so rather than failing on submit.
+   */
+  const [inviting, setInviting] = useState(false);
+  const [invited, setInvited] = useState(false);
+
+  const canInvite =
+    !!form.customerName.trim() && !!form.customerEmail.trim() && !!form.customerPhone.trim();
+
+  const handleInviteToPortal = async () => {
+    if (!canInvite || inviting || invited) return;
+    setInviting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/owner-provisioning/invites`, {
+        method: 'POST',
+        headers: await authedHeaders(),
+        body: JSON.stringify({
+          name: form.customerName.trim(),
+          email: form.customerEmail.trim(),
+          phone: form.customerPhone.trim(),
+          portalType: 'customer',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        // Surface the server's own reason — it distinguishes a bad address
+        // from an account that already exists, and both need different action.
+        toast.error(data?.error || `Could not send the invitation (HTTP ${res.status}).`);
+        return;
+      }
+      setInvited(true);
+      toast.success(`Portal invitation sent to ${form.customerEmail.trim()}.`);
+    } catch (err: any) {
+      toast.error(`Could not send the invitation: ${err?.message || err}`);
+    } finally {
+      setInviting(false);
+    }
+  };
+
   const handleGenerate = async () => {
-    if (!form.customerName.trim() || !form.title.trim()) {
-      toast.error('Add a customer name and a project title to generate a quote.');
+    /**
+     * The customer is NOT required to start a quote, and used to be.
+     *
+     * Quoting often begins before there is a name to put on it — a walk-in, a
+     * phone call taken on a ladder, a number somebody wants roughed out before
+     * the customer is real. Requiring a name meant inventing one, and an
+     * invented name is worse than a blank: it ends up on the record, gets
+     * searched for, and nobody later knows whether "John" was a real person.
+     *
+     * The title stays required, because a quote with no subject cannot be
+     * found again and cannot be priced. The quote saves as a draft either way
+     * (`status: 'draft'` below), and the server accepts a draft with no
+     * client — so an unnamed quote is a first-class thing, not a broken one.
+     */
+    if (!form.title.trim()) {
+      toast.error('Add a project title to generate a quote. The customer can be added later.');
       return;
     }
 
@@ -439,11 +503,12 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         <div className="space-y-5 p-6">
           {/* Customer */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Customer Name" icon={<User className="h-4 w-4" />} required>
+            {/* No `required` marker: the customer can be filled in later. */}
+            <Field label="Customer Name" icon={<User className="h-4 w-4" />}>
               <input
                 value={form.customerName}
                 onChange={(e) => update('customerName', e.target.value)}
-                placeholder="Jane Homeowner"
+                placeholder="Jane Homeowner — or leave blank for now"
                 style={{ paddingLeft: '2.75rem' }}
                 className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
               />
@@ -476,6 +541,40 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
                 className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] pr-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
               />
             </Field>
+          </div>
+
+          {/*
+            Invite the customer to their portal, without leaving the quote.
+
+            The alternative is remembering to go to Admin Command Center →
+            Create Portal and retyping the three details already on screen,
+            which is the kind of step that does not get done. Same endpoint as
+            that panel, so an invite raised here is an ordinary invite and
+            shows up in Sent Invites with the rest.
+
+            Reads as a quiet line under the customer block rather than a
+            second call to action — generating the quote is still the primary
+            thing on this screen and should keep looking like it.
+          */}
+          <div className="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <button
+              type="button"
+              onClick={handleInviteToPortal}
+              disabled={!canInvite || inviting || invited}
+              className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-orange-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#2A2A2A] disabled:hover:text-gray-300"
+            >
+              {inviting
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-400" />
+                : <Mail className="h-3.5 w-3.5 text-orange-400" />}
+              {invited ? 'Portal invitation sent' : inviting ? 'Sending…' : 'Invite to customer portal'}
+            </button>
+            <span className="text-xs text-gray-500">
+              {invited
+                ? 'They can sign in and follow this job from their portal.'
+                : canInvite
+                  ? 'Sends them a sign-in link for their own portal.'
+                  : 'Needs their name, email and phone.'}
+            </span>
           </div>
 
           {/* Project */}
