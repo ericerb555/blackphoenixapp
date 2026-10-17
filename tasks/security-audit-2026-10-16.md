@@ -336,10 +336,22 @@ Ordered by what a buyer's diligence hits first, not by technical interest.
 
 ### Phase 1 — Before anything else · **DONE 2026-10-16, except two dashboard toggles**
 
-1. ⬜ **Turn off anonymous sign-ins.** Dashboard toggle — **Eric only**, no API
-   for it. Closes H-1 entirely. `npm run security` fails on `ANON-1` until done.
-2. ⬜ **Enable leaked-password protection.** Dashboard toggle — **Eric only**.
-   Closes half of M-6.
+1. ✅ **Anonymous sign-ins turned off** by Eric, 2026-10-16. H-1 closed.
+   Verified from outside: `POST /auth/v1/signup` with an empty body now
+   answers `422 anonymous_provider_disabled`, where that morning it returned a
+   valid `authenticated` JWT. `ANON-1` green.
+   - **This also cleared ~17 `auth_allow_anonymous_sign_ins` advisor warnings
+     in one move.** They fired because every RLS policy scoped to the
+     `authenticated` role was reachable by a stranger holding an anonymous
+     token; with the provider off, that whole class is gone. It is the
+     highest-leverage thing done in this entire audit, and it was a toggle.
+2. ✅ **Leaked-password protection enabled** by Eric, 2026-10-17. M-6 half
+   closed. Verified via the Supabase security advisor, where the
+   `auth_leaked_password_protection` lint is now absent — the probe cannot see
+   this one, because Supabase does not publish the flag on the anonymous
+   settings endpoint. `ANON-2` therefore stays `skip`, by design rather than
+   by omission.
+   - Still open from M-6: MFA for administrator accounts, and passkeys.
 3. ✅ **Security headers in `vercel.json`.** Seven headers; six enforcing
    (HSTS + `includeSubDomains`, `X-Frame-Options: SAMEORIGIN`, `nosniff`,
    `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Permissions-Policy`) and
@@ -577,6 +589,27 @@ protect `/auth/v1` at all.
     them; remove anyone who no longer needs it. A buyer will ask for this list.
 14. **Backup and recovery test** — confirm PITR is on, then actually restore to
     a branch once and write down how long it took.
+
+---
+
+---
+
+## Seen since the audit (2026-10-17)
+
+Found by re-running the Supabase advisors, which is the weekly habit Stage 3
+of the pipeline is meant to automate.
+
+**`public.slow_queries` has no pinned `search_path`** — a new function added
+after the audit. Low, and for the same reason the six in
+`20261016170000_pin_function_search_path` were low: it is `SECURITY INVOKER`,
+so a caller who redirects it gains only the privileges they already had, and
+neither `anon` nor `authenticated` holds `EXECUTE` on it at all. Worth a
+one-line `ALTER FUNCTION … SET search_path = public` next time somebody is in
+that file, not worth a deploy of its own.
+
+It is recorded here chiefly as evidence that the advisors are worth re-reading
+on a schedule: this appeared within a day of the audit closing, from ordinary
+unrelated work, and nothing else would have surfaced it.
 
 ---
 
