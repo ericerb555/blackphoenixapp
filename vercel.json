@@ -46,6 +46,39 @@
           "value": "no-cache, no-store, must-revalidate"
         }
       ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=(self), payment=(self), accelerometer=(), gyroscope=(), magnetometer=(), usb=(), midi=(), serial=(), bluetooth=(), browsing-topics=()"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self' https://checkout.stripe.com; script-src 'self' 'sha256-R0O0bERxpcOculRNQRoymlUj4P4DgnTqTS9Q+wKz/lg=' 'sha256-dQDQeWBZyLGSoN7YELlowXB7moezBwiRj/ZeIZBWXG0=' https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://plzsvzwwcdopnawtiwzm.supabase.co https://images.unsplash.com https://files.cdn-files-a.com https://api.maptiler.com https://img.youtube.com https://i.ytimg.com https://*.tile.openstreetmap.org; media-src 'self' data: blob: https://plzsvzwwcdopnawtiwzm.supabase.co https://commondatastorage.googleapis.com; connect-src 'self' https://plzsvzwwcdopnawtiwzm.supabase.co wss://plzsvzwwcdopnawtiwzm.supabase.co https://api.stripe.com https://api.maptiler.com https://nominatim.openstreetmap.org; frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.openstreetmap.org; worker-src 'self' blob:; upgrade-insecure-requests"
+        }
+      ]
     }
   ]
 }
