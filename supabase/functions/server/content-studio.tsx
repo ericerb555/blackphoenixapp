@@ -15,6 +15,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
+import { safeFetch } from "./safeFetch.ts";
 
 export const contentStudioRouter = new Hono();
 
@@ -972,7 +973,22 @@ async function rehostImage(url: string): Promise<string> {
   try {
     // Already ours — signed storage URLs are CORS-safe as they stand.
     if (url.includes("/storage/v1/object/")) return url;
-    const res = await fetch(url);
+    /**
+     * `safeFetch`, not `fetch`, because this URL came out of a request body.
+     *
+     * M-4 in tasks/security-audit-2026-10-16.md: `body.images` is whatever the
+     * caller sent, so a plain fetch here asks our server to make a request to
+     * an address of somebody else's choosing and write the answer into our
+     * bucket. safeFetch refuses non-https, credentialled URLs and private
+     * address ranges, and re-checks every redirect hop — the hop check being
+     * the one that matters, since a public host can simply 302 to a private
+     * one. See safeFetch.ts for what it deliberately does not cover.
+     *
+     * It throws rather than returning a sentinel; the catch below already
+     * falls back to the original URL, which is the right outcome — the reel
+     * keeps the supplier's link instead of a picture we refused to copy.
+     */
+    const res = await safeFetch(url);
     if (!res.ok) return url;
     const type = res.headers.get("content-type") || "image/jpeg";
     if (!type.startsWith("image/")) return url;

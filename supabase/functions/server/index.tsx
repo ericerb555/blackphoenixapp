@@ -10,6 +10,10 @@ import { cors } from "npm:hono@4/cors";
 import { logger } from "npm:hono@4/logger";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import {
+  clientIp, decide, record as recordReputation, freshReputation,
+  type Reputation, type Signal,
+} from "./ipReputation.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
@@ -379,6 +383,233 @@ app.use("/*", cors({
 }));
 
 app.use('*', logger(console.log));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORIGIN LOCK — make the WAF the only way in
+//
+// A web application firewall in front of this API is worth nothing on its own,
+// because `<project>.supabase.co` stays a public hostname whatever sits in
+// front of it, and the project ref is compiled into the browser bundle where
+// anybody can read it. Point the app at `api.theblackphoenixcompany.com`, put
+// Cloudflare on that name, and an attacker simply does not use it — they send
+// the same request straight to the origin and the firewall never sees it.
+//
+// This is the piece that closes that. Cloudflare adds a secret header to every
+// request it forwards; anything arriving without it did not come through the
+// firewall and is refused. See docs/security/waf.md for the whole design.
+//
+// FAIL OPEN WHILE UNSET — THE OPPOSITE OF THE CRON SECRETS, DELIBERATELY
+//
+// `expectedSecret()` elsewhere in this codebase refuses everything when no
+// secret is configured, which is right for a machine endpoint nobody should
+// reach by accident. It is wrong here. This middleware sits in front of the
+// ENTIRE API, so refusing while unset would take the whole platform down the
+// moment this deploys and before Cloudflare is configured. Unset means "no
+// firewall yet", and the correct behaviour then is to let traffic through —
+// the auth gate below is still doing its job.
+//
+// STAGE A: report-only, like AUTH_ENFORCE before it. Set the secret, watch the
+// would-block lines for a week, confirm the only things being caught are
+// things that should be, then set ORIGIN_LOCK_ENFORCE. Switching it on blind
+// locks out every caller at once, Eric included.
+const ORIGIN_LOCK_ENFORCE =
+  String(Deno.env.get('ORIGIN_LOCK_ENFORCE') ?? 'false').toLowerCase() === 'true';
+
+/**
+ * Callers that legitimately do not come through Cloudflare.
+ *
+ * Stripe posts to the `stripe-webhooks` function, which then forwards here
+ * using the project's own `SUPABASE_URL` — an internal hop that never touches
+ * the firewall. pg_cron does the same for the tick endpoints. Lock these and
+ * the first thing that breaks is getting paid, which is exactly the failure
+ * `/store/webhook` has already demonstrated once (M-5).
+ *
+ * Each one still authenticates: the webhooks re-verify with Stripe, the cron
+ * endpoints carry their own 32-byte shared secret. Exempting them from the
+ * origin lock removes a check they were never relying on.
+ */
+const ORIGIN_LOCK_EXEMPT = [
+  '/health',
+  '/store/webhook',
+  '/screening/webhook',
+  '/store/cron-tick',
+  '/store/watchdog',
+  '/autopilot/cron-tick',
+  '/exchange/cron-tick',
+  '/compliance/run-reminders',
+  '/on-call/escalate-due',
+  '/cron/screening/expire-invitations',
+];
+
+/** Cached so the common path is not a database read per request. */
+let originSecretCache: { value: string | null; at: number } | null = null;
+
+async function expectedOriginSecret(): Promise<string | null> {
+  const now = Date.now();
+  if (originSecretCache && now - originSecretCache.at < 60_000) return originSecretCache.value;
+  let value: string | null = null;
+  try {
+    const { data } = await supabase
+      .from('private_cron_config')
+      .select('value')
+      .eq('key', 'edge_origin_secret')
+      .maybeSingle();
+    value = String(data?.value || '').trim() || null;
+  } catch {
+    // A database blip must not decide this. Falls through to the environment.
+  }
+  if (!value) value = String(Deno.env.get('EDGE_ORIGIN_SECRET') || '').trim() || null;
+  originSecretCache = { value, at: now };
+  return value;
+}
+
+/** Length-independent compare, so a wrong header leaks nothing about how wrong. */
+function secretsMatch(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+app.use('*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') return next();      // preflight carries no custom headers
+
+  const expected = await expectedOriginSecret();
+  if (!expected) return next();                        // no firewall configured yet
+
+  const path = new URL(c.req.url).pathname;
+  const p = path.startsWith(API_PREFIX) ? (path.slice(API_PREFIX.length) || '/') : path;
+  if (ORIGIN_LOCK_EXEMPT.some((entry) => p === entry || p.startsWith(entry))) return next();
+
+  const presented = String(c.req.header('X-Edge-Auth') || '');
+  if (presented && secretsMatch(presented, expected)) return next();
+
+  console.log(`[originlock] ${ORIGIN_LOCK_ENFORCE ? 'BLOCK' : 'would-block'} ${c.req.method} ${path} header=${presented ? 'wrong' : 'absent'}`);
+  if (!ORIGIN_LOCK_ENFORCE) return next();
+  return c.json({ success: false, error: 'This API must be reached through its public endpoint.' }, 403);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BEHAVIOURAL IP REPUTATION — throttle, then ban, on what a caller does
+//
+// The scoring rules and the escalation ladder live in ipReputation.ts, which
+// is pure and exhaustively tested. This is only the plumbing: find the caller,
+// load their record, act on the verdict, and record a signal if the response
+// turned out to be a suspicious one.
+//
+// WHY IT SITS HERE, AHEAD OF THE AUTH GATE
+//
+// Because a banned caller should cost one lookup, not a `getUser` network
+// call plus two permission queries. The gate below is the expensive part of
+// this chain and there is no reason a known-bad address should reach it.
+//
+// WHAT IT IS AND IS NOT FOR
+//
+// Not floods — that is the firewall's job and it does it before we pay for
+// the request at all (docs/security/waf.md). This catches what a firewall
+// cannot see, because the meaning is in the application: forty misses on
+// 256-bit share tokens look like forty ordinary GETs to anything upstream,
+// and only we know every one of them resolved to nothing.
+//
+// COST
+//
+// Nothing is read or written for a request that behaves. The in-memory map is
+// consulted first and a clean caller is not in it; the KV read happens only
+// for an address that has already misbehaved, and the write only when a new
+// signal fires. A per-request counter write would have made this module its
+// own amplifier.
+//
+// STAGE A: report-only. Set IP_REPUTATION_ENFORCE=true once the would-block
+// lines have been read. Same rollout as AUTH_ENFORCE and the origin lock —
+// the thresholds are judgement calls and the first draft of a judgement call
+// does not get to lock people out.
+const IP_REPUTATION_ENFORCE =
+  String(Deno.env.get('IP_REPUTATION_ENFORCE') ?? 'false').toLowerCase() === 'true';
+
+/**
+ * Per-isolate cache, so the common case touches no storage.
+ *
+ * Bounded, because an isolate is long-lived and an attacker rotating
+ * addresses would otherwise grow this without limit — the memory exhaustion
+ * being a denial of service committed by the anti-abuse code, which would be
+ * an embarrassing way to go down.
+ */
+const reputationCache = new Map<string, Reputation>();
+const REPUTATION_CACHE_MAX = 5000;
+
+async function loadReputation(ip: string, now: number): Promise<Reputation> {
+  const cached = reputationCache.get(ip);
+  if (cached) return cached;
+  try {
+    const stored = await kv.get(`ipreg:${ip}`) as Reputation | null;
+    if (stored && typeof stored.score === 'number') {
+      reputationCache.set(ip, stored);
+      return stored;
+    }
+  } catch { /* storage trouble must not decide who gets in */ }
+  return freshReputation(now);
+}
+
+async function saveReputation(ip: string, rep: Reputation): Promise<void> {
+  if (reputationCache.size >= REPUTATION_CACHE_MAX) reputationCache.clear();
+  reputationCache.set(ip, rep);
+  // Persisted so a ban survives isolate recycling; failure is tolerable
+  // because the in-memory copy still holds for this isolate's lifetime.
+  try { await kv.set(`ipreg:${ip}`, rep); } catch { /* best effort */ }
+}
+
+/** Which signal, if any, this response represents. */
+function signalFor(path: string, status: number): Signal | null {
+  if (status === 401 || status === 403) {
+    // A token-addressed path answering 401/403 is a miss on the token itself,
+    // which is a far stronger signal than a failed password.
+    if (/\/(by-token|screening|architect-review\/review)\//.test(path)) return 'bad_token';
+    return 'auth_refused';
+  }
+  if (status === 404) {
+    if (/\/(by-token|screening|architect-review\/review)\//.test(path)) return 'bad_token';
+    return 'not_found';
+  }
+  if (status === 400 || status === 422) return 'malformed';
+  return null;
+}
+
+app.use('*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') return next();
+
+  const ip = clientIp(c.req.raw.headers);
+  // No usable address: skip entirely rather than pooling every anonymous
+  // caller into one bucket, which would ban all of them the first time any
+  // one of them probed.
+  if (!ip) return next();
+
+  const now = Date.now();
+  const rep = await loadReputation(ip, now);
+  const verdict = decide(rep, now);
+
+  if (verdict.action !== 'allow') {
+    console.log(`[ipreputation] ${IP_REPUTATION_ENFORCE ? verdict.action.toUpperCase() : `would-${verdict.action}`} ${ip} score=${verdict.score.toFixed(1)} ${c.req.method} ${new URL(c.req.url).pathname}`);
+    if (IP_REPUTATION_ENFORCE) {
+      return c.json(
+        {
+          success: false,
+          error: verdict.action === 'ban'
+            ? 'Too many failed requests from this address. Try again shortly.'
+            : 'Slow down and try again in a moment.',
+        },
+        verdict.action === 'ban' ? 403 : 429,
+        { 'Retry-After': String(verdict.retryAfter) },
+      );
+    }
+  }
+
+  await next();
+
+  const signal = signalFor(new URL(c.req.url).pathname, c.res.status);
+  if (!signal) return;
+  const { next: updated } = recordReputation(rep, signal, new URL(c.req.url).pathname, Date.now());
+  await saveReputation(ip, updated);
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTHORISATION GATE
@@ -834,6 +1065,44 @@ const PUBLIC_POST_PATHS = [
    * reached by a token instead.
    */
   '/screening/webhook',
+
+  /**
+   * The STORE payment webhook, forwarded from `stripe-webhooks` after it has
+   * verified Stripe's signature — and the sibling of the entry above, which
+   * is how this was found.
+   *
+   * `stripe-webhooks` calls `forwardTo('screening/webhook', raw)` and
+   * `forwardToStore(raw)` → `forwardTo('store/webhook', raw)`, carrying the
+   * service-role key as the Authorization header because Stripe cannot supply
+   * a Supabase token. `intakeActor` resolves no user from a service-role key,
+   * so the tier is `user` and the gate answers 401 — and only one of those two
+   * paths was ever listed here. The screening half works; the store half has
+   * been answering **401 "Sign in required."** to every real payment event.
+   *
+   * That is recorded in the note on `/screening/webhook` above as "a finding
+   * about the store's own path, not this one", confirmed against production on
+   * 2026-10-03, and then left open. This is the line that closes it. M-5 in
+   * tasks/security-audit-2026-10-16.md.
+   *
+   * The failure was quiet rather than absent, which is why it survived: the
+   * money is taken either way, and `/store/checkouts/complete` fulfils the
+   * order when the shopper comes back from Stripe with the browser still
+   * open. The webhook is the path that catches the shopper who closes the tab,
+   * pays by a delayed method, or loses connectivity on the return trip — so
+   * what this was costing is orders that were paid for and never created,
+   * with nothing anywhere reporting an error.
+   *
+   * Knowing the path buys an attacker nothing, for the same reason it buys
+   * nothing on the screening route. The handler reads only the checkout id out
+   * of the body, loads OUR record for it, then calls
+   * `retrieveStripeCheckoutSession` and proceeds solely on what Stripe itself
+   * says: the session id must match the one stored on the checkout and
+   * `payment_status` must be `paid`. A forged body cannot invent a payment,
+   * and a replayed real one is refused by the `checkout.orderId` guard.
+   *
+   * Only this exact path. Every other `/store/` route stays behind the wall.
+   */
+  '/store/webhook',
 
   /**
    * An invited person setting their password for the first time.
@@ -18623,9 +18892,29 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   return order;
 }
 
-// Stripe webhook — fulfills store orders once Stripe confirms payment. Verifies
-// the signature when STRIPE_WEBHOOK_SECRET is set; otherwise trusts the event but
-// re-verifies the session with Stripe before creating an order (defence in depth).
+/**
+ * Store payment webhook — fulfils an order once Stripe confirms payment.
+ *
+ * THIS ROUTE DOES NOT CHECK A STRIPE SIGNATURE, and the comment that used to
+ * sit here said it did "when STRIPE_WEBHOOK_SECRET is set". It never has:
+ * there is no `constructEvent` call below and no read of `stripe-signature`.
+ * Corrected rather than deleted because a comment claiming a control that is
+ * not there is worse than no comment — it stops the next reader looking.
+ *
+ * The signature IS verified, one hop upstream. Stripe delivers to the
+ * `stripe-webhooks` function, which runs with `verify_jwt = false`, checks the
+ * HMAC against the signing secret with a constant-time compare and a
+ * five-minute replay window, and only then forwards the original bytes here.
+ * This path is reachable at all only because it is listed in
+ * `PUBLIC_POST_PATHS` for that forward — see the note there.
+ *
+ * And the signature is not what this route trusts anyway. It reads the
+ * checkout id from the body, loads OUR stored checkout, then asks Stripe
+ * directly via `retrieveStripeCheckoutSession` and proceeds only if the
+ * returned session id matches the one on our record AND `payment_status` is
+ * `paid`. So a forged body cannot manufacture a payment even if it reached
+ * here unsigned, and `checkout.orderId` makes a replay idempotent.
+ */
 app.post('/make-server-3eae23a6/store/webhook', async (c) => {
   try {
     const raw = await c.req.text();
