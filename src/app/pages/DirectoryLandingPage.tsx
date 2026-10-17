@@ -3,7 +3,8 @@ import { motion } from 'motion/react';
 import {
   Building2, Wrench, ShoppingCart, Trash2, Users, Megaphone,
   Building, TrendingUp, ArrowRight, CheckCircle, Sparkles,
-  Clock, User, CheckCircle2, Store, Briefcase, X, Tag, ExternalLink, Play, UserPlus
+  Clock, User, CheckCircle2, Store, Briefcase, X, Tag, ExternalLink, Play, UserPlus,
+  ShieldCheck
 } from 'lucide-react';
 import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
@@ -13,7 +14,8 @@ import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ReviewsSection from '../components/ReviewsSection';
 import GalleryPreview from '../components/GalleryPreview';
 import SponsoredMarquee from '../components/SponsoredMarquee';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { publicAnonKey } from '../utils/supabase/info';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface DirectoryLandingPageProps {
   onNavigate?: (page: string) => void;
@@ -68,7 +70,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
   // Live reels from vendors / subcontractors / advertisers / content creation
   const [liveReels, setLiveReels] = useState<any[]>([]);
   useEffect(() => {
-    fetch(`https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6/public/reels`, {
+    fetch(`${API_BASE_URL}/make-server-3eae23a6/public/reels`, {
       headers: { Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })
@@ -1873,6 +1875,54 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
               </div>
 
             </div>
+          </button>
+        </motion.div>
+
+        {/*
+          Trust line.
+
+          The landing page carries no footer — the global one in App.tsx is
+          suppressed here — so until now there was nowhere on the first page a
+          visitor sees to reach the security, privacy or terms pages. A property
+          manager deciding whether to put their tenants' records in here looks
+          for exactly this before they look at anything else, and an acquirer's
+          reviewer arrives at the landing page first too.
+
+          Deliberately built from the vocabulary already on this screen rather
+          than as a conventional footer: the same red-on-dark pill used by the
+          "Free to Join" badges above, the same mono tracking as the
+          "[ INITIALIZE ACCOUNT ]" caption, the same rounded-md corners. It
+          reads as the last line of the CTA block, not as a new region bolted
+          underneath it. No grid changed and nothing above it moved.
+        */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="mt-8 flex flex-wrap items-center justify-center gap-x-3 gap-y-2"
+        >
+          <button
+            onClick={() => handleNavigate('security')}
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-red-300 px-2.5 py-1 rounded-md hover:text-red-200 transition-colors"
+            style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Security &amp; Data Protection
+          </button>
+          <span className="text-xs font-mono text-red-500/40 tracking-widest hidden sm:inline">/</span>
+          <button
+            onClick={() => handleNavigate('privacy-policy')}
+            className="text-[11px] font-mono text-gray-500 hover:text-red-400 tracking-wider uppercase transition-colors"
+          >
+            Privacy
+          </button>
+          <span className="text-xs font-mono text-red-500/40 tracking-widest hidden sm:inline">/</span>
+          <button
+            onClick={() => handleNavigate('terms-of-service')}
+            className="text-[11px] font-mono text-gray-500 hover:text-red-400 tracking-wider uppercase transition-colors"
+          >
+            Terms
           </button>
         </motion.div>
       </div>
