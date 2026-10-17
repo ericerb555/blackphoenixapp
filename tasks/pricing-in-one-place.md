@@ -167,20 +167,61 @@ Mostly not what this section expected, and the differences are the useful part.
       `planTier.ts` has never known about. A test asserts the two agree on
       every shape in both modes, so they cannot drift again.
 
-## Phase 3 — the assistant
+## Phase 3 — the assistant · **ALREADY BUILT. DO NOT BUILD IT. 2026-10-17**
 
-Copy the shape that already works: `exchangeAssistant.ts` (pure tested rules)
-plus `exchangeAssistantRoutes.tsx` (daily cap, fenced rows, model output
-whitelisted to ids that were actually retrieved).
+Checked before starting, after Phase 2 found two duplicates. It exists, and it
+was built to the design this section specifies, including a safeguard this
+section did not think to ask for.
 
-- [ ] 3a. **It proposes; it never applies.** A hallucinated price is money
-      leaving the business. It drafts "set Studio to $199, create the live
-      price, activate" and a human presses the button.
-- [ ] 3b. The read side is where it earns its place: "what cannot be bought
-      right now and why", "which add-ons have no price", "what changes if
-      Studio goes to $249". Those are the questions that took twenty tool
-      calls to answer by hand today.
-- [ ] 3c. Same daily cap and spend accounting as the Exchange assistant.
+`POST /plan-draft` in `plan-catalog.tsx`. Administrator only, takes a free-text
+brief, backed by `ANTHROPIC_API_KEY`. Its own comments:
+
+- **"IT PROPOSES; IT DOES NOT PUBLISH … This route writes nothing. The reply
+  lands in the editor as fields, and the catalogue changes only when somebody
+  presses save."** — that is 3a, already done.
+- **"AND IT NEVER RETURNS A PRICE ID. A Stripe price id is a fact only Stripe
+  can issue. A model cannot know one, so anything that looks like one is wrong
+  by construction."** — a guard 3a did not specify and should have.
+- **"Metered in the shared `ai` bucket by the prefix middleware"** — that is 3c.
+- `LIMIT_VOCABULARY` gives it the limit keys this codebase actually reads, so
+  it cannot invent a plausible-sounding one nothing will ever honour. That is
+  the same idea as whitelisting model output to retrieved ids.
+
+It is also already reachable: `PlanTierAdmin.tsx:845` calls it, and Phase 2
+moved that component into the Pricing tab — so the assistant arrived in the one
+place as a side effect. `ANTHROPIC_API_KEY` is configured, so it answers rather
+than returning its 503.
+
+- [x] 3a — done, in `/plan-draft`.
+- [x] 3b — done, but **without a model**, which is better. "What cannot be
+      bought right now and why" and "which add-ons have no price" are matters
+      of fact, and Phase 1 answers them deterministically in
+      `/pricing/overview` and `/pricing/needs-attention`. Asking a model a
+      question the database can answer exactly is how a wrong answer gets a
+      confident voice.
+- [x] 3c — done, same `ai` bucket.
+
+### The one real gap, and why it is not worth closing with AI
+
+`/plan-draft` drafts a ladder of TIERS. Nothing drafts add-ons, and the
+catalogue's actual problem is twenty-four add-ons that cannot be sold.
+
+But they do not need drafting. They already carry prices — 7900, 19900 and
+49900 cents — decided and written on 2026-09-29. What they lack is a Stripe
+price id, which no model can produce, because only Stripe can issue one. An
+assistant pointed at this problem could only restate it.
+
+### What is actually blocking the sale
+
+Creating the Stripe prices. Verified ready 2026-10-17:
+
+    STRIPE_SECRET_KEY        set, and a LIVE key (confirmed via /public/plan-tiers)
+    STRIPE_SECRET_KEY_TEST   set — and the exact name the route expects
+    STRIPE_SECRET_KEY_SERVICES  NOT set, so activeMode() falls back as designed
+
+So `POST /plan-addons/:audience/:id/stripe-price?mode=test` will work today for
+the fifteen add-ons that have no price at all. That is Eric's call, not a
+side effect of a phase: it writes to his Stripe account, test mode or not.
 
 ---
 
