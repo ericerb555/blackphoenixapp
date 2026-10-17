@@ -249,7 +249,9 @@ export function AdvancedCohortManagement() {
    * Vendor, 89 vendors", "Standard Advertising, 45 advertisers", "Basic
    * Build, 42 subscribers" — with prices to match. None of it existed.
    * Production holds plan records for two audiences only, content and
-   * vendor, and both are sold through the Portal Plans screen.
+   * vendor, and both are sold through the plan editor — which lives in the
+   * Pricing tab of this page as of 2026-10-17, having moved out of the Owner
+   * dashboard so that reading and changing a price happen in one place.
    *
    * Emptied rather than wired up, because there is nothing to wire them to
    * yet. An empty tab that says so is worth more than a full one that is
@@ -699,7 +701,8 @@ export function AdvancedCohortManagement() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-12 text-center">
             <p className="text-white font-medium mb-2">No {viewMode} plans yet.</p>
             <p className="text-sm text-zinc-400">
-              Plans are published from Owner's Dashboard → Portal Plans, for one
+              Plans are published from the <strong className="text-zinc-200">Pricing</strong> tab
+              on this page, under <strong className="text-zinc-200">Edit plans</strong>, for one
               audience at a time. Nothing is published for this one.
             </p>
           </div>

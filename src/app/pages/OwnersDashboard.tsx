@@ -500,7 +500,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       label: waiting.unreadCount > 0 ? `Messages (${waiting.unreadCount})` : 'Messages',
       icon: MessageSquare,
     },
-    { id: 'plans' as MainTab, label: 'Portal Plans', icon: CreditCard },
+    // Labelled as moved, because the tab now holds a pointer rather than the
+    // editor. A tab called "Portal Plans" that cannot edit a plan is worse
+    // than one that says where the editor went before you click it.
+    { id: 'plans' as MainTab, label: 'Portal Plans (moved)', icon: CreditCard },
     { id: 'on-call-pricing' as MainTab, label: 'On-Call Pricing', icon: PhoneCall },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
