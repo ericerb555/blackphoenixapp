@@ -63,6 +63,21 @@ interface Row {
 
 interface Counts { sellable: number; blocked: number; superseded: number; total: number }
 
+/**
+ * Whether a completed checkout would actually place a grant.
+ *
+ * Shown here, above the catalogue, because a price nobody can be charged for
+ * and a charge that grants nothing are the same problem wearing different
+ * clothes — and on 2026-10-17 the second one was true of every plan while this
+ * screen happily reported three of them sellable.
+ */
+interface Fulfilment {
+  live: { fulfils: boolean; reasons: string[] };
+  test: { fulfils: boolean; reasons: string[] };
+  nothingWouldFulfil: boolean;
+  summary: string;
+}
+
 const KIND_LABEL: Record<Row['kind'], string> = {
   tier: 'Plan tiers',
   addon: 'Add-ons',
@@ -109,6 +124,7 @@ export default function PricingOverview() {
   const [loading, setLoading] = useState(true);
   const [refused, setRefused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fulfilment, setFulfilment] = useState<Fulfilment | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,6 +154,30 @@ export default function PricingOverview() {
   }, [mode]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /*
+   * Asked once, not per mode: the answer covers both, and it makes a live call
+   * out to Stripe. Silent on failure — a check that cannot run must not claim
+   * the money path is broken.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch(`${SERVER}/stripe/fulfilment-readiness`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const body = await res.json().catch(() => null);
+        if (!cancelled && body?.success) setFulfilment(body as Fulfilment);
+      } catch {
+        /* Silent by design. See above. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const grouped = useMemo(() => {
     const out: Record<Row['kind'], Row[]> = { tier: [], addon: [], cohort: [] };
@@ -264,6 +304,47 @@ export default function PricingOverview() {
                   <div className="text-zinc-400 text-xs mt-0.5">{stat.label}</div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/*
+            Said FIRST, above everything, when it is true.
+
+            A plan can be perfectly sellable and still grant nothing when the
+            money arrives: Stripe takes the card, the webhook delivery is
+            refused for want of a signing secret, and /my-plan reports no plan.
+            That was the state of every plan on 2026-10-17 while this screen
+            reported three of them sellable, which is why the two questions now
+            sit on one page.
+          */}
+          {fulfilment && (fulfilment.nothingWouldFulfil || !fulfilment.live.fulfils || !fulfilment.test.fulfils) && (
+            <div
+              className={`rounded-xl border p-4 ${
+                fulfilment.nothingWouldFulfil
+                  ? 'border-red-900/50 bg-red-950/25'
+                  : 'border-amber-900/40 bg-amber-950/20'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle
+                  className={`w-5 h-5 mt-0.5 shrink-0 ${fulfilment.nothingWouldFulfil ? 'text-red-400' : 'text-amber-400'}`}
+                />
+                <div className="min-w-0">
+                  <div className={`font-semibold text-sm ${fulfilment.nothingWouldFulfil ? 'text-red-100' : 'text-amber-100'}`}>
+                    {fulfilment.summary}
+                  </div>
+
+                  {/* Per mode, because the fixes differ and so does the urgency. */}
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {([['live', fulfilment.live], ['test', fulfilment.test]] as const).map(([name, verdict]) => (
+                      <li key={name} className={verdict.fulfils ? 'text-emerald-300/90' : 'text-amber-200/80'}>
+                        <strong className="uppercase text-[10px] tracking-wide">{name}</strong>{' '}
+                        {verdict.fulfils ? 'would place a grant.' : verdict.reasons.join(' ')}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
 

@@ -26,6 +26,7 @@ import type Stripe from "npm:stripe@17";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole, STAFF_ROLE_SET } from "./trustedRole.ts";
+import { fulfilmentReadiness, WEBHOOK_SECRET_NAMES } from "./fulfilmentReadiness.ts";
 
 const stripeConnectRouter = new Hono();
 
@@ -783,3 +784,106 @@ stripeConnectRouter.post(`${PREFIX}/stripe/seed`, async (c) => {
 
 export { stripeConnectRouter };
 export default stripeConnectRouter;
+
+/**
+ * Would a paid subscription actually grant anything?
+ *
+ * WHY THIS ROUTE EXISTS
+ *
+ * On 2026-10-17 the answer was no, and nothing could say so. Every piece was
+ * built and correct: `/plan-checkout` stamps `bp_tier_id` and friends onto the
+ * session and the subscription, and `handlePortalPlanEvent` in the
+ * `stripe-webhooks` function reads them and writes `feature_grant:{email}`.
+ * Neither had a bug.
+ *
+ * But that function refuses any delivery it cannot verify — correctly, since
+ * accepting an unsigned event would let anybody grant themselves a plan — and
+ * none of the four signing-secret names it looks for was set. Stripe would
+ * have taken the money, the delivery would have been rejected at the door, and
+ * `/my-plan` would have reported no plan.
+ *
+ * WHY IT IS SEPARATE FROM /stripe/webhook-endpoints
+ *
+ * That route answers half the question: whether Stripe has an endpoint. Only
+ * this side knows whether the secret that verifies its deliveries is present,
+ * and Stripe cannot tell you — it discloses a signing secret once, at
+ * creation. Neither half is sufficient and nothing put the two together, which
+ * is exactly how a configured-looking endpoint sat in front of a door that
+ * refused everything.
+ *
+ * BOTH MODES, ALWAYS
+ *
+ * Stripe keeps separate endpoint lists per mode and a key only ever sees its
+ * own. So this lists endpoints with the live key AND the test key, because the
+ * rehearsal runs in test while the business runs in live, and "it worked when
+ * I tested it" is the sentence this is here to make impossible.
+ *
+ * NO KEY MATERIAL, EVER
+ *
+ * Secrets are reported as the NAMES that are set. The verdict is computed by
+ * `fulfilmentReadiness`, which takes names and has no parameter a value could
+ * ride in on.
+ */
+stripeConnectRouter.get(`${PREFIX}/stripe/fulfilment-readiness`, async (c) => {
+  const refused = await requireStripeStaff(c);
+  if (refused) return refused;
+
+  // Our own host, so "is this endpoint ours" is derived rather than typed.
+  const projectHost = (() => {
+    try { return new URL(Deno.env.get("SUPABASE_URL") || "").host; } catch { return ""; }
+  })();
+
+  const secretsSet = WEBHOOK_SECRET_NAMES.filter((name) => {
+    const value = Deno.env.get(name);
+    return Boolean(value && value.trim());
+  });
+
+  /*
+   * One list per key, labelled by the env name that produced it. A failure to
+   * list is reported rather than swallowed: "we could not ask Stripe" and
+   * "Stripe has no endpoint" need different actions, and collapsing them would
+   * send somebody to the dashboard to fix something that is already right.
+   */
+  const KEYS_TO_TRY = ["STRIPE_SECRET_KEY_SERVICES", "STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY_TEST"];
+  const endpoints: any[] = [];
+  const listing: Record<string, any> = {};
+
+  for (const envName of KEYS_TO_TRY) {
+    if (!Deno.env.get(envName)) { listing[envName] = { configured: false }; continue; }
+    try {
+      const stripe = await getStripeByEnv(envName);
+      if (!stripe) { listing[envName] = { configured: true, error: "client could not be built" }; continue; }
+      const list = await stripe.webhookEndpoints.list({ limit: 100 });
+      const mapped = list.data.map((e: any) => ({
+        id: e.id,
+        url: e.url,
+        status: e.status,
+        livemode: e.livemode,
+        enabledEvents: e.enabled_events,
+        pointsAtThisProject: Boolean(projectHost) && String(e.url || "").includes(projectHost),
+      }));
+      endpoints.push(...mapped);
+      listing[envName] = { configured: true, count: mapped.length, endpoints: mapped };
+    } catch (err: any) {
+      listing[envName] = { configured: true, error: err?.message || String(err) };
+    }
+  }
+
+  const readiness = fulfilmentReadiness({ secretsSet: [...secretsSet], endpoints });
+
+  return c.json({
+    success: true,
+    ...readiness,
+    // What was asked of Stripe, so a "no endpoint" answer can be told apart
+    // from a key that could not list.
+    listing,
+    // Said plainly, because this is the sentence that matters.
+    summary: readiness.nothingWouldFulfil
+      ? "A completed checkout would charge the card and grant nothing."
+      : readiness.live.fulfils && readiness.test.fulfils
+        ? "Live and test would both place a grant."
+        : readiness.test.fulfils
+          ? "Test would place a grant. Live would not."
+          : "Live would place a grant. Test would not.",
+  });
+});
