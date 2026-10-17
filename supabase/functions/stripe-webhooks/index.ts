@@ -539,7 +539,38 @@ async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+  /*
+   * A GET says what this is, rather than only that it is not allowed.
+   *
+   * Stripe POSTs here, so GET is correctly refused — but the first thing
+   * anybody does with a webhook URL is paste it into a browser to check it,
+   * and a bare "Method not allowed" reads as a broken endpoint. That happened
+   * on 2026-10-17: the URL was reported as not working when it was in fact
+   * answering exactly as designed, and the real outstanding step — registering
+   * the endpoint in Stripe — went looking for a fault instead.
+   *
+   * Still 405, because the semantics are right and a 200 would make a browser
+   * check look like a successful delivery. Only the body changes, and it
+   * carries nothing a visitor should not see: no secret, no configuration, no
+   * statement of which secrets exist.
+   */
+  if (req.method === 'GET') {
+    return new Response(
+      'This is the Stripe webhook endpoint for this project, and it is working.\n\n'
+      + 'It accepts POST from Stripe only, with a stripe-signature header, so a\n'
+      + 'browser visit is refused by design — this message is what a healthy\n'
+      + 'endpoint looks like from a browser.\n\n'
+      + 'To use it: add this URL as a webhook endpoint in the Stripe dashboard\n'
+      + '(test and live are separate lists), subscribe it to\n'
+      + 'checkout.session.completed, and store its signing secret as\n'
+      + 'STRIPE_WEBHOOK_SECRET_TEST or STRIPE_WEBHOOK_SECRET_SERVICES.\n',
+      { status: 405, headers: { 'Content-Type': 'text/plain; charset=utf-8', Allow: 'POST' } },
+    );
+  }
+
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } });
+  }
 
   const raw = await req.text();
   const header = req.headers.get('stripe-signature') || '';
