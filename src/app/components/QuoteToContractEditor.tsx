@@ -9,7 +9,7 @@
  * - Convert approved quotes to contracts
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   X,
   FileText,
@@ -190,6 +190,12 @@ interface WorkRequest {
   customerEmail: string;
   customerPhone?: string;
   location?: string;
+  /**
+   * What the estimator was given, kept so the quote can be corrected rather
+   * than restarted. Optional because every quote raised before this existed
+   * has none — see the fallback in `originalBrief`.
+   */
+  intake?: Record<string, any>;
   quote?: Quote;
 }
 
@@ -509,6 +515,7 @@ export function QuoteToContractEditor({
   useEffect(() => {
     if (activeTab === 'bidding' && workRequest.quote?.id) {
       loadSubcontractorBids();
+      loadBidRoomContext();
     }
   }, [activeTab, workRequest.quote?.id]);
 
@@ -531,6 +538,304 @@ export function QuoteToContractEditor({
       toast.error('Failed to load subcontractor bids');
     } finally {
       setLoadingBids(false);
+    }
+  };
+
+  /**
+   * Deleting the quote. There was no way to, at all.
+   *
+   * A quote raised by mistake — a duplicate, a test, a customer who turned out
+   * not to exist — stayed in the list for ever, and the only way to make it
+   * stop mattering was to leave it a draft. Eric: "i dont have the ability to
+   * delete a quote."
+   *
+   * Two-step rather than a modal, deliberately. The screen already owns one
+   * dialog and a second would fight it, and the button labelling itself
+   * "Delete — are you sure?" is as hard to hit by accident as a dialog is
+   * while being obvious about what the next click does.
+   *
+   * The refusals are the server's, not this component's. A signed quote and
+   * one already turned into a contract both answer 409 with a reason, which is
+   * surfaced verbatim — that check has to live where it cannot be skipped, and
+   * repeating it here would be a second rule to keep in step with the first.
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteQuote = async () => {
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) { toast.error('This work request has no saved quote to delete.'); return; }
+    if (!confirmingDelete) { setConfirmingDelete(true); return; }
+
+    setDeleting(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${quoteId}`,
+        { method: 'DELETE', headers: await quoteAuthHeaders() },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success === false) {
+        // 409 carries a real explanation — signed, or already a contract.
+        toast.error(data?.error || `Could not delete the quote (HTTP ${response.status}).`);
+        setConfirmingDelete(false);
+        return;
+      }
+      toast.success('Quote deleted.', {
+        description: data?.tokensRevoked
+          ? `${data.tokensRevoked} share link${data.tokensRevoked === 1 ? '' : 's'} revoked with it.`
+          : undefined,
+      });
+      onClose();
+    } catch (error: any) {
+      toast.error(`Could not delete the quote: ${error?.message || error}`);
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  /**
+   * The brief the quote was priced from — editable, and re-runnable.
+   *
+   * The editor could show what a quote COST but never what it was priced
+   * FROM. The intake was collected, sent to the estimator and discarded, so
+   * noticing a missed detail meant abandoning the quote and starting a new
+   * one. Eric: "i would like to have the original description so i can edit
+   * it and then regenerate the quote if i missed something."
+   *
+   * OLD QUOTES HAVE NO INTAKE, AND THAT IS THE COMMON CASE AT FIRST
+   *
+   * `intake` only exists on quotes raised after it started being stored.
+   * Everything before has nothing but `description`, so the panel falls back
+   * to that rather than appearing empty or hiding itself — an editor that
+   * shows nothing for most of the existing quotes would read as broken. A
+   * regenerate from a description alone is thinner than one from a full
+   * intake, which the panel says rather than silently producing a worse
+   * estimate.
+   */
+  const originalBrief: Record<string, any> = useMemo(
+    () => (workRequest as any).intake
+      || (workRequest.quote as any)?.intake
+      || { description: workRequest.description || '', title: workRequest.title, serviceType: workRequest.serviceType },
+    [workRequest],
+  );
+  const hasFullIntake = Boolean((workRequest as any).intake || (workRequest.quote as any)?.intake);
+
+  const [briefDraft, setBriefDraft] = useState<Record<string, any>>(originalBrief);
+  const [regenerating, setRegenerating] = useState(false);
+  const briefEdited = JSON.stringify(briefDraft) !== JSON.stringify(originalBrief);
+
+  useEffect(() => { setBriefDraft(originalBrief); }, [originalBrief]);
+
+  const setBriefField = (key: string, value: string) =>
+    setBriefDraft((prev) => ({ ...prev, [key]: value }));
+
+  /**
+   * Re-price from the edited brief.
+   *
+   * Posts the same shape `/auto-generate-quote` was given the first time, so
+   * there is one estimator contract rather than a second one that drifts.
+   * Replaces the priced lines and nothing else: the customer, the title and
+   * anything hand-edited on the quote stay as they are, because a regenerate
+   * is a correction to the ESTIMATE, not a reset of the record.
+   */
+  const handleRegenerateFromBrief = async () => {
+    if (!workRequest.quote?.id) { toast.error('Save the quote before regenerating it.'); return; }
+    setRegenerating(true);
+    const toastId = 'regen-quote';
+    toast.loading('Re-pricing from the updated brief…', { id: toastId });
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/auto-generate-quote`, {
+        method: 'POST',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({
+          workRequest: {
+            ...briefDraft,
+            id: workRequest.id,
+            title: briefDraft.title || workRequest.title,
+            serviceType: briefDraft.serviceType || workRequest.serviceType,
+            location: briefDraft.location ?? workRequest.location,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        toast.error(data?.error || `Could not regenerate the quote (HTTP ${res.status}).`, { id: toastId });
+        return;
+      }
+
+      const q = data.quote || data.generated || data;
+      const materials = q?.materials || [];
+      const labor = q?.labor || [];
+      if (!materials.length && !labor.length) {
+        toast.error('The estimator returned no line items. The quote is unchanged.', { id: toastId });
+        return;
+      }
+
+      const updated: any = {
+        ...workRequest,
+        description: briefDraft.description ?? workRequest.description,
+        intake: briefDraft,
+        quote: {
+          ...workRequest.quote,
+          materials,
+          labor,
+          totalCost: q?.totalCost ?? workRequest.quote.totalCost,
+          pricingBasis: q?.pricingBasis ?? (workRequest.quote as any).pricingBasis,
+          priceSummary: q?.priceSummary ?? (workRequest.quote as any).priceSummary,
+          regeneratedAt: new Date().toISOString(),
+        },
+      };
+
+      onSave(updated);
+      toast.success('Quote re-priced from the updated brief.', {
+        id: toastId,
+        description: 'Line items replaced. Customer details and the quote number are unchanged.',
+      });
+    } catch (err: any) {
+      toast.error(`Could not regenerate the quote: ${err?.message || err}`, { id: toastId });
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  /**
+   * Putting the quote out to subcontractors, for real this time.
+   *
+   * What was here recorded a marker in the kv store that nothing read, and
+   * said so honestly — "Nothing has been sent yet. Build the packages from the
+   * scope and post them in the bid room." This closes that gap: the quote
+   * becomes an actual `bid_requests` row in the Exchange and the chosen
+   * providers are invited to it.
+   *
+   * WHY THIS CANNOT ACCIDENTALLY BROADCAST
+   *
+   * Eric's standing rule is that contracted vendors win — a job must not reach
+   * the open board when somebody already holds a contract for that work — and
+   * the contract check does not exist yet. That rule is not at risk here,
+   * because the database makes an open broadcast impossible:
+   *
+   *   my_open_bid_request_ids()  a provider may bid ONLY where a
+   *                              bid_invitations row names their org
+   *   bid_request_read           a provider may SEE only what they own or
+   *                              were invited to
+   *
+   * So every bid request is invitation-only at the RLS level. Nobody sees this
+   * work unless it is handed to them by name, which is exactly what Eric asked
+   * for: "my contractors can bid solely on my work if i only want them to."
+   * A genuinely open board is a separate thing and needs that contract check
+   * first.
+   */
+  const [providers, setProviders] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [chosenProviders, setChosenProviders] = useState<Set<string>>(new Set());
+  const [postingOrgId, setPostingOrgId] = useState<string>('');
+  const [postingBid, setPostingBid] = useState(false);
+
+  const toggleProvider = (id: string) =>
+    setChosenProviders((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  /** Load who can be invited, and which of my orgs may post. */
+  const loadBidRoomContext = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return;
+
+      const [{ data: memberships }, { data: dir }] = await Promise.all([
+        supabase.from('organization_members').select('org_id, role, status').eq('user_id', uid),
+        // RLS decides what comes back; no permission check is duplicated here.
+        supabase.from('organizations').select('id, name, type')
+          .in('type', ['subcontractor', 'vendor']).eq('status', 'active').order('name'),
+      ]);
+
+      // Posting needs an org you administer — bid_request_insert checks
+      // my_admin_org_ids, so anything else is refused by the database.
+      const admin = (memberships || []).find(
+        (m: any) => m.status === 'active' && ['owner', 'admin'].includes(String(m.role || '').toLowerCase()),
+      );
+      if (admin) setPostingOrgId(admin.org_id);
+      setProviders((dir || []) as Array<{ id: string; name: string; type: string }>);
+    } catch (err) {
+      console.error('[bidding] could not load bid room context:', err);
+    }
+  };
+
+  const handlePostToBidRoom = async () => {
+    const quote = workRequest.quote;
+    if (!quote?.id) { toast.error('Save the quote before putting it out to bid.'); return; }
+    if (!postingOrgId) {
+      toast.error('You are not an administrator of any organisation, so you cannot post work to the Exchange.');
+      return;
+    }
+    if (!chosenProviders.size) { toast.error('Choose at least one subcontractor to invite.'); return; }
+
+    setPostingBid(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const total = Number((quote as any).grandTotal ?? (quote as any).total ?? 0) || null;
+
+      const { data: created, error: reqErr } = await supabase.from('bid_requests').insert({
+        org_id: postingOrgId,
+        title: (quote as any).title || workRequest.title || `Quote ${(quote as any).quoteNumber || quote.id}`,
+        trade: workRequest.serviceType || null,
+        description: workRequest.description || null,
+        site_address: workRequest.location || null,
+        // The quote total is what WE priced it at. It is the ceiling we are
+        // asking them to come in under, so it goes in as the high end.
+        budget_low: null,
+        budget_high: total,
+        // 'open' rather than 'draft': my_open_bid_request_ids requires it, so
+        // a draft is invisible to the very people being invited.
+        status: 'open',
+        created_by: session?.user?.id || null,
+      }).select().single();
+      if (reqErr) throw reqErr;
+
+      const { error: invErr } = await supabase.from('bid_invitations').insert(
+        [...chosenProviders].map((orgId) => ({
+          bid_request_id: created.id,
+          org_id: orgId,
+          invited_by: session?.user?.id || null,
+        })),
+      );
+      if (invErr) throw invErr;
+
+      // Best effort: the invitations are already live in the Exchange, so a
+      // failed notification is a missing email, not a missing invitation.
+      try {
+        await fetch(`${API_BASE_URL}/make-server-3eae23a6/bid-room/notify-invites`, {
+          method: 'POST',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({ bidRequestId: created.id, orgIds: [...chosenProviders] }),
+        });
+      } catch (notifyErr) {
+        console.error('[bidding] invitations created but notification failed:', notifyErr);
+      }
+
+      // Link it back, so the quote knows where its bids are coming from.
+      try {
+        await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/${quote.id}`, {
+          method: 'PUT',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({ bidRequestId: created.id }),
+        });
+      } catch { /* the request exists either way; the link is a convenience */ }
+
+      toast.success(
+        `Sent to ${chosenProviders.size} ${chosenProviders.size === 1 ? 'subcontractor' : 'subcontractors'}.`,
+        { description: 'Only the people you invited can see or bid on this work.' },
+      );
+      setChosenProviders(new Set());
+      loadSubcontractorBids();
+    } catch (err: any) {
+      console.error('[bidding] post to bid room failed:', err);
+      toast.error(err?.message || 'Could not put this quote out to bid.');
+    } finally {
+      setPostingBid(false);
     }
   };
 
@@ -1387,6 +1692,28 @@ export function QuoteToContractEditor({
             >
               👁 {showWorkRequestDrawer ? 'Hide' : 'View'} Work Request
             </button>
+            {/*
+              Delete, two-step. Styled as a quiet red outline rather than a
+              filled button: it sits beside the primary actions and should not
+              compete with them, but it must be unmistakably destructive once
+              it is armed.
+            */}
+            {workRequest.quote?.id && (
+              <button
+                onClick={handleDeleteQuote}
+                onBlur={() => setConfirmingDelete(false)}
+                disabled={deleting}
+                title={confirmingDelete ? 'Click again to permanently delete this quote' : 'Delete this quote'}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-50 ${
+                  confirmingDelete
+                    ? 'bg-red-600 text-white hover:bg-red-500'
+                    : 'bg-red-600/10 border border-red-500/40 text-red-300 hover:bg-red-600/20'
+                }`}
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleting ? 'Deleting…' : confirmingDelete ? 'Delete — are you sure?' : 'Delete'}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="p-2 hover:bg-white/5 rounded-lg transition-colors"
@@ -1450,6 +1777,113 @@ export function QuoteToContractEditor({
           {/* QUOTE DETAILS TAB */}
           {activeTab === 'quote' && (
             <div className="space-y-6">
+              {/*
+                What this quote was priced from — editable, and re-runnable.
+                Above the quote itself because a correction to the brief
+                invalidates everything below it; seeing the figures first and
+                the inputs afterwards is the wrong way round.
+              */}
+              <details className="group rounded-xl border border-gray-700 bg-black/40" open={briefEdited}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-[#ea580c]" />
+                    <span className="text-sm font-bold text-white">The brief this was priced from</span>
+                    {briefEdited && (
+                      <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">
+                        edited — not yet re-priced
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-500 group-open:hidden">Show and edit</span>
+                  <span className="hidden text-xs text-gray-500 group-open:inline">Hide</span>
+                </summary>
+
+                <div className="space-y-4 border-t border-gray-800 p-4">
+                  {!hasFullIntake && (
+                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-300">
+                      This quote predates the brief being kept, so only its description survived.
+                      You can still edit it and re-price, but the estimator will have less to work
+                      from than it did originally.
+                    </p>
+                  )}
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-400">Description</label>
+                    <textarea
+                      value={briefDraft.description || ''}
+                      onChange={(e) => setBriefField('description', e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                      placeholder="What the job is."
+                    />
+                  </div>
+
+                  {hasFullIntake && (
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-gray-400">
+                        In your own words (the brief)
+                      </label>
+                      <textarea
+                        value={briefDraft.brief || ''}
+                        onChange={(e) => setBriefField('brief', e.target.value)}
+                        rows={4}
+                        className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                        placeholder="The detail only somebody who saw the job can give."
+                      />
+                    </div>
+                  )}
+
+                  {hasFullIntake && (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {([
+                        ['squareFootage', 'Square footage'],
+                        ['linearFootage', 'Linear footage'],
+                        ['roomCount', 'Rooms'],
+                        ['ceilingHeight', 'Ceiling height'],
+                        ['accessNotes', 'Access'],
+                        ['occupancy', 'Occupancy'],
+                        ['urgency', 'Urgency'],
+                        ['exclusions', 'Exclusions'],
+                      ] as Array<[string, string]>).map(([key, label]) => (
+                        <div key={key}>
+                          <label className="mb-1 block text-[11px] font-semibold text-gray-500">{label}</label>
+                          <input
+                            value={briefDraft[key] || ''}
+                            onChange={(e) => setBriefField(key, e.target.value)}
+                            className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    <button
+                      onClick={handleRegenerateFromBrief}
+                      disabled={regenerating}
+                      className="flex items-center gap-2 rounded-lg border border-[#ea580c]/50 bg-black px-4 py-2 text-sm font-bold text-[#ea580c] transition-all hover:border-[#ea580c] hover:shadow-[0_0_15px_rgba(234,88,12,0.4)] disabled:opacity-50"
+                    >
+                      {regenerating
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Recycle className="h-4 w-4" />}
+                      {regenerating ? 'Re-pricing…' : 'Regenerate quote'}
+                    </button>
+                    {briefEdited && (
+                      <button
+                        onClick={() => setBriefDraft(originalBrief)}
+                        disabled={regenerating}
+                        className="text-xs font-semibold text-gray-400 underline underline-offset-4 hover:text-white disabled:opacity-50"
+                      >
+                        Discard my edits
+                      </button>
+                    )}
+                    <span className="text-xs text-gray-500">
+                      Replaces the priced lines. The customer, quote number and status stay as they are.
+                    </span>
+                  </div>
+                </div>
+              </details>
+
               {/* Quote Header */}
               <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
                 {/* Company Header with Logo */}
@@ -2220,16 +2654,76 @@ export function QuoteToContractEditor({
                     <button
                       onClick={handleRequestBids}
                       disabled={loading}
-                      className="flex items-center gap-2 px-4 py-2 bg-black border border-[#ea580c]/50 hover:border-[#ea580c] hover:shadow-[0_0_15px_rgba(234,88,12,0.5)] text-[#ea580c] rounded-lg font-semibold transition-all disabled:opacity-50"
+                      className="flex items-center gap-2 px-4 py-2 bg-black border border-gray-600/50 hover:border-gray-500 text-gray-400 rounded-lg font-semibold transition-all disabled:opacity-50"
+                      title="Records on the quote that you intend to seek bids. Sends nothing."
                     >
                       {loading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <Send className="w-4 h-4" />
                       )}
-                      Request Bids
+                      Note intent
                     </button>
                   </div>
+                </div>
+
+                {/*
+                  Put this quote out to the people who will actually do the work.
+                  Invitation-only by construction — see the note on
+                  handlePostToBidRoom. Nobody sees this but the names ticked here.
+                */}
+                <div className="mb-6 rounded-xl border border-[#2A2A2A] bg-[#0B0B0B] p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Send this quote out to bid</h4>
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        Only the subcontractors you tick can see or bid on this work.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handlePostToBidRoom}
+                      disabled={postingBid || !chosenProviders.size || !postingOrgId}
+                      className="flex items-center gap-2 rounded-lg border border-[#ea580c]/50 bg-black px-4 py-2 text-sm font-bold text-[#ea580c] transition-all hover:border-[#ea580c] hover:shadow-[0_0_15px_rgba(234,88,12,0.4)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {postingBid ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {postingBid
+                        ? 'Sending…'
+                        : chosenProviders.size
+                          ? `Send to ${chosenProviders.size} selected`
+                          : 'Select subcontractors'}
+                    </button>
+                  </div>
+
+                  {!postingOrgId ? (
+                    <p className="text-xs text-amber-400">
+                      You are not an administrator of any organisation, so you cannot post work to the Exchange.
+                    </p>
+                  ) : providers.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      No active subcontractors or vendors to invite yet. Approve a subcontractor application first.
+                    </p>
+                  ) : (
+                    <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto">
+                      {providers.map((p) => {
+                        const on = chosenProviders.has(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => toggleProvider(p.id)}
+                            className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                              on
+                                ? 'border-[#ea580c]/60 bg-[#ea580c]/15 text-orange-300'
+                                : 'border-[#2A2A2A] bg-[#111] text-gray-400 hover:border-[#ea580c]/40 hover:text-white'
+                            }`}
+                          >
+                            {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+                            {p.name}
+                            <span className="text-[10px] uppercase tracking-wide opacity-60">{p.type}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {loadingBids ? (
