@@ -542,6 +542,75 @@ export function QuoteToContractEditor({
   };
 
   /**
+   * See the quote the way the customer will.
+   *
+   * Eric: "how do i see a customer side quote to see if its what i want it to
+   * look like?" There was no way to — the customer view is a separate page
+   * reached by a share token, so the only way to see your own quote through a
+   * customer's eyes was to send it to somebody and ask.
+   *
+   * WHY THIS OPENS THE REAL PAGE RATHER THAN RENDERING A MOCK
+   *
+   * A preview that re-renders the quote inside the editor is a second
+   * implementation of the customer view, and the day it drifts is the day the
+   * preview stops being worth looking at — which is precisely when you need
+   * it. This opens `/customer-quote-approval?token=…`, the actual page, at
+   * the actual URL, with the actual data. What you see is what they get
+   * because it IS what they get.
+   *
+   * IT MINTS A REAL LINK, AND IT HAS TO
+   *
+   * Share tokens are stored as hashes and the raw token is shown exactly once
+   * — that is the property that makes storing them worth anything (see
+   * shareToken.ts). So an existing link cannot be recovered to preview with;
+   * the only faithful option is to issue one.
+   *
+   * That means previewing creates a live, sendable link. The button says so
+   * rather than doing it quietly, and the links expire and can be revoked
+   * from the same quote. A preview that silently scattered credentials would
+   * be worse than no preview.
+   */
+  const [previewing, setPreviewing] = useState(false);
+
+  const handlePreviewAsCustomer = async () => {
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) { toast.error('Save the quote before previewing it.'); return; }
+    setPreviewing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/generate-link`, {
+        method: 'POST',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({ quoteId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.link) {
+        toast.error(data?.error || `Could not open the customer view (HTTP ${res.status}).`);
+        return;
+      }
+      /**
+       * Opened before any await resolves on the click path would be ideal, but
+       * the link does not exist until the server answers. A blocked popup is
+       * therefore possible, so the toast carries the link as a fallback rather
+       * than leaving the click looking like it did nothing.
+       */
+      const opened = window.open(data.link, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        toast.info('Your browser blocked the new tab.', {
+          description: 'Copy the link from the quote’s share settings, or allow popups for this site.',
+        });
+        return;
+      }
+      toast.success('Opened the customer view in a new tab.', {
+        description: 'This issued a real share link. It expires, and can be revoked from this quote.',
+      });
+    } catch (err: any) {
+      toast.error(`Could not open the customer view: ${err?.message || err}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  /**
    * Deleting the quote. There was no way to, at all.
    *
    * A quote raised by mistake — a duplicate, a test, a customer who turned out
@@ -1705,6 +1774,24 @@ export function QuoteToContractEditor({
             >
               👁 {showWorkRequestDrawer ? 'Hide' : 'View'} Work Request
             </button>
+            {/*
+              The customer's eye view. Beside the other view control rather
+              than with the destructive ones — it changes nothing about the
+              quote, it only shows it.
+            */}
+            {workRequest.quote?.id && (
+              <button
+                onClick={handlePreviewAsCustomer}
+                disabled={previewing}
+                title="Opens the real customer page in a new tab. Issues a share link, which expires and can be revoked."
+                className="flex items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-600/10 px-4 py-2 text-sm font-bold text-blue-300 transition-all hover:bg-blue-600/20 disabled:opacity-50"
+              >
+                {previewing
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Eye className="h-4 w-4" />}
+                {previewing ? 'Opening…' : 'View as customer'}
+              </button>
+            )}
             {/*
               Delete, two-step. Styled as a quiet red outline rather than a
               filled button: it sits beside the primary actions and should not
