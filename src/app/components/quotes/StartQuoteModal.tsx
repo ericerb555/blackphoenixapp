@@ -406,6 +406,24 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             // Persisted so a quote reopened tomorrow can still be regenerated
             // from what it was priced from, not just from its line items.
             intake: request.intake,
+            /**
+             * The estimator's account of the job, saved.
+             *
+             * `projectSummary` and the phases were generated on every quote
+             * and then dropped at this boundary: the POST body carried the
+             * line items and nothing that explains them. So the narrative
+             * survived in memory until the editor was closed and was gone on
+             * reopen — which is the state Eric found it in.
+             *
+             * `processSteps` is the same story and worse, because the editor
+             * renders them: a quote showed its phases right after generating
+             * and then showed none the next morning, with nothing to say why.
+             */
+            aiSummary: quote.aiSummary,
+            aiAssumptions: quote.aiAssumptions,
+            aiRegionalNote: quote.aiRegionalNote,
+            aiConfidence: quote.aiConfidence,
+            processSteps: quote.processSteps,
             status: 'draft',
             /**
              * Stored, because the send gate reads it.

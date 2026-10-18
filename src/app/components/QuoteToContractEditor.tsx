@@ -680,6 +680,19 @@ export function QuoteToContractEditor({
           ...workRequest.quote,
           materials,
           labor,
+          /**
+           * The narrative and the phases are re-priced too, not just the
+           * numbers. Leaving them would show the OLD account of the job above
+           * NEW line items — the most misleading possible result, because it
+           * reads as deliberate and a customer would be quoted for work the
+           * description does not mention.
+           */
+          aiSummary: q?.projectSummary ?? (workRequest.quote as any).aiSummary,
+          aiAssumptions: q?.assumptions ?? (workRequest.quote as any).aiAssumptions,
+          aiRegionalNote: q?.regionalNote ?? (workRequest.quote as any).aiRegionalNote,
+          processSteps: Array.isArray(q?.processSteps) && q.processSteps.length
+            ? q.processSteps
+            : workRequest.quote.processSteps,
           totalCost: q?.totalCost ?? workRequest.quote.totalCost,
           pricingBasis: q?.pricingBasis ?? (workRequest.quote as any).pricingBasis,
           priceSummary: q?.priceSummary ?? (workRequest.quote as any).priceSummary,
@@ -2525,6 +2538,58 @@ export function QuoteToContractEditor({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/*
+                The estimator's account of the job, which was generated and
+                then shown nowhere.
+
+                `/auto-generate-quote` returns `projectSummary`, StartQuoteModal
+                stores it on the quote as `aiSummary`, and not one component
+                rendered it — searched the whole of src/, zero hits outside the
+                line that writes it. So the detailed description existed, was
+                paid for on every generate, and fell on the floor. Eric asked
+                for a fuller description, got one written, and still could not
+                see it, because the problem was never the text.
+
+                Above Process Steps deliberately: this is the prose that says
+                what the job IS, and the phases underneath say how it runs. The
+                other order reads as a list with an explanation bolted on.
+
+                Editable, because an estimate's narrative is the part most
+                worth correcting by hand before it reaches a customer, and
+                every other field on this screen can be.
+              */}
+              {(!editMode || quoteEditTab === 'process') && (currentQuote as any)?.aiSummary && (
+                <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="flex items-center gap-2 text-lg font-bold text-white">
+                      <FileText className="h-5 w-5 text-[#ea580c]" />
+                      Scope of Work
+                    </h4>
+                    <span className="text-xs text-gray-500">What the customer reads first</span>
+                  </div>
+                  {editMode ? (
+                    <textarea
+                      value={(editedQuote as any).aiSummary || ''}
+                      onChange={(e) => setEditedQuote({ ...editedQuote, aiSummary: e.target.value } as any)}
+                      rows={8}
+                      className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm leading-relaxed text-white focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                    />
+                  ) : (
+                    <div className="space-y-3 text-sm leading-relaxed text-gray-300">
+                      {String((currentQuote as any).aiSummary)
+                        .split(/\n{2,}/)
+                        .filter((p) => p.trim())
+                        .map((p, i) => <p key={i}>{p.trim()}</p>)}
+                    </div>
+                  )}
+                  {(currentQuote as any)?.aiRegionalNote && (
+                    <p className="mt-3 border-t border-gray-800 pt-3 text-xs text-gray-500">
+                      {(currentQuote as any).aiRegionalNote}
+                    </p>
+                  )}
                 </div>
               )}
 
