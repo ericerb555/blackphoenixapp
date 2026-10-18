@@ -62,6 +62,10 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import DocumentPreviewModal from './documents/DocumentPreviewModal';
+import QuoteDocument from './documents/QuoteDocument';
+import { quoteToPDFData } from './documents/quoteMath';
+import { PDFService } from '../lib/services/pdfService';
 
 async function quoteAuthHeaders(contentType = false) { const { data: { session } } = await supabase.auth.getSession(); return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; }
 import {
@@ -540,6 +544,66 @@ export function QuoteToContractEditor({
       setLoadingBids(false);
     }
   };
+
+  /**
+   * The document view, and the PDF out of it.
+   *
+   * Eric: "i dont see a pdf option?" — and the standing rule behind it is
+   * that a document is not finished until you can see it as it will look and
+   * get a printable copy out of it. Quotes get printed, filed, emailed to
+   * lenders and argued over later; a screen of figures is not the document.
+   *
+   * ALL OF THIS ALREADY EXISTED
+   *
+   * `QuoteDocument` renders the quote as a document with print styles,
+   * `DocumentPreviewModal` is the chrome around it — "see it, print it, save
+   * it, send it" — and `PDFService.downloadQuotePDF` produces the file. The
+   * invoices, the customer portal and the project modal all use them. The
+   * quote editor used none of it, so the one screen where a quote is actually
+   * built was the one place you could not look at the finished thing.
+   *
+   * Nothing new is drawn here. It is the same three pieces wired up, so the
+   * preview cannot drift from what every other screen shows.
+   */
+  const [previewDoc, setPreviewDoc] = useState(false);
+
+  /**
+   * The editor's quote, as the document components expect it.
+   *
+   * They take a flat `items` list of `{ description, qty, rate }`; the editor
+   * keeps materials and labour apart with their own field names. Mapping here
+   * rather than reshaping either side keeps the document module ignorant of
+   * the editor and the editor ignorant of the document's schema.
+   */
+  const quoteAsDocument = useMemo(() => {
+    const q: any = currentQuote || {};
+    const materials = (q.materials || []).map((m: any) => ({
+      description: [m.name, m.description].filter(Boolean).join(' — ') || 'Material',
+      qty: Number(m.quantity) || 0,
+      rate: Number(m.unitCost) || 0,
+    }));
+    const labor = (q.labor || []).map((l: any) => ({
+      description: [l.role, l.description].filter(Boolean).join(' — ') || 'Labour',
+      qty: Number(l.hours) || 0,
+      rate: Number(l.hourlyRate) || 0,
+    }));
+    return {
+      id: q.id,
+      type: 'estimate' as const,
+      number: q.quoteNumber || '',
+      clientName: workRequest.customerName || '',
+      clientEmail: workRequest.customerEmail || '',
+      clientPhone: workRequest.customerPhone || '',
+      clientAddress: workRequest.location || '',
+      issueDate: q.generatedAt || '',
+      createdAt: q.generatedAt || '',
+      items: [...materials, ...labor],
+      notes: q.aiSummary || workRequest.description || '',
+      taxRate: Number(q.taxRate) || 0,
+      status: 'draft',
+      total: Number(q.totalCost) || 0,
+    };
+  }, [currentQuote, workRequest]);
 
   /**
    * See the quote the way the customer will.
@@ -1779,6 +1843,22 @@ export function QuoteToContractEditor({
               than with the destructive ones — it changes nothing about the
               quote, it only shows it.
             */}
+            {/*
+              The document itself — see it laid out, print it, save the PDF.
+              Separate from "View as customer": this is the paperwork, that is
+              the web page they get sent. Both matter and they are not the
+              same artefact.
+            */}
+            {workRequest.quote?.id && (
+              <button
+                onClick={() => setPreviewDoc(true)}
+                title="See the quote as a document, print it, or save a PDF"
+                className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#141414] px-4 py-2 text-sm font-bold text-gray-300 transition-all hover:border-gray-500 hover:text-white"
+              >
+                <FileText className="h-4 w-4" />
+                View / PDF
+              </button>
+            )}
             {workRequest.quote?.id && (
               <button
                 onClick={handlePreviewAsCustomer}
@@ -3299,6 +3379,24 @@ export function QuoteToContractEditor({
         </div>
       </div>
     </div>
+
+      {/*
+        The quote as a document: laid out, printable, downloadable.
+        `printElementId` must match the id QuoteDocument puts on its outer
+        element — the print rule hides the page and un-hides that one node, so
+        a wrong id prints a blank sheet and says nothing about why.
+      */}
+      {previewDoc && (
+        <DocumentPreviewModal
+          isOpen
+          onClose={() => setPreviewDoc(false)}
+          title="Quote Preview"
+          printElementId="quote-content"
+          onDownload={() => PDFService.downloadQuotePDF(quoteToPDFData(quoteAsDocument as any))}
+        >
+          <QuoteDocument quote={quoteAsDocument as any} />
+        </DocumentPreviewModal>
+      )}
 
       {/* Work Request Drawer — slides in from the right over the quote editor */}
       {showWorkRequestDrawer && (
