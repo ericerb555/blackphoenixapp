@@ -366,6 +366,26 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
         customerEmail: form.customerEmail,
         customerPhone: form.customerPhone,
         location: form.location,
+        /**
+         * The whole intake, kept.
+         *
+         * Everything typed into this form was sent to the estimator and then
+         * thrown away: the request handed to the editor carried six fields and
+         * dropped the brief, the square footage, the access notes, the
+         * occupancy, the timing and the exclusions. So the editor could show
+         * what the quote COST but never what it was priced FROM, and a missed
+         * detail meant starting a new quote rather than correcting this one.
+         *
+         * Eric: "i would like to have the original description so i can edit
+         * it and then regenerate the quote if i missed something." That is
+         * only possible if the inputs survive, so they do.
+         *
+         * Stored whole rather than as named fields, deliberately: this is the
+         * estimator's input shape, and `/auto-generate-quote` takes it back
+         * verbatim on a regenerate. Picking fields out here would mean two
+         * lists to keep in step, and the one that drifts is the regenerate.
+         */
+        intake: { ...form },
         quote,
       };
 
@@ -383,6 +403,9 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             clientPhone: request.customerPhone,
             items: [...quote.materials, ...quote.labor],
             notes: request.description,
+            // Persisted so a quote reopened tomorrow can still be regenerated
+            // from what it was priced from, not just from its line items.
+            intake: request.intake,
             status: 'draft',
             /**
              * Stored, because the send gate reads it.
