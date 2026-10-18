@@ -261,6 +261,35 @@ function normalizeDoc(input: any) {
     priceSummary: input.priceSummary ?? null,
 
     /**
+     * What the estimator SAID, as opposed to what it costed.
+     *
+     * `normalizeDoc` is a whitelist — anything not named here is dropped on
+     * the way in, silently — and none of this was named. So the estimator
+     * produced a full account of the job and a phase-by-phase plan on every
+     * single generate, the editor was handed them in memory, and the moment
+     * the quote was saved and reopened they were gone.
+     *
+     * That is why "the description is not detailed enough" survived a prompt
+     * rewrite: the text being judged was from the one place it still existed
+     * — a freshly generated quote — and anything reopened had none at all.
+     * Two different bugs wearing the same symptom.
+     *
+     *   aiSummary        the narrative scope, shown as "Scope of Work"
+     *   processSteps     the phases, which the editor has always rendered and
+     *                    which therefore vanished between sessions
+     *   aiAssumptions    already rendered in "How this quote was built"
+     *   intake           what it was priced FROM, so a quote reopened
+     *                    tomorrow can still be regenerated rather than
+     *                    restarted
+     */
+    aiSummary: String(input.aiSummary || ""),
+    aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],
+    aiRegionalNote: String(input.aiRegionalNote || ""),
+    aiConfidence: String(input.aiConfidence || ""),
+    processSteps: Array.isArray(input.processSteps) ? input.processSteps : [],
+    intake: input.intake ?? null,
+
+    /**
      * That somebody chose to send this knowing it was not priced from real
      * figures.
      *
