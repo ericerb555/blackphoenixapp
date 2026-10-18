@@ -20779,6 +20779,108 @@ app.put('/make-server-3eae23a6/quotes/:id', async (c) => {
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update quote.' }, 500); }
 });
 
+/**
+ * Deleting a quote, which was not possible at all.
+ *
+ * There was no DELETE route. A quote raised by mistake — a duplicate, a test,
+ * a customer who never existed — stayed in the list for good, and the only way
+ * to make it stop mattering was to leave it as a draft forever. Eric asked for
+ * this plainly: "i dont have the ability to delete a quote".
+ *
+ * WHAT CANNOT BE DELETED, AND WHY IT IS A REFUSAL RATHER THAN A WARNING
+ *
+ * A quote a customer has signed is not a draft, it is evidence. It records
+ * what somebody agreed to, when, and under what figures, and it is the
+ * document a dispute is settled from. Losing one to a stray click is a
+ * liability, and no confirmation dialog is worth as much as not having the
+ * route accept it.
+ *
+ * Same for a quote already turned into a contract: the contract carries
+ * `quoteId` and reads back through it, so deleting the quote leaves a contract
+ * pointing at nothing.
+ *
+ * Both answer 409 with the reason, so the editor can say which it is rather
+ * than reporting a generic failure. A signed quote that genuinely must go is a
+ * deliberate act for somebody with database access, not a button.
+ *
+ * WHAT IS CLEANED UP
+ *
+ * The quote and everything keyed to it. An orphaned share token is the one
+ * that matters: `quote_token:<hash>` resolves to a quote id, and leaving it
+ * behind means a link already in a customer's inbox keeps resolving after the
+ * quote is gone. Tokens are stored by hash so they cannot be derived from the
+ * quote — they are found by scanning the prefix, which is why this reads them
+ * rather than deleting a computed key.
+ */
+app.delete('/make-server-3eae23a6/quotes/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const id = c.req.param('id');
+    const quote = await kv.get(`quote:${id}`) as any;
+    if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+
+    const decision = String(quote?.signature?.decision || '').toLowerCase();
+    if (quote?.signature?.signedAt || decision === 'approved' || decision === 'declined') {
+      return c.json({
+        success: false,
+        error: 'This quote has been signed by the customer and is a record of what they agreed to. It cannot be deleted.',
+        reason: 'signed',
+      }, 409);
+    }
+
+    const contracts = (await kv.getByPrefix('contract:').catch(() => [])) as any[];
+    const linked = (contracts || []).find((row: any) => String(row?.quoteId || '') === id);
+    if (linked) {
+      return c.json({
+        success: false,
+        error: `This quote was turned into contract ${linked.title || linked.id}. Delete the contract first if it is genuinely unwanted.`,
+        reason: 'has_contract',
+      }, 409);
+    }
+
+    /**
+     * Revoke every share link for this quote, not just the current one.
+     *
+     * `generate-link` deliberately leaves previously issued links working —
+     * see the note there — so a quote can have several live tokens and only
+     * the newest hash is on the quote record. Deleting by `shareTokenHash`
+     * alone would leave the older ones resolving.
+     *
+     * Tokens are keyed by hash and the record holds the quote id, so finding
+     * them means reading keys and values together. `getByPrefix` returns
+     * values WITHOUT their keys, which is no use for deleting — hence
+     * `getKeysByPrefix` plus `mget`, which is two queries rather than one per
+     * token.
+     */
+    let tokensRevoked = 0;
+    try {
+      const tokenKeys = await kv.getKeysByPrefix('quote_token:');
+      if (tokenKeys.length) {
+        const records = await kv.mget(tokenKeys);
+        const mine = tokenKeys.filter((_k, i) => String((records[i] as any)?.quoteId || '') === id);
+        if (mine.length) { await kv.mdel(mine); tokensRevoked = mine.length; }
+      }
+    } catch (err) {
+      // A token left behind resolves to a quote that no longer exists, and the
+      // by-token route already answers that as not found. Worth logging, not
+      // worth refusing the delete over.
+      console.log(`[quotes] token cleanup failed for ${id}: ${String(err)}`);
+    }
+
+    await kv.del(`quote:${id}`);
+    await kv.del(`quote_bid_requests:${id}`).catch(() => {});
+    await kv.del(`quote_bids:${id}`).catch(() => {});
+
+    console.log(`[quotes] ${user.email} deleted quote ${id} (${quote.number || quote.quoteNumber || 'no number'}), ${tokensRevoked} token(s) revoked`);
+    return c.json({ success: true, deleted: id, tokensRevoked });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message || 'Unable to delete quote.' }, 500);
+  }
+});
+
 // Public: resolve a share token into a customer-facing quote record.
 app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
   try {
