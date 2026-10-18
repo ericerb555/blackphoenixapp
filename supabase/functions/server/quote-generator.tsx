@@ -76,8 +76,9 @@ Follow this methodology every time:
 4. SOFT COSTS — Always consider and include when applicable: building permits & inspection fees, debris disposal / dumpster rental, equipment/tool rental, mobilization & site protection, and testing/commissioning.
 5. MARKUPS — Provide overhead, profit, and contingency as percentages appropriate to the project's risk and size (typical: overhead 10%, profit 10%, contingency 5%; raise contingency for demolition-heavy or unknown-condition work).
 6. TAX — Provide the local combined SALES TAX rate for the LOCATION as a decimal. It will be applied to MATERIALS only.
+7. THE WORK ITSELF — Describe how the job will actually be done, start to finish, as a sequence of phases. This is read by the customer and it is the part they judge you on: it is the difference between a price and a plan. For each phase say what physically happens on site, what gets removed, built or installed, what the customer will see and live with that week, and what has to be finished before the next phase can start. Name the trade doing it and how long it takes. Call out the disruptive realities honestly — water off, power down, dust, noise, a bathroom out of use, somewhere to park a skip. A customer who knows what Tuesday looks like does not ring up on Tuesday.
 
-Be specific: real product descriptions with sizes/specs, real unit-of-measure, and realistic 2026 prices. Prefer more granular line items over vague lots. Return ONLY the JSON object described by the user — no markdown, no commentary.`;
+Be specific: real product descriptions with sizes/specs, real unit-of-measure, and realistic 2026 prices. Prefer more granular line items over vague lots. Write the scope and the phases in plain language a homeowner understands — no trade jargon left unexplained, no filler. Return ONLY the JSON object described by the user — no markdown, no commentary.`;
 
 function buildUserPrompt(input: EstimatorInput): string {
   return `Produce a complete estimate for this project.
@@ -92,7 +93,7 @@ ${input.extra ? `\nADDITIONAL CONTEXT\n${input.extra}` : ''}
 
 Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no currency symbols):
 {
-  "projectSummary": "2-3 sentence scope summary written for the customer",
+  "projectSummary": "A full plain-language account of the job for the customer: what is being done, the condition it starts from, the finished result, and anything about the property that shapes the work. Several paragraphs, not a sentence or two — this is the description they read first and judge the quote by.",
   "regionalNote": "one line on how location affected labor rates and tax",
   "confidence": "high" | "medium" | "low",
   "assumptions": ["key assumptions you made about scope/dimensions"],
@@ -120,7 +121,12 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
     }
   ],
   "processSteps": [
-    { "step": "phase name", "description": "brief", "estimatedDuration": "e.g. 2-3 days", "trade": "primary trade" }
+    {
+      "step": "phase name, e.g. 'Strip-out and make safe'",
+      "description": "A full paragraph on what actually happens in this phase: what is removed, built or installed, what the customer will see and live with while it runs, what is disrupted (water, power, a room out of use, noise, dust, deliveries), and what must be signed off before the next phase starts. Written for the customer, not for the crew.",
+      "estimatedDuration": "e.g. 2-3 days",
+      "trade": "primary trade"
+    }
   ],
   "additionalCosts": [
     { "name": "e.g. Building Permit", "description": "brief", "amount": number, "category": "Permit | Disposal | Equipment | Mobilization | Testing | Other" }
@@ -131,7 +137,9 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
   "taxRatePercent": number
 }
 
-Include 8-25 material line items and 4-10 labor line items for a typical project. Scale detail with project size.`;
+Include 8-25 material line items and 4-10 labor line items for a typical project. Scale detail with project size.
+
+Give the whole job as phases in \`processSteps\` — every stage from first arrival to final clean and handover, in the order they happen, with nothing skipped because it is obvious to a builder. A small job may be 4 phases and a full renovation 10 or more; do not compress a long job into a short list. "The description is not detailed enough" is the specific complaint this has to answer, so err long.`;
 }
 
 function round2(n: number): number {
@@ -413,7 +421,22 @@ export async function runEstimator(
         { role: 'user', content: buildUserPrompt(input) },
       ],
       temperature: 0.2, // low temp for consistent, defensible numbers
-      max_tokens: 4000,
+      /**
+       * Raised from 4000, and it had to be raised in the same change that
+       * asked for a fuller description.
+       *
+       * The prompt now wants a multi-paragraph `projectSummary` and a real
+       * paragraph on each of up to ten phases, on top of 25 material lines and
+       * 10 labor lines. That does not fit in 4000 tokens, and the failure is
+       * not a shorter answer — `response_format: json_object` means the model
+       * is cut off mid-object, `JSON.parse` throws, and the catch below falls
+       * back to `heuristicEstimate`.
+       *
+       * So the quote would have come back with NO AI line items at all, and
+       * the only visible symptom would be a thinner estimate labelled
+       * `server-heuristic`. Asking for more detail would have produced less.
+       */
+      max_tokens: 16000,
       response_format: { type: 'json_object' }, // guarantees parseable JSON
     });
     const raw = JSON.parse(completion.choices[0].message.content || '{}');
