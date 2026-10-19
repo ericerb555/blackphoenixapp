@@ -14,6 +14,7 @@ import {
   clientIp, decide, record as recordReputation, freshReputation,
   type Reputation, type Signal,
 } from "./ipReputation.ts";
+import { customerQuoteView } from "./customerQuoteView.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
@@ -20922,13 +20923,29 @@ app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
       console.error('[Discounts] could not resolve for quote', quote.id, err?.message || err);
     }
 
+    /**
+     * `quoteData` was `stripBase64(quote)` — the ENTIRE stored record.
+     *
+     * stripBase64 removes image blobs and nothing else, so everything else
+     * went to anybody holding the link: the repricing summary and its margin,
+     * what subcontractors quoted, the estimator's context, the intake, and
+     * every line item including the ones marked `visible: false`. The editor
+     * stopped drawing a hidden line; the line was already in the customer's
+     * browser.
+     *
+     * `customerQuoteView` builds the payload from an allowlist of what the
+     * customer view actually reads, so a field added to the record later is
+     * absent by default rather than disclosed by default. See the module for
+     * the reasoning and `customers-never-see-our-discounted-pricing` for the
+     * rule: a hidden field is not a check.
+     */
     return c.json({ success: true, discount, quote: {
       quoteId: quote.id,
       clientName: quote.customerName || quote.clientName || record.clientName || '',
       clientEmail: quote.customerEmail || quote.clientEmail || record.clientEmail || '',
       clientPhone: quote.customerPhone || quote.clientPhone || record.clientPhone || '',
       status: quote.status || 'sent',
-      quoteData: stripped,
+      quoteData: customerQuoteView(stripped),
     } });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load this quote.' }, 500); }
 });

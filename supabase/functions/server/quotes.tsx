@@ -282,6 +282,22 @@ function normalizeDoc(input: any) {
      *                    tomorrow can still be regenerated rather than
      *                    restarted
      */
+    /**
+     * Notes for the crew, which the customer must never see.
+     *
+     * "a spot to add notes for my techs that only viewable from my side and
+     * can never been seen buy the customer." The "never" is load-bearing and
+     * is NOT enforced here — this field is stored like any other. What makes
+     * it safe is `customerQuoteView`, the allowlist the share-link route
+     * projects through: this field is not on it, so it cannot travel.
+     *
+     * Stated plainly because the temptation on reading this line is to assume
+     * the secrecy lives with the storage. It does not. If anything ever
+     * returns a raw quote record to an unauthenticated caller again, this
+     * leaks with everything else, which is exactly what happened to the
+     * `visible` flag before the projection existed.
+     */
+    internalNotes: String(input.internalNotes || ""),
     aiSummary: String(input.aiSummary || ""),
     aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],
     aiRegionalNote: String(input.aiRegionalNote || ""),
