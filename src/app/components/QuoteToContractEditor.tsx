@@ -23,6 +23,7 @@ import {
   ListChecks,
   Plus,
   Trash2,
+  Lock,
   Search,
   ExternalLink,
   Eye,
@@ -1480,6 +1481,16 @@ export function QuoteToContractEditor({
         materials: editedQuote.materials,
         labor: editedQuote.labor,
         processSteps: editedQuote.processSteps,
+        /**
+         * The two bits of prose, which were not being saved.
+         *
+         * `visible` flags travel for free because the whole line objects are
+         * sent above. These do not — they are quote-level fields and had to
+         * be named, and were not, so editing either silently discarded the
+         * edit the next time the quote was loaded.
+         */
+        internalNotes: (editedQuote as any).internalNotes || '',
+        aiSummary: (editedQuote as any).aiSummary || '',
         credits: editedQuote.credits || [],
         creditsSubtotal: editedQuote.creditsSubtotal || 0,
         materialsSubtotal: editedQuote.materialsSubtotal,
@@ -2760,6 +2771,51 @@ export function QuoteToContractEditor({
                 </div>
               )}
 
+              {/*
+                Notes for the crew. The customer never sees these.
+
+                Not a styling claim — `customerQuoteView` on the server builds
+                the share-link payload from an allowlist and `internalNotes`
+                is not on it, so the field cannot travel even to somebody
+                reading the raw JSON. That is the only reason this is safe to
+                promise, and it is worth knowing the promise lives there and
+                not in this component.
+
+                Red-edged and labelled rather than quietly styled: somebody
+                typing "customer haggles, pad the hours" needs to be certain
+                at a glance which box they are in.
+              */}
+              {(!editMode || quoteEditTab === 'process') && (
+                <div className="rounded-xl border border-red-500/30 bg-red-950/10 p-6">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="flex items-center gap-2 text-lg font-bold text-white">
+                      <Lock className="h-5 w-5 text-red-400" />
+                      Internal notes — for your team only
+                    </h4>
+                    <span className="rounded-md bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-300">
+                      never sent to the customer
+                    </span>
+                  </div>
+                  {editMode ? (
+                    <textarea
+                      value={(editedQuote as any).internalNotes || ''}
+                      onChange={(e) => setEditedQuote({ ...editedQuote, internalNotes: e.target.value } as any)}
+                      rows={4}
+                      placeholder="Access round the back, dog in the garden, Dave is slow on tile — anything the crew needs and the customer should not read."
+                      className="w-full rounded-lg border border-red-500/20 bg-[#050505] px-3 py-2 text-sm leading-relaxed text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+                    />
+                  ) : (currentQuote as any)?.internalNotes ? (
+                    <div className="space-y-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-300">
+                      {String((currentQuote as any).internalNotes)}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      Nothing yet. Edit the quote to add notes for the crew.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Process Steps Section */}
               {(!editMode || quoteEditTab === 'process') && (
                 <div className="bg-black/40 border border-gray-700 rounded-xl p-6">
@@ -2803,6 +2859,21 @@ export function QuoteToContractEditor({
                                 onChange={(e) => updateProcessStep(step.id, 'estimatedDuration', e.target.value)}
                                 className="w-32 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
                                 placeholder="Duration"
+                              />
+                              {/*
+                                Materials and labour already had this; phases
+                                did not, though ProcessStep has carried a
+                                `visible` field all along. A phase is the most
+                                likely thing to want kept back — internal
+                                staging, a week held for a subcontractor —
+                                so it was the odd one out.
+                              */}
+                              <input
+                                type="checkbox"
+                                checked={(step as any).visible !== false}
+                                onChange={(e) => updateProcessStep(step.id, 'visible' as any, e.target.checked)}
+                                className="w-4 h-4 cursor-pointer rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500"
+                                title={(step as any).visible === false ? 'Hidden from customer — click to show' : 'Visible to customer — click to hide'}
                               />
                               <button
                                 onClick={() => deleteProcessStep(step.id)}
