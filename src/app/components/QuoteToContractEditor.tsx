@@ -569,6 +569,54 @@ export function QuoteToContractEditor({
   const [previewDoc, setPreviewDoc] = useState(false);
 
   /**
+   * Flip one customer-visibility section, and make it stick.
+   *
+   * These toggles are deliberately usable WITHOUT entering edit mode — Eric
+   * wants to change what a customer sees whenever he needs to, not only
+   * while mid-edit. That creates a trap: outside edit mode nothing calls
+   * `handleSaveQuote`, so a toggle would appear to work, look correct on
+   * screen, and be gone on reload. Worse than a disabled control, because
+   * the user believes the customer's view changed.
+   *
+   * So outside edit mode it saves straight away. Inside, it only updates
+   * state and rides along with everything else on Save, which avoids writing
+   * half-finished edits to the server.
+   */
+  const [savingSections, setSavingSections] = useState(false);
+
+  const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail') => {
+    const current = (editedQuote as any)?.customerSections
+      || { materials: true, labor: true, processDetail: true };
+    const next = { ...current, [key]: current[key] === false };
+    const updated = { ...editedQuote, customerSections: next } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) return;
+    setSavingSections(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/${quoteId}`, {
+        method: 'PUT',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({ customerSections: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onSave({ ...workRequest, quote: updated } as any);
+      toast.success(
+        next[key] === false ? `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} hidden from the customer.`
+          : `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} shown to the customer.`,
+      );
+    } catch (err: any) {
+      // Put it back, so the screen never claims a change the server refused.
+      setEditedQuote(editedQuote);
+      toast.error(`Could not save that change: ${err?.message || err}`);
+    } finally {
+      setSavingSections(false);
+    }
+  };
+
+  /**
    * The editor's quote, as the document components expect it.
    *
    * They take a flat `items` list of `{ description, qty, rate }`; the editor
@@ -1491,6 +1539,8 @@ export function QuoteToContractEditor({
          */
         internalNotes: (editedQuote as any).internalNotes || '',
         aiSummary: (editedQuote as any).aiSummary || '',
+        customerSections: (editedQuote as any).customerSections
+          || { materials: true, labor: true, processDetail: true },
         credits: editedQuote.credits || [],
         creditsSubtotal: editedQuote.creditsSubtotal || 0,
         materialsSubtotal: editedQuote.materialsSubtotal,
@@ -2768,6 +2818,71 @@ export function QuoteToContractEditor({
                       {(currentQuote as any).aiRegionalNote}
                     </p>
                   )}
+                </div>
+              )}
+
+              {/*
+                How much of the breakdown the customer is shown.
+
+                Sits above the internal notes because they are the same kind
+                of decision — what leaves the building — and a person thinking
+                about one is thinking about the other.
+
+                The guarantee is the server's: in phase-totals mode
+                customerQuoteView sends no materials or labour at all, so
+                there is nothing in the customer's browser to find. This
+                control only records the choice.
+              */}
+              {(!editMode || quoteEditTab === 'process') && (
+                <div className="rounded-xl border border-gray-700 bg-black/40 p-6">
+                  <h4 className="mb-1 flex items-center gap-2 text-lg font-bold text-white">
+                    <Eye className="h-5 w-5 text-blue-400" />
+                    What the customer sees
+                  </h4>
+                  <p className="mb-4 text-sm text-gray-400">
+                    Switch each section on or off. The phases and what each one costs are always
+                    shown — that is what they are agreeing to. Hidden either way: anything you
+                    have unticked line by line, and your internal notes.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {([
+                      ['materials', 'Materials', 'Each material, its quantity and unit price.'],
+                      ['labor', 'Labour', 'Roles, hours and hourly rates — the figures that reveal your pricing.'],
+                      ['processDetail', 'Process detail', 'The written account of each phase. The phase name and price stay either way.'],
+                    ] as Array<[string, string, string]>).map(([key, label, blurb]) => {
+                      const current = (editedQuote as any)?.customerSections
+                        || { materials: true, labor: true, processDetail: true };
+                      const on = current[key] !== false;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => toggleCustomerSection(key as 'materials' | 'labor' | 'processDetail')}
+                          disabled={savingSections}
+                          className={`rounded-lg border p-3 text-left transition disabled:opacity-60 ${
+                            on
+                              ? 'border-blue-500/60 bg-blue-500/10'
+                              : 'border-[#2A2A2A] bg-[#111] hover:border-blue-500/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] font-bold ${
+                              on ? 'border-blue-400 bg-blue-400 text-black' : 'border-gray-600 text-transparent'
+                            }`}>✓</span>
+                            <span className="text-sm font-bold text-white">{label}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-gray-400">{blurb}</p>
+                          <p className={`mt-1.5 text-[11px] font-semibold ${on ? 'text-blue-300' : 'text-amber-400'}`}>
+                            {on ? 'Shown to the customer' : 'Not sent at all'}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-xs text-gray-500">
+                    Turning a section off removes it from what the customer is sent — it is not
+                    hidden in their browser. Costs stay in the phase totals either way.
+                  </p>
                 </div>
               )}
 

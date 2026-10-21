@@ -71,6 +71,12 @@ export interface CustomerProcessStep {
   title: string;
   description: string;
   estimatedDuration: string;
+  /**
+   * What this phase costs, present only when the quote is set to show phase
+   * totals instead of the line breakdown. Undefined in `full` mode, where the
+   * customer can add the lines up themselves.
+   */
+  cost?: number;
 }
 
 export interface CustomerQuote {
@@ -109,7 +115,86 @@ const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
  */
 const isVisible = (line: any) => line?.visible !== false;
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Which sections of the quote the customer is shown.
+ *
+ * Eric: "i want to be able to view whatever i want on the quote and invoice
+ * if i want see material, labor and process detail." Three independent
+ * switches rather than one all-or-nothing setting, because the useful
+ * combinations are not on a single axis — showing the materials while hiding
+ * the labour rate is a normal thing to want, and so is a quote that is
+ * nothing but phases and prices.
+ *
+ * Phase totals are NOT one of the switches. They are the structure the quote
+ * hangs on; turning everything off leaves the phases and what each costs,
+ * which is the minimum a customer can be asked to agree to.
+ *
+ * Every switch defaults ON, so existing quotes show exactly what they always
+ * have. Hiding is an act, not a state somebody drifts into.
+ */
+export interface CustomerSections {
+  materials: boolean;
+  labor: boolean;
+  /** The written account of each phase, as opposed to just its name. */
+  processDetail: boolean;
+}
+
+const sectionsOf = (quote: any): CustomerSections => {
+  const s = quote?.customerSections;
+  /**
+   * Backwards compatibility with the two-value `lineDetail` this replaced.
+   * A quote saved as 'phase-totals' meant "no lines at all", which is both
+   * line switches off with the phase text left alone.
+   */
+  if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
+    return { materials: false, labor: false, processDetail: true };
+  }
+  return {
+    materials: s?.materials !== false,
+    labor: s?.labor !== false,
+    processDetail: s?.processDetail !== false,
+  };
+};
+
+/**
+ * What each phase costs, from the lines assigned to it.
+ *
+ * Counts only VISIBLE lines, which is the one subtlety worth stating: a line
+ * marked `visible: false` is still charged — hiding removes the detail, not
+ * the money — so its cost belongs in its phase's total even though the line
+ * itself never travels. That is exactly what makes phase totals safe to show
+ * when the lines are not.
+ */
+function phaseCosts(quote: any): Map<string, number> {
+  const totals = new Map<string, number>();
+  const add = (phase: any, amount: number) => {
+    const key = String(phase || '').trim();
+    if (!key) return;
+    totals.set(key, round2((totals.get(key) || 0) + amount));
+  };
+  for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
+    add(m?.phase, Number(m?.totalCost) || 0);
+  }
+  for (const l of Array.isArray(quote?.labor) ? quote.labor : []) {
+    add(l?.phase, Number(l?.totalCost) || 0);
+  }
+  return totals;
+}
+
 export function customerQuoteView(quote: any): CustomerQuote {
+  const sections = sectionsOf(quote);
+  /**
+   * Phase costs are emitted whenever either line section is held back.
+   *
+   * With both showing, the customer can add the lines up and a phase total
+   * would just be a second copy of the same number. With either hidden the
+   * total is the only thing standing between them and a price they cannot
+   * see the basis for — so it appears.
+   */
+  const needPhaseCosts = !sections.materials || !sections.labor;
+  const costs = needPhaseCosts ? phaseCosts(quote) : null;
   const materials = (Array.isArray(quote?.materials) ? quote.materials : [])
     .filter(isVisible)
     .map((m: any): CustomerMaterial => ({
@@ -136,17 +221,28 @@ export function customerQuoteView(quote: any): CustomerQuote {
 
   const processSteps = (Array.isArray(quote?.processSteps) ? quote.processSteps : [])
     .filter(isVisible)
-    .map((s: any, i: number): CustomerProcessStep => ({
-      id: str(s?.id),
-      // Renumbered over the VISIBLE steps. Passing the stored stepNumber
-      // through would leave a customer reading "1, 2, 4" and asking what
-      // happened to 3 — which is the one question hiding it was meant to
-      // avoid raising.
-      stepNumber: i + 1,
-      title: str(s?.title || s?.step),
-      description: str(s?.description),
-      estimatedDuration: str(s?.estimatedDuration),
-    }));
+    .map((s: any, i: number): CustomerProcessStep => {
+      const title = str(s?.title || s?.step);
+      const step: CustomerProcessStep = {
+        id: str(s?.id),
+        // Renumbered over the VISIBLE steps. Passing the stored stepNumber
+        // through would leave a customer reading "1, 2, 4" and asking what
+        // happened to 3 — which is the one question hiding it was meant to
+        // avoid raising.
+        stepNumber: i + 1,
+        title,
+        /**
+         * The phase NAME always travels; only the written account of it is
+         * switchable. A customer has to know the job has a framing stage
+         * costing £3,900 — that is what they are agreeing to. Whether they
+         * get the paragraph about dust and water being off is a choice.
+         */
+        description: sections.processDetail ? str(s?.description) : '',
+        estimatedDuration: str(s?.estimatedDuration),
+      };
+      if (costs) step.cost = costs.get(title) ?? 0;
+      return step;
+    });
 
   return {
     id: str(quote?.id),
@@ -157,8 +253,20 @@ export function customerQuoteView(quote: any): CustomerQuote {
     projectTitle: str(quote?.projectTitle || quote?.title),
     projectDescription: str(quote?.projectDescription),
     address: str(quote?.address || quote?.clientAddress),
-    materials,
-    labor,
+    /**
+     * In `phase-totals` mode the breakdown is NOT SENT, not merely unrendered.
+     *
+     * The customer gets the phases and what each costs, and there is nothing
+     * underneath for a devtools tab, a saved copy of the page, or a future
+     * renderer to find. Emitting the lines with a flag saying "do not draw
+     * these" is precisely the mistake the `visible` checkbox made for months,
+     * and it is the reason a labour rate was one keystroke from being public.
+     *
+     * The totals below are untouched either way, so the quote still adds up —
+     * the customer simply cannot work backwards from it to our rates.
+     */
+    materials: sections.materials ? materials : [],
+    labor: sections.labor ? labor : [],
     processSteps,
     // Passed through, never recomputed — see the note at the top.
     materialsSubtotal: num(quote?.materialsSubtotal),

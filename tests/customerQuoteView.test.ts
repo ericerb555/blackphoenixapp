@@ -116,6 +116,102 @@ test('visible process steps are renumbered so there is no gap to ask about', () 
   assert.ok(!JSON.stringify(out).includes('Internal staging'));
 });
 
+/* ── phase-totals mode: the breakdown must not be sent ───────────────────── */
+
+const phasedQuote = {
+  ...fullQuote,
+  customerSections: { materials: false, labor: false, processDetail: true },
+  materials: [
+    { id: 'm1', name: 'Lumber', quantity: 1, unitCost: 1100, totalCost: 1100, phase: 'Framing' },
+    { id: 'm2', name: 'Skip hire', quantity: 1, unitCost: 450, totalCost: 450, phase: 'Strip out', visible: false },
+  ],
+  labor: [
+    { id: 'l1', role: 'Carpenter', hours: 40, hourlyRate: 70, totalCost: 2800, phase: 'Framing' },
+  ],
+  processSteps: [
+    { id: 's1', stepNumber: 1, title: 'Strip out', description: 'Remove existing', estimatedDuration: '2 days' },
+    { id: 's2', stepNumber: 2, title: 'Framing', description: 'Build', estimatedDuration: '5 days' },
+  ],
+};
+
+test('phase-totals sends no materials or labour at all', () => {
+  const out = customerQuoteView(phasedQuote);
+  assert.deepEqual(out.materials, []);
+  assert.deepEqual(out.labor, []);
+});
+
+test('phase-totals leaves no trace of a rate or a supplier line', () => {
+  // The reason this mode exists: a customer who can read "Carpenter 40h @ $70"
+  // knows the labour rate and can price the job themselves.
+  const json = JSON.stringify(customerQuoteView(phasedQuote));
+  assert.ok(!json.includes('Carpenter'), 'labour role leaked');
+  assert.ok(!json.includes('Lumber'), 'material leaked');
+  assert.ok(!json.includes('70'), 'hourly rate leaked');
+});
+
+test('each phase carries its own cost instead', () => {
+  const out = customerQuoteView(phasedQuote);
+  const byTitle = Object.fromEntries(out.processSteps.map((s) => [s.title, s.cost]));
+  assert.equal(byTitle['Framing'], 3900);   // 1100 + 2800
+  assert.equal(byTitle['Strip out'], 450);
+});
+
+test('a hidden line still counts towards its phase total', () => {
+  // Hiding removes the detail, not the money — so the skip hire is invisible
+  // as a line and present in the Strip out total. That is exactly what makes
+  // showing phase totals safe while hiding the lines.
+  const out = customerQuoteView(phasedQuote);
+  const stripOut = out.processSteps.find((s) => s.title === 'Strip out');
+  assert.equal(stripOut?.cost, 450);
+  assert.ok(!JSON.stringify(out).includes('Skip hire'));
+});
+
+test('every section defaults on — hiding is an act', () => {
+  // Absent config means show everything, so no existing quote changes.
+  for (const customerSections of [undefined, {}, { materials: true }]) {
+    const out = customerQuoteView({ ...phasedQuote, customerSections });
+    assert.equal(out.materials.length, 1, JSON.stringify(customerSections));
+    if (customerSections?.materials === true && !('labor' in (customerSections as any))) {
+      assert.equal(out.labor.length, 1, 'labor should default on');
+    }
+  }
+});
+
+test('materials and labour switch independently', () => {
+  const noLabor = customerQuoteView({ ...phasedQuote, customerSections: { materials: true, labor: false, processDetail: true } });
+  assert.equal(noLabor.materials.length, 1, 'materials kept');
+  assert.deepEqual(noLabor.labor, [], 'labour withheld');
+  assert.ok(!JSON.stringify(noLabor).includes('Carpenter'), 'labour role leaked');
+  // The rate is what hiding labour protects, and the phase total still shows.
+  assert.equal(noLabor.processSteps.find((s) => s.title === 'Framing')?.cost, 3900);
+
+  const noMaterials = customerQuoteView({ ...phasedQuote, customerSections: { materials: false, labor: true, processDetail: true } });
+  assert.deepEqual(noMaterials.materials, [], 'materials withheld');
+  assert.equal(noMaterials.labor.length, 1, 'labour kept');
+});
+
+test('process detail switches off without losing the phase or its price', () => {
+  const out = customerQuoteView({ ...phasedQuote, customerSections: { materials: false, labor: false, processDetail: false } });
+  const framing = out.processSteps.find((s) => s.title === 'Framing');
+  assert.equal(framing?.title, 'Framing', 'the phase name must survive');
+  assert.equal(framing?.cost, 3900, 'the price must survive');
+  assert.equal(framing?.description, '', 'the written account is withheld');
+  assert.ok(!JSON.stringify(out).includes('Build'), 'phase description leaked');
+});
+
+test('with both line sections shown, no phase cost is emitted', () => {
+  // It would just be a second copy of a number they can already add up.
+  const out = customerQuoteView({ ...phasedQuote, customerSections: { materials: true, labor: true, processDetail: true } });
+  assert.equal(out.processSteps[0].cost, undefined);
+});
+
+test('a quote saved under the old lineDetail setting still behaves', () => {
+  const out = customerQuoteView({ ...phasedQuote, customerSections: undefined, lineDetail: 'phase-totals' });
+  assert.deepEqual(out.materials, []);
+  assert.deepEqual(out.labor, []);
+  assert.equal(out.processSteps.find((s) => s.title === 'Framing')?.cost, 3900);
+});
+
 /* ── the fields that should travel ───────────────────────────────────────── */
 
 test('what the customer view needs does come through', () => {

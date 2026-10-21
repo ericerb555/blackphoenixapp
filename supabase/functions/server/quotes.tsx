@@ -298,6 +298,24 @@ function normalizeDoc(input: any) {
      * `visible` flag before the projection existed.
      */
     internalNotes: String(input.internalNotes || ""),
+    /**
+     * Which sections the customer is shown — materials, labour, and the
+     * written account of each phase, each switchable on its own.
+     *
+     * Enforced in `customerQuoteView`, not here: this only records the
+     * choice. Every switch defaults ON so an existing quote shows exactly
+     * what it always has, and only an explicit `false` withholds anything —
+     * a missing or malformed value must never silently hide a customer's
+     * line items from them.
+     *
+     * `lineDetail` was the two-value version of this and is read as a
+     * fallback by the projection for quotes saved under it.
+     */
+    customerSections: {
+      materials: input?.customerSections?.materials !== false,
+      labor: input?.customerSections?.labor !== false,
+      processDetail: input?.customerSections?.processDetail !== false,
+    },
     aiSummary: String(input.aiSummary || ""),
     aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],
     aiRegionalNote: String(input.aiRegionalNote || ""),
