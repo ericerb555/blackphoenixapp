@@ -25,6 +25,7 @@
 import { Edit2 } from 'lucide-react';
 import { companyInfo } from '../../lib/config/companyInfo';
 import type { Invoice } from '../../lib/services/invoiceService';
+import { groupLinesByPhase, hasPhaseStructure, lineAmount } from '../../lib/invoicePhases';
 
 const formatDate = (dateString?: string) => {
   if (!dateString) return 'Not set';
@@ -50,6 +51,26 @@ interface InvoiceDocumentProps {
 }
 
 export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProps) {
+  /**
+   * The lines, gathered under the phase of the job each belongs to.
+   *
+   * `process_steps` is the ordering authority when the invoice carries the
+   * job's phases — it comes across from the quote — so the sections read in
+   * the order the work actually happens rather than the order the lines were
+   * typed. Without it the groups fall back to first-appearance order, which
+   * is the best guess available.
+   *
+   * Lines with no phase, and invoices with no phases at all, come back as a
+   * single group labelled "Line Items" with `phase: null`. `showPhaseHeadings`
+   * is false in that case, so an old invoice renders exactly as it always did
+   * rather than growing a pointless heading over its only section.
+   */
+  const phaseGroups = groupLinesByPhase(
+    (invoice as any)?.line_items || [],
+    (invoice as any)?.process_steps || (invoice as any)?.processSteps || [],
+  );
+  const showPhaseHeadings = hasPhaseStructure(phaseGroups);
+
   return (
 <div className="p-8 bg-[#0A0A0A] text-white print:bg-white print:text-black print:p-0" id="invoice-content">
   {/* Company Header with Full Branding */}
@@ -159,19 +180,55 @@ export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProp
           <th className="text-right py-3 px-4 text-xs font-bold text-gray-300 print:text-gray-700 uppercase">Amount</th>
         </tr>
       </thead>
-      <tbody>
-        {invoice.line_items?.map((item: any, index: number) => (
-          <tr key={index} className="border-b border-[#2A2A2A] print:border-gray-200">
-            <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600">{index + 1}</td>
-            <td className="py-3 px-4 text-sm text-white print:text-gray-900">{item.description}</td>
-            <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{item.quantity}</td>
-            <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{formatCurrency(item.unit_price)}</td>
-            <td className="py-3 px-4 text-sm text-white print:text-gray-900 font-semibold text-right">
-              {formatCurrency(item.quantity * item.unit_price)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
+      {/*
+        Grouped by the phase of the job each line belongs to, with a subtotal
+        per phase — "seperate the sections by the proccess".
+
+        An invoice whose lines carry no phase produces exactly one group
+        labelled "Line Items", and the phase heading row is suppressed, so it
+        renders identically to the flat table this replaced. Every invoice
+        raised before phases existed is in that state, and none of them should
+        look different.
+
+        Numbering runs across the whole invoice rather than restarting per
+        phase: line 7 has to mean one thing when somebody rings up about it.
+      */}
+      {(() => {
+        let n = 0;
+        return phaseGroups.map((group) => (
+          <tbody key={group.phase ?? '__unassigned__'}>
+            {showPhaseHeadings && (
+              <tr className="bg-[#141414] print:bg-gray-50">
+                <td colSpan={4} className="px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-orange-400 print:text-orange-700">
+                  {group.label}
+                  {group.duration && (
+                    <span className="ml-2 font-normal normal-case tracking-normal text-gray-500 print:text-gray-500">
+                      · {group.duration}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-400 print:text-gray-600">
+                  {formatCurrency(group.subtotal)}
+                </td>
+              </tr>
+            )}
+            {group.lines.map((item: any, index: number) => {
+              n += 1;
+              return (
+                <tr key={index} className="border-b border-[#2A2A2A] print:border-gray-200">
+                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600">{n}</td>
+                  <td className="py-3 px-4 text-sm text-white print:text-gray-900">{item.description}</td>
+                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{item.quantity}</td>
+                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{formatCurrency(item.unit_price)}</td>
+                  <td className="py-3 px-4 text-sm text-white print:text-gray-900 font-semibold text-right">
+                    {formatCurrency(lineAmount(item))}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        ));
+      })()}
     </table>
   </div>
 
