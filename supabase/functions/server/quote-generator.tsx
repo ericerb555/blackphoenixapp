@@ -106,7 +106,8 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
       "unit": "each | linear ft | sq ft | sheet | gallon | box | lot",
       "wasteFactor": number,
       "unitCost": number,
-      "vendor": "Home Depot | Lowe's | Grainger | Supply House | Local"
+      "vendor": "Home Depot | Lowe's | Grainger | Supply House | Local",
+      "phase": "the EXACT step name from processSteps this material is used in"
     }
   ],
   "labor": [
@@ -117,7 +118,8 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
       "crewSize": number,
       "hours": number,
       "hourlyRate": number,
-      "productivityNote": "brief basis for the hours"
+      "productivityNote": "brief basis for the hours",
+      "phase": "the EXACT step name from processSteps this labour happens in"
     }
   ],
   "processSteps": [
@@ -139,7 +141,9 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
 
 Include 8-25 material line items and 4-10 labor line items for a typical project. Scale detail with project size.
 
-Give the whole job as phases in \`processSteps\` — every stage from first arrival to final clean and handover, in the order they happen, with nothing skipped because it is obvious to a builder. A small job may be 4 phases and a full renovation 10 or more; do not compress a long job into a short list. "The description is not detailed enough" is the specific complaint this has to answer, so err long.`;
+Give the whole job as phases in \`processSteps\` — every stage from first arrival to final clean and handover, in the order they happen, with nothing skipped because it is obvious to a builder. A small job may be 4 phases and a full renovation 10 or more; do not compress a long job into a short list. "The description is not detailed enough" is the specific complaint this has to answer, so err long.
+
+EVERY material and labour line must carry a \`phase\` holding the EXACT \`step\` string of the phase it belongs to — character for character, not a paraphrase. The quote and the invoice are grouped by phase and totalled per phase, so a line whose phase does not match a step falls out of its section and lands in a loose "Additional items" group at the bottom. Decide the phases first, then assign every line to one of them.`;
 }
 
 function round2(n: number): number {
@@ -170,6 +174,8 @@ function assembleEstimate(
       name: m.name || m.description || 'Material',
       description: m.description || m.name || '',
       category: m.category || 'General',
+      // Which phase this material is used in — see the labour line above.
+      phase: String(m.phase || '').trim(),
       quantity: qty,
       wasteFactor: waste,
       unit: m.unit || 'each',
@@ -209,6 +215,9 @@ function assembleEstimate(
       role: l.role || l.description || 'Labor',
       description: l.description || l.role || '',
       trade: l.trade || 'general',
+      // Which phase of the job this labour happens in. Drives the grouped
+      // quote and invoice; blank lands the line in 'Additional items'.
+      phase: String(l.phase || '').trim(),
       crewSize: Number(l.crewSize) || 1,
       hours,
       hourlyRate: round2(rate),
