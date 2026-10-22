@@ -48,6 +48,7 @@ import {
   Loader2,
   ArrowRight,
   Download,
+  Printer,
   Upload,
   Sparkles,
   ShoppingCart,
@@ -620,6 +621,47 @@ export function QuoteToContractEditor({
       { ...(currentQuote as any), clientName: workRequest.customerName },
       { forCustomer, logoDataUrl, workRequest: workRequest as any },
     ));
+
+  /**
+   * The preview shows the ACTUAL PDF, not an HTML lookalike.
+   *
+   * It used to render `QuoteDocument` while the Download button produced a
+   * different layout entirely — so the preview was the old flat list with no
+   * logo, and the new document only existed inside the downloaded file. Eric
+   * clicked View and saw the wrong thing, which is exactly the two-renderings
+   * problem this work was meant to remove, reintroduced one layer up.
+   *
+   * Rendering the generated PDF in an iframe makes preview, print and
+   * download the same bytes. There is no second layout left to drift.
+   *
+   * WHICH COPY IS PREVIEWED
+   *
+   * The internal one, with every line and the withheld ones marked. This is
+   * the office view; the customer copy is what the email attaches, and
+   * there is a toggle below to look at that instead — because "what will
+   * they actually receive" is a question worth being able to answer without
+   * sending it.
+   */
+  const [previewAsCustomer, setPreviewAsCustomer] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+
+  useEffect(() => {
+    if (!previewDoc) { setPreviewUrl(''); return; }
+    let url = '';
+    try {
+      url = buildPdf(previewAsCustomer).output('bloburl') as unknown as string;
+      setPreviewUrl(url);
+    } catch (err) {
+      console.error('[quote] could not render the PDF preview:', err);
+      setPreviewUrl('');
+    }
+    return () => {
+      // A blob URL held after the modal closes is a leak that survives until
+      // the tab does, and these are whole documents.
+      if (url) { try { URL.revokeObjectURL(url); } catch { /* already gone */ } }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDoc, previewAsCustomer, currentQuote, logoDataUrl]);
 
   /**
    * Email the quote as a PDF, to whatever address is wanted.
@@ -3749,30 +3791,80 @@ export function QuoteToContractEditor({
     </div>
 
       {/*
-        The quote as a document: laid out, printable, downloadable.
-        `printElementId` must match the id QuoteDocument puts on its outer
-        element — the print rule hides the page and un-hides that one node, so
-        a wrong id prints a blank sheet and says nothing about why.
+        The quote as a PDF — the real one, not an HTML lookalike.
+
+        This rendered `QuoteDocument` while Download produced a different
+        layout entirely, so the preview was the old flat list with no logo and
+        the new document existed only inside the saved file. Eric clicked View
+        and saw the wrong thing: the two-renderings problem this work set out
+        to remove, reintroduced one layer up.
+
+        Showing the generated PDF itself makes preview, print and download the
+        same bytes. There is no second layout left to drift.
       */}
       {previewDoc && (
-        <DocumentPreviewModal
-          isOpen
-          onClose={() => setPreviewDoc(false)}
-          title="Quote Preview"
-          printElementId="quote-content"
-          /**
-           * The internal copy. Every line, hidden ones marked as such, so the
-           * person holding the printout can see what the customer was not
-           * shown. `emailQuotePdf` sends the customer copy instead.
-           */
-          onDownload={() => {
-            const doc = buildPdf(false);
-            doc.save(`Estimate_${(currentQuote as any)?.quoteNumber || 'draft'}.pdf`);
-          }}
-          onEmail={() => setEmailingQuote(true)}
-        >
-          <QuoteDocument quote={quoteAsDocument as any} />
-        </DocumentPreviewModal>
+        <div className="fixed inset-0 z-[80] flex flex-col bg-black/80 p-4">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#2A2A2A] bg-[#111]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2A2A2A] bg-[#1A1A1A] px-5 py-3">
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-white">Quote PDF</h3>
+                {/*
+                  Which copy you are looking at. "My copy" by default — but
+                  being able to see what the customer actually receives,
+                  without sending it, is the point of having the switches.
+                */}
+                <div className="flex overflow-hidden rounded-lg border border-[#2A2A2A]">
+                  {([[false, 'My copy'], [true, 'Customer copy']] as Array<[boolean, string]>).map(([v, label]) => (
+                    <button
+                      key={label}
+                      onClick={() => setPreviewAsCustomer(v)}
+                      className={`px-3 py-1.5 text-xs font-bold transition ${
+                        previewAsCustomer === v ? 'bg-[#ea580c] text-white' : 'bg-[#111] text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); }}
+                  className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1.5 text-xs font-bold text-gray-300 hover:text-white"
+                >
+                  <Printer className="h-3.5 w-3.5" /> Open / Print
+                </button>
+                <button
+                  onClick={() => buildPdf(previewAsCustomer).save(`Estimate_${(currentQuote as any)?.quoteNumber || 'draft'}.pdf`)}
+                  className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1.5 text-xs font-bold text-gray-300 hover:text-white"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download
+                </button>
+                <button
+                  onClick={() => setEmailingQuote(true)}
+                  className="flex items-center gap-2 rounded-lg bg-[#ea580c] px-3 py-1.5 text-xs font-bold text-white hover:bg-orange-600"
+                >
+                  <Mail className="h-3.5 w-3.5" /> Email
+                </button>
+                <button onClick={() => setPreviewDoc(false)} className="p-1.5 text-gray-400 hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            {previewAsCustomer && (
+              <p className="bg-blue-500/10 px-5 py-2 text-xs text-blue-300">
+                Exactly what the customer receives — your hidden lines and switched-off sections are not in it.
+              </p>
+            )}
+            {previewUrl ? (
+              <iframe title="Quote PDF" src={previewUrl} className="h-full w-full flex-1 bg-white" />
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
+                Could not render the PDF.
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/*
