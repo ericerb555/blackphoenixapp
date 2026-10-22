@@ -66,6 +66,8 @@ import { supabase } from '../lib/supabase';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
 import QuoteDocument from './documents/QuoteDocument';
 import { quoteToPDFData } from './documents/quoteMath';
+import { buildQuotePdf } from '../lib/services/quotePdfLayout';
+import { quoteToPdfDocument } from '../lib/quoteToPdfDocument';
 import { PDFService } from '../lib/services/pdfService';
 
 async function quoteAuthHeaders(contentType = false) { const { data: { session } } = await supabase.auth.getSession(); return { Authorization: `Bearer ${session?.access_token || publicAnonKey}`, ...(contentType ? { 'Content-Type': 'application/json' } : {}) }; }
@@ -567,6 +569,186 @@ export function QuoteToContractEditor({
    * preview cannot drift from what every other screen shows.
    */
   const [previewDoc, setPreviewDoc] = useState(false);
+
+  /**
+   * The logo, as bytes jsPDF can actually draw.
+   *
+   * `companyLogo` is a URL. `doc.addImage` needs a data URL or a decoded
+   * image, and it is synchronous — so the fetch has to have happened before
+   * the Download click, not during it. Resolved once when the logo is known
+   * and held, rather than refetched per download.
+   *
+   * A logo that will not load leaves this empty and the PDF simply has no
+   * mark on it. A missing logo is a worse-looking quote; a thrown error is
+   * no quote at all.
+   */
+  const [logoDataUrl, setLogoDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!companyLogo) { setLogoDataUrl(''); return; }
+    (async () => {
+      try {
+        const res = await fetch(companyLogo);
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (!cancelled) setLogoDataUrl(dataUrl);
+      } catch {
+        if (!cancelled) setLogoDataUrl('');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [companyLogo]);
+
+  /**
+   * Build the PDF for a given audience.
+   *
+   * `forCustomer` is the whole reason this takes an argument: the copy Eric
+   * prints for himself shows every line including the ones the customer is
+   * not shown, each marked as hidden, while the copy that reaches a customer
+   * obeys the same rules the share link does. A PDF emailed out is exactly as
+   * public as that link, so the two must not disagree.
+   */
+  const buildPdf = (forCustomer: boolean) =>
+    buildQuotePdf(quoteToPdfDocument(
+      { ...(currentQuote as any), clientName: workRequest.customerName },
+      { forCustomer, logoDataUrl, workRequest: workRequest as any },
+    ));
+
+  /**
+   * Email the quote as a PDF, to whatever address is wanted.
+   *
+   * "or i should be able to email a copy to there personal email" — so the
+   * address is editable rather than fixed to the one on the record. The
+   * person paying is often not the person whose email is on the job, and a
+   * send that can only reach the file copy is a send that gets done by hand
+   * outside the system.
+   *
+   * It attaches the CUSTOMER copy, not the internal one. The internal PDF
+   * carries lines marked "hidden from customer", and mailing that to the
+   * customer would be worse than having no hide feature at all.
+   */
+  const [emailingQuote, setEmailingQuote] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  /**
+   * Offer them an account alongside the quote.
+   *
+   * Default ON, because a customer reading a quote is the warmest moment
+   * there is to get them into the portal — and the portal is where they
+   * approve it, see the job, and pay. Off is a deliberate choice for the
+   * ones who will never use it.
+   *
+   * It issues a REAL invite through the same endpoint Create Portal uses, so
+   * the account is provisioned and appears in Sent Invites. A link to a
+   * generic signup page would leave them typing details we already hold and
+   * arriving unconnected to this job.
+   */
+  const [inviteWithQuote, setInviteWithQuote] = useState(true);
+
+  useEffect(() => {
+    if (emailingQuote) setEmailTo(workRequest.customerEmail || '');
+  }, [emailingQuote, workRequest.customerEmail]);
+
+  const handleEmailQuote = async () => {
+    const to = emailTo.trim();
+    if (!/^\S+@\S+\.\S+$/.test(to)) { toast.error('Enter a valid email address.'); return; }
+    setEmailSending(true);
+    try {
+      const doc = buildPdf(true);
+      const dataUri = doc.output('datauristring');
+      const pdfBase64 = dataUri.slice(dataUri.indexOf('base64,') + 'base64,'.length);
+      const number = (currentQuote as any)?.quoteNumber || 'draft';
+
+      /**
+       * `html`, not `body`. The endpoint requires it and answers 400
+       * "to, subject, and html are required" otherwise — which the first
+       * version of this would have hit on every single send.
+       */
+      const esc = (s: string) => String(s || '').replace(/[&<>]/g, (ch) =>
+        ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : '&gt;');
+      const name = esc(workRequest.customerName || '');
+      const title = esc(workRequest.title || '');
+      const total = Number((currentQuote as any)?.totalCost || 0)
+        .toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+      const html = `
+<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:560px;color:#222">
+  <p>Hi${name ? ` ${name}` : ''},</p>
+  <p>Your estimate${title ? ` for <strong>${title}</strong>` : ''} is attached as a PDF.</p>
+  <p style="font-size:18px;margin:18px 0"><strong>${esc(number)}</strong> — ${total}</p>
+  ${inviteWithQuote ? `
+  <div style="border:1px solid #e6e6e6;border-radius:10px;padding:16px;margin:22px 0;background:#fafafa">
+    <p style="margin:0 0 8px;font-weight:600">Follow this job online</p>
+    <p style="margin:0 0 12px;font-size:14px;color:#555">
+      We've set up an account for you. You can approve the estimate, watch progress,
+      see photos and pay — all in one place. Check your inbox for a separate email
+      with your sign-in link.
+    </p>
+  </div>` : ''}
+  <p style="font-size:14px;color:#555">Any questions, just reply to this email.</p>
+</div>`.trim();
+
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/email-center/send`, {
+        method: 'POST',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({
+          to,
+          subject: `Your estimate ${number}${workRequest.title ? ` — ${workRequest.title}` : ''}`,
+          html,
+          attachments: [{ filename: `Estimate_${number}.pdf`, content: pdfBase64 }],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        toast.error(data?.error || `Could not send the email (HTTP ${res.status}).`);
+        return;
+      }
+
+      /**
+       * The invite goes AFTER the quote email, and its failure does not fail
+       * the send. The estimate reaching them is the point; an account is the
+       * bonus. Reporting "could not send" because the optional half failed
+       * would have Eric re-sending a quote that already arrived.
+       */
+      let invited = false;
+      if (inviteWithQuote) {
+        try {
+          const phone = String(workRequest.customerPhone || '').trim();
+          if (!name || !phone) throw new Error('needs a name and phone number');
+          const inv = await fetch(`${API_BASE_URL}/make-server-3eae23a6/owner-provisioning/invites`, {
+            method: 'POST',
+            headers: await quoteAuthHeaders(true),
+            body: JSON.stringify({
+              name: workRequest.customerName, email: to, phone, portalType: 'customer',
+            }),
+          });
+          const invData = await inv.json().catch(() => ({}));
+          invited = inv.ok && invData?.success !== false;
+          if (!invited) throw new Error(invData?.error || `HTTP ${inv.status}`);
+        } catch (err: any) {
+          toast.warning('Estimate sent, but the account invitation did not go out.', {
+            description: `${err?.message || err}. Invite them from Admin Command Center → Create Portal.`,
+          });
+        }
+      }
+
+      toast.success(
+        invited ? `Estimate and account invitation sent to ${to}.` : `Estimate emailed to ${to}.`,
+      );
+      setEmailingQuote(false);
+    } catch (err: any) {
+      toast.error(`Could not send the email: ${err?.message || err}`);
+    } finally {
+      setEmailSending(false);
+    }
+  };
 
   /**
    * Flip one customer-visibility section, and make it stick.
@@ -3578,10 +3760,92 @@ export function QuoteToContractEditor({
           onClose={() => setPreviewDoc(false)}
           title="Quote Preview"
           printElementId="quote-content"
-          onDownload={() => PDFService.downloadQuotePDF(quoteToPDFData(quoteAsDocument as any))}
+          /**
+           * The internal copy. Every line, hidden ones marked as such, so the
+           * person holding the printout can see what the customer was not
+           * shown. `emailQuotePdf` sends the customer copy instead.
+           */
+          onDownload={() => {
+            const doc = buildPdf(false);
+            doc.save(`Estimate_${(currentQuote as any)?.quoteNumber || 'draft'}.pdf`);
+          }}
+          onEmail={() => setEmailingQuote(true)}
         >
           <QuoteDocument quote={quoteAsDocument as any} />
         </DocumentPreviewModal>
+      )}
+
+      {/*
+        Send the quote as a PDF. The address defaults to the one on the job
+        and is editable, because the person paying is often not the person
+        whose email is on the record.
+      */}
+      {emailingQuote && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[#2A2A2A] bg-[#111] p-6">
+            <h3 className="mb-1 flex items-center gap-2 text-lg font-bold text-white">
+              <Mail className="h-5 w-5 text-[#ea580c]" />
+              Email this estimate
+            </h3>
+            <p className="mb-4 text-sm text-gray-400">
+              Sends the customer copy as a PDF — the same thing they would see on the link,
+              with whatever you have hidden left out.
+            </p>
+            <label className="mb-1 block text-xs font-semibold text-gray-400">Send to</label>
+            <input
+              type="email"
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              placeholder="name@example.com"
+              className="mb-4 w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+            />
+
+            {/*
+              The warmest moment to get somebody into the portal is while they
+              are reading the price. Needs a phone number because the invite
+              endpoint requires one — said here rather than failing on send.
+            */}
+            <label className="mb-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-[#2A2A2A] bg-[#0B0B0B] p-3">
+              <input
+                type="checkbox"
+                checked={inviteWithQuote}
+                onChange={(e) => setInviteWithQuote(e.target.checked)}
+                className="mt-0.5 h-4 w-4 cursor-pointer rounded border-gray-600 bg-gray-700 text-orange-500 focus:ring-2 focus:ring-orange-500"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-white">
+                  Also invite them to create an account
+                </span>
+                <span className="mt-0.5 block text-xs text-gray-400">
+                  Sets up their portal so they can approve the estimate, follow the job and pay.
+                  Sends a separate sign-in email.
+                </span>
+                {!String(workRequest.customerPhone || '').trim() && inviteWithQuote && (
+                  <span className="mt-1 block text-xs font-semibold text-amber-400">
+                    Needs a phone number on the job first — the estimate will still send.
+                  </span>
+                )}
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setEmailingQuote(false)}
+                disabled={emailSending}
+                className="rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-4 py-2 text-sm font-semibold text-gray-300 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEmailQuote}
+                disabled={emailSending}
+                className="flex items-center gap-2 rounded-lg bg-[#ea580c] px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {emailSending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Work Request Drawer — slides in from the right over the quote editor */}
