@@ -492,7 +492,21 @@ export function QuoteToContractEditor({
   const [projectSchedule, setProjectSchedule] = useState<ScheduleTask[]>([]);
   const [showScheduleBuilder, setShowScheduleBuilder] = useState(false);
 
-  const currentQuote = editMode ? editedQuote : normalizeQuote(workRequest.quote);
+  /**
+   * Memoised because its IDENTITY is a dependency, not just its contents.
+   *
+   * `normalizeQuote` spreads every material and labour line, so it returned a
+   * brand new object on every single render. The PDF preview effect depends
+   * on this, and a dependency that changes every render means the effect's
+   * CLEANUP also runs every render — which revoked the blob URL the iframe
+   * had just been handed, faster than it could load it. The preview was a
+   * white rectangle, and the white was the iframe's own background.
+   */
+  const currentQuote = useMemo(
+    () => (editMode ? editedQuote : normalizeQuote(workRequest.quote)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editMode, editedQuote, workRequest.quote],
+  );
 
   const handleConvertToContract = async () => {
     const quoteId = currentQuote?.id || workRequest.quote?.id;
@@ -645,11 +659,35 @@ export function QuoteToContractEditor({
   const [previewAsCustomer, setPreviewAsCustomer] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
 
+  /**
+   * The effect rebuilds on what the PDF CONTAINS, not on object identity.
+   *
+   * Memoising `currentQuote` fixes the common case, but it is still only as
+   * stable as the `workRequest` prop handed down from the parent. A content
+   * signature cannot be destabilised from above: if the bytes would be the
+   * same there is no rebuild, so no cleanup, so the blob URL the iframe is
+   * holding survives. Only computed while the modal is open — there is
+   * nothing to key when there is nothing being previewed.
+   */
+  const pdfKey = useMemo(() => {
+    if (!previewDoc) return '';
+    try {
+      return JSON.stringify([previewAsCustomer, !!logoDataUrl, currentQuote]);
+    } catch {
+      // A quote that will not serialise still deserves a preview; falling
+      // back to identity is no worse than the behaviour this replaced.
+      return String(Date.now());
+    }
+  }, [previewDoc, previewAsCustomer, logoDataUrl, currentQuote]);
+
   useEffect(() => {
     if (!previewDoc) { setPreviewUrl(''); return; }
     let url = '';
     try {
-      url = buildPdf(previewAsCustomer).output('bloburl') as unknown as string;
+      // `bloburl` hands back a URL object, not a string. React would coerce
+      // it when setting `src`, but holding the real string keeps the revoke
+      // in the cleanup honest about what it is revoking.
+      url = String(buildPdf(previewAsCustomer).output('bloburl'));
       setPreviewUrl(url);
     } catch (err) {
       console.error('[quote] could not render the PDF preview:', err);
@@ -661,7 +699,7 @@ export function QuoteToContractEditor({
       if (url) { try { URL.revokeObjectURL(url); } catch { /* already gone */ } }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewDoc, previewAsCustomer, currentQuote, logoDataUrl]);
+  }, [pdfKey]);
 
   /**
    * Email the quote as a PDF, to whatever address is wanted.
