@@ -53,10 +53,21 @@ export interface DocumentPreviewModalProps {
   onEmail?: () => void;
   /** Extra buttons for one caller — an Edit affordance, say. */
   actions?: ReactNode;
+  /**
+   * Print this instead of the page.
+   *
+   * The default print hides everything but `printElementId` and calls
+   * `window.print()`, which works for an HTML document and NOT for a
+   * preview that is a PDF in an iframe — a blob PDF does not print through
+   * its parent, so the button would produce a blank sheet. A caller showing
+   * one passes this and opens the PDF instead. A Print button that silently
+   * prints nothing is worse than one that hands you the file.
+   */
+  onPrint?: () => void;
 }
 
 export default function DocumentPreviewModal({
-  isOpen, onClose, title, printElementId, children, onDownload, onEmail, actions,
+  isOpen, onClose, title, printElementId, children, onDownload, onEmail, actions, onPrint,
 }: DocumentPreviewModalProps) {
   if (!isOpen) return null;
 
@@ -68,7 +79,7 @@ export default function DocumentPreviewModal({
           <div className="flex items-center gap-2">
             {actions}
             <button
-              onClick={() => window.print()}
+              onClick={() => (onPrint ? onPrint() : window.print())}
               className="flex items-center gap-2 px-4 py-2 bg-[#0A0A0A] hover:bg-[#2A2A2A] border border-[#2A2A2A] text-gray-300 rounded-lg transition"
             >
               <Printer className="w-4 h-4" />

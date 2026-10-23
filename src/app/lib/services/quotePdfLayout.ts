@@ -76,6 +76,15 @@ export interface QuotePdfData {
   number: string;
   date: string;
   validUntil?: string;
+  /**
+   * What that date is CALLED.
+   *
+   * A quote is valid until a date; an invoice is DUE on one. The row is the
+   * same shape and the word is not, and "Valid until 2026-11-22" printed on
+   * an invoice is the kind of wrong a customer reads twice and then rings
+   * about. Defaulted so the quote says nothing and keeps its wording.
+   */
+  validUntilLabel?: string;
   status: string;
   customer: { name: string; email?: string; phone?: string; address?: string };
   job: { title?: string; description?: string };
@@ -155,7 +164,10 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
   doc.setFontSize(8.5);
   doc.setTextColor(90, 90, 90);
   if (data.date) { doc.text(`Issued ${data.date}`, right, rightY, { align: 'right' }); rightY += 4.2; }
-  if (data.validUntil) { doc.text(`Valid until ${data.validUntil}`, right, rightY, { align: 'right' }); rightY += 4.2; }
+  if (data.validUntil) {
+    doc.text(`${data.validUntilLabel || 'Valid until'} ${data.validUntil}`, right, rightY, { align: 'right' });
+    rightY += 4.2;
+  }
   if (data.status) { doc.text(data.status.toUpperCase(), right, rightY, { align: 'right' }); rightY += 4.2; }
 
   y = Math.max(leftY, rightY) + 4;

@@ -15,6 +15,7 @@ import {
   type Reputation, type Signal,
 } from "./ipReputation.ts";
 import { customerQuoteView } from "./customerQuoteView.ts";
+import { customerInvoiceView } from "./customerInvoiceView.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
@@ -17999,7 +18000,21 @@ app.get('/make-server-3eae23a6/command-center/summary', async (c) => { try { if 
   ]); const paidPayments = (payments as any[] || []).filter((payment: any) => ['paid', 'completed'].includes(String(payment.status || '').toLowerCase())); const totalRevenue = paidPayments.reduce((sum: number, payment: any) => sum + money(payment.amount), 0); const openInvoiceTotal = (invoices as any[] || []).filter((invoice: any) => !['paid','completed','cancelled','void'].includes(String(invoice.status || '').toLowerCase())).reduce((sum: number, invoice: any) => sum + money(invoice.balance_due ?? invoice.balanceDue ?? invoice.total_amount ?? invoice.total), 0); const months: Record<string, number> = {}; for (let offset = 5; offset >= 0; offset--) { const date = new Date(); date.setMonth(date.getMonth() - offset); months[`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`] = 0; } for (const payment of paidPayments) { const date = new Date(payment.paidAt || payment.updatedAt || payment.createdAt || Date.now()); const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; if (key in months) months[key] += money(payment.amount); } const chartData = Object.entries(months).map(([month, revenue]) => ({ month, revenue })); const appRows = applications as any[] || []; const workRows = requests as any[] || []; const employeeCount = appRows.filter((application: any) => ['employee','field_technician','technician','maintenance_tech'].includes(String(application.applicationType || application.type || '').toLowerCase()) && ['approved','active'].includes(String(application.status || '').toLowerCase())).length; return c.json({ success: true, summary: { totalRevenue, openInvoiceTotal, customersCount: ((contacts as any[]) || []).filter((item: any) => item.email).length, activeJobsCount: workRows.filter((item: any) => ['assigned','in-progress','approved'].includes(String(item.status || '').toLowerCase())).length, teamCount: employeeCount, pendingApplications: appRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending').length, pendingWorkRequests: workRows.filter((item: any) => String(item.status || '').toLowerCase() === 'pending_approval').length, chartData } }); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 
 app.get('/make-server-3eae23a6/invoices', async (c) => {
-  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('invoice:')) || []; return c.json({ success: true, invoices: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)) }); }
+  /**
+   * An administrator gets the stored records. A CUSTOMER GETS A PROJECTION.
+   *
+   * This used to answer a non-admin with `records.filter(ownsFinancialRecord)`
+   * — the whole record for each of their own invoices. Line items carry a
+   * `visible` flag, and invoices are generated from a draw on the payment
+   * schedule, so `line_items` holds the phase's entire breakdown: the
+   * contingency, the sub's markup, every line somebody deliberately hid. All
+   * of it was sent to the customer's browser and merely not drawn.
+   *
+   * `customerInvoiceView` builds the customer's copy from an allowlist, drops
+   * the withheld lines, and sends `phase_costs` computed from ALL of them so
+   * the sections still add up to what is being charged. See the module.
+   */
+  try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401); const records = (await kv.getByPrefix('invoice:')) || []; return c.json({ success: true, invoices: admin ? records : records.filter((record: any) => ownsFinancialRecord(record, user.email)).map((record: any) => customerInvoiceView(record)) }); }
   catch (error: any) { return c.json({ success: false, error: error.message }, 500); }
 });
 // Stellar receive-only configuration. This deliberately stores a public address only—never a secret signing key.

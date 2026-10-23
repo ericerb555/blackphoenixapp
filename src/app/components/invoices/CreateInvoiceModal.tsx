@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, FileText, Plus, Trash2, Search, User, Calendar, DollarSign, Phone, MapPin, Mail, UserPlus, Smartphone } from 'lucide-react';
+import { X, FileText, Plus, Trash2, Search, User, Calendar, DollarSign, Phone, MapPin, Mail, UserPlus, Smartphone, Eye, EyeOff } from 'lucide-react';
 import { InvoiceService, type InvoiceFormData, type InvoiceLineItem } from '../../lib/services/invoiceService';
 import { getCustomers, createCustomer, type Customer } from '../../lib/services/customerService';
 import { companyInfo } from '../../lib/config/companyInfo';
@@ -865,6 +865,46 @@ export default function CreateInvoiceModal({
                         <Trash2 className="w-4 h-4 mx-auto" />
                       </button>
                     </div>
+                  </div>
+
+                  {/*
+                    Show this line to the customer, or keep the money without
+                    the detail.
+
+                    "i should be able to click individual items to show on the
+                    invoice i can only show all or none?" — this is the per
+                    line control. It was not all-or-none before, it was none:
+                    the invoice rendered every line unconditionally.
+
+                    Hiding does NOT reduce the bill. The line stays in every
+                    total and the phase it belongs to still costs what it
+                    costs; the customer simply is not shown the breakdown of
+                    it. That is enforced on the server by
+                    `customerInvoiceView`, not here — a line filtered out in
+                    the browser has already been sent to it.
+                  */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#1A1A1A] pt-3">
+                    <button
+                      type="button"
+                      onClick={() => updateLineItem(index, 'visible', item.visible === false)}
+                      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide transition ${
+                        item.visible === false
+                          ? 'border border-amber-500/40 bg-amber-500/10 text-amber-400'
+                          : 'border border-[#2A2A2A] text-gray-500 hover:text-gray-300'
+                      }`}
+                      title={item.visible === false
+                        ? 'The customer is not shown this line. Its cost is still charged.'
+                        : 'The customer sees this line itemised.'}
+                    >
+                      {item.visible === false
+                        ? <><EyeOff className="h-3 w-3" /> Hidden from customer</>
+                        : <><Eye className="h-3 w-3" /> Shown</>}
+                    </button>
+                    {item.visible === false && (
+                      <span className="text-[11px] text-gray-500">
+                        Still charged — the cost stays in the phase total and the invoice total.
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

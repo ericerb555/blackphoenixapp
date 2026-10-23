@@ -139,6 +139,29 @@ export interface InvoiceLineItem {
    * line for what it is, rather than leaving somebody to read a minus sign.
    */
   kind?: 'charge' | 'credit';
+  /**
+   * Which phase of the job this line belongs to.
+   *
+   * Set when the invoice is generated from a draw on the payment schedule.
+   * Absent on a hand-written invoice, which then renders as one ungrouped
+   * section exactly as invoices always have.
+   */
+  phase?: string;
+  /**
+   * Is this line shown on the customer's copy?
+   *
+   * ABSENT MEANS SHOWN. Every invoice already written has no such field, and
+   * defaulting the other way would blank lines off documents that have gone
+   * out — changing paper somebody is holding, which is not a feature.
+   *
+   * HIDING REMOVES THE DETAIL, NOT THE MONEY. The line stays on the stored
+   * record and in every total; `customerInvoiceView` is what withholds it,
+   * and it sends per-phase costs alongside so the customer's sections still
+   * add up. Setting this to false here is recording a choice, not enforcing
+   * one — the enforcement is on the server, because a field hidden in the
+   * browser has already been sent.
+   */
+  visible?: boolean;
 }
 
 export interface InvoiceFormData {

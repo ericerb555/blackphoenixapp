@@ -26,6 +26,7 @@ import { Edit2 } from 'lucide-react';
 import { companyInfo } from '../../lib/config/companyInfo';
 import type { Invoice } from '../../lib/services/invoiceService';
 import { groupLinesByPhase, hasPhaseStructure, lineAmount } from '../../lib/invoicePhases';
+import { selectInvoiceLines, isLineShown } from '../../lib/invoiceLineSelection';
 
 const formatDate = (dateString?: string) => {
   if (!dateString) return 'Not set';
@@ -48,9 +49,21 @@ interface InvoiceDocumentProps {
    * appeared on a printed copy.
    */
   onEdit?: () => void;
+  /**
+   * Draw the customer's copy rather than the office's.
+   *
+   * Mostly belt and braces. A customer's invoice arrives through
+   * `customerInvoiceView`, which has already removed the withheld lines
+   * server side — a hidden line is not in their browser to be drawn. This
+   * flag governs the other direction: on the OFFICE copy it is false, and
+   * withheld lines are drawn and visibly marked, so whoever is reading a
+   * printout knows which lines the customer never saw. Discussing a line
+   * the customer has never heard of is its own kind of expensive.
+   */
+  forCustomer?: boolean;
 }
 
-export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProps) {
+export default function InvoiceDocument({ invoice, onEdit, forCustomer = false }: InvoiceDocumentProps) {
   /**
    * The lines, gathered under the phase of the job each belongs to.
    *
@@ -65,11 +78,39 @@ export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProp
    * is false in that case, so an old invoice renders exactly as it always did
    * rather than growing a pointless heading over its only section.
    */
+  const allLines = (invoice as any)?.line_items || [];
+  const selection = selectInvoiceLines(allLines, forCustomer);
+
   const phaseGroups = groupLinesByPhase(
-    (invoice as any)?.line_items || [],
+    selection.lines,
     (invoice as any)?.process_steps || (invoice as any)?.processSteps || [],
   );
   const showPhaseHeadings = hasPhaseStructure(phaseGroups);
+
+  /**
+   * A PHASE SUBTOTAL COUNTS THE LINES THAT ARE NOT SHOWN.
+   *
+   * `groupLinesByPhase` sums whatever it was handed, which is the drawn
+   * lines — so on a copy with anything hidden every phase would be short by
+   * exactly the hidden amount, and the sections would stop adding up to the
+   * total the customer is being asked to pay. People add up invoices, and
+   * they query the difference.
+   *
+   * `phase_costs` comes down from the server projection, computed from every
+   * line before the withheld ones were removed. Where it is absent — the
+   * office copy, or an old record — the selection computes the same figure
+   * locally from the lines still present. Both count hidden lines; neither
+   * sums only what is drawn.
+   */
+  const serverPhaseCosts = (invoice as any)?.phase_costs as Record<string, number> | undefined;
+  const phaseSubtotal = (phase: string | null, fallback: number) => {
+    const key = phase ?? '';
+    if (serverPhaseCosts && Object.prototype.hasOwnProperty.call(serverPhaseCosts, key)) {
+      return Number(serverPhaseCosts[key]) || 0;
+    }
+    const local = selection.phaseCost.get(key);
+    return local === undefined ? fallback : local;
+  };
 
   return (
 <div className="p-8 bg-[#0A0A0A] text-white print:bg-white print:text-black print:p-0" id="invoice-content">
@@ -208,7 +249,7 @@ export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProp
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-400 print:text-gray-600">
-                  {formatCurrency(group.subtotal)}
+                  {formatCurrency(phaseSubtotal(group.phase, group.subtotal))}
                 </td>
               </tr>
             )}
@@ -217,7 +258,19 @@ export default function InvoiceDocument({ invoice, onEdit }: InvoiceDocumentProp
               return (
                 <tr key={index} className="border-b border-[#2A2A2A] print:border-gray-200">
                   <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600">{n}</td>
-                  <td className="py-3 px-4 text-sm text-white print:text-gray-900">{item.description}</td>
+                  <td className="py-3 px-4 text-sm text-white print:text-gray-900">
+                    {item.description}
+                    {/*
+                      Only ever on the office copy — a line the customer was
+                      not shown is not in their payload at all, so this cannot
+                      render for them even if the flag were wrong.
+                    */}
+                    {!forCustomer && !isLineShown(item) && (
+                      <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-400 print:bg-amber-50 print:text-amber-700">
+                        hidden from customer
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{item.quantity}</td>
                   <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{formatCurrency(item.unit_price)}</td>
                   <td className="py-3 px-4 text-sm text-white print:text-gray-900 font-semibold text-right">
