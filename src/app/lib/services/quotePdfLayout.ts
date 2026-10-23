@@ -29,7 +29,17 @@
  * about what a quote contains or what the customer may see. Those live in
  * `customerQuoteView` and `invoicePhases`, and this draws what it is handed.
  */
-import jsPDF from 'jspdf';
+/**
+ * The NAMED export, deliberately.
+ *
+ * `import jsPDF from 'jspdf'` works in the browser only because the bundler
+ * applies CJS interop to the default. Outside a bundler the default is the
+ * module namespace OBJECT, so `new jsPDF()` throws "not a constructor" — which
+ * made this layout impossible to render in a test or a script, and cost an
+ * afternoon chasing a phantom bug that was really the import. The named export
+ * is the constructor in both worlds.
+ */
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export interface QuotePdfLine {
