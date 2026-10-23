@@ -322,6 +322,42 @@ function normalizeDoc(input: any) {
     aiConfidence: String(input.aiConfidence || ""),
     processSteps: Array.isArray(input.processSteps) ? input.processSteps : [],
     intake: input.intake ?? null,
+    /**
+     * The payment schedule: the deposit and the per-phase draws this job is
+     * billed in. Invoices are raised against these, so this is the record of
+     * what the customer agreed to pay and when.
+     *
+     * STORED, NOT RECOMPUTED. The schedule is generated from the quote's
+     * phases, but once it has gone to a customer it is a commitment and must
+     * not drift because somebody later edited a line item. A regenerate is an
+     * explicit action in the editor, not a side effect of saving.
+     *
+     * Every field is coerced rather than trusted. An administrator may legit-
+     * imately set any amount here — it is their contract — but a malformed
+     * draw that reaches the invoice builder as a string or a NaN turns into
+     * an invoice for "$NaN", and that is a document somebody sends.
+     *
+     * `status` is clamped to the three it can be, so a client cannot invent
+     * a state the schedule panel has no rendering for.
+     */
+    paymentSchedule: Array.isArray(input.paymentSchedule)
+      ? input.paymentSchedule.slice(0, 60).map((draw: any, i: number) => ({
+          id: String(draw?.id || `draw-${i + 1}`).slice(0, 120),
+          type: ['deposit', 'phase', 'balance'].includes(String(draw?.type))
+            ? String(draw.type)
+            : 'phase',
+          phase: draw?.phase == null ? null : String(draw.phase).slice(0, 200),
+          label: String(draw?.label || '').slice(0, 200),
+          amount: Number.isFinite(Number(draw?.amount)) ? Number(draw.amount) : 0,
+          phaseValue: Number.isFinite(Number(draw?.phaseValue)) ? Number(draw.phaseValue) : undefined,
+          depositCredit: Number.isFinite(Number(draw?.depositCredit)) ? Number(draw.depositCredit) : undefined,
+          trigger: String(draw?.trigger || '').slice(0, 300),
+          status: ['pending', 'invoiced', 'paid'].includes(String(draw?.status))
+            ? String(draw.status)
+            : 'pending',
+          invoiceId: draw?.invoiceId ? String(draw.invoiceId).slice(0, 120) : undefined,
+        }))
+      : [],
 
     /**
      * That somebody chose to send this knowing it was not priced from real

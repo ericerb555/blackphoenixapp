@@ -64,6 +64,9 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
+import { buildPaymentSchedule, scheduleTotal, type Draw } from '../lib/paymentSchedule';
+import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
+import { drawToInvoice } from '../lib/drawToInvoice';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
 import QuoteDocument from './documents/QuoteDocument';
 import { quoteToPDFData } from './documents/quoteMath';
@@ -875,6 +878,178 @@ export function QuoteToContractEditor({
       toast.error(`Could not save that change: ${err?.message || err}`);
     } finally {
       setSavingSections(false);
+    }
+  };
+
+  /**
+   * The payment schedule — the deposit and the per-phase draws.
+   *
+   * Eric: "the invoices should be built off the payment schedule." This is
+   * the schedule they are built off. Each draw is one phase of the job
+   * priced at its share of the contract, so a draw reads "Structural, on
+   * completion, $4,390" — a figure the customer can check against work they
+   * can walk around and look at.
+   *
+   * It is STORED on the quote rather than recomputed on every render. Once a
+   * schedule has gone to a customer it is a commitment, and a commitment that
+   * silently re-apportions itself because somebody edited a line item is not
+   * one. Regenerating is a button, not a side effect.
+   */
+  const paymentSchedule: Draw[] = Array.isArray((currentQuote as any)?.paymentSchedule)
+    ? (currentQuote as any).paymentSchedule
+    : [];
+
+  /**
+   * The deposit percentage, with no effect keeping it in step.
+   *
+   * Deriving it from the existing schedule and syncing with `useEffect` is
+   * what produced the white PDF preview earlier today: a dependency that
+   * changes every render runs the cleanup every render too. So there is no
+   * effect here. The displayed value is the override if the user has typed
+   * one, otherwise whatever the saved schedule implies, otherwise 30.
+   */
+  const [depositPctOverride, setDepositPctOverride] = useState<number | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  const contractTotal = contractTotalOf(currentQuote);
+  const savedDepositPct = (() => {
+    const deposit = paymentSchedule.find((d) => d.type === 'deposit');
+    if (!deposit || !(contractTotal > 0)) return null;
+    return Math.round((deposit.amount / contractTotal) * 100);
+  })();
+  const depositPct = depositPctOverride ?? savedDepositPct ?? 30;
+
+  /**
+   * Build the schedule from the quote's own phases.
+   *
+   * A draw that has already been invoiced keeps its status and its invoice
+   * id. Regenerating is for a quote whose figures have moved, not a way to
+   * quietly un-bill something — losing that state would leave an invoice in
+   * the world with nothing on the schedule saying it was ever raised.
+   */
+  const regenerateSchedule = async () => {
+    const phases = schedulePhasesOf(currentQuote);
+    const fresh = buildPaymentSchedule({
+      phases,
+      total: contractTotal,
+      depositRate: depositPct / 100,
+    });
+    const previous = new Map(paymentSchedule.map((d) => [d.id, d]));
+    const draws = fresh.map((d) => {
+      const was = previous.get(d.id);
+      return was && was.status !== 'pending'
+        ? { ...d, status: was.status, invoiceId: (was as any).invoiceId }
+        : d;
+    });
+
+    const updated = { ...(editedQuote || currentQuote), paymentSchedule: draws } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) { toast.success('Schedule built. Save the quote to keep it.'); return; }
+    setSavingSchedule(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/${quoteId}`, {
+        method: 'PUT',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({ paymentSchedule: draws }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onSave({ ...workRequest, quote: updated } as any);
+      toast.success(`Payment schedule built — ${draws.length} draw${draws.length === 1 ? '' : 's'}.`);
+    } catch (err: any) {
+      setEditedQuote(editedQuote);
+      toast.error(`Could not save the schedule: ${err?.message || err}`);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  /**
+   * Raise the invoice for one draw.
+   *
+   * This is the sentence "the invoices should be built off the payment
+   * schedule" made literal: the draw decides the amount, the phase decides
+   * the line items, and nothing is typed in twice.
+   *
+   * THE SERVER OWNS THE ARITHMETIC. It recomputes every invoice total from
+   * the line items and ignores a posted total that disagrees — which is
+   * right, and which is why `drawToInvoice` arranges the lines, the rate and
+   * the discount so the server's own sum lands on the draw. The deposit
+   * already collected rides as the discount, because that is what it is.
+   *
+   * A draw that no longer matches its phase is still raisable, but it says
+   * so first. That gap means the quote was repriced after the schedule was
+   * agreed, and whether to bill the old figure or rebuild is a judgement
+   * nobody should have made for them silently.
+   */
+  const [raisingDraw, setRaisingDraw] = useState<string | null>(null);
+
+  const raiseInvoiceForDraw = async (draw: Draw) => {
+    const payload = drawToInvoice({ quote: currentQuote, draw });
+    if (!payload.line_items.length) {
+      toast.error(`${draw.label} has no priced lines to invoice.`);
+      return;
+    }
+
+    setRaisingDraw(draw.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/invoices`, {
+        method: 'POST',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify({
+          ...payload,
+          workRequestId: workRequest.id,
+          customerName: (workRequest as any).customerName || (workRequest as any).client_name || '',
+          customerEmail: (workRequest as any).customerEmail || (workRequest as any).client_email || '',
+          // Raised as a draft. An invoice that emails itself the instant a
+          // button is pressed is one nobody gets to read first, and this one
+          // is generated rather than typed — all the more reason to look.
+          is_draft: true,
+          status: 'draft',
+          notes: `${draw.label} — ${draw.trigger}`,
+          process_steps: (currentQuote as any)?.processSteps || [],
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json().catch(() => ({}));
+
+      /**
+       * Mark the draw, so the schedule knows what has been billed.
+       *
+       * Without this the panel would happily raise the same draw again, and
+       * a job can only be billed for a phase once. The invoice id is kept so
+       * there is a trail back from the schedule to the document.
+       */
+      const draws = paymentSchedule.map((d) =>
+        d.id === draw.id
+          ? { ...d, status: 'invoiced' as const, invoiceId: body?.invoice?.id || body?.id }
+          : d,
+      );
+      const updated = { ...(editedQuote || currentQuote), paymentSchedule: draws } as any;
+      setEditedQuote(updated);
+
+      const quoteId = workRequest.quote?.id;
+      if (quoteId) {
+        await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/${quoteId}`, {
+          method: 'PUT',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({ paymentSchedule: draws }),
+        }).catch(() => { /* the invoice exists; the mark can be redone */ });
+        onSave({ ...workRequest, quote: updated } as any);
+      }
+
+      const money = payload.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      toast.success(
+        payload.matchesDraw
+          ? `Draft invoice raised for ${draw.label} — ${money}.`
+          : `Draft invoice raised for ${draw.label} at ${money}, which is NOT the ${draw.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on the schedule. Rebuild the schedule if the quote has changed.`,
+      );
+    } catch (err: any) {
+      toast.error(`Could not raise that invoice: ${err?.message || err}`);
+    } finally {
+      setRaisingDraw(null);
     }
   };
 
@@ -1803,6 +1978,14 @@ export function QuoteToContractEditor({
         aiSummary: (editedQuote as any).aiSummary || '',
         customerSections: (editedQuote as any).customerSections
           || { materials: true, labor: true, processDetail: true },
+        /**
+         * Named for the same reason the two prose fields above are: the
+         * whole-object spread only covers the line arrays, so a quote-level
+         * field that is not listed here is silently discarded on the next
+         * load. The schedule is what invoices are raised against, so losing
+         * it loses the record of what has already been billed.
+         */
+        paymentSchedule: (editedQuote as any).paymentSchedule || [],
         credits: editedQuote.credits || [],
         creditsSubtotal: editedQuote.creditsSubtotal || 0,
         materialsSubtotal: editedQuote.materialsSubtotal,
@@ -3145,6 +3328,166 @@ export function QuoteToContractEditor({
                     Turning a section off removes it from what the customer is sent — it is not
                     hidden in their browser. Costs stay in the phase totals either way.
                   </p>
+                </div>
+              )}
+
+              {/*
+                The payment schedule.
+
+                "the invoices should be built off the payment schedule" — so
+                it has to exist as real data before an invoice can be built
+                off it, and until now it did not. `paymentSchedule` appeared
+                in five browser files and zero server ones, written only by
+                the seed fixtures, so every schedule panel in the app was
+                rendering demo data and nothing else.
+
+                Draws are per phase because a phase is something the customer
+                can see finished. The arithmetic lives in `paymentSchedule.ts`,
+                tested against four thousand randomised contracts for the one
+                property that matters: the draws sum to the contract exactly.
+              */}
+              {(!editMode || quoteEditTab === 'process') && (
+                <div className="rounded-xl border border-gray-700 bg-black/40 p-6">
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="flex items-center gap-2 text-lg font-bold text-white">
+                      <CalendarDays className="h-5 w-5 text-emerald-400" />
+                      Payment schedule
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-gray-400">Deposit</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={depositPct}
+                        onChange={(e) => {
+                          const v = Math.min(100, Math.max(0, Math.round(Number(e.target.value) || 0)));
+                          setDepositPctOverride(v);
+                        }}
+                        className="w-16 rounded-lg border border-[#2A2A2A] bg-[#111] px-2 py-1.5 text-right text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                      />
+                      <span className="text-xs text-gray-500">%</span>
+                      <button
+                        type="button"
+                        onClick={regenerateSchedule}
+                        disabled={savingSchedule}
+                        className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-600/20 disabled:opacity-50"
+                      >
+                        {savingSchedule
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <RefreshCw className="h-3.5 w-3.5" />}
+                        {paymentSchedule.length ? 'Rebuild' : 'Build from phases'}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mb-4 text-sm text-gray-400">
+                    A deposit, then one draw for each phase of the work. Each draw is that
+                    phase&rsquo;s share of the contract, less its share of the deposit — so the
+                    deposit is worked off across the job rather than sitting as a credit at
+                    the end. Invoices are raised against these.
+                  </p>
+
+                  {!paymentSchedule.length ? (
+                    <div className="rounded-lg border border-dashed border-[#2A2A2A] bg-[#0A0A0A] p-5 text-center">
+                      <p className="text-sm text-gray-400">No schedule yet.</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Build one from the phases on this quote. Change the deposit first if
+                        you want to — everything else follows from the phase prices.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-hidden rounded-lg border border-[#2A2A2A]">
+                        {paymentSchedule.map((draw, i) => (
+                          <div
+                            key={draw.id}
+                            className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
+                              i % 2 ? 'bg-[#0D0D0D]' : 'bg-[#111]'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-white">{draw.label}</span>
+                                {draw.status !== 'pending' && (
+                                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                    draw.status === 'paid'
+                                      ? 'bg-emerald-500/15 text-emerald-300'
+                                      : 'bg-blue-500/15 text-blue-300'
+                                  }`}>
+                                    {draw.status}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-0.5 text-xs text-gray-500">{draw.trigger}</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-bold text-white">
+                                ${draw.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              {/*
+                                Shown only when it says something. The deposit
+                                draw has no credit, and repeating "− $0.00
+                                deposit" on every row trains people to stop
+                                reading the column.
+                              */}
+                              {draw.type === 'phase' && !!draw.depositCredit && (
+                                <p className="mt-0.5 text-[11px] text-gray-600">
+                                  phase ${Number(draw.phaseValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  {' '}&minus; ${Number(draw.depositCredit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} deposit
+                                </p>
+                              )}
+                              {draw.status === 'pending' && (
+                                <button
+                                  type="button"
+                                  onClick={() => raiseInvoiceForDraw(draw)}
+                                  disabled={raisingDraw === draw.id}
+                                  className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-50"
+                                >
+                                  {raisingDraw === draw.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <Send className="h-3 w-3" />}
+                                  Raise invoice
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/*
+                        The check that matters, shown rather than assumed.
+
+                        The draws are built to sum to the contract exactly and
+                        that is tested — but the schedule is STORED, so after
+                        an edit to the figures a saved schedule can legitimately
+                        no longer match, and that is precisely when somebody
+                        needs telling. Silence here would mean the first person
+                        to notice the gap is the customer.
+                      */}
+                      {(() => {
+                        const drawn = scheduleTotal(paymentSchedule);
+                        const gap = Math.round((drawn - contractTotal) * 100) / 100;
+                        const fmt = (n: number) =>
+                          n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        return gap === 0 ? (
+                          <p className="mt-3 flex items-center gap-2 text-xs text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            The draws add up to the contract total of ${fmt(contractTotal)}.
+                          </p>
+                        ) : (
+                          <p className="mt-3 flex items-start gap-2 text-xs text-amber-400">
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              This schedule bills ${fmt(drawn)} against a contract of
+                              {' '}${fmt(contractTotal)} — a difference of ${fmt(Math.abs(gap))}.
+                              The quote has changed since the schedule was built. Rebuild it
+                              before raising any more invoices.
+                            </span>
+                          </p>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
               )}
 
