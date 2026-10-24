@@ -53,7 +53,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * shape the layout draws — the split exists so the rules that decide what a
    * customer sees can be asserted in a test rather than reasoned about.
    */
-  const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines } =
+  const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines, credits } =
     selectQuoteLines(quote, forCustomer);
   const grouped = groupLinesByPhase(lines, steps);
 
@@ -124,6 +124,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     },
     phases,
     showLines,
+    credits,
     subtotal: Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
       || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0),
     tax: Number(quote?.taxAmount) || 0,

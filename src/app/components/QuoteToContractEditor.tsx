@@ -101,6 +101,18 @@ interface MaterialItem {
   inStock?: boolean;
   qualityRating?: number;
   visible?: boolean;
+  /**
+   * Which phase of the job this line belongs to.
+   *
+   * The estimator sets it and until now nothing could change it, which made
+   * it the one field on a quote that could be WRONG AND UNFIXABLE. That
+   * matters more than it used to: the payment schedule draws one invoice per
+   * phase, weighted by what each phase is worth, so a line tagged to the
+   * wrong phase bills the customer at the wrong milestone — and an untagged
+   * line is spread across every other phase by weight instead of sitting in
+   * its own.
+   */
+  phase?: string;
 }
 
 interface LaborItem {
@@ -112,6 +124,8 @@ interface LaborItem {
   totalCost: number;
   assignedTo?: string;
   visible?: boolean;
+  /** Which phase of the job. See the note on MaterialItem. */
+  phase?: string;
 }
 
 interface ProcessStep {
@@ -510,6 +524,28 @@ export function QuoteToContractEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editMode, editedQuote, workRequest.quote],
   );
+
+  /**
+   * The phases this job actually has, for the pickers on each line.
+   *
+   * Taken from the process steps rather than from whatever the lines happen
+   * to say, because the steps are what the customer reads and what the
+   * payment schedule draws against. Any phase a line mentions that the steps
+   * do not is appended, so an estimator's stray tag is visible and fixable
+   * rather than silently absent from the list that would let you fix it.
+   */
+  const phaseOptions = useMemo(() => {
+    const out: string[] = [];
+    const push = (v: any) => {
+      const t = String(v || '').trim();
+      if (t && !out.includes(t)) out.push(t);
+    };
+    for (const step of ((currentQuote as any)?.processSteps || [])) push(step?.title || step?.step);
+    for (const line of [...((currentQuote as any)?.materials || []), ...((currentQuote as any)?.labor || [])]) {
+      push(line?.phase);
+    }
+    return out;
+  }, [currentQuote]);
 
   const handleConvertToContract = async () => {
     const quoteId = currentQuote?.id || workRequest.quote?.id;
@@ -1906,7 +1942,7 @@ export function QuoteToContractEditor({
      *
      * The taxable figure floors at zero so a credit larger than the material
      * cannot produce a negative tax, while the TOTAL is deliberately not
-     * floored: a quote that ends up in the customer\u2019s favour is a real
+     * floored: a quote that ends up in the customer's favour is a real
      * situation and somebody should see it rather than have it rounded away.
      */
     const creditsSubtotal = (quote.credits || []).reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
@@ -2658,28 +2694,104 @@ export function QuoteToContractEditor({
                   </div>
                 </div>
 
-                {/* What the customer supplied themselves */}
-                {editMode && (
-                  <details open={(editedQuote?.credits || []).length > 0}
+                {/*
+                  The tax rate, which drove every total on the quote and had
+                  no input anywhere.
+
+                  It is stored as a FRACTION (0.0875) and shown as a percent,
+                  because that is how it is typed and how it is read. The
+                  conversion happens here rather than in the stored value, so
+                  nothing downstream — the PDF, the invoice, the schedule —
+                  has to guess which form it is holding.
+
+                  Editing it recalculates immediately, the same way changing a
+                  quantity does. A rate that is saved but not applied until
+                  some later action is a rate somebody will send out wrong.
+                */}
+                {editMode && editedQuote && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-gray-700 bg-black/20 px-4 py-3">
+                    <label className="text-sm font-semibold text-gray-300">Sales tax on materials</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="30"
+                      step="0.01"
+                      value={Number(((editedQuote.taxRate || 0) * 100).toFixed(4))}
+                      onChange={(e) => {
+                        const percent = Math.min(30, Math.max(0, Number(e.target.value) || 0));
+                        recalculateTotals({ ...editedQuote, taxRate: percent / 100 });
+                      }}
+                      className="w-24 rounded border border-gray-600 bg-black px-3 py-2 text-right text-sm text-white"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                    <span className="ml-auto text-sm text-gray-400">
+                      Tax ${(currentQuote.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                {/*
+                  What the home owner is supplying themselves.
+
+                  Eric: "have a spot the write in products and comments that
+                  the home owner will be supplying."
+
+                  It existed — as "Customer credits", gated behind edit mode
+                  and collapsed inside a <details> under the totals, which is
+                  to say it may as well not have. Three changes: it is always
+                  present rather than edit-mode only, it opens by default, and
+                  it is named for what it is rather than for its accounting
+                  treatment. Nobody goes looking for a "credit" when what they
+                  have is a customer turning up with their own tiles.
+                */}
+                {(editMode || (currentQuote as any)?.credits?.length > 0) && (
+                  <details open
                     className="mt-6 bg-black/20 border border-emerald-500/30 rounded-lg">
                     <summary className="px-4 py-3 cursor-pointer font-semibold text-emerald-400 hover:bg-emerald-500/10 rounded-t-lg flex items-center gap-2">
                       <DollarSign className="w-4 h-4" />
-                      Customer credits ({(editedQuote?.credits || []).length})
+                      Supplied by the home owner ({((editMode ? editedQuote : currentQuote) as any)?.credits?.length || 0})
                     </summary>
                     <div className="p-4 space-y-3">
                       <p className="text-xs text-gray-500">
-                        For material the customer bought themselves — their own flooring, their own
-                        fixtures. It comes off the materials figure, so there is no markup and no
-                        sales tax on it, and it stays on the quote as its own line.
+                        Anything the home owner is buying and bringing themselves — their own
+                        flooring, their own fixtures, the tiles they found on offer. It comes off
+                        the materials figure, so there is no markup and no sales tax on it, and it
+                        stays on the quote as its own line somebody can read a year later.
                       </p>
 
-                      {(editedQuote?.credits || []).map(credit => (
+                      {!editMode && !((currentQuote as any)?.credits || []).length && (
+                        <p className="text-sm text-gray-600">Nothing recorded yet.</p>
+                      )}
+
+                      {/*
+                        Read-only outside edit mode rather than hidden.
+                        Somebody checking a quote before it goes out needs to
+                        see what the owner is supplying without having to put
+                        the quote into edit mode to find out — and putting it
+                        into edit mode to look is how a stray keystroke gets
+                        saved onto a quote nobody meant to change.
+                      */}
+                      {!editMode && ((currentQuote as any)?.credits || []).map((credit: any) => (
+                        <div key={credit.id} className="rounded-lg border border-emerald-500/20 bg-black/30 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <span className="text-sm text-white">{credit.description || 'Supplied by the home owner'}</span>
+                            <span className="shrink-0 text-sm font-semibold text-emerald-300">
+                              −${(Number(credit.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          {credit.reason && (
+                            <p className="mt-1 text-xs text-emerald-200/60">{credit.reason}</p>
+                          )}
+                        </div>
+                      ))}
+
+                      {editMode && (editedQuote?.credits || []).map(credit => (
                         <div key={credit.id} className="bg-black/30 border border-emerald-500/20 rounded-lg p-3 space-y-2">
                           <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 8rem 2rem' }}>
                             <input
                               value={credit.description}
                               onChange={e => updateCredit(credit.id, 'description', e.target.value)}
-                              placeholder="What they supplied — e.g. hardwood flooring"
+                              placeholder="What they are supplying — e.g. hardwood flooring"
                               className="bg-black/40 border border-emerald-500/20 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500/50" />
                             {/* Always positive: the credit is the record type, not a minus sign. */}
                             <input
@@ -2690,27 +2802,35 @@ export function QuoteToContractEditor({
                               className="bg-black/40 border border-emerald-500/20 rounded px-3 py-2 text-sm text-emerald-300 text-right focus:outline-none focus:border-emerald-500/50" />
                             <button onClick={() => removeCredit(credit.id)}
                               className="flex items-center justify-center rounded hover:bg-red-500/20 transition"
-                              aria-label="Remove this credit">
+                              aria-label="Remove this item">
                               <Trash2 className="w-4 h-4 text-gray-600 hover:text-red-400" />
                             </button>
                           </div>
+                          {/*
+                            The comment. Eric asked for "products AND comments"
+                            — this is the comments half, and it is the field
+                            that stops a conversation six months later being
+                            one person's memory against another's.
+                          */}
                           <input
                             value={credit.reason || ''}
                             onChange={e => updateCredit(credit.id, 'reason', e.target.value)}
-                            placeholder="Why — e.g. bought their own at Home Depot, receipt on file"
+                            placeholder="Notes — e.g. bought their own at Home Depot, receipt on file, delivering week 2"
                             className="w-full bg-transparent border-b border-emerald-500/20 px-1 py-1 text-xs text-emerald-200/70 placeholder-gray-700 focus:outline-none focus:border-emerald-500/50" />
                         </div>
                       ))}
 
-                      <button onClick={addCredit}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/10 transition">
-                        <Plus className="w-4 h-4" /> Add a credit
-                      </button>
+                      {editMode && (
+                        <button onClick={addCredit}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/10 transition">
+                          <Plus className="w-4 h-4" /> Add something they are supplying
+                        </button>
+                      )}
 
                       {(editedQuote?.totalCost || 0) < 0 && (
                         <p className="text-xs text-amber-400">
-                          The credits come to more than the work. This quote is in the customer\u2019s
-                          favour — worth a second look before it goes out.
+                          What the home owner is supplying comes to more than the work. This quote
+                          is in their favour — worth a second look before it goes out.
                         </p>
                       )}
                     </div>
@@ -2847,6 +2967,19 @@ export function QuoteToContractEditor({
                   </button>
                 </div>
               )}
+
+              {/*
+                The phase list, shared by every line's phase picker.
+
+                A `datalist` rather than a `select` on purpose: it offers the
+                job's own phases without PREVENTING a new one being typed.
+                Restricting the field to existing steps would mean a line
+                could never be moved to a phase that has not been written up
+                yet, which is exactly when somebody is reorganising a quote.
+              */}
+              <datalist id="quote-phase-options">
+                {phaseOptions.map((phase) => <option key={phase} value={phase} />)}
+              </datalist>
 
               {/* Materials Section */}
               {(!editMode || quoteEditTab === 'materials') && (
@@ -2994,6 +3127,30 @@ export function QuoteToContractEditor({
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
+                            {/*
+                              The two fields that had no input anywhere.
+
+                              Phase decides which invoice this line is billed
+                              on, so leaving it uneditable meant an estimator's
+                              mistake was permanent. Description is what the
+                              customer actually reads next to the price — the
+                              name alone is often just "Lumber".
+                            */}
+                            <input
+                              type="text"
+                              list="quote-phase-options"
+                              value={material.phase || ''}
+                              onChange={(e) => updateMaterial(material.id, 'phase' as any, e.target.value)}
+                              className="col-span-2 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                              placeholder="Phase — which stage of the job"
+                            />
+                            <input
+                              type="text"
+                              value={material.description || ''}
+                              onChange={(e) => updateMaterial(material.id, 'description', e.target.value)}
+                              className="col-span-4 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                              placeholder="Description — what the customer reads"
+                            />
                           </div>
                         ) : (
                           <>
@@ -3194,6 +3351,23 @@ export function QuoteToContractEditor({
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
+                            {/* Same two fields the materials gained, and for
+                                the same reasons — see the note there. */}
+                            <input
+                              type="text"
+                              list="quote-phase-options"
+                              value={labor.phase || ''}
+                              onChange={(e) => updateLabor(labor.id, 'phase' as any, e.target.value)}
+                              className="col-span-2 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                              placeholder="Phase — which stage of the job"
+                            />
+                            <input
+                              type="text"
+                              value={labor.description || ''}
+                              onChange={(e) => updateLabor(labor.id, 'description', e.target.value)}
+                              className="col-span-3 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                              placeholder="Description — what this covers"
+                            />
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">

@@ -89,6 +89,15 @@ export interface QuotePdfData {
   customer: { name: string; email?: string; phone?: string; address?: string };
   job: { title?: string; description?: string };
   phases: QuotePdfPhase[];
+  /**
+   * What the customer is supplying themselves, deducted from the work.
+   *
+   * Drawn as its own block above the totals rather than folded silently
+   * into the subtotal. A deduction the customer cannot see itemised is a
+   * deduction they ring up about — and it is the one figure on the document
+   * that is in their favour, so burying it is the wrong way round.
+   */
+  credits?: Array<{ description: string; amount: number; note?: string }>;
   /** False when the breakdown is withheld — phase totals are shown instead. */
   showLines: boolean;
   subtotal: number;
@@ -275,6 +284,37 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
     }
   }
 
+  /* ── What the customer is supplying ─────────────────────────────────── */
+  if (data.credits?.length) {
+    y = pageBreak(doc, y, 24) + 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(130, 130, 130);
+    doc.text('SUPPLIED BY YOU', MARGIN, y);
+    y += 5;
+
+    for (const credit of data.credits) {
+      y = pageBreak(doc, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(70, 70, 70);
+      doc.text(String(credit.description || 'Supplied by you'), MARGIN, y);
+      doc.text(`-${money(credit.amount)}`, right, y, { align: 'right' });
+      y += 4.4;
+      if (credit.note) {
+        doc.setFontSize(8);
+        doc.setTextColor(130, 130, 130);
+        for (const wrapped of doc.splitTextToSize(String(credit.note), right - MARGIN - 30) as string[]) {
+          y = pageBreak(doc, y);
+          doc.text(wrapped, MARGIN + 3, y);
+          y += 3.8;
+        }
+      }
+      y += 1.2;
+    }
+    y += 2;
+  }
+
   /* ── Totals ─────────────────────────────────────────────────────────── */
   y = pageBreak(doc, y, 40) + 2;
   doc.setDrawColor(220, 220, 220);
@@ -291,6 +331,19 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
   };
 
   totalRow('Subtotal', money(data.subtotal));
+  /**
+   * The deduction, restated in the totals so the sum can be followed.
+   *
+   * The itemised block above says WHAT the customer is supplying; without
+   * this row the figures jump from a subtotal that excludes the deduction
+   * to a total that includes it, and the reader has to work out for
+   * themselves where several thousand pounds went. A total somebody cannot
+   * follow is a total somebody queries.
+   */
+  const suppliedTotal = (data.credits || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  if (suppliedTotal > 0) {
+    totalRow('Supplied by you', `-${money(suppliedTotal)}`);
+  }
   if (data.tax) {
     totalRow(data.taxRate ? `Tax (${(data.taxRate * 100).toFixed(2)}%)` : 'Tax', money(data.tax));
   }

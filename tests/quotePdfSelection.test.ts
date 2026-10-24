@@ -138,3 +138,54 @@ test('a malformed quote selects nothing rather than throwing', () => {
     assert.equal(sel.phaseCost.size, 0);
   }
 });
+
+/* ── what the home owner is supplying ────────────────────────────────────── */
+
+const withSupplied = {
+  ...quote,
+  credits: [
+    { id: 'c1', description: 'Hardwood flooring', amount: 2400, reason: 'Bought their own at Home Depot, receipt on file' },
+    { id: 'c2', description: 'Bathroom fixtures', amount: 650 },
+  ],
+};
+
+test('what the owner supplies reaches the customer copy', () => {
+  const sel = selectQuoteLines(withSupplied, true);
+  assert.equal(sel.credits.length, 2);
+  assert.equal(sel.credits[0].description, 'Hardwood flooring');
+  assert.equal(sel.credits[0].amount, 2400);
+  assert.match(sel.credits[0].note!, /Home Depot/);
+});
+
+test('the section switches do NOT withhold it', () => {
+  /**
+   * The switches exist to stop a customer working backwards to our rates.
+   * This is money coming OFF their bill for something they are providing,
+   * so hiding it would leave a deduction in the total with nothing on the
+   * page explaining it — which is the one thing that generates a phone call.
+   */
+  const sel = selectQuoteLines(
+    { ...withSupplied, customerSections: { materials: false, labor: false, processDetail: false } },
+    true,
+  );
+  assert.equal(sel.credits.length, 2, 'withheld along with the materials');
+});
+
+test('the amount is always positive, whatever was typed', () => {
+  // Being a credit is the record type, not the sign. A negative here would
+  // be subtracted twice by anything that already knows these come off.
+  const sel = selectQuoteLines({ credits: [{ description: 'Tiles', amount: -500 }] }, true);
+  assert.equal(sel.credits[0].amount, 500);
+});
+
+test('an unnamed item still reads as something', () => {
+  const sel = selectQuoteLines({ credits: [{ amount: 100 }] }, true);
+  assert.equal(sel.credits[0].description, 'Supplied by you');
+  assert.equal(sel.credits[0].note, undefined, 'no empty note to draw');
+});
+
+test('a quote with none gets an empty list, not undefined', () => {
+  for (const q of [quote, {}, undefined, { credits: 'nope' }]) {
+    assert.deepEqual(selectQuoteLines(q, true).credits, []);
+  }
+});

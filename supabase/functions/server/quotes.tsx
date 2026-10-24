@@ -323,6 +323,29 @@ function normalizeDoc(input: any) {
     processSteps: Array.isArray(input.processSteps) ? input.processSteps : [],
     intake: input.intake ?? null,
     /**
+     * What the home owner is supplying themselves.
+     *
+     * THIS WAS BEING THROWN AWAY. The editor had the field, recalculated the
+     * total with it, and posted it — and `normalizeDoc` is a whitelist, so
+     * the server dropped it on the floor. Reload the quote and the owner's
+     * own flooring had vanished and the total had sprung back up by the
+     * amount of it. The feature looked finished and persisted nothing.
+     *
+     * The amount is forced POSITIVE and absolute. Being a credit is the
+     * record type, not the sign of a number somebody typed; a negative here
+     * would be subtracted twice by anything that already knows these come
+     * off the materials figure.
+     */
+    credits: Array.isArray(input.credits)
+      ? input.credits.slice(0, 100).map((credit: any, i: number) => ({
+          id: String(credit?.id || `credit-${i + 1}`).slice(0, 120),
+          description: String(credit?.description || '').slice(0, 300),
+          amount: Math.abs(Number(credit?.amount)) || 0,
+          reason: String(credit?.reason || '').slice(0, 500),
+        }))
+      : [],
+    creditsSubtotal: Math.abs(Number(input.creditsSubtotal)) || 0,
+    /**
      * The payment schedule: the deposit and the per-phase draws this job is
      * billed in. Invoices are raised against these, so this is the record of
      * what the customer agreed to pay and when.

@@ -232,3 +232,41 @@ test('an empty or malformed quote yields a usable empty shape, not a throw', () 
     assert.equal(out.totalCost, 0);
   }
 });
+
+/* ── what the home owner is supplying ────────────────────────────────────── */
+
+test('what the owner supplies is sent, with its note', () => {
+  const v = customerQuoteView({
+    credits: [{ id: 'c1', description: 'Hardwood flooring', amount: 2400, reason: 'Receipt on file' }],
+    creditsSubtotal: 2400,
+  });
+  assert.equal(v.credits.length, 1);
+  assert.equal(v.credits[0].description, 'Hardwood flooring');
+  assert.equal(v.credits[0].amount, 2400);
+  assert.equal(v.credits[0].note, 'Receipt on file');
+  assert.equal(v.creditsSubtotal, 2400);
+});
+
+test('it survives every section being switched off', () => {
+  // Not a margin disclosure — it is a deduction in the customer's favour,
+  // and a deduction they cannot see itemised is one they ring about.
+  const v = customerQuoteView({
+    customerSections: { materials: false, labor: false, processDetail: false },
+    credits: [{ description: 'Tiles', amount: 300 }],
+    creditsSubtotal: 300,
+  });
+  assert.equal(v.credits.length, 1);
+});
+
+test('the amount is positive however it was stored', () => {
+  const v = customerQuoteView({ credits: [{ description: 'Tiles', amount: -300 }], creditsSubtotal: -300 });
+  assert.equal(v.credits[0].amount, 300);
+  assert.equal(v.creditsSubtotal, 300);
+});
+
+test('a quote with none sends an empty list, never undefined', () => {
+  for (const q of [{}, undefined, { credits: 'nope' }]) {
+    assert.deepEqual(customerQuoteView(q).credits, []);
+    assert.equal(customerQuoteView(q).creditsSubtotal, 0);
+  }
+});

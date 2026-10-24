@@ -79,6 +79,22 @@ export interface CustomerProcessStep {
   cost?: number;
 }
 
+/**
+ * Something the home owner is supplying themselves.
+ *
+ * ALWAYS SENT, never gated behind a section switch. The visibility controls
+ * exist to stop a customer working backwards to our rates and our margin;
+ * this is the opposite — it is money coming OFF their bill for something
+ * they are providing. Withholding it would mean a customer seeing a
+ * deduction in the total with nothing on the page explaining it, which is
+ * the one thing guaranteed to generate a phone call.
+ */
+export interface CustomerCredit {
+  description: string;
+  amount: number;
+  note: string;
+}
+
 export interface CustomerQuote {
   id: string;
   quoteNumber: string;
@@ -91,6 +107,9 @@ export interface CustomerQuote {
   materials: CustomerMaterial[];
   labor: CustomerLabor[];
   processSteps: CustomerProcessStep[];
+  /** What the home owner is supplying. Deducted from the materials figure. */
+  credits: CustomerCredit[];
+  creditsSubtotal: number;
   materialsSubtotal: number;
   laborSubtotal: number;
   taxRate: number;
@@ -268,6 +287,19 @@ export function customerQuoteView(quote: any): CustomerQuote {
     materials: sections.materials ? materials : [],
     labor: sections.labor ? labor : [],
     processSteps,
+    /**
+     * Not gated by `sections.materials`, deliberately — see the type.
+     *
+     * The note travels too. It is the customer's own record of what they
+     * agreed to bring, and six months later it is the difference between a
+     * conversation and an argument.
+     */
+    credits: (Array.isArray(quote?.credits) ? quote.credits : []).map((credit: any) => ({
+      description: str(credit?.description),
+      amount: Math.abs(num(credit?.amount)),
+      note: str(credit?.reason),
+    })),
+    creditsSubtotal: Math.abs(num(quote?.creditsSubtotal)),
     // Passed through, never recomputed — see the note at the top.
     materialsSubtotal: num(quote?.materialsSubtotal),
     laborSubtotal: num(quote?.laborSubtotal),

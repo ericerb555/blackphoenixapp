@@ -48,6 +48,15 @@ export interface QuoteSelection {
   phaseText: Map<string, string>;
   /** False when both line sections are withheld — only totals are drawable. */
   showLines: boolean;
+  /**
+   * What the customer is supplying themselves.
+   *
+   * NOT subject to the section switches or the per-line flag. Those exist to
+   * stop a customer working backwards to our rates; this is money coming off
+   * their bill for something they are providing, and hiding it would leave a
+   * deduction in the total with nothing explaining it.
+   */
+  credits: Array<{ description: string; amount: number; note?: string }>;
 }
 
 export function sectionsOf(quote: any): CustomerSections {
@@ -132,5 +141,10 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     phaseCost,
     phaseText,
     showLines: sections.materials || sections.labor,
+    credits: (Array.isArray(quote?.credits) ? quote.credits : []).map((c: any) => ({
+      description: String(c?.description || '').trim() || 'Supplied by you',
+      amount: Math.abs(Number(c?.amount)) || 0,
+      note: String(c?.reason || c?.note || '').trim() || undefined,
+    })),
   };
 }
