@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectQuoteLines, sectionsOf } from '../src/app/lib/quotePdfSelection.ts';
+import { selectQuoteLines, sectionsOf, isIncluded } from '../src/app/lib/quotePdfSelection.ts';
 
 const quote = {
   materials: [
@@ -188,4 +188,56 @@ test('a quote with none gets an empty list, not undefined', () => {
   for (const q of [quote, {}, undefined, { credits: 'nope' }]) {
     assert.deepEqual(selectQuoteLines(q, true).credits, []);
   }
+});
+
+/* ── excluded is not hidden, and the difference is the price ─────────────── */
+
+const withExcluded = {
+  materials: [
+    { name: 'Lumber', quantity: 1, unitCost: 1100, totalCost: 1100, phase: 'Framing' },
+    { name: 'Skip hire', quantity: 1, unitCost: 450, totalCost: 450, phase: 'Framing', visible: false },
+    { name: 'Dropped extra', quantity: 1, unitCost: 700, totalCost: 700, phase: 'Framing', included: false },
+  ],
+  labor: [{ role: 'Carpenter', hours: 10, hourlyRate: 70, totalCost: 700, phase: 'Framing', included: false }],
+  processSteps: [
+    { title: 'Framing', description: 'Build the frame' },
+    { title: 'Dropped phase', description: 'decided against', included: false },
+  ],
+  credits: [
+    { description: 'Flooring', amount: 500 },
+    { description: 'Dropped credit', amount: 900, included: false },
+  ],
+};
+
+test('an excluded line is not charged, a hidden one is', () => {
+  const sel = selectQuoteLines(withExcluded, true);
+  assert.equal(sel.phaseCost.get('Framing'), 1550, '1100 + 450 hidden; the two 700s are out');
+  assert.deepEqual(sel.lines.map((l) => l.description), ['Lumber']);
+});
+
+test('an excluded line is gone from the internal copy too', () => {
+  const sel = selectQuoteLines(withExcluded, false);
+  const json = JSON.stringify(sel.lines);
+  assert.ok(!json.includes('Dropped extra'), 'excluded material leaked internally');
+  assert.ok(!json.includes('Carpenter'), 'excluded labour leaked internally');
+  assert.ok(json.includes('Skip hire'), 'the hidden one must still show internally');
+});
+
+test('an excluded process step is dropped for everyone', () => {
+  for (const forCustomer of [true, false]) {
+    const sel = selectQuoteLines(withExcluded, forCustomer);
+    assert.ok(!sel.steps.some((s: any) => s.title === 'Dropped phase'), String(forCustomer));
+  }
+});
+
+test('an excluded supplied item does not reduce the bill', () => {
+  const sel = selectQuoteLines(withExcluded, true);
+  assert.deepEqual(sel.credits.map((c) => c.description), ['Flooring']);
+});
+
+test('absent means included, so no existing quote changes', () => {
+  for (const l of [{}, { included: true }, { included: undefined }]) {
+    assert.equal(isIncluded(l), true, JSON.stringify(l));
+  }
+  assert.equal(isIncluded({ included: false }), false);
 });

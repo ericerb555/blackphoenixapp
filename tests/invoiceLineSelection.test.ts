@@ -14,6 +14,7 @@ import {
   isLineShown,
   amountOf,
   UNPHASED,
+  isLineIncluded,
 } from '../src/app/lib/invoiceLineSelection.ts';
 
 const items = [
@@ -129,4 +130,50 @@ test('malformed input selects nothing rather than throwing', () => {
     assert.ok(Array.isArray(sel.lines));
     assert.equal(sel.hiddenCount, 0);
   }
+});
+
+/* ── excluded is not hidden, and the difference is money ─────────────────── */
+
+const mixed = [
+  { description: 'Steel', quantity: 1, unit_price: 1000, phase: 'Structural' },
+  { description: 'Skip hire', quantity: 1, unit_price: 300, phase: 'Structural', visible: false },
+  { description: 'Dropped extra', quantity: 1, unit_price: 700, phase: 'Structural', included: false },
+];
+
+test('an excluded line is not charged, a hidden one is', () => {
+  const sel = selectInvoiceLines(mixed, true);
+  // Hidden: in the phase cost, not in the lines. Excluded: in neither.
+  assert.equal(sel.phaseCost.get('Structural'), 1300, '1000 + 300 hidden, NOT the 700 excluded');
+  assert.deepEqual(sel.lines.map((l) => l.description), ['Steel']);
+});
+
+test('an excluded line is gone from the office copy too', () => {
+  // An internal printout listing work that is not being billed is how
+  // somebody quotes a figure that is not the figure.
+  const sel = selectInvoiceLines(mixed, false);
+  assert.ok(!JSON.stringify(sel.lines).includes('Dropped extra'));
+  assert.equal(sel.lines.length, 2, 'the hidden one still shows internally');
+});
+
+test('excluding does not count towards the withheld tally', () => {
+  const sel = selectInvoiceLines(mixed, true);
+  assert.equal(sel.hiddenCount, 1, 'only the hidden one');
+  assert.equal(sel.hiddenAmount, 300, 'not 1000');
+});
+
+test('absent means included, so no invoice already sent changes', () => {
+  for (const l of [{}, { included: true }, { included: undefined }]) {
+    assert.equal(isLineIncluded(l), true, JSON.stringify(l));
+  }
+  assert.equal(isLineIncluded({ included: false }), false);
+});
+
+test('a line can be both excluded and hidden without counting twice', () => {
+  const sel = selectInvoiceLines(
+    [{ description: 'Both', quantity: 1, unit_price: 500, visible: false, included: false }],
+    true,
+  );
+  assert.deepEqual(sel.lines, []);
+  assert.equal(sel.hiddenCount, 0, 'excluded wins; it is not a withheld line');
+  assert.equal(sel.phaseCost.size, 0);
 });

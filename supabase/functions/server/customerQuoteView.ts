@@ -134,6 +134,18 @@ const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
  */
 const isVisible = (line: any) => line?.visible !== false;
 
+/**
+ * Is this line on the quote at all?
+ *
+ * A DIFFERENT QUESTION FROM `isVisible`, and the difference is money.
+ * Hidden means charged but not itemised; excluded means not charged. An
+ * excluded line is filtered before anything else and never travels, because
+ * it is not part of the job the customer is being quoted for.
+ *
+ * Absent means included, so no quote written before this field changes.
+ */
+const isIncluded = (line: any) => line?.included !== false;
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
@@ -180,11 +192,16 @@ const sectionsOf = (quote: any): CustomerSections => {
 /**
  * What each phase costs, from the lines assigned to it.
  *
- * Counts only VISIBLE lines, which is the one subtlety worth stating: a line
- * marked `visible: false` is still charged — hiding removes the detail, not
- * the money — so its cost belongs in its phase's total even though the line
- * itself never travels. That is exactly what makes phase totals safe to show
- * when the lines are not.
+ * Counts every INCLUDED line, visible or not, and that distinction is the
+ * one subtlety worth stating twice. A line marked `visible: false` is still
+ * charged — hiding removes the detail, not the money — so its cost belongs
+ * in its phase's total even though the line itself never travels. That is
+ * exactly what makes phase totals safe to show when the lines are not.
+ *
+ * A line marked `included: false` is NOT charged, so its cost must not be
+ * here. Treating the two the same way would bill the customer for work
+ * somebody had explicitly taken off the quote, in a figure they cannot
+ * itemise and therefore cannot dispute.
  */
 function phaseCosts(quote: any): Map<string, number> {
   const totals = new Map<string, number>();
@@ -194,10 +211,10 @@ function phaseCosts(quote: any): Map<string, number> {
     totals.set(key, round2((totals.get(key) || 0) + amount));
   };
   for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
-    add(m?.phase, Number(m?.totalCost) || 0);
+    if (isIncluded(m)) add(m?.phase, Number(m?.totalCost) || 0);
   }
   for (const l of Array.isArray(quote?.labor) ? quote.labor : []) {
-    add(l?.phase, Number(l?.totalCost) || 0);
+    if (isIncluded(l)) add(l?.phase, Number(l?.totalCost) || 0);
   }
   return totals;
 }
@@ -215,7 +232,7 @@ export function customerQuoteView(quote: any): CustomerQuote {
   const needPhaseCosts = !sections.materials || !sections.labor;
   const costs = needPhaseCosts ? phaseCosts(quote) : null;
   const materials = (Array.isArray(quote?.materials) ? quote.materials : [])
-    .filter(isVisible)
+    .filter(isIncluded).filter(isVisible)
     .map((m: any): CustomerMaterial => ({
       id: str(m?.id),
       name: str(m?.name),
@@ -228,7 +245,7 @@ export function customerQuoteView(quote: any): CustomerQuote {
     }));
 
   const labor = (Array.isArray(quote?.labor) ? quote.labor : [])
-    .filter(isVisible)
+    .filter(isIncluded).filter(isVisible)
     .map((l: any): CustomerLabor => ({
       id: str(l?.id),
       role: str(l?.role),
@@ -239,7 +256,7 @@ export function customerQuoteView(quote: any): CustomerQuote {
     }));
 
   const processSteps = (Array.isArray(quote?.processSteps) ? quote.processSteps : [])
-    .filter(isVisible)
+    .filter(isIncluded).filter(isVisible)
     .map((s: any, i: number): CustomerProcessStep => {
       const title = str(s?.title || s?.step);
       const step: CustomerProcessStep = {
@@ -294,7 +311,7 @@ export function customerQuoteView(quote: any): CustomerQuote {
      * agreed to bring, and six months later it is the difference between a
      * conversation and an argument.
      */
-    credits: (Array.isArray(quote?.credits) ? quote.credits : []).map((credit: any) => ({
+    credits: (Array.isArray(quote?.credits) ? quote.credits : []).filter(isIncluded).map((credit: any) => ({
       description: str(credit?.description),
       amount: Math.abs(num(credit?.amount)),
       note: str(credit?.reason),

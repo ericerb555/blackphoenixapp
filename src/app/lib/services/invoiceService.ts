@@ -162,6 +162,14 @@ export interface InvoiceLineItem {
    * browser has already been sent.
    */
   visible?: boolean;
+  /**
+   * Is this line on the invoice at all?
+   *
+   * NOT THE SAME QUESTION AS `visible`, and the difference is money:
+   * excluded is not charged and the total drops; hidden is charged and the
+   * customer simply is not shown the line. ABSENT MEANS INCLUDED.
+   */
+  included?: boolean;
 }
 
 export interface InvoiceFormData {

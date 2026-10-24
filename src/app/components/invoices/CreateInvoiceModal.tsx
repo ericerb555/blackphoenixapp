@@ -329,8 +329,21 @@ export default function CreateInvoiceModal({
     setLineItems(updated);
   };
 
+  /**
+   * EXCLUDED LINES ARE NOT CHARGED FOR.
+   *
+   * The difference between the invoice's two toggles, and the line of code
+   * that makes it real. "Hidden" means the customer is not shown the line
+   * but is still paying for it, so it stays in this sum. "Off invoice" means
+   * the work is not being billed, so it must come out and the total has to
+   * drop by exactly its amount.
+   *
+   * Absent means included, so every invoice already written is unchanged.
+   */
+  const onInvoice = (item: InvoiceLineItem) => item.included !== false;
+
   const calculateSubtotal = () => {
-    return lineItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+    return lineItems.filter(onInvoice).reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
   };
 
   const calculateTax = () => {
@@ -884,17 +897,43 @@ export default function CreateInvoiceModal({
                     the browser has already been sent to it.
                   */}
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#1A1A1A] pt-3">
+                    {/*
+                      On the invoice at all, which is a different question
+                      from whether the customer sees the line — and the
+                      difference is money. Off means not billed and the total
+                      drops; hidden means billed without itemising.
+                    */}
                     <button
                       type="button"
-                      onClick={() => updateLineItem(index, 'visible', item.visible === false)}
+                      onClick={() => updateLineItem(index, 'included', item.included === false)}
                       className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide transition ${
+                        item.included === false
+                          ? 'border border-gray-700 bg-black/40 text-gray-500 hover:text-gray-300'
+                          : 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      }`}
+                      title={item.included === false
+                        ? 'Not billed. Click to put it back on the invoice.'
+                        : 'Billed. Click to take it off — the total will drop.'}
+                    >
+                      {item.included === false ? 'Off invoice' : 'On invoice'}
+                    </button>
+                    {item.included === false && (
+                      <span className="text-[11px] text-gray-500">Not charged — the total drops by this amount.</span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={item.included === false}
+                      onClick={() => updateLineItem(index, 'visible', item.visible === false)}
+                      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide transition disabled:opacity-40 ${
                         item.visible === false
                           ? 'border border-amber-500/40 bg-amber-500/10 text-amber-400'
                           : 'border border-[#2A2A2A] text-gray-500 hover:text-gray-300'
                       }`}
-                      title={item.visible === false
-                        ? 'The customer is not shown this line. Its cost is still charged.'
-                        : 'The customer sees this line itemised.'}
+                      title={item.included === false
+                        ? 'Not on the invoice, so there is nothing to show or hide.'
+                        : item.visible === false
+                          ? 'The customer is not shown this line. Its cost is still charged.'
+                          : 'The customer sees this line itemised.'}
                     >
                       {item.visible === false
                         ? <><EyeOff className="h-3 w-3" /> Hidden from customer</>

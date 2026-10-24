@@ -342,6 +342,8 @@ function normalizeDoc(input: any) {
           description: String(credit?.description || '').slice(0, 300),
           amount: Math.abs(Number(credit?.amount)) || 0,
           reason: String(credit?.reason || '').slice(0, 500),
+          // Absent means included; only an explicit false takes it off.
+          ...(credit?.included === false ? { included: false } : {}),
         }))
       : [],
     creditsSubtotal: Math.abs(Number(input.creditsSubtotal)) || 0,

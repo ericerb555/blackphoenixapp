@@ -113,6 +113,24 @@ interface MaterialItem {
    * its own.
    */
   phase?: string;
+  /**
+   * Is this on the quote at all?
+   *
+   * NOT THE SAME QUESTION AS `visible`, and the difference is money:
+   *
+   *   included: false   the work is not on the quote and is NOT CHARGED.
+   *                     The total drops by its amount.
+   *   visible: false    the work IS charged; the customer is simply not
+   *                     shown the line. The total does not move.
+   *
+   * Two toggles because they answer two questions a contractor genuinely
+   * asks: "am I doing this?" and "am I telling them what it costs?" One
+   * control cannot do both, and conflating them either bills for work that
+   * was dropped or gives away work that was not.
+   *
+   * ABSENT MEANS INCLUDED, so every quote written before this is unchanged.
+   */
+  included?: boolean;
 }
 
 interface LaborItem {
@@ -126,6 +144,8 @@ interface LaborItem {
   visible?: boolean;
   /** Which phase of the job. See the note on MaterialItem. */
   phase?: string;
+  /** On the quote and charged for? See the note on MaterialItem. */
+  included?: boolean;
 }
 
 interface ProcessStep {
@@ -136,6 +156,8 @@ interface ProcessStep {
   estimatedDuration: string;
   dependencies?: string[];
   visible?: boolean;
+  /** On the quote at all? See the note on MaterialItem. */
+  included?: boolean;
 }
 
 interface ScheduleTask {
@@ -168,6 +190,8 @@ interface QuoteCredit {
   description: string;
   amount: number;
   reason?: string;
+  /** Counted against the bill? Excluding one puts its cost back on us. */
+  included?: boolean;
 }
 
 interface Quote {
@@ -546,6 +570,32 @@ export function QuoteToContractEditor({
     }
     return out;
   }, [currentQuote]);
+
+  /**
+   * The "on the quote" toggle, rendered the same way everywhere.
+   *
+   * Four item types need it — materials, labour, phases and what the owner
+   * is supplying — and four hand-written copies of a control that decides
+   * whether something is CHARGED FOR is four chances to get the default
+   * backwards. Absent means included; only an explicit false excludes.
+   */
+  const IncludeToggle = ({ on, onToggle, noun }: { on: boolean; onToggle: () => void; noun: string }) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={on
+        ? `On the quote and charged for. Click to take this ${noun} off — the total will drop.`
+        : `Not on the quote and not charged. Click to put this ${noun} back on.`}
+      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
+        on
+          ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+          : 'border border-gray-700 bg-black/40 text-gray-500 hover:text-gray-300'
+      }`}
+    >
+      {on ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+      {on ? 'On quote' : 'Off quote'}
+    </button>
+  );
 
   const handleConvertToContract = async () => {
     const quoteId = currentQuote?.id || workRequest.quote?.id;
@@ -1929,8 +1979,23 @@ export function QuoteToContractEditor({
       return quantity * rate;
     };
 
-    const materialsSubtotal = (quote.materials || []).reduce((sum, m) => sum + lineTotal(m), 0);
-    const laborSubtotal = (quote.labor || []).reduce((sum, l) => sum + lineTotal(l), 0);
+    /**
+     * EXCLUDED LINES ARE NOT CHARGED FOR.
+     *
+     * This is the difference between the two toggles, and it is the line of
+     * code that makes it real. "Hidden" means the customer is not shown the
+     * line but is still paying for it — so a hidden line stays in these
+     * sums. "Excluded" means the work is not on the quote at all, so it must
+     * come out, and the price has to drop by exactly its amount.
+     *
+     * Getting this wrong in the forgiving direction — leaving excluded lines
+     * in — would charge somebody for work that the quote they are reading
+     * does not mention, which is the worst of the available failures.
+     */
+    const onQuote = (line: any) => line?.included !== false;
+
+    const materialsSubtotal = (quote.materials || []).filter(onQuote).reduce((sum, m) => sum + lineTotal(m), 0);
+    const laborSubtotal = (quote.labor || []).filter(onQuote).reduce((sum, l) => sum + lineTotal(l), 0);
 
     /**
      * Credits come off the MATERIALS figure, not off the bottom.
@@ -1945,7 +2010,8 @@ export function QuoteToContractEditor({
      * floored: a quote that ends up in the customer's favour is a real
      * situation and somebody should see it rather than have it rounded away.
      */
-    const creditsSubtotal = (quote.credits || []).reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
+    const creditsSubtotal = (quote.credits || []).filter(onQuote)
+      .reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
     const taxableMaterials = Math.max(0, materialsSubtotal - creditsSubtotal);
     const taxAmount = taxableMaterials * quote.taxRate;
     const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
@@ -2806,6 +2872,25 @@ export function QuoteToContractEditor({
                               <Trash2 className="w-4 h-4 text-gray-600 hover:text-red-400" />
                             </button>
                           </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/*
+                              Taking one of these off the quote puts the cost
+                              BACK ON US — the owner is no longer supplying it,
+                              so we are. The total goes UP, which is the
+                              opposite of every other toggle on this screen and
+                              worth saying out loud next to the button.
+                            */}
+                            <IncludeToggle
+                              on={credit.included !== false}
+                              onToggle={() => updateCredit(credit.id, 'included' as any, credit.included === false)}
+                              noun="item"
+                            />
+                            <span className="text-[11px] text-gray-500">
+                              {credit.included === false
+                                ? 'Not deducted — we are supplying this after all, so the total goes up.'
+                                : 'Deducted from the bill.'}
+                            </span>
+                          </div>
                           {/*
                             The comment. Eric asked for "products AND comments"
                             — this is the comments half, and it is the field
@@ -3151,6 +3236,19 @@ export function QuoteToContractEditor({
                               className="col-span-4 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
                               placeholder="Description — what the customer reads"
                             />
+                            <div className="col-span-6 flex flex-wrap items-center gap-2">
+                              <IncludeToggle
+                                on={material.included !== false}
+                                onToggle={() => updateMaterial(material.id, 'included' as any, material.included === false)}
+                                noun="material"
+                              />
+                              {material.included === false && (
+                                <span className="text-[11px] text-gray-500">Not charged — the total drops by this amount.</span>
+                              )}
+                              {material.included !== false && material.visible === false && (
+                                <span className="text-[11px] text-amber-400/80">Charged, but the customer does not see the line.</span>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <>
@@ -3368,6 +3466,19 @@ export function QuoteToContractEditor({
                               className="col-span-3 bg-black border border-gray-600 rounded px-3 py-2 text-white text-sm"
                               placeholder="Description — what this covers"
                             />
+                            <div className="col-span-5 flex flex-wrap items-center gap-2">
+                              <IncludeToggle
+                                on={labor.included !== false}
+                                onToggle={() => updateLabor(labor.id, 'included' as any, labor.included === false)}
+                                noun="labour line"
+                              />
+                              {labor.included === false && (
+                                <span className="text-[11px] text-gray-500">Not charged — the total drops by this amount.</span>
+                              )}
+                              {labor.included !== false && labor.visible === false && (
+                                <span className="text-[11px] text-amber-400/80">Charged, but the customer does not see the line.</span>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">
@@ -3775,6 +3886,29 @@ export function QuoteToContractEditor({
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
+                            </div>
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              {/*
+                                A phase taken off the quote takes its own
+                                lines' billing with it only if those lines are
+                                taken off too — this toggle governs the PHASE,
+                                not what is priced under it. Dropping the
+                                phase while leaving a priced line tagged to it
+                                would leave money in the total with no stage
+                                on the document to explain it, so the warning
+                                below says so rather than silently guessing.
+                              */}
+                              <IncludeToggle
+                                on={(step as any).included !== false}
+                                onToggle={() => updateProcessStep(step.id, 'included' as any, (step as any).included === false)}
+                                noun="phase"
+                              />
+                              {(step as any).included === false && (
+                                <span className="text-[11px] text-gray-500">
+                                  Off the quote. Any priced lines still tagged to it are
+                                  {' '}<strong className="text-amber-400/90">still charged</strong> — take those off too.
+                                </span>
+                              )}
                             </div>
                             <textarea
                               value={step.description}

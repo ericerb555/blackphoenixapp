@@ -12,12 +12,25 @@
  * treatment: a mistake here emails a customer the lines that were hidden
  * from them.
  *
- * THE TWO RULES IT APPLIES
+ * THE THREE RULES IT APPLIES
  *
- *   per-line `visible: false`   that line is not drawn, and its cost stays
- *                               in the phase total
+ *   per-line `included: false`  the line is not ON THE QUOTE AT ALL and its
+ *                               money is out of every total
+ *   per-line `visible: false`   the line is charged for, but not itemised
+ *                               to the customer; its cost stays in the phase
  *   customerSections            materials, labour and process detail, each
  *                               switchable
+ *
+ * INCLUDED AND VISIBLE ANSWER DIFFERENT QUESTIONS, and conflating them is
+ * the mistake worth guarding against. "Not included" is a decision about
+ * what the job IS — the contingency we decided not to charge for. "Not
+ * visible" is a decision about what the customer is TOLD — the dump run we
+ * charge for without itemising. One changes the price; the other does not.
+ *
+ * Excluded wins over hidden, and over everything else. An excluded line is
+ * filtered before any other rule runs, on the internal copy too, because an
+ * office printout listing work that is not being charged for is how
+ * somebody quotes a figure that is not the figure.
  *
  * Both are applied ONLY when building the customer's copy. The internal copy
  * shows everything, with withheld lines marked, because the controls exist
@@ -59,6 +72,14 @@ export interface QuoteSelection {
   credits: Array<{ description: string; amount: number; note?: string }>;
 }
 
+/**
+ * Is this line on the document at all?
+ *
+ * ABSENT MEANS INCLUDED. Every quote written before this field existed has
+ * no such flag, and defaulting the other way would empty them.
+ */
+export const isIncluded = (line: any): boolean => line?.included !== false;
+
 export function sectionsOf(quote: any): CustomerSections {
   const s = quote?.customerSections;
   // The two-value `lineDetail` this replaced: 'phase-totals' meant no lines.
@@ -79,7 +100,8 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     ? sectionsOf(quote)
     : { materials: true, labor: true, processDetail: true };
 
-  const keep = (l: any) => (forCustomer ? l?.visible !== false : true);
+  // Excluded first and unconditionally — it is not a customer-facing rule.
+  const keep = (l: any) => isIncluded(l) && (forCustomer ? l?.visible !== false : true);
   const mark = (desc: string, l: any) =>
     !forCustomer && l?.visible === false ? `${desc}  (hidden from customer)` : desc;
 
@@ -121,6 +143,9 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     ...(Array.isArray(quote?.materials) ? quote.materials : []),
     ...(Array.isArray(quote?.labor) ? quote.labor : []),
   ]) {
+    // Hidden lines count here; EXCLUDED ones do not. The phase total is what
+    // the customer pays for that phase, and an excluded line is not charged.
+    if (!isIncluded(l)) continue;
     const key = String(l?.phase || '').trim();
     if (!key) continue;
     phaseCost.set(key, round2((phaseCost.get(key) || 0) + (Number(l?.totalCost) || 0)));
@@ -141,7 +166,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     phaseCost,
     phaseText,
     showLines: sections.materials || sections.labor,
-    credits: (Array.isArray(quote?.credits) ? quote.credits : []).map((c: any) => ({
+    credits: (Array.isArray(quote?.credits) ? quote.credits : []).filter(isIncluded).map((c: any) => ({
       description: String(c?.description || '').trim() || 'Supplied by you',
       amount: Math.abs(Number(c?.amount)) || 0,
       note: String(c?.reason || c?.note || '').trim() || undefined,

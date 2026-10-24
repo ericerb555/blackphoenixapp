@@ -14,9 +14,14 @@
  *
  * THE TWO RULES, AND WHY THEY ARE BOTH NEEDED
  *
+ *   included: false  the line is not ON THE INVOICE at all and its money is
+ *                    out of every total — work decided against, not billed
  *   visible: false   this line is nobody's business — the contingency, the
  *                    skip, the sub's markup — and its MONEY STAYS IN
  *   phase-totals     the whole breakdown is withheld (see `invoicePhases`)
+ *
+ * The first two are easy to conflate and must not be. "Not included" changes
+ * what is owed; "not visible" changes only what is itemised.
  *
  * HIDING REMOVES THE DETAIL, NOT THE MONEY
  *
@@ -63,6 +68,16 @@ export interface InvoiceLine {
 /** Absent means shown — see the field. */
 export const isLineShown = (line: any): boolean => line?.visible !== false;
 
+/**
+ * Is this line on the invoice at all?
+ *
+ * ABSENT MEANS INCLUDED, so no invoice already written changes. Excluded is
+ * checked before every other rule and on the office copy too — an internal
+ * printout listing work that is not being billed is how somebody quotes a
+ * figure that is not the figure.
+ */
+export const isLineIncluded = (line: any): boolean => line?.included !== false;
+
 /** The key `phaseCost` uses for lines belonging to no phase. */
 export const UNPHASED = '';
 
@@ -102,7 +117,9 @@ export function selectInvoiceLines(
   lineItems: any,
   forCustomer: boolean,
 ): InvoiceSelection {
-  const all: any[] = Array.isArray(lineItems) ? lineItems : [];
+  // Excluded lines are gone before anything else looks at them, so they
+  // cannot appear in a total, a phase cost, or a withheld tally.
+  const all: any[] = (Array.isArray(lineItems) ? lineItems : []).filter(isLineIncluded);
 
   const lines: InvoiceLine[] = [];
   let hiddenCount = 0;

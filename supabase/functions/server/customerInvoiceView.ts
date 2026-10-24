@@ -102,6 +102,16 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  */
 export const isLineShown = (line: any): boolean => line?.visible !== false;
 
+/**
+ * Is this line on the invoice at all?
+ *
+ * A DIFFERENT QUESTION FROM `isLineShown`, and the difference is money.
+ * Hidden means charged but not itemised; excluded means not charged. An
+ * excluded line is filtered before everything else, so it reaches neither
+ * the customer's copy nor the phase costs that copy adds up.
+ */
+export const isLineIncluded = (line: any): boolean => line?.included !== false;
+
 const amountOf = (line: any): number =>
   Number.isFinite(Number(line?.amount))
     ? round2(Number(line.amount))
@@ -132,7 +142,7 @@ function phaseCosts(lineItems: any[]): Record<string, number> {
  */
 function customerSteps(steps: any): CustomerInvoice['process_steps'] {
   if (!Array.isArray(steps)) return [];
-  return steps.filter(isLineShown).map((s: any) => ({
+  return steps.filter(isLineIncluded).filter(isLineShown).map((s: any) => ({
     title: str(s?.title || s?.step),
     ...(s?.description ? { description: str(s.description) } : {}),
     ...(s?.estimatedDuration ? { estimatedDuration: str(s.estimatedDuration) } : {}),
@@ -148,7 +158,8 @@ function customerSteps(steps: any): CustomerInvoice['process_steps'] {
  * work away.
  */
 export function customerInvoiceView(invoice: any): CustomerInvoice {
-  const all: any[] = Array.isArray(invoice?.line_items) ? invoice.line_items : [];
+  const all: any[] = (Array.isArray(invoice?.line_items) ? invoice.line_items : [])
+    .filter(isLineIncluded);
 
   const line_items = all.filter(isLineShown).map((line: any, i: number) => {
     const projected: CustomerInvoiceLine = {

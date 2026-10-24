@@ -91,9 +91,18 @@ export interface DrawInvoiceOptions {
 function phaseLines(quote: any, phase: string): DrawInvoiceLine[] {
   const out: DrawInvoiceLine[] = [];
   const match = (p: any) => String(p || '').trim() === phase;
+  /**
+   * A line taken off the quote is not billed.
+   *
+   * Absent means included. This has to agree with `recalculateTotals` in the
+   * editor and with `selectQuoteLines`, because the draw amount was computed
+   * from the phase subtotals those produce — if this disagreed, the invoice's
+   * lines would not reconcile to the draw and the discount would clamp.
+   */
+  const onQuote = (line: any) => line?.included !== false;
 
   for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
-    if (!match(m?.phase)) continue;
+    if (!match(m?.phase) || !onQuote(m)) continue;
     const quantity = Number(m?.quantity) || 0;
     const unit_price = Number(m?.unitCost) || 0;
     out.push({
@@ -108,7 +117,7 @@ function phaseLines(quote: any, phase: string): DrawInvoiceLine[] {
   }
 
   for (const l of Array.isArray(quote?.labor) ? quote.labor : []) {
-    if (!match(l?.phase)) continue;
+    if (!match(l?.phase) || !onQuote(l)) continue;
     const quantity = Number(l?.hours) || 0;
     const unit_price = Number(l?.hourlyRate) || 0;
     out.push({
