@@ -1951,6 +1951,26 @@ export default function UnifiedProjectPipeline() {
             setSelectedItem(null);
           }}
           onSave={handleSaveQuote}
+          /**
+           * The quote moved, but the user is not finished.
+           *
+           * `handleSaveQuote` ends in `setShowQuoteEditor(false)`, which is
+           * what the Save button should do and what the customer-visibility
+           * switches should emphatically not: ticking "don't show materials"
+           * saved the change and then threw you out of the editor. The
+           * editor writes those to the server itself, so all this has to do
+           * is refresh the row behind it.
+           */
+          onQuoteChange={(updatedItem: any) => {
+            setItems(prev => prev.map(i => (
+              i.id === updatedItem.id
+                ? { ...i, quote: updatedItem.quote, lastModified: new Date().toISOString() }
+                : i
+            )));
+            setSelectedItem(prev => (
+              prev && prev.id === updatedItem.id ? { ...prev, quote: updatedItem.quote } : prev
+            ));
+          }}
           onSendToCustomer={() => {
             if (selectedItem) handleSendQuote(selectedItem);
           }}

@@ -511,6 +511,7 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
           workRequest={workRequest}
           onClose={onClose}
           onSave={(updated) => setWorkRequest(updated)}
+          onQuoteChange={(updated) => setWorkRequest(updated)}
           onSendToCustomer={() => {}}
           onConvertToContract={() => {}}
         />

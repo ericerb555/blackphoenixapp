@@ -251,7 +251,30 @@ interface WorkRequest {
 interface QuoteToContractEditorProps {
   workRequest: WorkRequest;
   onClose: () => void;
+  /**
+   * SAVE AND CLOSE. The Save button, and nothing else.
+   *
+   * The parent screens read this as "the user is finished" and shut the
+   * editor — Quote Prep literally calls `setShowQuoteEditor(false)` inside
+   * it. That is right for the Save button and wrong for everything else, so
+   * every background save uses `onQuoteChange` below instead.
+   */
   onSave: (updatedRequest: WorkRequest) => void;
+  /**
+   * THE QUOTE CHANGED; KEEP THE PARENT IN STEP. Closes nothing.
+   *
+   * Several controls here write to the server themselves and then need the
+   * list behind the editor to show the new figures: the customer-visibility
+   * section switches, the payment schedule, marking a draw invoiced, a
+   * reprice, picking a contract type. Every one of them was calling
+   * `onSave`, so ticking "don't show materials to the customer" saved the
+   * change and then threw you out of the editor. Two different intentions
+   * were sharing one prop. This is the other one.
+   *
+   * Optional, so a parent that does not care simply omits it and nothing
+   * closes.
+   */
+  onQuoteChange?: (updatedRequest: WorkRequest) => void;
   onSendToCustomer: (request: WorkRequest) => void;
   onConvertToContract: (request: WorkRequest) => void;
 }
@@ -424,13 +447,88 @@ function QuoteBasis({ quote }: { quote: any }) {
   );
 }
 
+/**
+ * The "on the quote" toggle, rendered the same way everywhere.
+ *
+ * Four item types need it — materials, labour, phases and what the owner is
+ * supplying — and four hand-written copies of a control that decides whether
+ * something is CHARGED FOR is four chances to get the default backwards.
+ * Absent means included; only an explicit false excludes.
+ *
+ * DECLARED AT MODULE LEVEL, NOT INSIDE THE EDITOR.
+ *
+ * A component defined in a render body is a NEW component type on every
+ * render, so React throws the old one away and mounts a fresh one rather
+ * than updating it. The quote editor re-renders on every keystroke in every
+ * price and description field, and a long quote carries one of these per
+ * line — so typing a material name was tearing down and rebuilding every
+ * toggle on the screen, and the button you had just clicked was never the
+ * button that existed a moment later. It closes over nothing, so there was
+ * never a reason for it to live in there.
+ */
+function IncludeToggle({ on, onToggle, noun }: { on: boolean; onToggle: () => void; noun: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={on
+        ? `On the quote and charged for. Click to take this ${noun} off — the total will drop.`
+        : `Not on the quote and not charged. Click to put this ${noun} back on.`}
+      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
+        on
+          ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+          : 'border border-gray-700 bg-black/40 text-gray-500 hover:text-gray-300'
+      }`}
+    >
+      {on ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+      {on ? 'On quote' : 'Off quote'}
+    </button>
+  );
+}
+
 export function QuoteToContractEditor({
   workRequest,
   onClose,
   onSave,
+  onQuoteChange,
   onSendToCustomer,
   onConvertToContract
 }: QuoteToContractEditorProps) {
+  /**
+   * Tell the parent the quote moved, without ever closing the editor.
+   *
+   * Falls back to nothing rather than to `onSave`: a parent that has not
+   * opted in shows a stale figure until it refetches, which is cosmetic.
+   * Falling back to `onSave` would reinstate the exact bug this exists to
+   * fix — a background save slamming the screen shut.
+   */
+  const syncQuote = (updatedRequest: WorkRequest) => { onQuoteChange?.(updatedRequest); };
+
+  /**
+   * Write part of the quote to the server, without closing anything.
+   *
+   * Two controls used to get their persistence for free, by handing the
+   * whole work request to `onSave` and letting the parent write it — which
+   * is the same call that shuts the editor. Splitting save-and-close off
+   * meant those two had to start saving themselves, or they would have gone
+   * quiet and lost the change on reload, which is worse than the bug being
+   * fixed. Returns false on failure so the caller can say so rather than
+   * claim a save that did not happen.
+   */
+  const persistQuotePatch = async (patch: Record<string, any>): Promise<boolean> => {
+    const quoteId = workRequest.quote?.id || (currentQuote as any)?.id;
+    if (!quoteId) return false;
+    try {
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}`, {
+        method: 'PUT',
+        headers: await quoteAuthHeaders(true),
+        body: JSON.stringify(patch),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
   const [showWorkRequestDrawer, setShowWorkRequestDrawer] = useState(false);
 
   // Load company logo and info
@@ -571,32 +669,6 @@ export function QuoteToContractEditor({
     return out;
   }, [currentQuote]);
 
-  /**
-   * The "on the quote" toggle, rendered the same way everywhere.
-   *
-   * Four item types need it — materials, labour, phases and what the owner
-   * is supplying — and four hand-written copies of a control that decides
-   * whether something is CHARGED FOR is four chances to get the default
-   * backwards. Absent means included; only an explicit false excludes.
-   */
-  const IncludeToggle = ({ on, onToggle, noun }: { on: boolean; onToggle: () => void; noun: string }) => (
-    <button
-      type="button"
-      onClick={onToggle}
-      title={on
-        ? `On the quote and charged for. Click to take this ${noun} off — the total will drop.`
-        : `Not on the quote and not charged. Click to put this ${noun} back on.`}
-      className={`flex items-center gap-1.5 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
-        on
-          ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
-          : 'border border-gray-700 bg-black/40 text-gray-500 hover:text-gray-300'
-      }`}
-    >
-      {on ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-      {on ? 'On quote' : 'Off quote'}
-    </button>
-  );
-
   const handleConvertToContract = async () => {
     const quoteId = currentQuote?.id || workRequest.quote?.id;
     if (!quoteId) { toast.error('Save the quote before generating a contract.'); return; }
@@ -615,7 +687,7 @@ export function QuoteToContractEditor({
       if (!response.ok || !result.success) throw new Error(result.error || 'Could not generate the contract.');
       const updated = { ...currentQuote, contractId: result.contract.id, contractStatus: result.contract.status };
       setEditedQuote(updated as Quote);
-      onSave({ ...workRequest, quote: updated as Quote });
+      syncQuote({ ...workRequest, quote: updated as Quote });
       toast.success('Contract created and ready for the customer signature.');
       onConvertToContract({ ...workRequest, quote: updated as Quote });
     } catch (error: any) { toast.error(error.message || 'Could not generate the contract.'); }
@@ -953,7 +1025,7 @@ export function QuoteToContractEditor({
         body: JSON.stringify({ customerSections: next }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      onSave({ ...workRequest, quote: updated } as any);
+      syncQuote({ ...workRequest, quote: updated } as any);
       toast.success(
         next[key] === false ? `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} hidden from the customer.`
           : `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} shown to the customer.`,
@@ -1042,7 +1114,7 @@ export function QuoteToContractEditor({
         body: JSON.stringify({ paymentSchedule: draws }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      onSave({ ...workRequest, quote: updated } as any);
+      syncQuote({ ...workRequest, quote: updated } as any);
       toast.success(`Payment schedule built — ${draws.length} draw${draws.length === 1 ? '' : 's'}.`);
     } catch (err: any) {
       setEditedQuote(editedQuote);
@@ -1123,7 +1195,7 @@ export function QuoteToContractEditor({
           headers: await quoteAuthHeaders(true),
           body: JSON.stringify({ paymentSchedule: draws }),
         }).catch(() => { /* the invoice exists; the mark can be redone */ });
-        onSave({ ...workRequest, quote: updated } as any);
+        syncQuote({ ...workRequest, quote: updated } as any);
       }
 
       const money = payload.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1405,10 +1477,30 @@ export function QuoteToContractEditor({
         },
       };
 
-      onSave(updated);
+      /**
+       * Hold the new lines HERE as well as telling the parent.
+       *
+       * This used to lean on the parent handing a fresh `workRequest` back
+       * down, which only worked because that same call closed the editor and
+       * the next open re-read it. The editor stays open now, so it has to
+       * show the re-priced lines itself.
+       */
+      setEditedQuote(normalizeQuote(updated.quote));
+      const saved = await persistQuotePatch({
+        materials: updated.quote.materials,
+        labor: updated.quote.labor,
+        processSteps: updated.quote.processSteps,
+        totalCost: updated.quote.totalCost,
+        aiSummary: updated.quote.aiSummary,
+        aiAssumptions: updated.quote.aiAssumptions,
+        aiRegionalNote: updated.quote.aiRegionalNote,
+      });
+      syncQuote(updated);
       toast.success('Quote re-priced from the updated brief.', {
         id: toastId,
-        description: 'Line items replaced. Customer details and the quote number are unchanged.',
+        description: saved
+          ? 'Line items replaced. Customer details and the quote number are unchanged.'
+          : 'Line items replaced on screen — the save did not go through, so press Save.',
       });
     } catch (err: any) {
       toast.error(`Could not regenerate the quote: ${err?.message || err}`, { id: toastId });
@@ -2465,6 +2557,28 @@ export function QuoteToContractEditor({
               >
                 <FileText className="h-4 w-4" />
                 View / PDF
+              </button>
+            )}
+            {/*
+              Email it, from here.
+
+              "i want to be able to email a customer right out of this as
+              well." The sender already existed — it was inside the PDF
+              preview, so emailing meant opening the document first and
+              finding a button in its chrome. The step was invisible, which
+              made the feature invisible with it.
+
+              Same handler, same customer copy, same invite option. Only the
+              way in is new.
+            */}
+            {workRequest.quote?.id && (
+              <button
+                onClick={() => setEmailingQuote(true)}
+                title="Email this estimate to the customer as a PDF"
+                className="flex items-center gap-2 rounded-lg border border-[#ea580c]/40 bg-[#ea580c]/10 px-4 py-2 text-sm font-bold text-[#ea580c] transition-all hover:bg-[#ea580c]/20"
+              >
+                <Mail className="h-4 w-4" />
+                Email customer
               </button>
             )}
             {workRequest.quote?.id && (
@@ -4302,7 +4416,11 @@ export function QuoteToContractEditor({
                                   selectedContractType: 'standard' as const
                                 };
                                 setEditedQuote(updated);
-                                onSave({ ...workRequest, quote: updated });
+                                void persistQuotePatch({
+                                  contractTypeSelected: updated.contractTypeSelected,
+                                  selectedContractType: updated.selectedContractType,
+                                });
+                                syncQuote({ ...workRequest, quote: updated });
                                 toast.success('Standard Contract selected', {
                                   description: 'Traditional contract with manual milestone tracking'
                                 });
@@ -4345,7 +4463,11 @@ export function QuoteToContractEditor({
                                   selectedContractType: 'soroban-smart-contract' as const
                                 };
                                 setEditedQuote(updated);
-                                onSave({ ...workRequest, quote: updated });
+                                void persistQuotePatch({
+                                  contractTypeSelected: updated.contractTypeSelected,
+                                  selectedContractType: updated.selectedContractType,
+                                });
+                                syncQuote({ ...workRequest, quote: updated });
                                 toast.success('Soroban Smart Contract selected', {
                                   description: 'Blockchain-powered contract with automated escrow and payments'
                                 });
@@ -4422,7 +4544,11 @@ export function QuoteToContractEditor({
                                   selectedContractType: undefined
                                 };
                                 setEditedQuote(updated);
-                                onSave({ ...workRequest, quote: updated });
+                                void persistQuotePatch({
+                                  contractTypeSelected: updated.contractTypeSelected,
+                                  selectedContractType: updated.selectedContractType,
+                                });
+                                syncQuote({ ...workRequest, quote: updated });
                                 toast.info('Contract type deselected', {
                                   description: 'Choose a different contract type'
                                 });
