@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import { BackToDashboard } from '../components/BackToDashboard';
 import { QuoteToContractEditor } from '../components/QuoteToContractEditor';
+import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import { ProjectDetailsModal } from '../components/ProjectDetailsModal';
 import WorkRequestFullView from '../components/WorkRequestFullView';
 import PipelineMessagePanel from '../components/PipelineMessagePanel';
@@ -630,6 +631,17 @@ export default function UnifiedProjectPipeline() {
     const openItemId = localStorage.getItem('pipeline_open_item');
     if (!openItemId || items.length === 0) return;
 
+    /**
+     * Never while something else is already open.
+     *
+     * This fires on every `items` change, and the quote editor now updates
+     * `items` in the background whenever a visibility switch is flipped. A
+     * deep link left in localStorage would then throw the Project Details
+     * modal up over the editor mid-edit, which reads exactly like being
+     * kicked out of the screen.
+     */
+    if (showQuoteEditor || showProjectDetails) return;
+
     const target = items.find(i => i.id === openItemId);
     if (target) {
       localStorage.removeItem('pipeline_open_item');
@@ -637,7 +649,7 @@ export default function UnifiedProjectPipeline() {
       setProjectDetailsInitialTab('submission'); // Open straight to Customer Files tab
       setShowProjectDetails(true);
     }
-  }, [items]); // re-runs whenever items updates
+  }, [items, showQuoteEditor, showProjectDetails]); // re-runs whenever items updates
 
   // Check for materials update from Materials Hub
   useEffect(() => {
@@ -718,6 +730,21 @@ export default function UnifiedProjectPipeline() {
   const convertToWorkRequest = (item: PipelineItem) => {
     // Transform quote to match QuoteToContractEditor expectations
     const transformedQuote = item.quote ? {
+      /**
+       * SPREAD FIRST. Everything this function does not name used to be
+       * destroyed on the way into the editor.
+       *
+       * `credits` was patched in by hand once, after a credit was watched
+       * vanishing — but it was never the only casualty. `customerSections`
+       * was going the same way, which is why switching Materials off for the
+       * customer looked like it worked and was gone the next time the quote
+       * was opened; so were the payment schedule, the estimator's narrative,
+       * the notes and the contract link.
+       *
+       * The named fields below still win, because they are the ones that
+       * need defaulting and renaming. Everything else now simply survives.
+       */
+      ...item.quote,
       id: item.quote.id || `qt-${item.id}`,
       quoteNumber: item.quote.quoteNumber || `Q-${new Date().getFullYear()}-001`,
       materials: item.quote.materials || [],
@@ -1940,6 +1967,7 @@ export default function UnifiedProjectPipeline() {
 
       {/* Quote Editor Modal */}
       {showQuoteEditor && selectedItem && (
+        <PanelErrorBoundary name="Quote editor">
         <QuoteToContractEditor
           workRequest={{
             ...convertToWorkRequest(selectedItem),
@@ -1978,6 +2006,7 @@ export default function UnifiedProjectPipeline() {
             if (selectedItem) handleConvertToContract(selectedItem);
           }}
         />
+        </PanelErrorBoundary>
       )}
 
       {/* Project Details Modal */}

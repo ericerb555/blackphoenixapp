@@ -1008,10 +1008,25 @@ export function QuoteToContractEditor({
   const [savingSections, setSavingSections] = useState(false);
 
   const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail') => {
-    const current = (editedQuote as any)?.customerSections
+    /**
+     * Built on `currentQuote` — WHAT IS ON THE SCREEN — not on `editedQuote`.
+     *
+     * `editedQuote` is seeded once, at mount. Outside edit mode the screen is
+     * showing `normalizeQuote(workRequest.quote)` instead, so spreading
+     * `editedQuote` here wrote back a snapshot that could be stale, or —
+     * if the editor had opened before the quote arrived — empty, which sent
+     * a quote with no lines in it to the parent and the server.
+     *
+     * `currentQuote` is that same expression, so this is now always the
+     * thing the user is looking at.
+     */
+    const base: any = currentQuote || editedQuote;
+    if (!base) { toast.error('The quote is still loading — try that again in a moment.'); return; }
+
+    const current = base.customerSections
       || { materials: true, labor: true, processDetail: true };
     const next = { ...current, [key]: current[key] === false };
-    const updated = { ...editedQuote, customerSections: next } as any;
+    const updated = { ...base, customerSections: next } as any;
     setEditedQuote(updated);
     if (editMode) return;
 
@@ -1037,6 +1052,59 @@ export function QuoteToContractEditor({
     } finally {
       setSavingSections(false);
     }
+  };
+
+  /**
+   * Hide or show ONE line, without entering edit mode.
+   *
+   * "i should be able to select a single item." The three section switches
+   * above are all-or-nothing — all your materials or none of them — and the
+   * per-line controls lived only inside edit mode, behind a button that also
+   * puts every price on the screen into a text box. So the common job,
+   * "don't show them THAT one", had no way to be done.
+   *
+   * Flips `visible`, which means the line is STILL CHARGED and its cost
+   * stays in its phase total; the customer simply does not see it itemised.
+   * Taking work off the quote entirely is the `included` toggle in edit
+   * mode, because that moves money and should not be one click away from a
+   * read-only screen.
+   *
+   * Saves immediately outside edit mode, for the same reason the section
+   * switches do: a control that looks like it worked and is gone on reload
+   * is worse than one that is disabled.
+   */
+  const [savingLine, setSavingLine] = useState<string | null>(null);
+
+  const toggleLineVisible = async (kind: 'materials' | 'labor', id: string) => {
+    const base: any = currentQuote || editedQuote;
+    if (!base) { toast.error('The quote is still loading — try that again in a moment.'); return; }
+
+    const rows = Array.isArray(base[kind]) ? base[kind] : [];
+    const row = rows.find((r: any) => r?.id === id);
+    if (!row) return;
+    const nextVisible = row.visible === false;
+    const updatedRows = rows.map((r: any) => (r?.id === id ? { ...r, visible: nextVisible } : r));
+    const updated = { ...base, [kind]: updatedRows } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) return;
+    setSavingLine(id);
+    const ok = await persistQuotePatch({ [kind]: updatedRows });
+    setSavingLine(null);
+    if (!ok) {
+      // Put it back, so the screen never claims a change the server refused.
+      setEditedQuote(base);
+      toast.error('Could not save that change.');
+      return;
+    }
+    syncQuote({ ...workRequest, quote: updated } as any);
+    toast.success(
+      nextVisible
+        ? 'Shown to the customer.'
+        : 'Hidden from the customer — still charged, and still in its phase total.',
+    );
   };
 
   /**
@@ -3727,6 +3795,99 @@ export function QuoteToContractEditor({
                     Turning a section off removes it from what the customer is sent — it is not
                     hidden in their browser. Costs stay in the phase totals either way.
                   </p>
+
+                  {/*
+                    One line at a time.
+
+                    The switches above are all-or-nothing. This is the other
+                    half of the same question — "don't show them THAT one" —
+                    and it had no answer outside edit mode.
+
+                    A line is listed here greyed out when its whole section is
+                    already off, rather than hidden: otherwise switching
+                    Materials off would make every per-line choice you had
+                    made disappear from the screen, and it is not obvious that
+                    they are still remembered underneath.
+                  */}
+                  {(() => {
+                    const q: any = currentQuote || {};
+                    const groups: Array<['materials' | 'labor', string, any[]]> = [
+                      ['materials', 'Materials', Array.isArray(q.materials) ? q.materials : []],
+                      ['labor', 'Labour', Array.isArray(q.labor) ? q.labor : []],
+                    ];
+                    const sectionOn = (editedQuote as any)?.customerSections
+                      || { materials: true, labor: true, processDetail: true };
+                    if (!groups.some(([, , rows]) => rows.length)) return null;
+                    return (
+                      <div className="mt-5 border-t border-gray-800 pt-4">
+                        <h5 className="mb-1 text-sm font-bold text-white">Or pick them one at a time</h5>
+                        <p className="mb-3 text-xs text-gray-400">
+                          A hidden line is <strong className="text-amber-400/90">still charged</strong> — it
+                          stays in its phase total, the customer just does not see it listed. To take work
+                          off the quote altogether, use <em>Edit Quote</em> and switch it off there.
+                        </p>
+                        <div className="space-y-4">
+                          {groups.map(([kind, label, rows]) => rows.length === 0 ? null : (
+                            <div key={kind}>
+                              <div className="mb-1.5 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                                {label}
+                                {sectionOn[kind] === false && (
+                                  <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-400 normal-case">
+                                    whole section is off
+                                  </span>
+                                )}
+                              </div>
+                              <div className={`space-y-1 ${sectionOn[kind] === false ? 'opacity-50' : ''}`}>
+                                {rows.map((row: any) => {
+                                  const on = row?.visible !== false;
+                                  const off = row?.included === false;
+                                  const name = kind === 'materials'
+                                    ? (row?.name || row?.description || 'Material')
+                                    : (row?.role || row?.description || 'Labour');
+                                  return (
+                                    <button
+                                      key={row?.id}
+                                      type="button"
+                                      onClick={() => toggleLineVisible(kind, String(row?.id))}
+                                      disabled={savingLine === row?.id || off}
+                                      title={off
+                                        ? 'This line is off the quote entirely, so there is nothing to show or hide.'
+                                        : on
+                                          ? 'Shown to the customer. Click to hide the line — it is still charged.'
+                                          : 'Hidden from the customer. Click to show it.'}
+                                      className={`flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        on
+                                          ? 'border-[#2A2A2A] bg-[#0B0B0B] hover:border-blue-500/40'
+                                          : 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50'
+                                      }`}
+                                    >
+                                      {on
+                                        ? <Eye className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
+                                        : <EyeOff className="h-3.5 w-3.5 flex-shrink-0 text-amber-400" />}
+                                      <span className="flex-1 truncate text-xs text-gray-200">{name}</span>
+                                      {row?.phase && (
+                                        <span className="hidden flex-shrink-0 text-[10px] text-gray-500 sm:inline">
+                                          {row.phase}
+                                        </span>
+                                      )}
+                                      <span className="flex-shrink-0 text-xs font-semibold text-white">
+                                        ${(Number(row?.totalCost) || 0).toFixed(2)}
+                                      </span>
+                                      <span className={`flex-shrink-0 text-[10px] font-bold uppercase ${
+                                        off ? 'text-gray-600' : on ? 'text-blue-300' : 'text-amber-400'
+                                      }`}>
+                                        {off ? 'off quote' : on ? 'shown' : 'hidden'}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
