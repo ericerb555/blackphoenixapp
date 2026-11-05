@@ -2908,20 +2908,41 @@ export function QuoteToContractEditor({
                     />
                   </div>
 
-                  {hasFullIntake && (
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-gray-400">
-                        In your own words (the brief)
-                      </label>
-                      <textarea
-                        value={briefDraft.brief || ''}
-                        onChange={(e) => setBriefField('brief', e.target.value)}
-                        rows={4}
-                        className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
-                        placeholder="The detail only somebody who saw the job can give."
-                      />
-                    </div>
-                  )}
+                  {/*
+                    NOT gated on `hasFullIntake` any more, and that was the bug.
+
+                    "can we please add to the quote editor a place i can write
+                    to the ai generator to adjust" — this box already existed
+                    and already did exactly that: the server treats the brief
+                    as THE most authoritative description of the job and tells
+                    the model to follow it wherever it conflicts with anything
+                    else it was given.
+
+                    It was hidden on every quote whose work request did not
+                    keep a structured intake, which is most of them and all
+                    the older ones. So the one field that lets a person
+                    overrule the estimator was invisible precisely when the
+                    estimator had the least to go on — the exact case where
+                    somebody needs to type "the slab is already down, do not
+                    price excavation" and have it obeyed.
+                  */}
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-gray-400">
+                      Tell the estimator what to do
+                    </label>
+                    <textarea
+                      value={briefDraft.brief || ''}
+                      onChange={(e) => setBriefField('brief', e.target.value)}
+                      rows={4}
+                      className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                      placeholder="The detail only somebody who saw the job can give, and anything to change: &quot;the slab is already down, do not price excavation&quot;, &quot;allow two days for the stairs&quot;, &quot;customer is supplying the tile&quot;."
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Read as the most authoritative account of the job — where this conflicts with
+                      anything else on the record, the estimator follows this. Then press
+                      <strong className="text-gray-400"> Re-price from the brief</strong>.
+                    </p>
+                  </div>
 
                   {hasFullIntake && (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
