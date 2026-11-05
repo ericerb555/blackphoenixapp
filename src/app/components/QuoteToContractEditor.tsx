@@ -1917,7 +1917,15 @@ export function QuoteToContractEditor({
   };
 
   // Add new material
-  const addMaterial = () => {
+  /**
+   * `phase` is optional and is the whole point of the by-process editor.
+   *
+   * Adding a line from inside a process has to put it IN that process. The
+   * alternative — add it loose, then remember to tag it — is how lines end
+   * up in the "Additional items" group at the bottom of a customer's quote,
+   * which is the fault the by-process view exists to stop.
+   */
+  const addMaterial = (phase?: string) => {
     if (!editedQuote) return;
     const newMaterial: MaterialItem = {
       id: `m-${Date.now()}`,
@@ -1929,6 +1937,7 @@ export function QuoteToContractEditor({
       totalCost: 0,
       category: 'General',
       visible: true,
+      ...(phase ? { phase } : {}),
     };
     setEditedQuote({
       ...editedQuote,
@@ -1960,7 +1969,8 @@ export function QuoteToContractEditor({
   };
 
   // Add new labor
-  const addLabor = () => {
+  /** See `addMaterial` — the phase is carried for the same reason. */
+  const addLabor = (phase?: string) => {
     if (!editedQuote) return;
     const newLabor: LaborItem = {
       id: `l-${Date.now()}`,
@@ -1970,6 +1980,7 @@ export function QuoteToContractEditor({
       hourlyRate: 0,
       totalCost: 0,
       visible: true,
+      ...(phase ? { phase } : {}),
     };
     setEditedQuote({
       ...editedQuote,
@@ -3546,75 +3557,185 @@ export function QuoteToContractEditor({
                 {phaseOptions.map((phase) => <option key={phase} value={phase} />)}
               </datalist>
 
-              {/* ── Everything belonging to one process, together ─────────── */}
+              {/* ── One process, its materials, its labour, all editable ──── */}
               {(!editMode || quoteEditTab === 'phases') && (
                 <div className="bg-black/40 border border-gray-700 rounded-xl p-6 space-y-4">
                   <div>
                     <h3 className="flex items-center gap-2 text-lg font-bold text-white">
                       <Layers className="h-5 w-5 text-orange-400" />
-                      What each process costs
+                      Build the quote by process
                     </h3>
                     <p className="mt-1 text-sm text-gray-400">
-                      The materials and the labour for one stage of the job side by side, so the
-                      figure for that stage can be checked rather than assembled in your head.
+                      {editMode
+                        ? 'Each stage holds its own materials and labour. Add, remove and adjust them here and the stage total, and the quote total, follow.'
+                        : 'What each stage of the job is made of and what it comes to. Press Edit Quote to add, remove or adjust lines inside a stage.'}
                       {phaseBreakdown.withMarkup && ' "Ours" is your markup on that stage, and is never on the customer copy.'}
                     </p>
                   </div>
 
                   {(() => {
                     const cash = (n) => '$' + (Number(n) || 0).toFixed(2);
+                    const num = 'w-16 rounded border border-gray-700 bg-black px-1.5 py-1 text-right text-xs text-white';
+                    const txt = 'min-w-0 flex-1 rounded border border-gray-700 bg-black px-2 py-1 text-xs text-white';
 
+                    /**
+                     * One priced line, editable in place.
+                     *
+                     * Eric: "put the materials and labor cost in each section so
+                     * we can add or subtract or adjust within that line item so
+                     * it will build out the total cost." The first version of
+                     * this screen only READ the lines, which answered a question
+                     * he had not asked — he wants to work here, not just check.
+                     */
                     const Row = ({ row, kind }) => {
                       const off = row?.included === false;
                       const hidden = row?.visible === false;
-                      const name = kind === 'materials'
+                      const mat = kind === 'materials';
+                      /* One updater for both kinds, so the row is written once.
+                         Typed loosely on purpose: the two field unions have
+                         almost nothing in common, and narrowing to their
+                         intersection would reject every field a row edits. */
+                      const update: (id: string, field: any, value: any) => void =
+                        mat ? updateMaterial : updateLabor;
+                      const remove = mat ? deleteMaterial : deleteLabor;
+                      const name = mat
                         ? (row?.name || row?.description || 'Material')
                         : (row?.role || row?.description || 'Labour');
-                      const qty = kind === 'materials' ? Number(row?.quantity) || 0 : Number(row?.hours) || 0;
-                      const unit = kind === 'materials' ? (row?.unit || 'unit') : 'hrs';
-                      const rate = kind === 'materials'
+                      const qty = mat ? Number(row?.quantity) || 0 : Number(row?.hours) || 0;
+                      const unit = mat ? (row?.unit || 'unit') : 'hrs';
+                      const rate = mat
                         ? Number(row?.unitCost ?? row?.unitPrice) || 0
                         : Number(row?.hourlyRate) || 0;
+
+                      if (!editMode) {
+                        return (
+                          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[#1f1f1f] bg-[#070707] px-2.5 py-1.5 ${off ? 'opacity-50' : ''}`}>
+                            <span className="min-w-0 flex-1 truncate text-xs text-gray-200">{name}</span>
+                            <span className="flex-shrink-0 text-[11px] text-gray-500">{qty} {unit} &times; {cash(rate)}</span>
+                            {off && <span className="flex-shrink-0 rounded bg-gray-700/40 px-1.5 text-[10px] font-bold uppercase text-gray-400">off quote</span>}
+                            {!off && hidden && <span className="flex-shrink-0 rounded bg-amber-500/15 px-1.5 text-[10px] font-bold uppercase text-amber-400">hidden</span>}
+                            <span className={`flex-shrink-0 text-xs font-semibold ${off ? 'text-gray-500 line-through' : 'text-white'}`}>
+                              {cash(phaseBreakdown.lineTotal(row))}
+                            </span>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[#1f1f1f] bg-[#070707] px-2.5 py-1.5 ${off ? 'opacity-50' : ''}`}>
-                          <span className="min-w-0 flex-1 truncate text-xs text-gray-200">{name}</span>
-                          <span className="flex-shrink-0 text-[11px] text-gray-500">
-                            {qty} {unit} &times; {cash(rate)}
-                          </span>
-                          {off && (
-                            <span className="flex-shrink-0 rounded bg-gray-700/40 px-1.5 text-[10px] font-bold uppercase text-gray-400">off quote</span>
-                          )}
-                          {!off && hidden && (
-                            <span className="flex-shrink-0 rounded bg-amber-500/15 px-1.5 text-[10px] font-bold uppercase text-amber-400">hidden</span>
-                          )}
-                          <span className={`flex-shrink-0 text-xs font-semibold ${off ? 'text-gray-500 line-through' : 'text-white'}`}>
-                            {cash(phaseBreakdown.lineTotal(row))}
-                          </span>
-                          {editMode && (
+                        <div className={`rounded border border-[#1f1f1f] bg-[#070707] p-2 ${off ? 'opacity-60' : ''}`}>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={mat ? (row?.name || '') : (row?.role || '')}
+                              onChange={(e) => update(row.id, mat ? 'name' : 'role', e.target.value)}
+                              className={txt}
+                              placeholder={mat ? 'Material' : 'Role'}
+                            />
+                            <input
+                              type="number"
+                              value={qty}
+                              onChange={(e) => update(row.id, mat ? 'quantity' : 'hours', Number(e.target.value))}
+                              className={num}
+                              title={mat ? 'Quantity' : 'Hours'}
+                            />
+                            {mat ? (
+                              <input
+                                type="text"
+                                value={row?.unit || ''}
+                                onChange={(e) => update(row.id, 'unit', e.target.value)}
+                                className="w-16 rounded border border-gray-700 bg-black px-1.5 py-1 text-xs text-white"
+                                placeholder="unit"
+                              />
+                            ) : (
+                              <span className="w-16 px-1.5 text-xs text-gray-500">hrs</span>
+                            )}
+                            <input
+                              type="number"
+                              value={rate}
+                              onChange={(e) => update(row.id, mat ? 'unitCost' : 'hourlyRate', Number(e.target.value))}
+                              className={num}
+                              title={mat ? 'Unit cost' : 'Hourly rate'}
+                            />
+                            <span className={`w-20 flex-shrink-0 text-right text-xs font-bold ${off ? 'text-gray-500 line-through' : 'text-white'}`}>
+                              {cash(phaseBreakdown.lineTotal(row))}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => remove(row.id)}
+                              title="Remove this line from the quote entirely"
+                              className="flex-shrink-0 rounded border border-red-500/40 p-1 text-red-400 hover:border-red-500 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <IncludeToggle
+                              on={!off}
+                              onToggle={() => update(row.id, 'included', off)}
+                              noun={mat ? 'material' : 'labour line'}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => update(row.id, 'visible', hidden)}
+                              disabled={off}
+                              title={off
+                                ? 'This line is off the quote, so there is nothing to show or hide.'
+                                : hidden ? 'Hidden from the customer. Click to show it.'
+                                  : 'Shown to the customer. Click to hide the line — it is still charged.'}
+                              className={`flex items-center gap-1 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                                hidden
+                                  ? 'border border-amber-500/40 bg-amber-500/10 text-amber-400'
+                                  : 'border border-blue-500/30 bg-blue-500/5 text-blue-300'
+                              }`}
+                            >
+                              {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                              {hidden ? 'Hidden' : 'Shown'}
+                            </button>
                             <input
                               type="text"
                               list="quote-phase-options"
                               value={row?.phase || ''}
-                              onChange={(e) => (kind === 'materials'
-                                ? updateMaterial(row.id, 'phase', e.target.value)
-                                : updateLabor(row.id, 'phase', e.target.value))}
-                              className="w-36 flex-shrink-0 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-white"
+                              onChange={(e) => update(row.id, 'phase', e.target.value)}
+                              className="w-40 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-white"
                               placeholder="move to process..."
                             />
-                          )}
+                            <input
+                              type="text"
+                              value={row?.description || ''}
+                              onChange={(e) => update(row.id, 'description', e.target.value)}
+                              className="min-w-0 flex-1 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-white"
+                              placeholder="Description the customer reads"
+                            />
+                          </div>
                         </div>
                       );
                     };
 
-                    const Bucket = ({ label, rows, total, kind, tint }) => (
+                    /* `phase` is absent for the untagged bucket, which is how
+                       it knows not to offer an "add into this process" button
+                       for a process that does not exist. */
+                    const Bucket = ({ label, rows, total, kind, tint, phase }: any) => (
                       <div>
                         <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide">
                           <span className={tint}>{label} ({rows.length})</span>
                           <span className="text-gray-300">{cash(total)}</span>
                         </div>
-                        {rows.length === 0
-                          ? <p className="text-[11px] italic text-gray-600">none in this process</p>
-                          : <div className="space-y-1">{rows.map((r) => <Row key={r.id} row={r} kind={kind} />)}</div>}
+                        {rows.length === 0 && (
+                          <p className="mb-1 text-[11px] italic text-gray-600">none in this process</p>
+                        )}
+                        <div className="space-y-1">
+                          {rows.map((r) => <Row key={r.id} row={r} kind={kind} />)}
+                        </div>
+                        {editMode && phase !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => (kind === 'materials' ? addMaterial(phase) : addLabor(phase))}
+                            className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-gray-700 py-1 text-[11px] font-semibold text-gray-400 transition hover:border-gray-500 hover:text-white"
+                          >
+                            <Plus className="h-3 w-3" />
+                            Add {kind === 'materials' ? 'material' : 'labour'} to this process
+                          </button>
+                        )}
                       </div>
                     );
 
@@ -3623,25 +3744,27 @@ export function QuoteToContractEditor({
                         {phaseBreakdown.groups.map((g) => (
                           <div
                             key={g.phase}
-                            className={`rounded-lg border p-3 ${g.empty ? 'border-amber-500/30 bg-amber-500/[0.04]' : 'border-gray-800 bg-black/40'}`}
+                            className={`rounded-lg border p-3 ${g.empty && !editMode ? 'border-amber-500/30 bg-amber-500/[0.04]' : 'border-gray-800 bg-black/40'}`}
                           >
                             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 border-b border-gray-800 pb-2">
                               <span className="text-sm font-bold text-white">{g.phase}</span>
                               <span className="text-base font-bold text-orange-400">{cash(g.subtotal)}</span>
                             </div>
-                            {g.empty ? (
+                            {g.empty && !editMode ? (
                               /* Shown rather than hidden: a process with nothing tagged
                                  to it is the fault this screen exists to surface. The
                                  document drops empty phases; doing that here would hide
-                                 the very thing somebody came to look for. */
+                                 the very thing somebody came to look for. In edit mode
+                                 the Add buttons appear instead, because then the useful
+                                 response is to fill it rather than to be told. */
                               <p className="text-xs text-amber-300">
                                 Nothing is tagged to this process. It will not appear on the quote, and any
                                 work it covers is either billed under another heading or not at all.
                               </p>
                             ) : (
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <Bucket label="Materials" rows={g.mats} total={g.matTotal} kind="materials" tint="text-blue-400" />
-                                <Bucket label="Labour" rows={g.labs} total={g.labTotal} kind="labor" tint="text-purple-400" />
+                                <Bucket label="Materials" rows={g.mats} total={g.matTotal} kind="materials" tint="text-blue-400" phase={g.phase} />
+                                <Bucket label="Labour" rows={g.labs} total={g.labTotal} kind="labor" tint="text-purple-400" phase={g.phase} />
                               </div>
                             )}
                             {phaseBreakdown.withMarkup && !g.empty && (
@@ -3671,10 +3794,27 @@ export function QuoteToContractEditor({
                           </div>
                         )}
 
+                        {/* The sum of the parts, where somebody can see it add up. */}
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-gray-700 bg-black/60 px-3 py-2">
+                          <span className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                            All processes
+                          </span>
+                          <span className="text-lg font-bold text-white">
+                            {cash(
+                              phaseBreakdown.groups.reduce((t, g) => t + g.subtotal, 0)
+                              + phaseBreakdown.untagged.subtotal,
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500">
+                          Direct cost of every line on the quote. Overhead, profit, contingency and tax
+                          are added on top &mdash; see the quote total below.
+                        </p>
+
                         {!phaseBreakdown.groups.length && !phaseBreakdown.untagged.any && (
                           <p className="text-sm text-gray-500">
-                            No priced lines yet. Add materials or labour and they will group under the
-                            process you tag them with.
+                            No priced lines yet. Write the job&apos;s processes on the Process tab, then add
+                            materials and labour into each one.
                           </p>
                         )}
                       </div>
@@ -3751,7 +3891,7 @@ export function QuoteToContractEditor({
                       )}
                       {editMode && (
                         <button
-                          onClick={addMaterial}
+                          onClick={() => addMaterial()}
                           className="flex items-center gap-2 px-3 py-1.5 bg-black border border-blue-500/50 hover:border-blue-500 hover:shadow-[0_0_10px_rgba(59,130,246,0.3)] text-blue-400 rounded-lg text-sm font-semibold transition-all"
                         >
                           <Plus className="w-4 h-4" />
@@ -3996,7 +4136,7 @@ export function QuoteToContractEditor({
                     </h4>
                     {editMode && (
                       <button
-                        onClick={addLabor}
+                        onClick={() => addLabor()}
                         className="flex items-center gap-2 px-3 py-1.5 bg-black border border-purple-500/50 hover:border-purple-500 hover:shadow-[0_0_10px_rgba(168,85,247,0.3)] text-purple-400 rounded-lg text-sm font-semibold transition-all"
                       >
                         <Plus className="w-4 h-4" />
