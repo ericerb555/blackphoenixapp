@@ -1522,6 +1522,30 @@ export function QuoteToContractEditor({
   const [regenerating, setRegenerating] = useState(false);
   const briefEdited = JSON.stringify(briefDraft) !== JSON.stringify(originalBrief);
 
+  /**
+   * Whether the estimator panel is open, so something else can open it.
+   *
+   * "i dont see where in the quote editor that i can see the area i can tell
+   * the ai estimator to make changes?" — it was there, on this tab, inside a
+   * collapsed section headed "The brief this was priced from". That title
+   * describes HISTORY. Somebody looking for a way to instruct the estimator
+   * has no reason to open a box that offers to tell them what already
+   * happened, so the feature was functionally invisible.
+   *
+   * It is now reachable from the toolbar, which means its open state has to
+   * be controllable from outside rather than left to the browser.
+   */
+  const [briefOpen, setBriefOpen] = useState(false);
+
+  const openEstimatorPanel = () => {
+    setActiveTab('quote');
+    setBriefOpen(true);
+    // After the tab has rendered — the panel does not exist until then.
+    requestAnimationFrame(() => {
+      document.getElementById('quote-estimator-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   useEffect(() => { setBriefDraft(originalBrief); }, [originalBrief]);
 
   const setBriefField = (key: string, value: string) =>
@@ -2748,6 +2772,22 @@ export function QuoteToContractEditor({
               </button>
             )}
             {/*
+              The way in to the estimator panel.
+
+              The panel is on the Quote Details tab, below the fold, inside a
+              collapsed section. Every one of those is defensible on its own
+              and together they made the feature impossible to find. This
+              switches to the tab, opens the panel and scrolls to it.
+            */}
+            <button
+              onClick={openEstimatorPanel}
+              title="Write instructions for the AI estimator and re-price the quote"
+              className="flex items-center gap-2 rounded-lg border border-purple-500/40 bg-purple-600/10 px-4 py-2 text-sm font-bold text-purple-300 transition-all hover:bg-purple-600/20"
+            >
+              <Sparkles className="h-4 w-4" />
+              Ask the estimator
+            </button>
+            {/*
               Email it, from here.
 
               "i want to be able to email a customer right out of this as
@@ -2873,18 +2913,32 @@ export function QuoteToContractEditor({
                 invalidates everything below it; seeing the figures first and
                 the inputs afterwards is the wrong way round.
               */}
-              <details className="group rounded-xl border border-gray-700 bg-black/40" open={briefEdited}>
+              <details
+                id="quote-estimator-panel"
+                className="group rounded-xl border border-gray-700 bg-black/40"
+                open={briefOpen || briefEdited}
+                onToggle={(e) => setBriefOpen((e.target as HTMLDetailsElement).open)}
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
                   <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-[#ea580c]" />
-                    <span className="text-sm font-bold text-white">The brief this was priced from</span>
+                    <Sparkles className="h-4 w-4 text-[#ea580c]" />
+                    {/*
+                      Named for what you can DO here, not for what it holds.
+                      It was "The brief this was priced from", which is a true
+                      description of the contents and a useless signpost: it
+                      answers a question about the past, so nobody looking to
+                      change the estimate opened it.
+                    */}
+                    <span className="text-sm font-bold text-white">Tell the estimator what to change</span>
                     {briefEdited && (
                       <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">
                         edited — not yet re-priced
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-gray-500 group-open:hidden">Show and edit</span>
+                  <span className="text-xs text-gray-500 group-open:hidden">
+                    Write what to change, then re-price
+                  </span>
                   <span className="hidden text-xs text-gray-500 group-open:inline">Hide</span>
                 </summary>
 
