@@ -62,6 +62,13 @@ export interface QuotePdfLineGroup {
   lines: QuotePdfLine[];
   subtotal: number;
   /**
+   * What of this group's money is ours — overhead, profit and contingency.
+   *
+   * OFFICE COPY ONLY. The assembler leaves it undefined on a customer's
+   * document, so there is nothing here for a renderer to draw by accident.
+   */
+  markup?: { total: number; label: string };
+  /**
    * True for the balancing row, not a real group.
    *
    * When lines are withheld the drawn ones no longer account for the phase
@@ -83,6 +90,8 @@ export interface QuotePdfPhase {
   lines: QuotePdfLine[];
   /** The same lines split by kind, each subtotalled. Drawn in preference. */
   groups?: QuotePdfLineGroup[];
+  /** The phase's own markup. Office copy only, same as the group's. */
+  markup?: { total: number; label: string };
   subtotal: number;
 }
 
@@ -314,6 +323,19 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
           doc.setLineWidth(0.2);
           doc.line(MARGIN + 3, y, right - 3, y);
           y += 3;
+
+          /* Ours, not theirs. Italic and grey so it never reads as a charge
+             the customer is being shown — and absent entirely from their
+             copy, because the assembler does not populate it there. */
+          if (group.markup && group.markup.total > 0) {
+            y = pageBreak(doc, y, 10);
+            doc.setFont('helvetica', 'italic');
+            doc.setFontSize(7);
+            doc.setTextColor(150, 150, 150);
+            doc.text(`of which ours: ${group.markup.label}`, MARGIN + 5, y + 1);
+            doc.text(money(group.markup.total), right - 3, y + 1, { align: 'right' });
+            y += 5;
+          }
         }
 
         if (!group.lines.length) continue;
@@ -334,6 +356,16 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
           },
         });
         y = (doc as any).lastAutoTable.finalY + 5;
+      }
+
+      if (phase.markup && phase.markup.total > 0) {
+        y = pageBreak(doc, y, 10);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(140, 140, 140);
+        doc.text(`OURS ON THIS PHASE  ·  ${phase.markup.label}`, MARGIN + 3, y);
+        doc.text(money(phase.markup.total), right - 3, y, { align: 'right' });
+        y += 5;
       }
       y += 1;
     } else {

@@ -85,6 +85,7 @@ import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { asFraction } from '../lib/quoteMarkup';
 
 interface MaterialItem {
   id: string;
@@ -353,7 +354,11 @@ function PriceSource({ source, vendor }: { source?: string; vendor?: string }) {
  * something to read on the way to sending a quote.
  */
 function QuoteBasis({ quote }: { quote: any }) {
-  const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
+  const money = (n: any) => `${(Number(n) || 0).toFixed(2)}`;
+  const pct = (v: any) => {
+    const f = asFraction(v);
+    return f > 0 ? `${Math.round(f * 1000) / 10}%` : '';
+  };
   const has = (n: any) => Number(n) > 0;
 
   const softCosts: any[] = Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : [];
@@ -361,9 +366,19 @@ function QuoteBasis({ quote }: { quote: any }) {
     ['Materials', quote?.materialsSubtotal],
     ['Labour', quote?.laborSubtotal],
     ['Soft costs', quote?.additionalCostsSubtotal ?? softCosts.reduce((s, a) => s + (Number(a?.amount) || 0), 0)],
-    ['Overhead', quote?.overheadAmount, quote?.overheadPercent ? `${quote.overheadPercent}%` : ''],
-    ['Profit', quote?.profitAmount, quote?.profitPercent ? `${quote.profitPercent}%` : ''],
-    ['Contingency', quote?.contingencyAmount, quote?.contingencyPercent ? `${quote.contingencyPercent}%` : ''],
+    /*
+      These are stored as FRACTIONS — `applyMargins` says so at the top of
+      `quoteMargins.ts` and emits 0.10 for ten per cent. Printing the stored
+      value straight into a % sign therefore read "0.1%" on a quote carrying
+      ten, which understates the markup by a factor of a hundred on the one
+      panel whose whole job is to explain where the price came from.
+
+      `pct` goes through the same normaliser the per-phase markup uses, so
+      the figure in this panel and the figure on the PDF cannot disagree.
+    */
+    ['Overhead', quote?.overheadAmount, pct(quote?.overheadPercent)],
+    ['Profit', quote?.profitAmount, pct(quote?.profitPercent)],
+    ['Contingency', quote?.contingencyAmount, pct(quote?.contingencyPercent)],
     ['Tax on materials', quote?.taxAmount, quote?.taxRate ? `${(Number(quote.taxRate) * 100).toFixed(2)}%` : ''],
   ];
   const shown = rows.filter(([, value]) => has(value));

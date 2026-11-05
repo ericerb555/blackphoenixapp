@@ -26,6 +26,7 @@
  */
 import { groupLinesByPhase } from './invoicePhases';
 import { selectQuoteLines } from './quotePdfSelection';
+import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup';
 import { companyInfo } from './config/companyInfo';
 import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
 
@@ -56,6 +57,20 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
   const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines, credits } =
     selectQuoteLines(quote, forCustomer);
   const grouped = groupLinesByPhase(lines, steps);
+
+  /**
+   * Markup is OURS ONLY — it is computed for the office copy and not at all
+   * for the customer's.
+   *
+   * Guarding at the point of CALCULATION rather than the point of drawing is
+   * deliberate. A customer's `QuotePdfPhase` simply has no `markup` on it,
+   * so there is no field for a future renderer, a debug dump or a copied
+   * block to put on their document. "Present but not drawn" is how the
+   * `visible` flag came one keystroke from publishing a labour rate.
+   */
+  const rates = forCustomer ? null : markupRatesOf(quote);
+  const showMarkup = !!rates && hasMarkup(rates);
+  const rateLabel = rates ? describeRates(rates) : '';
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const toPdfLine = (l: any) => ({
@@ -90,10 +105,14 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     for (const [kind, label] of [['material', 'Materials'], ['labor', 'Labour']] as const) {
       const of = g.lines.filter((l: any) => l.kind === kind);
       if (!of.length) continue;
+      const groupSubtotal = round2(of.reduce((sum: number, l: any) => sum + l.quantity * l.unit_price, 0));
       groups.push({
         label,
         lines: of.map(toPdfLine),
-        subtotal: round2(of.reduce((sum: number, l: any) => sum + l.quantity * l.unit_price, 0)),
+        subtotal: groupSubtotal,
+        markup: showMarkup
+          ? { total: markupOn(groupSubtotal, rates!).total, label: rateLabel }
+          : undefined,
       });
     }
 
@@ -116,6 +135,16 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       description: sections.processDetail && g.phase ? describe.get(g.phase) : undefined,
       lines,
       groups,
+      /**
+       * The phase's markup is taken on its TRUE subtotal, not on the drawn
+       * lines. Withholding a line from the customer does not stop us earning
+       * on it, and an office copy that said otherwise would under-report
+       * what the job is actually worth — on the one document whose whole
+       * purpose is to tell the truth about that.
+       */
+      markup: showMarkup
+        ? { total: markupOn(subtotal, rates!).total, label: rateLabel }
+        : undefined,
       subtotal,
     };
   });
