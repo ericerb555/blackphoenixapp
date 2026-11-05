@@ -791,6 +791,40 @@ export function QuoteToContractEditor({
    * obeys the same rules the share link does. A PDF emailed out is exactly as
    * public as that link, so the two must not disagree.
    */
+  /**
+   * How much this quote is holding back, counted for the preview banner.
+   *
+   * Eric opened View / PDF to check that unticking a line had worked, saw
+   * the line still there, and reasonably concluded it had not. It had — the
+   * preview opens on the OFFICE copy, which shows withheld lines ON PURPOSE,
+   * each marked, because the person who priced the job needs to see
+   * everything. The customer copy next to it was correct the whole time.
+   *
+   * That is a defensible default and a terrible thing to leave unsaid. So
+   * the banner now states the number out loud instead of relying on anyone
+   * noticing a parenthetical at the end of a table row.
+   *
+   * Lines whose section is switched off are counted too — they are withheld
+   * from the customer just as surely, and a count that ignored them would
+   * under-report what is being held back.
+   */
+  const withheldCount = useMemo(() => {
+    const q: any = currentQuote || {};
+    const sec = q.customerSections || { materials: true, labor: true, processDetail: true };
+    let n = 0;
+    for (const [key, rows] of [
+      ['materials', Array.isArray(q.materials) ? q.materials : []],
+      ['labor', Array.isArray(q.labor) ? q.labor : []],
+    ] as Array<[string, any[]]>) {
+      for (const r of rows) {
+        // Off the quote entirely is not "withheld" — it is not on either copy.
+        if (r?.included === false) continue;
+        if (sec[key] === false || r?.visible === false) n++;
+      }
+    }
+    return n;
+  }, [currentQuote]);
+
   const buildPdf = (forCustomer: boolean) =>
     buildQuotePdf(quoteToPdfDocument(
       { ...(currentQuote as any), clientName: workRequest.customerName },
@@ -4799,6 +4833,11 @@ export function QuoteToContractEditor({
                       }`}
                     >
                       {label}
+                      {v && withheldCount > 0 && (
+                        <span className="ml-1.5 rounded bg-black/30 px-1 py-0.5 text-[10px] font-bold">
+                          −{withheldCount}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -4827,10 +4866,42 @@ export function QuoteToContractEditor({
                 </button>
               </div>
             </div>
-            {previewAsCustomer && (
+            {previewAsCustomer ? (
               <p className="bg-blue-500/10 px-5 py-2 text-xs text-blue-300">
                 Exactly what the customer receives — your hidden lines and switched-off sections are not in it.
               </p>
+            ) : (
+              /*
+                The office copy, said out loud.
+                
+                This is the view that shows withheld lines on purpose. Left
+                unlabelled it reads as "hiding did not work", which is the
+                one conclusion it must not invite.
+              */
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
+                {withheldCount > 0 ? (
+                  <>
+                    <strong className="font-bold">Your office copy.</strong>
+                    <span>
+                      It deliberately still shows the {withheldCount} line{withheldCount === 1 ? '' : 's'} you
+                      are withholding, each marked “(hidden from customer)”. They are
+                      not on the customer's copy.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewAsCustomer(true)}
+                      className="rounded bg-amber-400/20 px-2 py-0.5 font-bold text-amber-200 underline-offset-2 hover:bg-amber-400/30 hover:underline"
+                    >
+                      Show me what they get
+                    </button>
+                  </>
+                ) : (
+                  <span>
+                    <strong className="font-bold">Your office copy.</strong> Nothing is being withheld
+                    on this quote, so the customer's copy is the same document.
+                  </span>
+                )}
+              </div>
             )}
             {previewUrl ? (
               <iframe title="Quote PDF" src={previewUrl} className="h-full w-full flex-1 bg-white" />
