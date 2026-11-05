@@ -53,6 +53,7 @@ import {
   Sparkles,
   ShoppingCart,
   Hammer,
+  Layers,
   Star,
   Filter,
   RefreshCw,
@@ -85,7 +86,7 @@ import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { API_BASE_URL } from '../lib/apiConfig';
-import { asFraction } from '../lib/quoteMarkup';
+import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '../lib/quoteMarkup';
 /* The server's pricing arithmetic, imported rather than reimplemented — see
    the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
@@ -357,7 +358,7 @@ function PriceSource({ source, vendor }: { source?: string; vendor?: string }) {
  * something to read on the way to sending a quote.
  */
 function QuoteBasis({ quote }: { quote: any }) {
-  const money = (n: any) => `${(Number(n) || 0).toFixed(2)}`;
+  const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
   const pct = (v: any) => {
     const f = asFraction(v);
     return f > 0 ? `${Math.round(f * 1000) / 10}%` : '';
@@ -615,7 +616,7 @@ export function QuoteToContractEditor({
   const [unpricedSend, setUnpricedSend] = useState<{ reason: string; basis: string } | null>(null);
 
   const [activeTab, setActiveTab] = useState<'quote' | 'bidding' | 'approval'>('quote');
-  const [quoteEditTab, setQuoteEditTab] = useState<'materials' | 'labor' | 'process'>('materials');
+  const [quoteEditTab, setQuoteEditTab] = useState<'phases' | 'materials' | 'labor' | 'process'>('phases');
   const [editMode, setEditMode] = useState(false);
   const [editedQuote, setEditedQuote] = useState<Quote | undefined>(normalizeQuote(workRequest.quote));
   const [loading, setLoading] = useState(false);
@@ -686,6 +687,85 @@ export function QuoteToContractEditor({
     }
     return out;
   }, [currentQuote]);
+
+  /**
+   * Every line gathered under the process it belongs to.
+   *
+   * "can we make sure that all the sections in the line items are together
+   * so i can make sure materials and labor cost for that process are
+   * correct?" — they were in SEPARATE TABS, so checking one process meant
+   * flipping between Materials and Labour and filtering by eye. You cannot
+   * verify a phase's cost that way, only estimate it.
+   *
+   * Ordered by `phaseOptions`: the job's own step order first, with anything
+   * only the lines mention appended. That is the same ordering authority
+   * `groupLinesByPhase` uses for the document, so this screen and the PDF
+   * cannot disagree about what a process holds or what it comes to.
+   *
+   * EMPTY PROCESSES ARE SHOWN HERE, which is the opposite of what the
+   * document does. On a quote, a phase with no lines is not billed and so is
+   * not printed. Here, a process with nothing tagged to it is precisely the
+   * mistake somebody is looking for, and hiding it would hide the fault.
+   *
+   * So is the untagged bucket. Those lines land in a loose "Additional
+   * items" group at the bottom of the customer's quote; this is where that
+   * gets caught, rather than by the customer asking what it is.
+   */
+  const phaseBreakdown = useMemo(() => {
+    const q: any = currentQuote || {};
+    const materials: any[] = Array.isArray(q.materials) ? q.materials : [];
+    const labor: any[] = Array.isArray(q.labor) ? q.labor : [];
+
+    const lineTotal = (line: any): number => {
+      const stated = Number(line?.totalCost);
+      if (Number.isFinite(stated)) return stated;
+      const qty = Number(line?.quantity ?? line?.hours ?? 1) || 0;
+      const rate = Number(line?.unitCost ?? line?.unitPrice ?? line?.hourlyRate ?? 0) || 0;
+      return qty * rate;
+    };
+    /* The same predicate the totals use. An excluded line is not charged, so
+       adding it up here would make this screen disagree with the price at the
+       bottom of the quote — on the screen whose whole job is checking it. */
+    const charged = (l: any) => l?.included !== false;
+    const sum = (rows: any[]) =>
+      Math.round(rows.filter(charged).reduce((t, l) => t + lineTotal(l), 0) * 100) / 100;
+    const of = (rows: any[], phase: string) =>
+      rows.filter((r) => String(r?.phase || '').trim() === phase);
+
+    const rates = markupRatesOf(q);
+    const withMarkup = hasMarkup(rates);
+
+    const groups = phaseOptions.map((phase) => {
+      const mats = of(materials, phase);
+      const labs = of(labor, phase);
+      const matTotal = sum(mats);
+      const labTotal = sum(labs);
+      const subtotal = Math.round((matTotal + labTotal) * 100) / 100;
+      return {
+        phase, mats, labs, matTotal, labTotal, subtotal,
+        markup: withMarkup ? markupOn(subtotal, rates).total : 0,
+        empty: mats.length === 0 && labs.length === 0,
+      };
+    });
+
+    const uMats = materials.filter((m) => !String(m?.phase || '').trim());
+    const uLabs = labor.filter((l) => !String(l?.phase || '').trim());
+    const uMatTotal = sum(uMats);
+    const uLabTotal = sum(uLabs);
+
+    return {
+      groups,
+      untagged: {
+        mats: uMats, labs: uLabs,
+        matTotal: uMatTotal, labTotal: uLabTotal,
+        subtotal: Math.round((uMatTotal + uLabTotal) * 100) / 100,
+        any: uMats.length + uLabs.length > 0,
+      },
+      rateLabel: withMarkup ? describeRates(rates) : '',
+      withMarkup,
+      lineTotal,
+    };
+  }, [currentQuote, phaseOptions]);
 
   const handleConvertToContract = async () => {
     const quoteId = currentQuote?.id || workRequest.quote?.id;
@@ -3393,7 +3473,30 @@ export function QuoteToContractEditor({
 
               {/* Quote Edit Tabs */}
               {editMode && (
-                <div className="flex gap-2 mb-4">
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {/*
+                    First, and the default, because it is the view that lets
+                    you CHECK a quote. Materials and Labour on their own are
+                    for entering lines; this is for making sure the money
+                    under each process is right, which is what somebody is
+                    actually doing when they open a generated quote.
+                  */}
+                  <button
+                    onClick={() => setQuoteEditTab('phases')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
+                      quoteEditTab === 'phases'
+                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
+                        : 'bg-black border border-gray-700 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" />
+                    By process ({phaseBreakdown.groups.length})
+                    {phaseBreakdown.untagged.any && (
+                      <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
+                        {phaseBreakdown.untagged.mats.length + phaseBreakdown.untagged.labs.length} loose
+                      </span>
+                    )}
+                  </button>
                   <button
                     onClick={() => setQuoteEditTab('materials')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
@@ -3442,6 +3545,143 @@ export function QuoteToContractEditor({
               <datalist id="quote-phase-options">
                 {phaseOptions.map((phase) => <option key={phase} value={phase} />)}
               </datalist>
+
+              {/* ── Everything belonging to one process, together ─────────── */}
+              {(!editMode || quoteEditTab === 'phases') && (
+                <div className="bg-black/40 border border-gray-700 rounded-xl p-6 space-y-4">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-lg font-bold text-white">
+                      <Layers className="h-5 w-5 text-orange-400" />
+                      What each process costs
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-400">
+                      The materials and the labour for one stage of the job side by side, so the
+                      figure for that stage can be checked rather than assembled in your head.
+                      {phaseBreakdown.withMarkup && ' "Ours" is your markup on that stage, and is never on the customer copy.'}
+                    </p>
+                  </div>
+
+                  {(() => {
+                    const cash = (n) => '$' + (Number(n) || 0).toFixed(2);
+
+                    const Row = ({ row, kind }) => {
+                      const off = row?.included === false;
+                      const hidden = row?.visible === false;
+                      const name = kind === 'materials'
+                        ? (row?.name || row?.description || 'Material')
+                        : (row?.role || row?.description || 'Labour');
+                      const qty = kind === 'materials' ? Number(row?.quantity) || 0 : Number(row?.hours) || 0;
+                      const unit = kind === 'materials' ? (row?.unit || 'unit') : 'hrs';
+                      const rate = kind === 'materials'
+                        ? Number(row?.unitCost ?? row?.unitPrice) || 0
+                        : Number(row?.hourlyRate) || 0;
+                      return (
+                        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[#1f1f1f] bg-[#070707] px-2.5 py-1.5 ${off ? 'opacity-50' : ''}`}>
+                          <span className="min-w-0 flex-1 truncate text-xs text-gray-200">{name}</span>
+                          <span className="flex-shrink-0 text-[11px] text-gray-500">
+                            {qty} {unit} &times; {cash(rate)}
+                          </span>
+                          {off && (
+                            <span className="flex-shrink-0 rounded bg-gray-700/40 px-1.5 text-[10px] font-bold uppercase text-gray-400">off quote</span>
+                          )}
+                          {!off && hidden && (
+                            <span className="flex-shrink-0 rounded bg-amber-500/15 px-1.5 text-[10px] font-bold uppercase text-amber-400">hidden</span>
+                          )}
+                          <span className={`flex-shrink-0 text-xs font-semibold ${off ? 'text-gray-500 line-through' : 'text-white'}`}>
+                            {cash(phaseBreakdown.lineTotal(row))}
+                          </span>
+                          {editMode && (
+                            <input
+                              type="text"
+                              list="quote-phase-options"
+                              value={row?.phase || ''}
+                              onChange={(e) => (kind === 'materials'
+                                ? updateMaterial(row.id, 'phase', e.target.value)
+                                : updateLabor(row.id, 'phase', e.target.value))}
+                              className="w-36 flex-shrink-0 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-white"
+                              placeholder="move to process..."
+                            />
+                          )}
+                        </div>
+                      );
+                    };
+
+                    const Bucket = ({ label, rows, total, kind, tint }) => (
+                      <div>
+                        <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide">
+                          <span className={tint}>{label} ({rows.length})</span>
+                          <span className="text-gray-300">{cash(total)}</span>
+                        </div>
+                        {rows.length === 0
+                          ? <p className="text-[11px] italic text-gray-600">none in this process</p>
+                          : <div className="space-y-1">{rows.map((r) => <Row key={r.id} row={r} kind={kind} />)}</div>}
+                      </div>
+                    );
+
+                    return (
+                      <div className="space-y-3">
+                        {phaseBreakdown.groups.map((g) => (
+                          <div
+                            key={g.phase}
+                            className={`rounded-lg border p-3 ${g.empty ? 'border-amber-500/30 bg-amber-500/[0.04]' : 'border-gray-800 bg-black/40'}`}
+                          >
+                            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 border-b border-gray-800 pb-2">
+                              <span className="text-sm font-bold text-white">{g.phase}</span>
+                              <span className="text-base font-bold text-orange-400">{cash(g.subtotal)}</span>
+                            </div>
+                            {g.empty ? (
+                              /* Shown rather than hidden: a process with nothing tagged
+                                 to it is the fault this screen exists to surface. The
+                                 document drops empty phases; doing that here would hide
+                                 the very thing somebody came to look for. */
+                              <p className="text-xs text-amber-300">
+                                Nothing is tagged to this process. It will not appear on the quote, and any
+                                work it covers is either billed under another heading or not at all.
+                              </p>
+                            ) : (
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <Bucket label="Materials" rows={g.mats} total={g.matTotal} kind="materials" tint="text-blue-400" />
+                                <Bucket label="Labour" rows={g.labs} total={g.labTotal} kind="labor" tint="text-purple-400" />
+                              </div>
+                            )}
+                            {phaseBreakdown.withMarkup && !g.empty && (
+                              <div className="mt-2 flex items-center justify-between border-t border-gray-800 pt-1.5 text-[11px]">
+                                <span className="text-gray-500">Ours on this process &middot; {phaseBreakdown.rateLabel}</span>
+                                <span className="font-semibold text-emerald-400">{cash(g.markup)}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {phaseBreakdown.untagged.any && (
+                          <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3">
+                            <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 border-b border-amber-500/20 pb-2">
+                              <span className="text-sm font-bold text-amber-300">Not tagged to a process</span>
+                              <span className="text-base font-bold text-amber-300">{cash(phaseBreakdown.untagged.subtotal)}</span>
+                            </div>
+                            <p className="mb-2 text-xs text-amber-200/80">
+                              These are charged, but they land in a loose &quot;Additional items&quot; group at the
+                              bottom of the customer quote with no process to explain them
+                              {editMode ? ' \u2014 type a process on any line to move it.' : '. Use Edit Quote to move them.'}
+                            </p>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <Bucket label="Materials" rows={phaseBreakdown.untagged.mats} total={phaseBreakdown.untagged.matTotal} kind="materials" tint="text-blue-400" />
+                              <Bucket label="Labour" rows={phaseBreakdown.untagged.labs} total={phaseBreakdown.untagged.labTotal} kind="labor" tint="text-purple-400" />
+                            </div>
+                          </div>
+                        )}
+
+                        {!phaseBreakdown.groups.length && !phaseBreakdown.untagged.any && (
+                          <p className="text-sm text-gray-500">
+                            No priced lines yet. Add materials or labour and they will group under the
+                            process you tag them with.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               {/* Materials Section */}
               {(!editMode || quoteEditTab === 'materials') && (
