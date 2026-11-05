@@ -97,3 +97,82 @@ test('the label names the rates a person reasons about', () => {
   assert.equal(describeRates(markupRatesOf({ profitPercent: 0.15 })), '15% profit');
   assert.equal(describeRates(markupRatesOf({})), '');
 });
+
+/* ── what the quote editor recalculates when you touch a line ────────────── */
+
+/**
+ * `recalculateTotals` in the editor is a `.tsx` the test runner cannot load,
+ * so what is asserted here is the CONTRACT it is built from: `asFraction`
+ * feeding `applyMargins`, every rate passed explicitly.
+ *
+ * That composition is the whole fix. The editor used to total a quote as
+ * materials + labour + tax - credits, with no overhead, profit or
+ * contingency — so editing one quantity on a generated quote quietly removed
+ * about a quarter of the price. These pin both directions: the margin comes
+ * back when the quote has one, and none is conjured when it does not.
+ */
+import { applyMargins } from '../supabase/functions/server/quoteMargins.ts';
+
+const recalc = (q: any) => applyMargins({
+  materialsSubtotal: q.materialsSubtotal,
+  laborSubtotal: q.laborSubtotal,
+  additionalCostsSubtotal: q.additionalCostsSubtotal ?? 0,
+  creditsSubtotal: q.creditsSubtotal ?? 0,
+  overheadPercent: asFraction(q.overheadPercent),
+  profitPercent: asFraction(q.profitPercent),
+  contingencyPercent: asFraction(q.contingencyPercent),
+  taxRatePercent: asFraction(q.taxRate),
+});
+
+const generated = {
+  materialsSubtotal: 4000, laborSubtotal: 6000,
+  overheadPercent: 0.10, profitPercent: 0.10, contingencyPercent: 0.05,
+  taxRate: 0.08,
+};
+
+test('editing a generated quote keeps its overhead, profit and contingency', () => {
+  const out = recalc(generated);
+  assert.equal(out.overheadAmount, 1000);
+  assert.equal(out.profitAmount, 1000);
+  assert.equal(out.contingencyAmount, 500);
+  // 10000 direct + 2500 margin + 320 tax on materials.
+  assert.equal(out.totalCost, 12820);
+});
+
+test('the old arithmetic was short by exactly the margin', () => {
+  const old = generated.materialsSubtotal + generated.laborSubtotal
+    + generated.materialsSubtotal * generated.taxRate;
+  assert.equal(old, 10320);
+  assert.equal(recalc(generated).totalCost - old, 2500);
+});
+
+/**
+ * The other direction, and the reason every rate is passed explicitly rather
+ * than left out. `applyMargins` defaults an ABSENT rate to 10/10/5, which is
+ * right when pricing a new job and wrong here — a hand-built quote would gain
+ * a quarter the first time somebody corrected a line.
+ */
+test('editing a quote that never had margins invents none', () => {
+  const handBuilt = { materialsSubtotal: 4000, laborSubtotal: 6000, taxRate: 0.08 };
+  const out = recalc(handBuilt);
+  assert.equal(out.overheadAmount, 0);
+  assert.equal(out.profitAmount, 0);
+  assert.equal(out.contingencyAmount, 0);
+  assert.equal(out.totalCost, 10320, 'identical to the old arithmetic');
+});
+
+test('a rate stored as a percent gives the same total as one stored as a fraction', () => {
+  const asPercents = {
+    materialsSubtotal: 4000, laborSubtotal: 6000,
+    overheadPercent: 10, profitPercent: 10, contingencyPercent: 5, taxRate: 8,
+  };
+  assert.equal(recalc(asPercents).totalCost, recalc(generated).totalCost);
+});
+
+test('soft costs carry margin too', () => {
+  const withPermits = { ...generated, additionalCostsSubtotal: 1000 };
+  const out = recalc(withPermits);
+  assert.equal(out.directCost, 11000);
+  // The extra 1000 of direct cost carries the same 25%.
+  assert.equal(out.overheadAmount + out.profitAmount + out.contingencyAmount, 2750);
+});

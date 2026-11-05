@@ -86,6 +86,9 @@ import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { asFraction } from '../lib/quoteMarkup';
+/* The server's pricing arithmetic, imported rather than reimplemented — see
+   the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
+import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
 
 interface MaterialItem {
   id: string;
@@ -2221,18 +2224,86 @@ export function QuoteToContractEditor({
      */
     const creditsSubtotal = (quote.credits || []).filter(onQuote)
       .reduce((sum, c) => sum + Math.abs(Number(c.amount) || 0), 0);
-    const taxableMaterials = Math.max(0, materialsSubtotal - creditsSubtotal);
-    const taxAmount = taxableMaterials * quote.taxRate;
-    const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
+
+    /**
+     * Soft costs — permits, skips, plant hire. They are direct cost and
+     * carry overhead and profit like anything else, and leaving them out
+     * here would both understate the total and understate the markup on it.
+     */
+    const additionalCostsSubtotal = (Array.isArray((quote as any).additionalCosts)
+      ? (quote as any).additionalCosts
+      : []).filter(onQuote).reduce((sum: number, a: any) => sum + (Number(a?.amount) || 0), 0);
+
+    /**
+     * THE SERVER'S OWN ARITHMETIC, NOT A SECOND COPY OF IT.
+     *
+     * This function used to compute
+     *
+     *     totalCost = materials + labour + tax - credits
+     *
+     * with no overhead, no profit and no contingency. Every quote the
+     * estimator generates carries all three, so opening one and touching a
+     * single quantity silently knocked roughly 25% off the price — on a
+     * $10,000 job, $2,500 of margin gone for fixing a typo, with nothing on
+     * screen to say it had happened.
+     *
+     * The fix is deliberately NOT to add three lines of multiplication here.
+     * `quoteMargins.ts` exists because the worst pricing fault this project
+     * has had was two modules each doing its own version of this and
+     * disagreeing about whether a rate was 10 or 0.10 — which shipped 40%
+     * overhead on every repriced quote and passed both sides' unit tests.
+     * Its header says so at length. Writing a fourth implementation in a
+     * `.tsx` file the test runner cannot even load would be repeating that
+     * mistake on purpose, so this imports the same tested function the
+     * server prices with, exactly as `laborTasks.ts` imports `laborMath`.
+     *
+     * EVERY RATE IS PASSED EXPLICITLY, AND ABSENT MEANS ZERO.
+     *
+     * `applyMargins` defaults a MISSING rate to 10/10/5 because that is the
+     * right thing when PRICING a new job. It is the wrong thing here: a
+     * hand-built quote that never had a margin would suddenly gain 25% the
+     * first time somebody corrected a line, which is the same class of
+     * silent repricing as the bug being fixed, just in the other direction.
+     * Passing a number — zero when there is none — means the defaults can
+     * never fire and this only ever preserves what the quote already had.
+     *
+     * `asFraction` normalises the two conventions in the codebase, so a
+     * rate stored as 10 and one stored as 0.10 both mean ten per cent.
+     */
+    const margins = applyMargins({
+      materialsSubtotal,
+      laborSubtotal,
+      additionalCostsSubtotal,
+      creditsSubtotal,
+      overheadPercent: asFraction((quote as any).overheadPercent),
+      profitPercent: asFraction((quote as any).profitPercent),
+      contingencyPercent: asFraction((quote as any).contingencyPercent),
+      taxRatePercent: asFraction(quote.taxRate),
+    });
 
     setEditedQuote({
       ...quote,
       materialsSubtotal,
       laborSubtotal,
       creditsSubtotal,
-      taxAmount,
-      totalCost,
-    });
+      additionalCostsSubtotal,
+      /**
+       * The AMOUNTS are written back, not just the total.
+       *
+       * "How this quote was built" reads `overheadAmount` and the PDF's
+       * per-phase markup reads the percents. Recomputing the total while
+       * leaving the amounts at their old values would leave the panel
+       * explaining the price with figures that no longer sum to it — the
+       * one place a wrong number is certain to be noticed and believed.
+       */
+      directCost: margins.directCost,
+      overheadAmount: margins.overheadAmount,
+      profitAmount: margins.profitAmount,
+      contingencyAmount: margins.contingencyAmount,
+      preTaxTotal: margins.preTaxTotal,
+      taxAmount: margins.taxAmount,
+      totalCost: margins.totalCost,
+    } as Quote);
   };
 
   /* ── credits: what the customer supplied themselves ─────────────── */
