@@ -27,7 +27,7 @@
 import { groupLinesByPhase } from './invoicePhases';
 import { selectQuoteLines } from './quotePdfSelection';
 import { companyInfo } from './config/companyInfo';
-import type { QuotePdfData, QuotePdfPhase } from './services/quotePdfLayout';
+import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
 
 
 const hexToRgb = (hex: string) => {
@@ -57,21 +57,68 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     selectQuoteLines(quote, forCustomer);
   const grouped = groupLinesByPhase(lines, steps);
 
-  const phases: QuotePdfPhase[] = grouped.map((g) => ({
-    title: g.phase,
-    label: g.label,
-    duration: g.duration,
-    description: sections.processDetail && g.phase ? describe.get(g.phase) : undefined,
-    lines: g.lines.map((l) => ({
-      description: l.description,
-      quantity: l.quantity,
-      rate: l.unit_price,
-      amount: Math.round(l.quantity * l.unit_price * 100) / 100,
-    })),
-    subtotal: g.phase && trueCost.has(g.phase)
-      ? Math.round((trueCost.get(g.phase) as number) * 100) / 100
-      : g.subtotal,
-  }));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const toPdfLine = (l: any) => ({
+    description: l.description,
+    quantity: l.quantity,
+    rate: l.unit_price,
+    amount: round2(l.quantity * l.unit_price),
+  });
+
+  const phases: QuotePdfPhase[] = grouped.map((g) => {
+    const lines = g.lines.map(toPdfLine);
+    const subtotal = g.phase && trueCost.has(g.phase)
+      ? round2(trueCost.get(g.phase) as number)
+      : g.subtotal;
+
+    /**
+     * Materials and labour, split and subtotalled inside the phase.
+     *
+     * The phase SUBTOTAL above is the true cost and counts withheld lines;
+     * these groups can only count the ones actually drawn. So they will not
+     * add up whenever anything is held back — which was already true of the
+     * flat list, but printing per-kind subtotals puts the sum right under
+     * the reader's eye, and a column that visibly does not add up reads as
+     * an error in the quote rather than a deliberate omission.
+     *
+     * The balance is therefore carried as its own row. It names no line, no
+     * quantity and no rate — it says only that the phase contains further
+     * work at that price, which is exactly what withholding a line means
+     * and the least that can be said while keeping the arithmetic honest.
+     */
+    const groups: QuotePdfLineGroup[] = [];
+    for (const [kind, label] of [['material', 'Materials'], ['labor', 'Labour']] as const) {
+      const of = g.lines.filter((l: any) => l.kind === kind);
+      if (!of.length) continue;
+      groups.push({
+        label,
+        lines: of.map(toPdfLine),
+        subtotal: round2(of.reduce((sum: number, l: any) => sum + l.quantity * l.unit_price, 0)),
+      });
+    }
+
+    const drawn = round2(groups.reduce((sum, grp) => sum + grp.subtotal, 0));
+    const balance = round2(subtotal - drawn);
+    // A penny either way is rounding, not withheld work.
+    if (groups.length && Math.abs(balance) > 0.01) {
+      groups.push({
+        label: 'Other work in this phase',
+        lines: [],
+        subtotal: balance,
+        balancing: true,
+      });
+    }
+
+    return {
+      title: g.phase,
+      label: g.label,
+      duration: g.duration,
+      description: sections.processDetail && g.phase ? describe.get(g.phase) : undefined,
+      lines,
+      groups,
+      subtotal,
+    };
+  });
 
   /**
    * With every line withheld there are no groups to render, so the phases

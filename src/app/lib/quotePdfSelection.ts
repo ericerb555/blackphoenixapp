@@ -48,6 +48,17 @@ export interface SelectedLine {
   quantity: number;
   unit_price: number;
   phase?: string;
+  /**
+   * Material or labour, carried so the document can split a phase into the
+   * two and subtotal each.
+   *
+   * "all the labor materials ... per section so they can see how the money
+   * is broken up per process." The lines were already grouped by phase, but
+   * inside a phase they were one undifferentiated list — a customer could
+   * see that Framing costs £4,390 and not what of that was timber and what
+   * was the carpenter. The grouping already knew; it just was not saying.
+   */
+  kind: 'material' | 'labor';
 }
 
 export interface QuoteSelection {
@@ -114,6 +125,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
         quantity: Number(m?.quantity) || 0,
         unit_price: Number(m?.unitCost) || 0,
         phase: String(m?.phase || '').trim() || undefined,
+        kind: 'material',
       });
     }
   }
@@ -125,6 +137,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
         quantity: Number(l?.hours) || 0,
         unit_price: Number(l?.hourlyRate) || 0,
         phase: String(l?.phase || '').trim() || undefined,
+        kind: 'labor',
       });
     }
   }

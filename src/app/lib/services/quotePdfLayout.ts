@@ -49,6 +49,30 @@ export interface QuotePdfLine {
   amount: number;
 }
 
+/**
+ * One kind of cost inside a phase — its lines and what they come to.
+ *
+ * "all the labor materials ... per section so they can see how the money is
+ * broken up per process." A phase used to be one undifferentiated list, so a
+ * customer could read that Framing costs $4,390 and still not know what of
+ * that was timber and what was the carpenter.
+ */
+export interface QuotePdfLineGroup {
+  label: string;
+  lines: QuotePdfLine[];
+  subtotal: number;
+  /**
+   * True for the balancing row, not a real group.
+   *
+   * When lines are withheld the drawn ones no longer account for the phase
+   * total. That was already so — the flat list did not add up either — but
+   * printing per-kind subtotals puts the arithmetic right under the reader's
+   * nose, and a column that visibly does not add up reads as a mistake in
+   * the quote. This carries the remainder so it does.
+   */
+  balancing?: boolean;
+}
+
 export interface QuotePdfPhase {
   /** Null for the lines that belong to no phase. */
   title: string | null;
@@ -57,6 +81,8 @@ export interface QuotePdfPhase {
   /** Written account of the phase. Omitted when process detail is withheld. */
   description?: string;
   lines: QuotePdfLine[];
+  /** The same lines split by kind, each subtotalled. Drawn in preference. */
+  groups?: QuotePdfLineGroup[];
   subtotal: number;
 }
 
@@ -262,23 +288,54 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
       y += 3;
     }
 
-    if (data.showLines && phase.lines.length) {
-      autoTable(doc, {
-        startY: y,
-        margin: { left: MARGIN, right: MARGIN },
-        head: [['Description', 'Qty', 'Rate', 'Amount']],
-        body: phase.lines.map((l) => [l.description, String(l.quantity), money(l.rate), money(l.amount)]),
-        theme: 'plain',
-        styles: { fontSize: 8.5, cellPadding: 1.8, textColor: [60, 60, 60] },
-        headStyles: { fontStyle: 'bold', textColor: [130, 130, 130], fontSize: 7.5 },
-        columnStyles: {
-          0: { cellWidth: 'auto' },
-          1: { halign: 'right', cellWidth: 16 },
-          2: { halign: 'right', cellWidth: 24 },
-          3: { halign: 'right', cellWidth: 26 },
-        },
-      });
-      y = (doc as any).lastAutoTable.finalY + 6;
+    if (data.showLines && (phase.groups?.length || phase.lines.length)) {
+      /* Materials, then labour, each subtotalled under the phase they belong
+         to. Falls back to the flat list for any caller still building the
+         old shape — the breakdown is an addition, not a replacement. */
+      const groups: QuotePdfLineGroup[] = phase.groups?.length
+        ? phase.groups
+        : [{ label: '', lines: phase.lines, subtotal: phase.subtotal }];
+
+      for (const group of groups) {
+        if (!group.lines.length && !group.balancing) continue;
+
+        if (group.label) {
+          y = pageBreak(doc, y, 14);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.setTextColor(120, 120, 120);
+          doc.text(group.label.toUpperCase(), MARGIN + 3, y);
+          doc.setTextColor(60, 60, 60);
+          doc.text(money(group.subtotal), right - 3, y, { align: 'right' });
+          y += 3;
+          // A hairline under the sub-heading, so the eye can tell a group
+          // apart from the phase heading above it without another colour.
+          doc.setDrawColor(225, 225, 225);
+          doc.setLineWidth(0.2);
+          doc.line(MARGIN + 3, y, right - 3, y);
+          y += 3;
+        }
+
+        if (!group.lines.length) continue;
+
+        autoTable(doc, {
+          startY: y,
+          margin: { left: MARGIN, right: MARGIN },
+          head: [['Description', 'Qty', 'Rate', 'Amount']],
+          body: group.lines.map((l) => [l.description, String(l.quantity), money(l.rate), money(l.amount)]),
+          theme: 'plain',
+          styles: { fontSize: 8.5, cellPadding: 1.8, textColor: [60, 60, 60] },
+          headStyles: { fontStyle: 'bold', textColor: [130, 130, 130], fontSize: 7.5 },
+          columnStyles: {
+            0: { cellWidth: 'auto' },
+            1: { halign: 'right', cellWidth: 16 },
+            2: { halign: 'right', cellWidth: 24 },
+            3: { halign: 'right', cellWidth: 26 },
+          },
+        });
+        y = (doc as any).lastAutoTable.finalY + 5;
+      }
+      y += 1;
     } else {
       y += 2;
     }

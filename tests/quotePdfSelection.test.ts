@@ -241,3 +241,54 @@ test('absent means included, so no existing quote changes', () => {
   }
   assert.equal(isIncluded({ included: false }), false);
 });
+
+/* ── materials and labour, told apart inside a phase ─────────────────────── */
+
+/**
+ * "all the labor materials ... per section so they can see how the money is
+ * broken up per process."
+ *
+ * The document splits each phase into its materials and its labour and
+ * subtotals both. It can only do that if the selection says which a line is,
+ * and it is the kind of field that is easy to set on one branch and forget on
+ * the other — in which case half the lines quietly land in the wrong group
+ * and the subtotals are wrong without anything looking broken.
+ */
+test('every selected line says whether it is material or labour', () => {
+  for (const forCustomer of [true, false]) {
+    const sel = selectQuoteLines(quote, forCustomer);
+    assert.ok(sel.lines.length > 0);
+    for (const line of sel.lines) {
+      assert.ok(
+        line.kind === 'material' || line.kind === 'labor',
+        `${line.description} has kind ${JSON.stringify(line.kind)}`,
+      );
+    }
+  }
+});
+
+test('a material is tagged material and a labour line labour', () => {
+  const sel = selectQuoteLines(quote, false);
+  const byKind = (k: string) => sel.lines.filter((l) => l.kind === k).map((l) => l.description);
+  assert.ok(byKind('material').some((d) => /Lumber/.test(d)));
+  assert.ok(byKind('material').some((d) => /Skip hire/.test(d)));
+  assert.ok(byKind('labor').some((d) => /Carpenter/.test(d)));
+  // And nothing has wandered across.
+  assert.ok(!byKind('labor').some((d) => /Lumber|Skip hire/.test(d)));
+  assert.ok(!byKind('material').some((d) => /Carpenter/.test(d)));
+});
+
+/**
+ * The per-kind subtotals are summed from DRAWN lines; the phase total counts
+ * withheld ones too. The gap between them is real money and the document
+ * carries it as a balancing row — so this asserts the gap is what we think it
+ * is, because a wrong figure here is a quote whose own column does not add up.
+ */
+test('what the drawn lines miss is exactly the withheld money', () => {
+  const sel = selectQuoteLines(quote, true);
+  const drawnInStripOut = sel.lines
+    .filter((l) => l.phase === 'Strip out')
+    .reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
+  assert.equal(drawnInStripOut, 0, 'the only Strip out line is hidden');
+  assert.equal(sel.phaseCost.get('Strip out'), 450, 'but its money is still charged');
+});
