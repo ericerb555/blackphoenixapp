@@ -19,6 +19,7 @@ import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
+import { reconcilePhases } from './quotePhasePlan.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
@@ -141,7 +142,17 @@ Return a JSON object with EXACTLY this shape (all numbers plain, no strings, no 
 
 Include 8-25 material line items and 4-10 labor line items for a typical project. Scale detail with project size.
 
-Give the whole job as phases in \`processSteps\` — every stage from first arrival to final clean and handover, in the order they happen, with nothing skipped because it is obvious to a builder. A small job may be 4 phases and a full renovation 10 or more; do not compress a long job into a short list. "The description is not detailed enough" is the specific complaint this has to answer, so err long.
+Give the whole job as phases in \`processSteps\` — every stage from first arrival to final clean and handover, IN THE ORDER THEY HAPPEN, with nothing skipped because it is obvious to a builder. A small job may be 4 phases and a full renovation 10 or more; do not compress a long job into a short list. "The description is not detailed enough" is the specific complaint this has to answer, so err long.
+
+THE SHAPE OF THE SEQUENCE. Work through the job the way it is actually run:
+
+  1. SET-UP / MOBILISATION — always first. Arriving, unloading, where the skip and the van go, power and water, floor and furniture protection, dust screens, isolating services. It is real billable work and it is the phase most often left off.
+  2. DEMOLITION / PREPARATION — stripping out, making safe, surveying what is behind the wall, correcting what is found.
+  3. THE TRADE PHASES OF THIS PARTICULAR JOB, in build order — structure before rough-in, rough-in before close-up, close-up before finishes, finishes before fixtures. Name the ones this job actually has; do not pad with trades that are not involved.
+  4. FINISHES AND COMMISSIONING — second fix, testing, making good, snagging.
+  5. CLEAN-UP AND HAND-OVER — always last. Final clean, debris away, walk-through, warranties and care instructions.
+
+Items 1, 2 and 5 are not optional: every job sets up, every job prepares, every job cleans and hands over. Name them for THIS job — "Set-up and bathroom protection" rather than a generic "Mobilisation" — and tag the labour and the consumables they consume to them, because they cost money and a quote that leaves them unpriced is a quote that loses it.
 
 EVERY material and labour line must carry a \`phase\` holding the EXACT \`step\` string of the phase it belongs to — character for character, not a paraphrase. The quote and the invoice are grouped by phase and totalled per phase, so a line whose phase does not match a step falls out of its section and lands in a loose "Additional items" group at the bottom. Decide the phases first, then assign every line to one of them.`;
 }
@@ -256,6 +267,38 @@ function assembleEstimate(
     trade: s.trade || 'general',
   }));
 
+  /**
+   * Snap every line onto a phase that actually exists, deterministically.
+   *
+   * The prompt demands the EXACT step string on every line. The model
+   * mostly obeys and sometimes returns "Demolition" where the phase is
+   * "Demolition and strip-out" — which matches nothing, so
+   * `groupLinesByPhase` files the line in a loose "Additional items" group
+   * at the bottom of the document.
+   *
+   * Nothing checked. A quote could come back with a third of its money in
+   * that trailing group and the first sign of it was a customer asking
+   * what the untitled section at the end was. Prompting harder does not
+   * fix a fault that only appears on some runs; repairing the output does,
+   * and `quotePhasePlan` is tested on the shapes the model produces.
+   *
+   * It never guesses into a WRONG phase — a misfiled line invoices at the
+   * wrong milestone, which is worse than being untidy because it moves
+   * money and looks perfectly fine. Anything it cannot match confidently
+   * is left where it is and logged.
+   */
+  const reconciled = reconcilePhases(processSteps, materials, labor);
+  const phasedMaterials = reconciled.materials;
+  const phasedLabor = reconciled.labor;
+  if (reconciled.report.snapped || reconciled.report.unmatched.length || reconciled.report.untagged) {
+    console.log('[quote-generator] phase reconciliation:', {
+      phases: reconciled.report.order.length,
+      snapped: reconciled.report.snapped,
+      untagged: reconciled.report.untagged,
+      unmatched: reconciled.report.unmatched,
+    });
+  }
+
   const additionalCosts = (Array.isArray(raw?.additionalCosts) ? raw.additionalCosts : []).map((a: any) => ({
     id: rid(),
     name: a.name || 'Additional Cost',
@@ -264,8 +307,8 @@ function assembleEstimate(
     amount: round2(Number(a.amount) || 0),
   }));
 
-  const materialsSubtotal = round2(materials.reduce((s: number, m: any) => s + m.totalCost, 0));
-  const laborSubtotal = round2(labor.reduce((s: number, l: any) => s + l.totalCost, 0));
+  const materialsSubtotal = round2(phasedMaterials.reduce((s: number, m: any) => s + m.totalCost, 0));
+  const laborSubtotal = round2(phasedLabor.reduce((s: number, l: any) => s + l.totalCost, 0));
   const additionalCostsSubtotal = round2(additionalCosts.reduce((s: number, a: any) => s + a.amount, 0));
 
   /**
@@ -336,8 +379,10 @@ function assembleEstimate(
   } = margins;
 
   return {
-    materials,
-    labor,
+    // The reconciled lines, not the raw ones — these are what gets stored,
+    // grouped and invoiced, so the repair has to be what travels.
+    materials: phasedMaterials,
+    labor: phasedLabor,
     processSteps,
     additionalCosts,
     credits,
