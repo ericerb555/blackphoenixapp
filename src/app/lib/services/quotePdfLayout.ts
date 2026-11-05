@@ -135,6 +135,8 @@ export interface QuotePdfData {
   credits?: Array<{ description: string; amount: number; note?: string }>;
   /** False when the breakdown is withheld — phase totals are shown instead. */
   showLines: boolean;
+  /** Office copy only: why there is nothing above the totals. */
+  emptyReason?: string;
   subtotal: number;
   tax: number;
   taxRate?: number;
@@ -371,6 +373,22 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
     } else {
       y += 2;
     }
+  }
+
+  /* Nothing to show, and the reason why — see `emptyReason`. Drawn in the
+     space the phases would have occupied, so it reads as the explanation for
+     the gap rather than as a footnote. */
+  if (!data.phases.length && data.emptyReason) {
+    y = pageBreak(doc, y, 20);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    for (const wrapped of doc.splitTextToSize(data.emptyReason, right - MARGIN - 6) as string[]) {
+      y = pageBreak(doc, y);
+      doc.text(wrapped, MARGIN + 3, y);
+      y += 4.6;
+    }
+    y += 4;
   }
 
   /* ── What the customer is supplying ─────────────────────────────────── */

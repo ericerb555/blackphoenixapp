@@ -292,3 +292,46 @@ test('what the drawn lines miss is exactly the withheld money', () => {
   assert.equal(drawnInStripOut, 0, 'the only Strip out line is hidden');
   assert.equal(sel.phaseCost.get('Strip out'), 450, 'but its money is still charged');
 });
+
+/* ── the floor: a phase and its price, even with everything else off ────── */
+
+/**
+ * "i just see a total at the bottom of the pdf."
+ *
+ * The document has two fallbacks for when no lines can be drawn: the job's
+ * written steps, and — when there are none of those either — the phases the
+ * LINES name. A quote tagged "Demo" and "Framing" with no written process
+ * used to fall through both and print a grand total over a blank page.
+ *
+ * Both fallbacks read `phaseCost`, so what matters is that it still knows
+ * every phase and its price when the section switches have removed every
+ * line from `lines`. That is what this asserts.
+ */
+test('phase costs survive both sections being switched off', () => {
+  const allOff = {
+    ...quote,
+    customerSections: { materials: false, labor: false, processDetail: true },
+  };
+  const sel = selectQuoteLines(allOff, true);
+  assert.equal(sel.lines.length, 0, 'nothing is drawable');
+  assert.equal(sel.showLines, false);
+  // But the money is still known, phase by phase — which is what the
+  // document falls back to drawing.
+  assert.equal(sel.phaseCost.get('Framing'), 3900);
+  assert.equal(sel.phaseCost.get('Strip out'), 450);
+});
+
+test('a quote with no steps still names its phases through the costs', () => {
+  const noSteps = { ...quote, processSteps: [] };
+  const sel = selectQuoteLines(noSteps, true);
+  assert.equal(sel.steps.length, 0, 'no written process to fall back on');
+  assert.deepEqual([...sel.phaseCost.keys()].sort(), ['Framing', 'Strip out']);
+});
+
+test('a quote with genuinely no priced work has nothing to fall back to', () => {
+  const empty = { materials: [], labor: [], processSteps: [] };
+  const sel = selectQuoteLines(empty, true);
+  assert.equal(sel.lines.length, 0);
+  assert.equal(sel.steps.length, 0);
+  assert.equal(sel.phaseCost.size, 0, 'so the document must explain itself instead');
+});

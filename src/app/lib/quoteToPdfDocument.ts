@@ -163,10 +163,54 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         duration: s?.estimatedDuration ? String(s.estimatedDuration) : undefined,
         description: sections.processDetail && s?.description ? String(s.description) : undefined,
         lines: [],
-        subtotal: Math.round((trueCost.get(t) || 0) * 100) / 100,
+        subtotal: round2(trueCost.get(t) || 0),
+        markup: showMarkup ? { total: markupOn(trueCost.get(t) || 0, rates!).total, label: rateLabel } : undefined,
       });
     }
   }
+
+  /**
+   * And when the job has no written steps either, the phases the LINES name.
+   *
+   * The fallback above only knew about `processSteps`. A quote whose lines
+   * are tagged "Demo" and "Framing" but which carries no written process —
+   * a hand-built one, or one whose steps were switched off — fell through
+   * both branches and produced a document with a grand total and nothing
+   * whatsoever above it. That is the state that was reported: "i just see a
+   * total at the bottom of the pdf."
+   *
+   * `phaseCost` already knows every phase the lines mention and what each
+   * one comes to, in the order the lines introduced them. Showing the phase
+   * and its price is explicitly the minimum a customer can be asked to
+   * agree to, so this is the same floor the step fallback provides, reached
+   * from the only other place the information lives.
+   */
+  if (!phases.length && trueCost.size) {
+    for (const [name, cost] of trueCost) {
+      phases.push({
+        title: name,
+        label: name,
+        description: sections.processDetail ? describe.get(name) : undefined,
+        lines: [],
+        subtotal: round2(cost),
+        markup: showMarkup ? { total: markupOn(cost, rates!).total, label: rateLabel } : undefined,
+      });
+    }
+  }
+
+  /**
+   * If there is STILL nothing, say so — on our copy only.
+   *
+   * A quote that prints a grand total over a blank page is indistinguishable
+   * from a broken renderer, and that ambiguity cost a round of guessing. The
+   * office copy now names the reason instead. The customer's does not: a
+   * note explaining which switches are off is an internal matter, and by
+   * this point the two fallbacks above mean an empty customer copy only
+   * happens when the quote genuinely has no priced work on it.
+   */
+  const emptyReason = phases.length || forCustomer
+    ? undefined
+    : 'No priced lines on this quote yet — add materials or labour, and they will appear here grouped by phase.';
 
   return {
     company: {
@@ -199,6 +243,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       description: quote?.aiSummary || workRequest?.description || undefined,
     },
     phases,
+    emptyReason,
     showLines,
     credits,
     subtotal: Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
