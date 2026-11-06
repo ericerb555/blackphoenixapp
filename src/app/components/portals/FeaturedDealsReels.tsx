@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { Play, Tag, ExternalLink, Star, Clock, ChevronRight, Percent, Gift, Video } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { publicAnonKey } from '../../utils/supabase/info';
+import { loadBrandingWithFallback } from '../../utils/loadPublicBranding';
 
 /**
  * Both of these were typed out as literals here.
@@ -42,6 +43,29 @@ export default function FeaturedDealsReels({ portalType }: Props = {}) {
   const [loading, setLoading] = useState(true);
   const [playingReel, setPlayingReel] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  /**
+   * The company's own mark and name, for reels that are ours.
+   *
+   * Read from branding rather than stored on each reel, so a rebrand reaches
+   * every card at once. A logo URL baked into a KV record at approval time
+   * is a logo that goes stale silently — the reel keeps showing last year's
+   * mark and nothing anywhere says it is wrong.
+   */
+  const [brand, setBrand] = useState<{ logo: string; name: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const b = await loadBrandingWithFallback();
+        if (cancelled || !b) return;
+        const logo = b.logo_url || b.logo_primary || b.logoPrimary || '';
+        const name = b.dbaName || b.company_name || b.businessName || '';
+        if (logo || name) setBrand({ logo, name });
+      } catch { /* a missing logo is a plainer card, not a broken one */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [reelsSection, setReelsSection] = useState<'featured' | 'all'>('featured');
 
   useEffect(() => {
@@ -226,7 +250,37 @@ export default function FeaturedDealsReels({ portalType }: Props = {}) {
                 {/* Info */}
                 <div className="p-3">
                   <h4 className="font-semibold text-white text-sm truncate">{reel.title}</h4>
-                  <p className="text-gray-500 text-xs mt-0.5">{(reel as any).business || (reel as any).addedBy || 'Black Phoenix'}</p>
+                  {/*
+                    WHO THIS IS FROM, taken from the field the approval
+                    actually writes.
+
+                    This read `business || addedBy` and then fell back to a
+                    hardcoded "Black Phoenix". An approved reel carries
+                    neither of those — `approve-reel` writes
+                    `advertiser: { name, type }` — so every published reel
+                    showed the literal fallback, and a vendor's reel showed
+                    our name over their video. The fallback is kept last,
+                    where a fallback belongs.
+                  */}
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {(() => {
+                      const adv = (reel as any).advertiser || {};
+                      // Ours unless somebody else submitted it. A vendor's
+                      // own logo wins; our mark is only used for our content.
+                      const mine = !adv.type || adv.type === 'content';
+                      const logo = adv.logo || (mine ? brand?.logo : '') || '';
+                      return logo
+                        ? <img src={logo} alt="" className="w-4 h-4 rounded object-contain flex-shrink-0" />
+                        : null;
+                    })()}
+                    <p className="text-gray-500 text-xs truncate">
+                      {(reel as any).advertiser?.name
+                        || (reel as any).business
+                        || (reel as any).addedBy
+                        || brand?.name
+                        || 'Black Phoenix Builds'}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2 mt-2">
                     <button onClick={() => setPlayingReel(isPlaying ? null : reel.id)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-semibold transition">
