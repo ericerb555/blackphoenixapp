@@ -2615,7 +2615,16 @@ export function QuoteToContractEditor({
       taxRatePercent: asFraction(quote.taxRate),
     });
 
-    setEditedQuote({
+    /**
+     * Returned as well as set, so a caller that has to PERSIST the result
+     * does not recompute it a second way.
+     *
+     * Changing the tax rate outside edit mode writes to the server, and the
+     * figures it writes must be the ones on the screen. Working them out
+     * again at the call site is how two sums of the same quote end up
+     * disagreeing — the exact fault `quoteMargins.ts` exists to prevent.
+     */
+    const computed = {
       ...quote,
       materialsSubtotal,
       laborSubtotal,
@@ -2637,7 +2646,62 @@ export function QuoteToContractEditor({
       preTaxTotal: margins.preTaxTotal,
       taxAmount: margins.taxAmount,
       totalCost: margins.totalCost,
-    } as Quote);
+    } as Quote;
+    setEditedQuote(computed);
+    return computed;
+  };
+
+  /**
+   * Set the sales tax, in or out of edit mode.
+   *
+   * "please let me add the tax if nessary." The control existed and was
+   * locked behind Edit Quote — a button that also turns every price on the
+   * screen into a text box. But "does this one need tax?" is a question
+   * answered while REVIEWING a quote, not while rewriting it, so the one
+   * field that answers it was unreachable at the moment it gets asked.
+   *
+   * Outside edit mode it saves immediately, like the visibility switches
+   * and the deposit, and for the same reason: a figure that looks applied
+   * and is gone on reload is worse than one that is disabled.
+   *
+   * ZERO IS A REAL ANSWER and is honoured as one. New Hampshire has no
+   * sales tax; several states exempt residential construction. The old
+   * code read the rate with `|| 0.08`, which quietly replaced a deliberate
+   * nought with eight per cent — `quoteMargins.pickFraction` exists
+   * because of exactly that bug, and this passes the rate explicitly so
+   * the default can never fire.
+   */
+  const [savingTax, setSavingTax] = useState(false);
+
+  const changeTaxRate = async (percent: number) => {
+    const base: any = currentQuote || editedQuote;
+    if (!base) { toast.error('The quote is still loading — try that again in a moment.'); return; }
+
+    const rate = Math.min(0.30, Math.max(0, (Number(percent) || 0) / 100));
+    const computed = recalculateTotals({ ...base, taxRate: rate } as Quote);
+    if (editMode || !computed) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) return;
+    setSavingTax(true);
+    const ok = await persistQuotePatch({
+      taxRate: rate,
+      taxAmount: (computed as any).taxAmount,
+      preTaxTotal: (computed as any).preTaxTotal,
+      totalCost: (computed as any).totalCost,
+    });
+    setSavingTax(false);
+    if (!ok) {
+      setEditedQuote(base);
+      toast.error('Could not save the tax rate.');
+      return;
+    }
+    syncQuote({ ...workRequest, quote: computed } as any);
+    toast.success(
+      rate === 0
+        ? 'No sales tax on this quote.'
+        : `Sales tax set to ${(rate * 100).toFixed(2)}% on materials.`,
+    );
   };
 
   /* ── credits: what the customer supplied themselves ─────────────── */
@@ -3461,27 +3525,33 @@ export function QuoteToContractEditor({
                   quantity does. A rate that is saved but not applied until
                   some later action is a rate somebody will send out wrong.
                 */}
-                {editMode && editedQuote && (
-                  <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-gray-700 bg-black/20 px-4 py-3">
+                <div className="mt-4 rounded-lg border border-gray-700 bg-black/20 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <label className="text-sm font-semibold text-gray-300">Sales tax on materials</label>
                     <input
                       type="number"
                       min="0"
                       max="30"
                       step="0.01"
-                      value={Number(((editedQuote.taxRate || 0) * 100).toFixed(4))}
-                      onChange={(e) => {
-                        const percent = Math.min(30, Math.max(0, Number(e.target.value) || 0));
-                        recalculateTotals({ ...editedQuote, taxRate: percent / 100 });
-                      }}
-                      className="w-24 rounded border border-gray-600 bg-black px-3 py-2 text-right text-sm text-white"
+                      value={Number((((currentQuote as any).taxRate || 0) * 100).toFixed(4))}
+                      onChange={(e) => changeTaxRate(Number(e.target.value))}
+                      disabled={savingTax}
+                      className="w-24 rounded border border-gray-600 bg-black px-3 py-2 text-right text-sm text-white disabled:opacity-50"
                     />
                     <span className="text-sm text-gray-500">%</span>
+                    {savingTax && <Loader2 className="h-4 w-4 animate-spin text-gray-500" />}
                     <span className="ml-auto text-sm text-gray-400">
                       Tax ${(currentQuote.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
-                )}
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    Materials only — labour is a service and is not taxed, which is what the
+                    estimator, the invoices and the payment schedule all assume. Set it to{' '}
+                    <strong className="text-gray-400">0</strong> where the work is not taxable;
+                    zero is honoured as a decision, not replaced by a default.
+                    {!editMode && ' Saved as soon as you change it.'}
+                  </p>
+                </div>
 
                 {/*
                   What the home owner is supplying themselves.

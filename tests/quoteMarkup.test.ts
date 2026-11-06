@@ -176,3 +176,48 @@ test('soft costs carry margin too', () => {
   // The extra 1000 of direct cost carries the same 25%.
   assert.equal(out.overheadAmount + out.profitAmount + out.contingencyAmount, 2750);
 });
+
+/* ── adding tax, and genuinely not adding it ─────────────────────────────── */
+
+/**
+ * "please let me add the tax if nessary."
+ *
+ * The rate is now settable without entering edit mode, which means it is
+ * settable at the moment the question gets asked. These pin the three
+ * things that must stay true however it is set.
+ */
+test('tax lands on materials only — labour is a service', () => {
+  const out = recalc({ ...generated, taxRate: 0.08 });
+  assert.equal(out.taxableMaterials, 4000, 'not 10000');
+  assert.equal(out.taxAmount, 320);
+});
+
+/**
+ * Zero is a DECISION, not a missing value. New Hampshire has no sales tax
+ * and several states exempt residential construction. `pickFraction` exists
+ * because `Number(x) || 0.08` once replaced a deliberate nought with eight
+ * per cent on every repriced quote.
+ */
+test('a zero rate is honoured, not replaced by the default', () => {
+  const out = recalc({ ...generated, taxRate: 0 });
+  assert.equal(out.taxAmount, 0);
+  assert.equal(out.totalCost, 12500, 'direct cost plus margin, and nothing else');
+});
+
+test('material the customer supplied is not taxed to them', () => {
+  // They bought their own $1,500 of flooring; we are not selling it to them.
+  const out = recalc({ ...generated, creditsSubtotal: 1500, taxRate: 0.08 });
+  assert.equal(out.taxableMaterials, 2500);
+  assert.equal(out.taxAmount, 200);
+});
+
+test('a credit larger than the materials cannot produce negative tax', () => {
+  const out = recalc({ ...generated, creditsSubtotal: 99999, taxRate: 0.08 });
+  assert.equal(out.taxableMaterials, 0);
+  assert.equal(out.taxAmount, 0);
+});
+
+test('a rate typed as 8 and one stored as 0.08 give the same tax', () => {
+  assert.equal(recalc({ ...generated, taxRate: 8 }).taxAmount,
+               recalc({ ...generated, taxRate: 0.08 }).taxAmount);
+});
