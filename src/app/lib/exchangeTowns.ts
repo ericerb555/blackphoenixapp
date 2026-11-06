@@ -209,12 +209,48 @@ export function townName(slug: string, towns: readonly Town[] = LAUNCH_TOWNS): s
  * towns", which is a real preference and not an absence of one — the mode key
  * exists precisely so those two can be told apart.
  */
+/**
+ * Has a position ever come back for this browser?
+ *
+ * Written the first time one does. It exists for the browsers with no
+ * Permissions API — iOS Safari for most of its life — where "granted" and
+ * "not yet asked" are indistinguishable. Without it, somebody who allowed
+ * location last week would be shown the explanation card again on every
+ * visit, which is worse than the cold prompt it replaces.
+ */
+const LOCATED_KEY = 'bpx.town.located';
+
+function hasLocatedBefore(): boolean {
+  try { return localStorage.getItem(LOCATED_KEY) === '1'; } catch { return false; }
+}
+function rememberLocated(): void {
+  try { localStorage.setItem(LOCATED_KEY, '1'); } catch { /* private window */ }
+}
+
 export function useTownChoice(towns: readonly Town[]) {
   const [town, setTownState] = useState<string>(() => readTown());
   const [mode, setMode] = useState<TownMode>(() => readTownMode());
   const [locating, setLocating] = useState(false);
   /** Set when a fix came back from somewhere the Exchange does not cover. */
   const [tooFar, setTooFar] = useState(false);
+  /**
+   * True when we could ask for GPS but have deliberately not yet.
+   *
+   * THE PROBLEM THIS SOLVES. The browser's permission dialog used to fire on
+   * page load, cold, before the visitor had read a word of the page. A cold
+   * prompt is the one most often refused — and a refusal here is PERMANENT,
+   * because the code above never asks a second time. One reflexive tap cost
+   * that person the feature for good.
+   *
+   * So on a browser that has never granted it, nothing is requested until
+   * they have been told what for and have tapped to say yes. The browser
+   * dialog then opens from a deliberate action, which is the one case where
+   * people read it and allow it.
+   *
+   * Already granted, or located successfully before, skips all of this and
+   * resolves silently — no card, no dialog, nothing to dismiss.
+   */
+  const [needsConsent, setNeedsConsent] = useState(false);
 
   /** Read a position and pick the town nearest it. */
   const resolve = useCallback((towns: readonly Town[], onDone?: () => void) => {
@@ -231,7 +267,10 @@ export function useTownChoice(towns: readonly Town[]) {
         if (near) {
           setTownState(near.town.slug);
           writeTown(near.town.slug);
+          // A fix came back, so this browser has allowed it at least once.
+          rememberLocated();
         } else {
+          rememberLocated();
           // Nowhere near a covered town. Saying so beats snapping them to the
           // least distant of three wrong answers.
           setTooFar(true);
@@ -262,16 +301,25 @@ export function useTownChoice(towns: readonly Town[]) {
     let cancelled = false;
 
     void (async () => {
+      let state: string | null = null;
       try {
         const status = await (navigator as any)?.permissions?.query?.({ name: 'geolocation' });
-        // Somebody who has said no is never asked again. Everything else —
-        // granted, not yet asked, or a browser that cannot answer the question
-        // — goes on to ask, which on iOS is the only path there has ever been.
-        if (status?.state === 'denied') return;
+        state = status?.state ?? null;
       } catch {
-        /* No Permissions API. Not a reason to give up; a reason to ask. */
+        /* No Permissions API — iOS Safari for most of its life. `state`
+           stays null and the fallback below decides. */
       }
-      if (!cancelled) resolve(towns);
+      if (cancelled) return;
+
+      // Said no. Never asked again, and nothing is shown about it.
+      if (state === 'denied') return;
+
+      // Already allowed, or has allowed before on a browser that cannot tell
+      // us. Resolving opens no dialog, so there is nothing to explain first.
+      if (state === 'granted' || hasLocatedBefore()) { resolve(towns); return; }
+
+      // Could ask, never have. Explain first — see `needsConsent`.
+      setNeedsConsent(true);
     })();
 
     return () => { cancelled = true; };
@@ -290,10 +338,36 @@ export function useTownChoice(towns: readonly Town[]) {
   const locate = useCallback(() => {
     setMode('auto');
     writeTownMode('auto');
+    setNeedsConsent(false);
     resolve(towns);
   }, [towns, resolve]);
 
-  return { town, mode, locating, tooFar, choose, locate };
+  /**
+   * They read the card and said yes.
+   *
+   * The browser dialog opens from here, inside the click, which is both what
+   * Safari requires and the moment somebody is most likely to allow it.
+   */
+  const allowLocation = useCallback(() => {
+    setNeedsConsent(false);
+    resolve(towns);
+  }, [towns, resolve]);
+
+  /**
+   * They read the card and would rather not.
+   *
+   * Recorded as a MANUAL choice rather than as a refusal, so the browser is
+   * never asked and the card does not return on the next page. Pressing Near
+   * me later still works — declining to be asked is not the same as saying
+   * no to the browser, and only one of those is permanent.
+   */
+  const dismissConsent = useCallback(() => {
+    setNeedsConsent(false);
+    setMode('manual');
+    writeTownMode('manual');
+  }, []);
+
+  return { town, mode, locating, tooFar, choose, locate, needsConsent, allowLocation, dismissConsent };
 }
 
 /**

@@ -86,7 +86,10 @@ export default function ExchangeDirectory() {
   const towns = useTowns();
   /* Where they are, unless they have said otherwise. Never prompts on arrival
      — see the note on the hook for why that restraint is deliberate. */
-  const { town, locating, tooFar, choose, locate } = useTownChoice(towns);
+  const {
+    town, locating, tooFar, choose, locate,
+    needsConsent, allowLocation, dismissConsent,
+  } = useTownChoice(towns);
 
   /*
    * THE MAP'S OWN DATA, FETCHED SEPARATELY FROM THE TREE.
@@ -297,6 +300,57 @@ export default function ExchangeDirectory() {
             )}
           </div>
         </div>
+
+        {/*
+          ── asking for location, in our words, before the browser asks in its own ──
+
+          The browser's dialog used to open cold on arrival, before anybody
+          had read a line of the page. A cold prompt is the one most often
+          refused, and a refusal is PERMANENT here — the hook never asks a
+          second time, deliberately. One reflexive tap cost that visitor the
+          feature for good.
+
+          So this explains what the position is for and what it is not, and
+          the browser dialog opens from the button inside it. Somebody who
+          has already allowed location never sees this: their town is picked
+          silently and no dialog opens at all.
+        */}
+        {needsConsent && (
+          <div
+            className="bpx-card"
+            style={{
+              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+              marginBottom: 12, borderColor: 'rgba(52,211,153,0.35)',
+            }}
+          >
+            <Navigation size={18} color="#34d399" />
+            <div style={{ minWidth: 220, flex: 1 }}>
+              <div className="bpx-card-title" style={{ margin: 0, fontSize: 14 }}>
+                Show me businesses near me
+              </div>
+              <div className="bpxb-note" style={{ marginTop: 2 }}>
+                We use your location once, to pick which town to show you. It is not stored,
+                not sent anywhere, and you can change the town by hand at any time.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="bpx-btn" onClick={() => allowLocation()} disabled={locating}>
+                {locating ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
+                {' '}Use my location
+              </button>
+              {/*
+                "No thanks" records a MANUAL preference — it does not touch
+                the browser permission. So the card stops returning, and Near
+                me still works later. Declining to be asked and telling the
+                browser no are different things, and only one of them cannot
+                be undone.
+              */}
+              <button className="bpx-chip" onClick={() => dismissConsent()}>
+                No thanks
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="bpx-row">
           <span className="bpxb-note" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
