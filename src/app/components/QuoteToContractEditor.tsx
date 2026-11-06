@@ -3587,7 +3587,29 @@ export function QuoteToContractEditor({
                      * this screen only READ the lines, which answered a question
                      * he had not asked — he wants to work here, not just check.
                      */
-                    const Row = ({ row, kind }) => {
+                    /**
+                     * CALLED, NOT MOUNTED — and that is the whole point.
+                     *
+                     * This was `const Row = ({row, kind}) => ...` used as
+                     * `<Row />`. A component declared in a render body is a
+                     * NEW COMPONENT TYPE on every render, so React throws the
+                     * old tree away and mounts a fresh one rather than
+                     * updating it. The DOM input is destroyed and rebuilt on
+                     * every keystroke, so focus lands back on the page and you
+                     * can type exactly one character before having to click
+                     * the box again.
+                     *
+                     * Returning the elements from a plain function inlines
+                     * them into the parent's tree, where identity is position
+                     * and key. The inputs are then updated rather than
+                     * replaced, and they keep focus and caret.
+                     *
+                     * The same fault, in the same file, is why `IncludeToggle`
+                     * had to be hoisted to module level. I reintroduced it one
+                     * screen later, this time around text fields, where it is
+                     * not a performance note but an unusable form.
+                     */
+                    const renderRow = (row: any, kind: any) => {
                       const off = row?.included === false;
                       const hidden = row?.visible === false;
                       const mat = kind === 'materials';
@@ -3609,7 +3631,7 @@ export function QuoteToContractEditor({
 
                       if (!editMode) {
                         return (
-                          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[#1f1f1f] bg-[#070707] px-2.5 py-1.5 ${off ? 'opacity-50' : ''}`}>
+                          <div key={row.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-[#1f1f1f] bg-[#070707] px-2.5 py-1.5 ${off ? 'opacity-50' : ''}`}>
                             <span className="min-w-0 flex-1 truncate text-xs text-gray-200">{name}</span>
                             <span className="flex-shrink-0 text-[11px] text-gray-500">{qty} {unit} &times; {cash(rate)}</span>
                             {off && <span className="flex-shrink-0 rounded bg-gray-700/40 px-1.5 text-[10px] font-bold uppercase text-gray-400">off quote</span>}
@@ -3622,7 +3644,7 @@ export function QuoteToContractEditor({
                       }
 
                       return (
-                        <div className={`rounded border border-[#1f1f1f] bg-[#070707] p-2 ${off ? 'opacity-60' : ''}`}>
+                        <div key={row.id} className={`rounded border border-[#1f1f1f] bg-[#070707] p-2 ${off ? 'opacity-60' : ''}`}>
                           <div className="flex flex-wrap items-center gap-1.5">
                             <input
                               type="text"
@@ -3714,7 +3736,7 @@ export function QuoteToContractEditor({
                     /* `phase` is absent for the untagged bucket, which is how
                        it knows not to offer an "add into this process" button
                        for a process that does not exist. */
-                    const Bucket = ({ label, rows, total, kind, tint, phase }: any) => (
+                    const renderBucket = ({ label, rows, total, kind, tint, phase }: any) => (
                       <div>
                         <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide">
                           <span className={tint}>{label} ({rows.length})</span>
@@ -3724,7 +3746,7 @@ export function QuoteToContractEditor({
                           <p className="mb-1 text-[11px] italic text-gray-600">none in this process</p>
                         )}
                         <div className="space-y-1">
-                          {rows.map((r) => <Row key={r.id} row={r} kind={kind} />)}
+                          {rows.map((r: any) => renderRow(r, kind))}
                         </div>
                         {editMode && phase !== undefined && (
                           <button
@@ -3763,8 +3785,8 @@ export function QuoteToContractEditor({
                               </p>
                             ) : (
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <Bucket label="Materials" rows={g.mats} total={g.matTotal} kind="materials" tint="text-blue-400" phase={g.phase} />
-                                <Bucket label="Labour" rows={g.labs} total={g.labTotal} kind="labor" tint="text-purple-400" phase={g.phase} />
+                                {renderBucket({ label: 'Materials', rows: g.mats, total: g.matTotal, kind: 'materials', tint: 'text-blue-400', phase: g.phase })}
+                                {renderBucket({ label: 'Labour', rows: g.labs, total: g.labTotal, kind: 'labor', tint: 'text-purple-400', phase: g.phase })}
                               </div>
                             )}
                             {phaseBreakdown.withMarkup && !g.empty && (
@@ -3788,8 +3810,8 @@ export function QuoteToContractEditor({
                               {editMode ? ' \u2014 type a process on any line to move it.' : '. Use Edit Quote to move them.'}
                             </p>
                             <div className="grid gap-3 sm:grid-cols-2">
-                              <Bucket label="Materials" rows={phaseBreakdown.untagged.mats} total={phaseBreakdown.untagged.matTotal} kind="materials" tint="text-blue-400" />
-                              <Bucket label="Labour" rows={phaseBreakdown.untagged.labs} total={phaseBreakdown.untagged.labTotal} kind="labor" tint="text-purple-400" />
+                              {renderBucket({ label: 'Materials', rows: phaseBreakdown.untagged.mats, total: phaseBreakdown.untagged.matTotal, kind: 'materials', tint: 'text-blue-400' })}
+                              {renderBucket({ label: 'Labour', rows: phaseBreakdown.untagged.labs, total: phaseBreakdown.untagged.labTotal, kind: 'labor', tint: 'text-purple-400' })}
                             </div>
                           </div>
                         )}
