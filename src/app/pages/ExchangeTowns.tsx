@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Loader2, AlertCircle, ChevronLeft, MapPin, Search, Plus, Eye, EyeOff,
-  Download, ShieldCheck,
+  Download, ShieldCheck, Activity, Sparkles, CheckCircle2, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { EXCHANGE_CSS } from './exchangeStyles';
@@ -86,6 +86,26 @@ export default function ExchangeTowns() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /**
+   * Is the Exchange actually working?
+   *
+   * Everything on this panel is computed server-side by `assessExchange`
+   * from the clock's run log, the towns, the listings and the demand
+   * ledger. Nothing here decides anything — it renders findings and offers
+   * the fixes those findings came with.
+   *
+   * Its own request, like the demand list below and for the same reason: a
+   * health check that is slow or failing must not stop somebody opening a
+   * town.
+   */
+  const [health, setHealth] = useState<any>(null);
+  const [healthErr, setHealthErr] = useState<string | null>(null);
+  const [brief, setBrief] = useState<string | null>(null);
+  const [briefNote, setBriefNote] = useState<string | null>(null);
+  const [briefing, setBriefing] = useState(false);
+  /** The finding whose approval prompt is open. One at a time, on purpose. */
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [state, setState] = useState('NH');
@@ -143,7 +163,56 @@ export default function ExchangeTowns() {
     }
   }, [auth, gapDays]);
 
+  const loadHealth = useCallback(async () => {
+    setHealthErr(null);
+    try {
+      const token = await auth();
+      if (!token) return;
+      const res = await fetch(`${SERVER}/exchange/admin/health`, {
+        headers: { Authorization: token },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        setHealthErr(body?.error || 'The health check did not answer.');
+        return;
+      }
+      setHealth(body);
+    } catch {
+      setHealthErr('We could not reach the health check just now.');
+    }
+  }, [auth]);
+
+  /**
+   * Ask the assistant to write the briefing.
+   *
+   * On a button rather than on load, because it costs money every time and
+   * the findings are complete sentences without it.
+   */
+  const askBrief = useCallback(async () => {
+    if (!health?.findings?.length) return;
+    setBriefing(true);
+    setBrief(null);
+    setBriefNote(null);
+    try {
+      const token = await auth();
+      if (!token) return;
+      const res = await fetch(`${SERVER}/exchange/admin/health/brief`, {
+        method: 'POST',
+        headers: { Authorization: token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ findings: health.findings }),
+      });
+      const body = await res.json().catch(() => ({}));
+      setBrief(body?.brief || null);
+      setBriefNote(body?.note || null);
+    } catch {
+      setBriefNote('The briefing could not be generated. The findings are unaffected.');
+    } finally {
+      setBriefing(false);
+    }
+  }, [auth, health]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadHealth(); }, [loadHealth]);
   useEffect(() => { void loadGaps(); }, [loadGaps]);
 
   const call = useCallback(async (path: string, init: RequestInit, label: string) => {
@@ -237,6 +306,26 @@ export default function ExchangeTowns() {
     if (body) { setSaid({ ok: true, text: `${slug} is now ${status}.` }); await load(); }
   }, [call, load]);
 
+  /**
+   * Perform one of the fixes a finding came with.
+   *
+   * `approved` is passed through, but it is the SERVER that decides whether
+   * it was needed — it re-derives the finding and refuses a withheld
+   * approval with 428. This flag only saves the round trip; it is not the
+   * guard.
+   */
+  const act = useCallback(async (findingId: string, approved = false) => {
+    const body = await call('/exchange/admin/health/act', {
+      method: 'POST',
+      body: JSON.stringify({ findingId, approved }),
+    }, `act:${findingId}`);
+    setConfirming(null);
+    if (body) {
+      setSaid({ ok: true, text: body.summary || 'Done.' });
+      await Promise.all([load(), loadHealth()]);
+    }
+  }, [call, load, loadHealth]);
+
   return (
     <div className="bpx">
       <style>{EXCHANGE_CSS}</style>
@@ -286,6 +375,141 @@ export default function ExchangeTowns() {
         {!loading && !refused && !error && (
           <>
             {said && <div className={said.ok ? 'bpxb-said' : 'bpxb-failed'}>{said.text}</div>}
+
+            {/*
+              ── is it running, and what needs doing ──────────────────────
+
+              First on the page, above the demand list and the controls for
+              opening a town, because a stopped clock is the reason the rest
+              of this screen would be misleading. A directory that has not
+              compiled in a week still shows its towns and its counts; they
+              are simply a week old and nothing says so.
+            */}
+            <section className="bpx-card" style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <Activity size={18} color="#34d399" />
+                <div className="bpx-card-title" style={{ margin: 0 }}>
+                  {health?.headline || (healthErr ? 'Health unavailable' : 'Checking…')}
+                </div>
+                <button
+                  className="bpx-btn"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => void loadHealth()}
+                  title="Re-read the clock, the towns and the demand ledger"
+                >
+                  <RefreshCw size={14} /> Refresh
+                </button>
+                {!!health?.findings?.length && (
+                  <button className="bpx-btn" onClick={() => void askBrief()} disabled={briefing}>
+                    {briefing ? <Loader2 size={14} className="bpx-spin" /> : <Sparkles size={14} />}
+                    {briefing ? 'Thinking…' : 'Ask the assistant'}
+                  </button>
+                )}
+              </div>
+
+              {healthErr && <div className="bpxb-failed">{healthErr}</div>}
+
+              {health && (
+                <div className="bpx-desc" style={{ marginBottom: 10 }}>
+                  {health.towns} town(s), {health.listings} listing(s).{' '}
+                  {health.lastRun
+                    ? `Last run ${new Date(health.lastRun.at).toLocaleString()} — ${health.lastRun.why}`
+                    : 'The upkeep clock has no recorded run.'}
+                </div>
+              )}
+
+              {/* The assistant's words, clearly marked as commentary on the
+                  findings rather than as a finding itself. */}
+              {brief && (
+                <div
+                  className="bpx-desc"
+                  style={{
+                    whiteSpace: 'pre-wrap', borderLeft: '3px solid #a78bfa',
+                    padding: '8px 12px', margin: '0 0 12px', background: 'rgba(167,139,250,0.06)',
+                  }}
+                >
+                  {brief}
+                </div>
+              )}
+              {briefNote && <div className="bpx-desc" style={{ marginBottom: 12 }}>{briefNote}</div>}
+
+              {health && !health.findings.length && (
+                <div className="bpx-desc" style={{ color: '#34d399' }}>
+                  <CheckCircle2 size={14} /> Nothing outstanding.
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(health?.findings || []).map((f: any) => {
+                  const tone = f.severity === 'critical' ? '#f87171'
+                    : f.severity === 'warning' ? '#fbbf24' : '#60a5fa';
+                  const asking = confirming === f.id;
+                  return (
+                    <div
+                      key={f.id}
+                      style={{
+                        border: `1px solid ${tone}55`, borderLeft: `3px solid ${tone}`,
+                        borderRadius: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: tone, fontSize: 13 }}>{f.title}</div>
+                      <div className="bpx-desc" style={{ margin: '4px 0 0' }}>{f.detail}</div>
+
+                      {f.action && !asking && (
+                        <button
+                          className="bpx-btn"
+                          style={{ marginTop: 8 }}
+                          disabled={busy === `act:${f.id}`}
+                          onClick={() => (f.action.approval === 'ask'
+                            ? setConfirming(f.id)
+                            : void act(f.id))}
+                        >
+                          {busy === `act:${f.id}`
+                            ? <Loader2 size={14} className="bpx-spin" />
+                            : <CheckCircle2 size={14} />}
+                          {f.action.label}
+                          {f.action.approval === 'ask' && ' …'}
+                        </button>
+                      )}
+
+                      {/*
+                        The approval prompt says what pressing it will do in
+                        the world, in the words the rule itself supplied. A
+                        confirmation that only says "are you sure" teaches
+                        people to click through it.
+                      */}
+                      {f.action && asking && (
+                        <div
+                          style={{
+                            marginTop: 8, padding: 10, borderRadius: 6,
+                            background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)',
+                          }}
+                        >
+                          <div className="bpx-desc" style={{ margin: 0, color: '#fde68a' }}>
+                            {f.action.whyApproval}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button
+                              className="bpx-btn"
+                              disabled={busy === `act:${f.id}`}
+                              onClick={() => void act(f.id, true)}
+                            >
+                              {busy === `act:${f.id}`
+                                ? <Loader2 size={14} className="bpx-spin" />
+                                : <CheckCircle2 size={14} />}
+                              Yes — {f.action.label}
+                            </button>
+                            <button className="bpx-btn" onClick={() => setConfirming(null)}>
+                              Not now
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
 
             {/*
               ── what people asked for and did not find ─────────────────
