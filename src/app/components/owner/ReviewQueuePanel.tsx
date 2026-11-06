@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Film, Megaphone, Tag, Check, X, Loader2, Inbox, AlertTriangle, RefreshCw,
+  Plus, Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
@@ -72,6 +73,132 @@ export default function ReviewQueuePanel() {
   const [denied, setDenied] = useState(false);
   /** Named so a refusal can say why, which an author can then act on. */
   const [notes, setNotes] = useState<Record<string, string>>({});
+
+  /**
+   * Adding a reel from inside the app, instead of from a console.
+   *
+   * `/social/submit-reel` was written for vendors and advertisers sending
+   * US their content, so there has never been a way for the company to add
+   * its own. The gap was filled by pasting JavaScript into the browser
+   * console, which is not a way to run a business: the first attempt failed
+   * because the snippet referenced `window.supabase`, which this app does
+   * not expose, and the error was invisible among three hundred lines of
+   * startup logging.
+   *
+   * It submits as PENDING like everything else rather than publishing
+   * directly. One path to the public page means one place to check before
+   * something reaches a customer — and the reel then appears in the list
+   * below, where it can be read as a stranger would read it before anybody
+   * presses Approve.
+   */
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({
+    title: '', description: '', videoUrl: '', thumbnailUrl: '', linkUrl: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * The five trades, as a starting point rather than a finished reel.
+   *
+   * Filling the form is the slow part and the copy is the part worth
+   * keeping, so these carry real wording — what the job is, what the
+   * customer gets, one reason to call. The media is left EMPTY on purpose:
+   * a preset that quietly supplied stock footage would put somebody else's
+   * kitchen on the page under this company's name, and the whole value of
+   * the trade is that it can be trusted.
+   */
+  const PRESETS: Array<{ label: string; title: string; description: string; linkUrl: string }> = [
+    {
+      label: 'Trash removal',
+      title: 'Trash removal and clear-outs',
+      description: 'Skips, loading and tip fees handled. Garage, basement, estate clear-out or the '
+        + 'debris from somebody else\u2019s job \u2014 we take it away and sweep up after it. '
+        + 'Minimum $125, quoted before we start.',
+      linkUrl: '/work-request?service=trash-removal',
+    },
+    {
+      label: 'Kitchen',
+      title: 'Kitchen remodeling',
+      description: 'Strip-out to final clean, run as phases you can see finished: set-up and '
+        + 'protection, demo, first fix, cabinets and worktops, second fix, hand-over. Phase prices '
+        + 'up front, and you pay against the ones that are done.',
+      linkUrl: '/work-request?service=kitchen-remodel',
+    },
+    {
+      label: 'Bathroom',
+      title: 'Bathroom remodeling',
+      description: 'One bathroom out of use, not the whole house. Waterproofing and first fix done '
+        + 'properly before anything pretty goes on top \u2014 the part nobody photographs and '
+        + 'everybody pays for twice when it is skipped.',
+      linkUrl: '/work-request?service=bathroom-remodel',
+    },
+    {
+      label: 'Painting',
+      title: 'Interior and exterior painting',
+      description: 'Prep is most of the job: filling, sanding, caulking and masking before a brush '
+        + 'is opened. Rooms back in use the same day where we can, and we move the furniture back '
+        + 'ourselves.',
+      linkUrl: '/work-request?service=painting',
+    },
+    {
+      label: 'Flooring',
+      title: 'Flooring \u2014 supply or fit your own',
+      description: 'Hardwood, LVP, tile and carpet. Subfloor checked and levelled first, because a '
+        + 'beautiful floor on a bad subfloor is a complaint waiting six months. Buying your own '
+        + 'material? That comes off the bill, itemised.',
+      linkUrl: '/work-request?service=flooring',
+    },
+  ];
+
+  /**
+   * Send the draft to the pending queue.
+   *
+   * Errors are SHOWN, with the status code. The console flow failed
+   * silently twice; a form that does the same would be no better than the
+   * thing it replaces.
+   */
+  const submitDraft = useCallback(async () => {
+    const title = draft.title.trim();
+    if (!title) { toast.error('A reel needs a title.'); return; }
+
+    setSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error('Sign in again — the session has expired.'); return; }
+
+      const res = await fetch(`${SERVER}/social/submit-reel`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title,
+          description: draft.description.trim(),
+          videoUrl: draft.videoUrl.trim(),
+          thumbnailUrl: draft.thumbnailUrl.trim(),
+          linkUrl: draft.linkUrl.trim(),
+          submitterName: 'Black Phoenix Builds',
+          // 'content' is what marks a reel as OURS, which is what puts our
+          // logo on the card rather than a submitter's.
+          submitterType: 'content',
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.error) {
+        toast.error(body?.error || `That did not save (HTTP ${res.status}).`);
+        return;
+      }
+      toast.success(`"${title}" is waiting for approval below.`);
+      setDraft({ title: '', description: '', videoUrl: '', thumbnailUrl: '', linkUrl: '' });
+      await load();
+    } catch (err: any) {
+      toast.error(`That did not save: ${err?.message || err}`);
+    } finally {
+      setSubmitting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -243,6 +370,124 @@ export default function ReviewQueuePanel() {
         </button>
       </div>
 
+      {/*
+        ── adding one of our own ────────────────────────────────────────
+
+        `/social/submit-reel` was built for vendors sending US their
+        content, so the company had no way to add its own and the gap was
+        being filled by pasting JavaScript into a browser console. That
+        failed twice — once on an API the app does not expose — and the
+        error was invisible among three hundred lines of startup logging.
+
+        It submits as PENDING like every other route into this queue. One
+        path to the public page means one place to check before something
+        reaches a customer, and the reel appears in the list below to be
+        read as a stranger would read it.
+      */}
+      <div className="mb-4 rounded-xl border border-[#2A2A2A] bg-[#111]">
+        <button
+          type="button"
+          onClick={() => setAdding(v => !v)}
+          className="flex w-full items-center gap-2 px-4 py-3 text-left"
+        >
+          <Plus className="h-4 w-4 text-purple-400" />
+          <span className="text-sm font-bold text-white">Add a reel of our own</span>
+          <span className="ml-auto text-xs text-gray-500">{adding ? 'Close' : 'Open'}</span>
+        </button>
+
+        {adding && (
+          <div className="space-y-3 border-t border-[#2A2A2A] p-4">
+            {/*
+              Starting points, not finished reels. The copy is the slow part
+              and worth keeping; the MEDIA is deliberately left empty,
+              because a preset that quietly supplied stock footage would put
+              somebody else's kitchen on the page under this company's name.
+            */}
+            <div>
+              <div className="mb-1.5 text-xs font-semibold text-gray-400">Start from a trade</div>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESETS.map(preset => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setDraft(d => ({
+                      ...d,
+                      title: preset.title,
+                      description: preset.description,
+                      linkUrl: preset.linkUrl,
+                    }))}
+                    className="rounded-full border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-1 text-xs font-semibold text-gray-300 transition hover:border-purple-500/50 hover:text-white"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <input
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+              placeholder="Title — what the card says"
+              value={draft.title}
+              onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+            />
+            <textarea
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+              rows={3}
+              placeholder="Description — what the job is, and one reason to call"
+              value={draft.description}
+              onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
+            />
+            <input
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+              placeholder="Video URL — an .mp4 we host, or leave blank for a still only"
+              value={draft.videoUrl}
+              onChange={e => setDraft(d => ({ ...d, videoUrl: e.target.value }))}
+            />
+            <input
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+              placeholder="Thumbnail URL — https:// only"
+              value={draft.thumbnailUrl}
+              onChange={e => setDraft(d => ({ ...d, thumbnailUrl: e.target.value }))}
+            />
+            <input
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+              placeholder="Links to — e.g. /work-request?service=painting"
+              value={draft.linkUrl}
+              onChange={e => setDraft(d => ({ ...d, linkUrl: e.target.value }))}
+            />
+
+            {/*
+              Said plainly, where the decision is made. A reel on the landing
+              page reads as "this is our work"; footage that is not ours is
+              fine for laying out a page and wrong in front of a customer.
+            */}
+            <p className="text-xs text-gray-500">
+              Use your own job photos and video where you can. Anything on the landing page reads to a
+              customer as work you did. Nothing here goes public until you approve it below.
+            </p>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void submitDraft()}
+                disabled={submitting || !draft.title.trim()}
+                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-purple-500 disabled:opacity-40"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Send for approval
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraft({ title: '', description: '', videoUrl: '', thumbnailUrl: '', linkUrl: '' })}
+                className="rounded-lg border border-[#2A2A2A] px-3 py-2 text-sm text-gray-400 transition hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="rounded-xl border border-[#2A2A2A] bg-[#111] p-10 text-center text-gray-400">
           <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin" />
@@ -255,6 +500,7 @@ export default function ReviewQueuePanel() {
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
             Reels, advertisements and offers submitted by vendors, advertisers and
             other portal accounts appear here before anybody else can see them.
+            To add one of your own, use <strong className="text-gray-300">Add a reel of our own</strong> above.
           </p>
         </div>
       ) : (
