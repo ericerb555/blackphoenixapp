@@ -9,7 +9,7 @@
  * - Convert approved quotes to contracts
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   FileText,
@@ -67,6 +67,7 @@ import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, type Draw } from '../lib/paymentSchedule';
 import { drawReadiness, isPhaseComplete, withPhaseCompletion, dueCount } from '../lib/phaseCompletion';
+import { renamePhase, wouldMerge } from '../lib/phaseRename';
 import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
 import { drawToInvoice } from '../lib/drawToInvoice';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
@@ -2254,6 +2255,57 @@ export function QuoteToContractEditor({
       s.id === id ? { ...s, [field]: value } : s
     );
     setEditedQuote({ ...editedQuote, processSteps: updated });
+  };
+
+  /**
+   * The title a phase had when somebody started typing over it.
+   *
+   * A phase has no id — `materials[].phase`, `labor[].phase` and
+   * `paymentSchedule[].phase` all point at it by its TEXT — so renaming the
+   * step has to carry those three with it. See `phaseRename.ts`; the one
+   * that matters is the draw, which otherwise names a phase that no longer
+   * exists and can never be marked complete, so the payment never falls due.
+   *
+   * Captured on FOCUS and applied on BLUR, deliberately. Renaming on every
+   * keystroke would also work right up until a title passes through the name
+   * of another phase on its way somewhere else — typing "Framing work" over
+   * "Frame prep" is momentarily "Framing", which would merge the two and
+   * never unmerge them. A committed value cannot do that by accident.
+   */
+  const phaseTitleOnFocus = useRef<{ id: string; title: string } | null>(null);
+
+  const beginPhaseRename = (id: string, title: string) => {
+    phaseTitleOnFocus.current = { id, title: String(title || '').trim() };
+  };
+
+  const commitPhaseRename = (id: string) => {
+    const started = phaseTitleOnFocus.current;
+    phaseTitleOnFocus.current = null;
+    if (!editedQuote || !started || started.id !== id) return;
+
+    const step = (editedQuote.processSteps || []).find((s) => s.id === id);
+    const to = String((step as any)?.title || '').trim();
+    if (!to || to === started.title) return;
+
+    /**
+     * Renaming onto a name that already exists MERGES the two, because the
+     * name is the identity and two phases cannot share one. That is a real
+     * thing to do deliberately and a nasty thing to do by accident, so it
+     * is allowed and said out loud.
+     */
+    const merging = wouldMerge(editedQuote, started.title, to);
+
+    // Returns the same object when there is nothing to move, so this cannot
+    // cost a render for a rename that did not happen.
+    const renamed = renamePhase(editedQuote, started.title, to);
+    if (renamed === editedQuote) return;
+    setEditedQuote(renamed);
+
+    toast[merging ? 'warning' : 'success'](
+      merging
+        ? `"${started.title}" merged into "${to}" — one phase now, with both sets of lines.`
+        : `Renamed to "${to}" — its materials, labour and payment moved with it.`,
+    );
   };
 
   // Delete process step
@@ -5230,12 +5282,22 @@ export function QuoteToContractEditor({
                               <div className="w-8 h-8 rounded-full bg-green-500/20 border border-green-500/50 flex items-center justify-center text-green-400 font-bold">
                                 {index + 1}
                               </div>
+                              {/*
+                                Renaming a phase moves its lines and its draw
+                                with it — on blur, not per keystroke. See
+                                `commitPhaseRename` for why the committed
+                                value is the only safe moment.
+                              */}
                               <input
                                 type="text"
                                 value={step.title}
                                 onChange={(e) => updateProcessStep(step.id, 'title', e.target.value)}
+                                onFocus={() => beginPhaseRename(step.id, step.title)}
+                                onBlur={() => commitPhaseRename(step.id)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                                 className="flex-1 bg-black border border-gray-600 rounded px-3 py-2 text-white"
                                 placeholder="Step title"
+                                title="Renaming this moves its materials, labour and payment with it."
                               />
                               <input
                                 type="text"
