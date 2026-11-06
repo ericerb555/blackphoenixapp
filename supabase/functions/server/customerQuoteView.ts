@@ -172,6 +172,34 @@ export interface CustomerSections {
   processDetail: boolean;
 }
 
+/**
+ * How much of a section the customer gets.
+ *
+ * "even if i dont want the material and labor rates on the quote i want to
+ * see the line item and the entire process details." The switch was a
+ * boolean — every line with its rate, or no lines — and the useful middle
+ * state had no way to be expressed.
+ *
+ *   full      the line, its quantity, its rate, its amount
+ *   no-rates  the line and its amount, with NO quantity and NO rate sent
+ *   off       the section is not sent at all
+ */
+export type SectionMode = 'full' | 'no-rates' | 'off';
+
+const modeOf = (value: unknown): SectionMode => {
+  if (value === false || value === 'off') return 'off';
+  if (value === 'no-rates') return 'no-rates';
+  return 'full';
+};
+
+const sectionModes = (quote: any): { materials: SectionMode; labor: SectionMode } => {
+  const s = quote?.customerSections;
+  if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
+    return { materials: 'off', labor: 'off' };
+  }
+  return { materials: modeOf(s?.materials), labor: modeOf(s?.labor) };
+};
+
 const sectionsOf = (quote: any): CustomerSections => {
   const s = quote?.customerSections;
   /**
@@ -182,9 +210,12 @@ const sectionsOf = (quote: any): CustomerSections => {
   if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
     return { materials: false, labor: false, processDetail: true };
   }
+  const m = sectionModes(quote);
   return {
-    materials: s?.materials !== false,
-    labor: s?.labor !== false,
+    // 'no-rates' is still SHOWN — just without its figures. See the mapper
+    // below, which is where the figures are actually withheld.
+    materials: m.materials !== 'off',
+    labor: m.labor !== 'off',
     processDetail: s?.processDetail !== false,
   };
 };
@@ -221,6 +252,7 @@ function phaseCosts(quote: any): Map<string, number> {
 
 export function customerQuoteView(quote: any): CustomerQuote {
   const sections = sectionsOf(quote);
+  const modes = sectionModes(quote);
   /**
    * Phase costs are emitted whenever either line section is held back.
    *
@@ -229,17 +261,31 @@ export function customerQuoteView(quote: any): CustomerQuote {
    * total is the only thing standing between them and a price they cannot
    * see the basis for — so it appears.
    */
-  const needPhaseCosts = !sections.materials || !sections.labor;
+  const needPhaseCosts = modes.materials !== 'full' || modes.labor !== 'full';
   const costs = needPhaseCosts ? phaseCosts(quote) : null;
+  /**
+   * WITHHELD MEANS NOT SENT, NOT "SENT AND NOT DRAWN".
+   *
+   * In 'no-rates' the quantity, the unit and the unit cost are ZERO in the
+   * payload — the customer's browser never receives them, so there is
+   * nothing in a devtools tab, a saved copy of the page or a future
+   * renderer to find. Emitting the real figures with a flag saying "do not
+   * display these" is exactly the mistake the `visible` checkbox made for
+   * months, and it is why a labour rate was one keystroke from being
+   * public.
+   *
+   * `totalCost` still travels, because what a line COSTS is the thing
+   * being shown. One number cannot be divided into an hourly rate.
+   */
   const materials = (Array.isArray(quote?.materials) ? quote.materials : [])
     .filter(isIncluded).filter(isVisible)
     .map((m: any): CustomerMaterial => ({
       id: str(m?.id),
       name: str(m?.name),
       description: str(m?.description),
-      quantity: num(m?.quantity),
-      unit: str(m?.unit),
-      unitCost: num(m?.unitCost),
+      quantity: modes.materials === 'full' ? num(m?.quantity) : 0,
+      unit: modes.materials === 'full' ? str(m?.unit) : '',
+      unitCost: modes.materials === 'full' ? num(m?.unitCost) : 0,
       totalCost: num(m?.totalCost),
       category: str(m?.category),
     }));
@@ -250,8 +296,10 @@ export function customerQuoteView(quote: any): CustomerQuote {
       id: str(l?.id),
       role: str(l?.role),
       description: str(l?.description),
-      hours: num(l?.hours),
-      hourlyRate: num(l?.hourlyRate),
+      // Hours and the rate are the two numbers that reveal pricing, and
+      // either one alone is enough with the total beside it. Both go.
+      hours: modes.labor === 'full' ? num(l?.hours) : 0,
+      hourlyRate: modes.labor === 'full' ? num(l?.hourlyRate) : 0,
       totalCost: num(l?.totalCost),
     }));
 

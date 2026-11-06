@@ -270,3 +270,66 @@ test('a quote with none sends an empty list, never undefined', () => {
     assert.equal(customerQuoteView(q).creditsSubtotal, 0);
   }
 });
+
+/* ── 'no-rates': the figures must not be SENT, not merely not drawn ─────── */
+
+/**
+ * The whole protection is that the customer's browser never receives the
+ * numbers. A payload carrying the real rate with a flag saying "do not
+ * display" is the mistake the `visible` checkbox made for months, and it is
+ * why a labour rate was one keystroke from being public.
+ */
+test('a de-rated section sends the line and its cost, and no rate at all', () => {
+  const view = customerQuoteView({
+    materials: [{ id: 'm1', name: 'Timber', quantity: 40, unit: 'len', unitCost: 12, totalCost: 480 }],
+    labor: [{ id: 'l1', role: 'Carpenter', hours: 24, hourlyRate: 55, totalCost: 1320 }],
+    customerSections: { materials: 'no-rates', labor: 'no-rates', processDetail: true },
+  });
+
+  // The line travels — that is what was asked for.
+  assert.equal(view.labor.length, 1);
+  assert.equal(view.labor[0].role, 'Carpenter');
+  assert.equal(view.labor[0].totalCost, 1320);
+
+  // The figures somebody could divide into a rate do not.
+  assert.equal(view.labor[0].hours, 0);
+  assert.equal(view.labor[0].hourlyRate, 0);
+  assert.equal(view.materials[0].quantity, 0);
+  assert.equal(view.materials[0].unitCost, 0);
+  assert.equal(view.materials[0].totalCost, 480, 'what it costs still shows');
+
+  // And nowhere in the serialised payload is the rate recoverable.
+  const wire = JSON.stringify(view);
+  assert.ok(!wire.includes('55'), 'the hourly rate must not appear anywhere');
+});
+
+test('full mode still sends everything it always did', () => {
+  const view = customerQuoteView({
+    labor: [{ id: 'l1', role: 'Carpenter', hours: 24, hourlyRate: 55, totalCost: 1320 }],
+    customerSections: { materials: 'full', labor: 'full', processDetail: true },
+  });
+  assert.equal(view.labor[0].hours, 24);
+  assert.equal(view.labor[0].hourlyRate, 55);
+});
+
+test('off still sends no lines at all', () => {
+  const view = customerQuoteView({
+    labor: [{ id: 'l1', role: 'Carpenter', hours: 24, hourlyRate: 55, totalCost: 1320 }],
+    customerSections: { materials: 'off', labor: 'off', processDetail: true },
+  });
+  assert.equal(view.labor.length, 0);
+});
+
+/**
+ * Phase costs are the floor the customer agrees to, and they appear
+ * whenever anything is held back — including when only the rates are.
+ */
+test('de-rating a section turns the phase costs on', () => {
+  const quote = {
+    materials: [{ id: 'm1', name: 'Timber', totalCost: 480, phase: 'Framing' }],
+    labor: [{ id: 'l1', role: 'Carpenter', totalCost: 1320, phase: 'Framing' }],
+    processSteps: [{ title: 'Framing', description: 'We build the frame.' }],
+    customerSections: { materials: 'no-rates', labor: 'no-rates', processDetail: true },
+  };
+  assert.equal(customerQuoteView(quote).processSteps[0].cost, 1800);
+});

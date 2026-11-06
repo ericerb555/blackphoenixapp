@@ -335,3 +335,78 @@ test('a quote with genuinely no priced work has nothing to fall back to', () => 
   assert.equal(sel.steps.length, 0);
   assert.equal(sel.phaseCost.size, 0, 'so the document must explain itself instead');
 });
+
+/* ── lines without rates: the state between "everything" and "nothing" ──── */
+
+/**
+ * "even if i dont want the material and labor rates on the quote i want to
+ * see the line item and the entire process details."
+ *
+ * The switch was a boolean, so the only choices were every line with its
+ * quantity and unit price, or no lines at all. The useful middle state —
+ * tell the customer what the work consists of and what each part costs,
+ * without handing over the rate card — had no way to be expressed.
+ *
+ * The property that matters is the last test in this block: in 'no-rates'
+ * the figures must be ABSENT from what the customer receives, not merely
+ * undrawn. "Present but not displayed" is how the `visible` flag came one
+ * keystroke from publishing a labour rate.
+ */
+import { rateVisibilityOf, sectionModeOf } from '../src/app/lib/quotePdfSelection.ts';
+
+const rated = {
+  materials: [{ name: 'Timber', quantity: 40, unitCost: 12, totalCost: 480, phase: 'Framing' }],
+  labor: [{ role: 'Carpenter', hours: 24, hourlyRate: 55, totalCost: 1320, phase: 'Framing' }],
+  processSteps: [{ title: 'Framing', description: 'We build the frame.' }],
+};
+const withMode = (mode: any) => ({
+  ...rated,
+  customerSections: { materials: mode, labor: mode, processDetail: true },
+});
+
+test('the three modes read back as themselves', () => {
+  assert.equal(sectionModeOf('full'), 'full');
+  assert.equal(sectionModeOf('no-rates'), 'no-rates');
+  assert.equal(sectionModeOf('off'), 'off');
+});
+
+/** Every quote written before this used booleans, and they must not move. */
+test('the old booleans still mean what they meant', () => {
+  assert.equal(sectionModeOf(true), 'full');
+  assert.equal(sectionModeOf(false), 'off');
+  assert.equal(sectionModeOf(undefined), 'full', 'absent has always meant shown');
+  assert.equal(sectionModeOf(null), 'full');
+});
+
+test('a de-rated section is still SHOWN — it just loses its figures', () => {
+  const q = withMode('no-rates');
+  assert.equal(sectionsOf(q).labor, true, 'shown');
+  assert.equal(rateVisibilityOf(q).labor, false, 'but not its rates');
+  // And the lines are still drawable, which is the whole point.
+  assert.equal(selectQuoteLines(q, true).lines.length, 2);
+});
+
+test('an off section is neither shown nor rated', () => {
+  const q = withMode('off');
+  assert.equal(sectionsOf(q).labor, false);
+  assert.equal(rateVisibilityOf(q).labor, false);
+  assert.equal(selectQuoteLines(q, true).lines.length, 0);
+});
+
+test('the office copy always keeps its rates, whatever the customer gets', () => {
+  for (const mode of ['full', 'no-rates', 'off']) {
+    const sel = selectQuoteLines(withMode(mode), false);
+    assert.equal(sel.rates.materials, true, `internal copy, mode ${mode}`);
+    assert.equal(sel.rates.labor, true, `internal copy, mode ${mode}`);
+    assert.equal(sel.lines.length, 2, `internal copy shows everything, mode ${mode}`);
+  }
+});
+
+test('the line keeps its figures internally, because the amounts are summed from them', () => {
+  // The columns are dropped by the layout; the arithmetic still needs these.
+  const sel = selectQuoteLines(withMode('no-rates'), true);
+  const labour = sel.lines.find((l) => l.kind === 'labor')!;
+  assert.equal(labour.quantity, 24);
+  assert.equal(labour.unit_price, 55);
+  assert.equal(labour.quantity * labour.unit_price, 1320);
+});

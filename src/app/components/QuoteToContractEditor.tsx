@@ -915,10 +915,14 @@ export function QuoteToContractEditor({
       ['materials', Array.isArray(q.materials) ? q.materials : []],
       ['labor', Array.isArray(q.labor) ? q.labor : []],
     ] as Array<[string, any[]]>) {
+      // Only a section that is OFF withholds whole lines. 'no-rates' still
+      // sends every line, so counting those as withheld would overstate
+      // what is being kept back.
+      const sectionOff = sec[key] === false || sec[key] === 'off';
       for (const r of rows) {
         // Off the quote entirely is not "withheld" — it is not on either copy.
         if (r?.included === false) continue;
-        if (sec[key] === false || r?.visible === false) n++;
+        if (sectionOff || r?.visible === false) n++;
       }
     }
     return n;
@@ -1158,7 +1162,23 @@ export function QuoteToContractEditor({
 
     const current = base.customerSections
       || { materials: true, labor: true, processDetail: true };
-    const next = { ...current, [key]: current[key] === false };
+
+    /**
+     * Materials and labour cycle THREE states; process detail stays on/off.
+     *
+     *   full -> no-rates -> off -> full
+     *
+     * "even if i dont want the material and labor rates on the quote i want
+     * to see the line item and the entire process details." The middle
+     * state is the one that was missing, and it is probably the one most
+     * quotes should use: the customer sees what the job consists of and
+     * what each part costs, with no two numbers to divide into our rate.
+     */
+    const cycle: Record<string, string> = { full: 'no-rates', 'no-rates': 'off', off: 'full' };
+    const readMode = (v: any) => (v === false || v === 'off' ? 'off' : v === 'no-rates' ? 'no-rates' : 'full');
+    const next = key === 'processDetail'
+      ? { ...current, processDetail: current.processDetail === false }
+      : { ...current, [key]: cycle[readMode(current[key])] };
     const updated = { ...base, customerSections: next } as any;
     setEditedQuote(updated);
     if (editMode) return;
@@ -1174,9 +1194,12 @@ export function QuoteToContractEditor({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       syncQuote({ ...workRequest, quote: updated } as any);
+      const label = key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials';
+      const landed = (next as any)[key];
       toast.success(
-        next[key] === false ? `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} hidden from the customer.`
-          : `${key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials'} shown to the customer.`,
+        landed === false || landed === 'off' ? `${label} hidden from the customer.`
+          : landed === 'no-rates' ? `${label} shown without quantities or rates.`
+            : `${label} shown in full to the customer.`,
       );
     } catch (err: any) {
       // Put it back, so the screen never claims a change the server refused.
@@ -4545,19 +4568,38 @@ export function QuoteToContractEditor({
                     What the customer sees
                   </h4>
                   <p className="mb-4 text-sm text-gray-400">
-                    Switch each section on or off. The phases and what each one costs are always
-                    shown — that is what they are agreeing to. Hidden either way: anything you
-                    have unticked line by line, and your internal notes.
+                    Materials and Labour cycle through three states: <strong className="text-blue-300">in
+                    full</strong> with quantities and rates, <strong className="text-emerald-300">lines
+                    and costs only</strong> — every item listed with what it comes to, but no
+                    quantities and no rates to work your pricing back from — or{' '}
+                    <strong className="text-amber-400">not sent at all</strong>. The phases, their
+                    written detail and what each one costs show throughout, because that is what
+                    the customer is agreeing to. Hidden either way: anything you have unticked
+                    line by line, and your internal notes.
                   </p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     {([
-                      ['materials', 'Materials', 'Each material, its quantity and unit price.'],
-                      ['labor', 'Labour', 'Roles, hours and hourly rates — the figures that reveal your pricing.'],
+                      ['materials', 'Materials', 'Each material and what it costs.'],
+                      ['labor', 'Labour', 'Each role and what it costs.'],
                       ['processDetail', 'Process detail', 'The written account of each phase. The phase name and price stay either way.'],
                     ] as Array<[string, string, string]>).map(([key, label, blurb]) => {
                       const current = (editedQuote as any)?.customerSections
                         || { materials: true, labor: true, processDetail: true };
-                      const on = current[key] !== false;
+                      const rawMode = current[key];
+                      const mode = rawMode === false || rawMode === 'off' ? 'off'
+                        : rawMode === 'no-rates' ? 'no-rates' : 'full';
+                      const on = mode !== 'off';
+                      /* Process detail has no middle state — there is no half
+                         a paragraph. Only the two line sections cycle. */
+                      const threeWay = key !== 'processDetail';
+                      const state = !threeWay
+                        ? (on ? { text: 'Shown to the customer', tone: 'text-blue-300' }
+                              : { text: 'Not sent at all', tone: 'text-amber-400' })
+                        : mode === 'full'
+                          ? { text: 'Shown in full, with quantities and rates', tone: 'text-blue-300' }
+                          : mode === 'no-rates'
+                            ? { text: 'Lines and costs — no quantities, no rates', tone: 'text-emerald-300' }
+                            : { text: 'Not sent at all', tone: 'text-amber-400' };
                       return (
                         <button
                           key={key}
@@ -4565,21 +4607,28 @@ export function QuoteToContractEditor({
                           onClick={() => toggleCustomerSection(key as 'materials' | 'labor' | 'processDetail')}
                           disabled={savingSections}
                           className={`rounded-lg border p-3 text-left transition disabled:opacity-60 ${
-                            on
+                            mode === 'full'
                               ? 'border-blue-500/60 bg-blue-500/10'
-                              : 'border-[#2A2A2A] bg-[#111] hover:border-blue-500/30'
+                              : mode === 'no-rates'
+                                ? 'border-emerald-500/60 bg-emerald-500/10'
+                                : 'border-[#2A2A2A] bg-[#111] hover:border-blue-500/30'
                           }`}
                         >
                           <div className="flex items-center gap-2">
                             <span className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] font-bold ${
-                              on ? 'border-blue-400 bg-blue-400 text-black' : 'border-gray-600 text-transparent'
-                            }`}>✓</span>
+                              mode === 'full' ? 'border-blue-400 bg-blue-400 text-black'
+                                : mode === 'no-rates' ? 'border-emerald-400 bg-emerald-400 text-black'
+                                  : 'border-gray-600 text-transparent'
+                            }`}>{mode === 'no-rates' ? '~' : '✓'}</span>
                             <span className="text-sm font-bold text-white">{label}</span>
                           </div>
                           <p className="mt-1 text-xs text-gray-400">{blurb}</p>
-                          <p className={`mt-1.5 text-[11px] font-semibold ${on ? 'text-blue-300' : 'text-amber-400'}`}>
-                            {on ? 'Shown to the customer' : 'Not sent at all'}
+                          <p className={`mt-1.5 text-[11px] font-semibold ${state.tone}`}>
+                            {state.text}
                           </p>
+                          {threeWay && (
+                            <p className="mt-0.5 text-[10px] text-gray-600">click to cycle</p>
+                          )}
                         </button>
                       );
                     })}

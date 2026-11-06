@@ -69,6 +69,15 @@ export interface QuotePdfLineGroup {
    */
   markup?: { total: number; label: string };
   /**
+   * Whether this group's quantity and rate columns may be drawn.
+   *
+   * Absent means yes, so every existing caller is unchanged. False draws
+   * the line and its amount and nothing else — the customer sees what the
+   * work consists of and what each part costs, with no two numbers to
+   * divide into an hourly rate.
+   */
+  showRates?: boolean;
+  /**
    * True for the balancing row, not a real group.
    *
    * When lines are withheld the drawn ones no longer account for the phase
@@ -342,20 +351,34 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
 
         if (!group.lines.length) continue;
 
+        /* Two shapes, one table. With rates withheld the quantity and rate
+           columns are not drawn at all — not blanked, not zeroed. A PDF
+           contains only what is drawn into it, so an omitted column is
+           genuinely absent from the file rather than hidden in it. */
+        const rated = group.showRates !== false;
         autoTable(doc, {
           startY: y,
           margin: { left: MARGIN, right: MARGIN },
-          head: [['Description', 'Qty', 'Rate', 'Amount']],
-          body: group.lines.map((l) => [l.description, String(l.quantity), money(l.rate), money(l.amount)]),
+          head: rated
+            ? [['Description', 'Qty', 'Rate', 'Amount']]
+            : [['Description', 'Amount']],
+          body: group.lines.map((l) => (rated
+            ? [l.description, String(l.quantity), money(l.rate), money(l.amount)]
+            : [l.description, money(l.amount)])),
           theme: 'plain',
           styles: { fontSize: 8.5, cellPadding: 1.8, textColor: [60, 60, 60] },
           headStyles: { fontStyle: 'bold', textColor: [130, 130, 130], fontSize: 7.5 },
-          columnStyles: {
-            0: { cellWidth: 'auto' },
-            1: { halign: 'right', cellWidth: 16 },
-            2: { halign: 'right', cellWidth: 24 },
-            3: { halign: 'right', cellWidth: 26 },
-          },
+          columnStyles: rated
+            ? {
+              0: { cellWidth: 'auto' },
+              1: { halign: 'right', cellWidth: 16 },
+              2: { halign: 'right', cellWidth: 24 },
+              3: { halign: 'right', cellWidth: 26 },
+            }
+            : {
+              0: { cellWidth: 'auto' },
+              1: { halign: 'right', cellWidth: 26 },
+            },
         });
         y = (doc as any).lastAutoTable.finalY + 5;
       }

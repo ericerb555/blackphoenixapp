@@ -43,6 +43,52 @@ export interface CustomerSections {
   processDetail: boolean;
 }
 
+/**
+ * How much of a section the customer is shown.
+ *
+ * Eric: "even if i dont want the material and labor rates on the quote i
+ * want to see the line item and the entire process details."
+ *
+ * The switch was a boolean, so the only choices were EVERY line with its
+ * quantity and unit price, or no lines at all. The thing he actually wants
+ * sits between them and is the normal way a contractor quotes: tell the
+ * customer what the work consists of and what each part comes to, without
+ * handing over the rate card they could price a competitor against.
+ *
+ *   full      the line, its quantity, its rate, its amount
+ *   no-rates  the line and its amount. No quantity, no rate — nothing to
+ *             divide one by the other and recover what we charge an hour
+ *   off       the section is not sent at all
+ */
+export type SectionMode = 'full' | 'no-rates' | 'off';
+
+/**
+ * Read a stored switch, in any of the shapes it has had.
+ *
+ * `true`/`false` are what every quote written before this used, and they
+ * still mean exactly what they meant. Absent means full, for the same
+ * reason absent has always meant shown: defaulting the other way would
+ * quietly empty every existing quote.
+ */
+export function sectionModeOf(value: unknown): SectionMode {
+  if (value === false || value === 'off') return 'off';
+  if (value === 'no-rates') return 'no-rates';
+  return 'full';
+}
+
+/** Per-section modes, before they are flattened to "is it shown". */
+export function sectionModesOf(quote: any): { materials: SectionMode; labor: SectionMode; processDetail: boolean } {
+  const s = quote?.customerSections;
+  if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
+    return { materials: 'off', labor: 'off', processDetail: true };
+  }
+  return {
+    materials: sectionModeOf(s?.materials),
+    labor: sectionModeOf(s?.labor),
+    processDetail: s?.processDetail !== false,
+  };
+}
+
 export interface SelectedLine {
   description: string;
   quantity: number;
@@ -73,6 +119,15 @@ export interface QuoteSelection {
   /** False when both line sections are withheld — only totals are drawable. */
   showLines: boolean;
   /**
+   * Whether each section's quantities and rates may be drawn.
+   *
+   * Separate from `sections`, which says only whether the section appears
+   * at all. A section can be shown WITHOUT its rates, and that combination
+   * is the common one — the customer sees what the job consists of and what
+   * each part costs, and cannot work back to an hourly rate.
+   */
+  rates: { materials: boolean; labor: boolean };
+  /**
    * What the customer is supplying themselves.
    *
    * NOT subject to the section switches or the per-line flag. Those exist to
@@ -91,17 +146,29 @@ export interface QuoteSelection {
  */
 export const isIncluded = (line: any): boolean => line?.included !== false;
 
+/**
+ * Is each section shown at all?
+ *
+ * Deliberately still boolean, and deliberately true for 'no-rates'. Every
+ * existing caller asks this question to decide whether to render a section,
+ * and "shown without rates" is still shown — changing what this returns
+ * would have silently emptied those sections instead of de-rating them.
+ * Whether the RATES may be drawn is a second question, answered by
+ * `rateVisibilityOf`.
+ */
 export function sectionsOf(quote: any): CustomerSections {
-  const s = quote?.customerSections;
-  // The two-value `lineDetail` this replaced: 'phase-totals' meant no lines.
-  if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
-    return { materials: false, labor: false, processDetail: true };
-  }
+  const m = sectionModesOf(quote);
   return {
-    materials: s?.materials !== false,
-    labor: s?.labor !== false,
-    processDetail: s?.processDetail !== false,
+    materials: m.materials !== 'off',
+    labor: m.labor !== 'off',
+    processDetail: m.processDetail,
   };
+}
+
+/** Whether each section's quantities and rates may be drawn. */
+export function rateVisibilityOf(quote: any): { materials: boolean; labor: boolean } {
+  const m = sectionModesOf(quote);
+  return { materials: m.materials === 'full', labor: m.labor === 'full' };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -110,6 +177,11 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
   const sections = forCustomer
     ? sectionsOf(quote)
     : { materials: true, labor: true, processDetail: true };
+  // The office copy always shows rates — the controls exist to manage what
+  // the CUSTOMER sees, not to blind the person who priced the job.
+  const rates = forCustomer
+    ? rateVisibilityOf(quote)
+    : { materials: true, labor: true };
 
   // Excluded first and unconditionally — it is not a customer-facing rule.
   const keep = (l: any) => isIncluded(l) && (forCustomer ? l?.visible !== false : true);
@@ -179,6 +251,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     phaseCost,
     phaseText,
     showLines: sections.materials || sections.labor,
+    rates,
     credits: (Array.isArray(quote?.credits) ? quote.credits : []).filter(isIncluded).map((c: any) => ({
       description: String(c?.description || '').trim() || 'Supplied by you',
       amount: Math.abs(Number(c?.amount)) || 0,

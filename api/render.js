@@ -42,6 +42,32 @@ function esc(value) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/**
+ * The JSON-LD block, with the one escape that keeps it inside its own tag.
+ *
+ * JSON is not HTML. Inside a <script> the parser is hunting for the literal
+ * text </script> and nothing else, so a schema value containing one — a
+ * project title, a category, anything typed into the admin — closes the block
+ * early and everything after it is parsed as markup. JSON.stringify does not
+ * escape < , because in every other context it carries no meaning.
+ *
+ * Emitting it as the six characters \u003c is the whole fix. JSON.parse reads
+ * them back as < , so the structured data a crawler sees is byte-identical,
+ * and the HTML parser never meets an angle bracket to act on. L-1 of
+ * tasks/security-audit-2026-10-16.md.
+ *
+ * The doubled backslash in the source is load-bearing: \'\u003c\' written as a
+ * JavaScript escape is simply < , and the replace would swap the character
+ * for itself and change nothing.
+ */
+export function jsonLdBlock(schema) {
+  return (
+    `<script type="application/ld+json">` +
+    JSON.stringify(schema).replace(/</g, '\\u003c') +
+    `</script>`
+  );
+}
+
 /** Replace a tag if it is there, add it if it is not. */
 function setTag(html, pattern, replacement) {
   return pattern.test(html) ? html.replace(pattern, replacement) : html.replace('</head>', `    ${replacement}\n  </head>`);
@@ -63,7 +89,30 @@ function applyMeta(html, meta) {
   out = setTag(out, /<meta property="twitter:description"[^>]*>/, `<meta property="twitter:description" content="${esc(meta.description)}" />`);
   out = setTag(out, /<meta property="twitter:image"[^>]*>/, `<meta property="twitter:image" content="${esc(meta.image)}" />`);
 
-  const jsonLd = `<script type="application/ld+json">${JSON.stringify(meta.schema)}</script>`;
+  /**
+   * The one field on this page that is not run through `esc()`, and why it
+   * still cannot break out.
+   *
+   * JSON is not HTML. Inside a <script> block the parser is looking for the
+   * literal text </script> and nothing else, so a schema value containing
+   * one — a project title, a category, anything typed into the admin — would
+   * close the block early and everything after it would be parsed as markup.
+   * `JSON.stringify` does not escape `<`, because in every other context it
+   * has no meaning.
+   *
+   * Writing it as the six characters \u003c is the whole fix: `JSON.parse`
+   * reads them back as `<`, so the structured data a crawler sees is
+   * identical, and the HTML parser never sees an angle bracket to act on.
+   * L-1 of tasks/security-audit-2026-10-16.md.
+   *
+   * Note the doubled backslash: this must produce a BACKSLASH in the output,
+   * and '\u003c' written in source is simply '<', which would replace the
+   * character with itself and do nothing at all.
+   */
+  const jsonLd =
+    `<script type="application/ld+json">` +
+    JSON.stringify(meta.schema).replace(/</g, '\\u003c') +
+    `</script>`;
 
   /**
    * The readable copy goes in a <noscript>.

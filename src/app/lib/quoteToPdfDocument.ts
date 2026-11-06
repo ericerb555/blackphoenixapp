@@ -54,7 +54,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * shape the layout draws — the split exists so the rules that decide what a
    * customer sees can be asserted in a test rather than reasoned about.
    */
-  const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines, credits } =
+  const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines, credits, rates: rateVisibility } =
     selectQuoteLines(quote, forCustomer);
   const grouped = groupLinesByPhase(lines, steps);
 
@@ -110,6 +110,10 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         label,
         lines: of.map(toPdfLine),
         subtotal: groupSubtotal,
+        /* The amounts are still computed from quantity x rate — they have
+           to be, or the subtotals would be wrong. What changes is whether
+           those two numbers are DRAWN. */
+        showRates: kind === 'material' ? rateVisibility.materials : rateVisibility.labor,
         markup: showMarkup
           ? { total: markupOn(groupSubtotal, rates!).total, label: rateLabel }
           : undefined,

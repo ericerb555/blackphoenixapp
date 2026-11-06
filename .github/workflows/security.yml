@@ -1,0 +1,109 @@
+# Stage 1 of the audit-to-pen-test pipeline — tasks/security-audit-2026-10-16.md.
+#
+# Stage 2 (scripts/security-probe.mjs) already proves what the LIVE surface
+# does. This proves things about the code before it gets there, which is the
+# half that cannot be checked after the fact: a secret committed on Tuesday is
+# in the history forever, whatever the deployed app looks like on Wednesday.
+#
+# WHY EACH JOB BLOCKS, OR DOES NOT
+#
+#   audit     blocks. A high or critical advisory in a dependency is the one
+#             class of finding that arrives without anybody changing anything,
+#             which is exactly why it needs a gate rather than a habit.
+#   secrets   blocks. The cheapest catastrophic mistake in the repository.
+#   codeql    does not block. SAST on a codebase this size reports findings
+#             that need judgement; a blocking SAST gate teaches people to
+#             merge past it. It posts to the Security tab to be read.
+#   probe     schedule only. It talks to production, so it does not belong on
+#             every pull request — but a control that silently stops enforcing
+#             is invisible until somebody else finds it, and that is what the
+#             weekly run is for.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays, 08:00 UTC. The weekly habit Stage 3 of the plan asks for.
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # No install. `pnpm audit` resolves from the lockfile, so this stays
+      # fast and cannot be influenced by a postinstall script in the tree it
+      # is auditing.
+      - name: pnpm audit (high and critical block)
+        run: pnpm audit --audit-level=high
+      # Moderate findings are reported and do not fail. DEP-1 in the probe
+      # draws the same line; this makes the ones underneath it visible rather
+      # than silent, which is how vite@6.4.4 sat unnoticed.
+      - name: moderate and low, for the record
+        if: always()
+        run: pnpm audit --audit-level=moderate || true
+
+  secrets:
+    name: secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks reads history, not just the diff. A secret committed and
+          # reverted is still a secret, and a shallow clone would miss it.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      # No build step. This is a Vite app CodeQL analyses from source, and
+      # building it here would only add a way for this job to fail for
+      # reasons that have nothing to do with security.
+      - uses: github/codeql-action/analyze@v3
+
+  probe:
+    name: production surface
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # --quick skips the dependency audit, which the `audit` job above
+      # already did properly. Everything else runs: the auth gate, RLS, the
+      # headers, the retired generations.
+      #
+      # It writes nothing and creates no accounts — see the header of the
+      # script for why that property is load-bearing here.
+      - run: node scripts/security-probe.mjs --quick
