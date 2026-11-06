@@ -64,6 +64,14 @@ import * as kv from "./kv_store.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { secretMatches, leaseIsHeld } from "./storeTickRules.ts";
 import { ingestTerritory } from "./exchangeIngestRun.ts";
+import { demandGaps } from "./exchangeLedger.ts";
+import {
+  assessExchange,
+  describeHealth,
+  approvalActions,
+  type Finding,
+  type ActionKind,
+} from "./exchangeHealth.ts";
 import {
   pickTownToRefresh, describeRun, REFRESH_AFTER_DAYS, type UpkeepRun,
 } from "./exchangeUpkeep.ts";
@@ -379,3 +387,314 @@ exchangeUpkeepRoutes.post(`${PREFIX}/exchange/upkeep/run`, async (c) => {
 });
 
 export default exchangeUpkeepRoutes;
+
+
+/* ── the control page ───────────────────────────────────────────────────── */
+
+/**
+ * Phoenix Exchange — everything about whether it is working, in one answer.
+ *
+ * Eric: "a control page ... where i can make sure its running properly with
+ * all the functions and monitor what people are looking for and an ai
+ * assistant to make sure its performing."
+ *
+ * Every number here already existed behind a route somebody would have to
+ * know about. The clock's run log, the towns and their listing counts, and
+ * the demand ledger — which records every search a resident made that the
+ * directory could not answer, and has been readable only by curl since the
+ * day it was written. This gathers them and runs the rules over them.
+ *
+ * THE FINDINGS ARE COMPUTED, NOT ASKED FOR. `assessExchange` is pure and
+ * tested; the assistant below is handed its output and writes prose. A model
+ * that cannot name an action cannot invent one, and this surface publishes
+ * directories and creates territories sold as exclusive.
+ */
+/**
+ * Gather everything and run the rules over it.
+ *
+ * A function rather than only a route, because `/act` has to re-derive the
+ * findings before it performs one. Doing that by having the route call
+ * itself over HTTP worked and was a bad idea: it depends on the mount path,
+ * it re-does the auth, and it turns one database read into two requests.
+ */
+async function gatherHealth(): Promise<{
+  findings: Finding[];
+  rows: UpkeepRun[];
+  towns: number;
+  listings: number;
+}> {
+  const sb = service();
+  const [runs, secret] = await Promise.all([
+    kv.get(RUNS_KEY) as Promise<UpkeepRun[] | null>,
+    expectedSecret(),
+  ]);
+  const rows = Array.isArray(runs) ? runs : [];
+
+  const { data: towns } = await sb
+    .from("exchange_territory")
+    .select("slug, name, status, last_compiled_at");
+  const { data: links } = await sb
+    .from("organization_territory")
+    .select("territory_slug");
+
+  const counts = new Map<string, number>();
+  for (const l of links || []) {
+    counts.set((l as any).territory_slug, (counts.get((l as any).territory_slug) ?? 0) + 1);
+  }
+
+  /*
+   * Listings the liveness check has raised. The column does not exist yet —
+   * that migration is written and not applied — so a failure here is
+   * expected and must not take the page down with it. Zero reads as "none
+   * flagged", which is true today.
+   */
+  let needsReview = 0;
+  try {
+    const { count } = await sb
+      .from("organizations")
+      .select("id", { count: "exact", head: true })
+      .eq("type", "exchange_business")
+      .eq("needs_review", true);
+    needsReview = Number(count) || 0;
+  } catch { /* column not added yet */ }
+
+  let demand: Array<{ category: string | null; town: string | null; searches: number }> = [];
+  try {
+    const gaps = await demandGaps(sb, {
+      territorySlug: null,
+      since: new Date(Date.now() - 90 * 86_400_000).toISOString(),
+      limit: 50,
+    });
+    const names = new Map<string, string>(
+      (towns || []).map((t: any) => [String(t.slug), String(t.name)] as [string, string]),
+    );
+    const ids = [...new Set(gaps.map((g) => g.categoryId).filter(Boolean))] as string[];
+    const catNames = new Map<string, string>();
+    if (ids.length) {
+      const { data: cats } = await sb.from("exchange_category").select("id, name").in("id", ids);
+      for (const row of cats || []) catNames.set(String((row as any).id), String((row as any).name));
+    }
+    demand = gaps.map((g) => ({
+      category: g.categoryId ? catNames.get(g.categoryId) ?? null : null,
+      town: g.territorySlug ? names.get(g.territorySlug) ?? g.territorySlug : null,
+      searches: g.searches,
+    }));
+  } catch { /* the ledger is empty or unavailable; the rest of the page still works */ }
+
+  const findings = assessExchange({
+    secretConfigured: Boolean(secret),
+    refusedRecently: rows.filter((r) => r && r.ok === false && r.town === null
+      && String(r.why || "").startsWith("A tick was refused")).length,
+    failedRecently: rows.filter((r) => r && r.ok === false && r.town !== null).length,
+    lastRunAt: rows[0]?.at || null,
+    territories: (towns || []).map((t: any) => ({
+      slug: String(t.slug),
+      name: String(t.name),
+      status: t.status ?? null,
+      listings: counts.get(String(t.slug)) ?? 0,
+      lastCompiledAt: t.last_compiled_at ?? null,
+    })),
+    demand,
+    needsReview,
+  });
+
+  return { findings, rows, towns: (towns || []).length, listings: (links || []).length };
+}
+
+exchangeUpkeepRoutes.get(`${PREFIX}/exchange/admin/health`, async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required for this." }, 403);
+  }
+  const { findings, rows, towns, listings } = await gatherHealth();
+  return c.json({
+    success: true,
+    headline: describeHealth(findings),
+    findings,
+    needsApproval: approvalActions(findings).length,
+    towns,
+    listings,
+    lastRun: rows[0] || null,
+    recent: rows.slice(0, 10),
+  });
+});
+
+/**
+ * Ask the assistant what to do about it.
+ *
+ * It is handed the FINDINGS — the same computed list the page is showing —
+ * and asked to write the briefing. It is told, in the system prompt and by
+ * the shape of what it gets, that it may not invent work: everything
+ * actionable is already in the list with its parameters filled in.
+ *
+ * Separate from the health route because it costs money and the page should
+ * render without it. No key, no narration, and the findings stand on their
+ * own — they are complete sentences already.
+ */
+exchangeUpkeepRoutes.post(`${PREFIX}/exchange/admin/health/brief`, async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required for this." }, 403);
+  }
+
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) {
+    return c.json({
+      success: true,
+      brief: null,
+      note: "No ANTHROPIC_API_KEY is set, so there is no written briefing. The findings below are "
+        + "complete on their own.",
+    });
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const findings = (Array.isArray(body?.findings) ? body.findings : []) as Finding[];
+  if (!findings.length) {
+    return c.json({ success: true, brief: "Nothing is outstanding. The Exchange is running." });
+  }
+
+  try {
+    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const message = await client.messages.create({
+      // The same model and override the Exchange assistant already uses, so
+      // there is one answer to "which model does the Exchange run on".
+      model: Deno.env.get("EXCHANGE_ASSISTANT_MODEL") || "claude-opus-5",
+      max_tokens: 900,
+      system: [
+        "You are briefing the owner of a local business directory on its health.",
+        "",
+        "You are given a list of findings that has ALREADY been computed from real data.",
+        "Do not invent findings, numbers, towns or actions. If something is not in the list,",
+        "it is not happening. Every fix that exists is already named in the list with its",
+        "parameters; your job is to explain and to order, never to propose a new one.",
+        "",
+        "Write for somebody who runs the business and does not read code:",
+        "  - lead with anything marked critical, and say plainly what it is costing",
+        "  - say which ONE thing to do first, and why that one",
+        "  - mention demand findings as the recruitment list they are: each is a business",
+        "    worth signing up and a territory worth more once it is",
+        "  - if an action needs approval, say what approving it will do in the world",
+        "",
+        "Six short paragraphs at most. No headings, no bullet lists, no preamble.",
+      ].join("\n"),
+      messages: [{
+        role: "user",
+        content: JSON.stringify({ findings }, null, 2),
+      }],
+    });
+
+    const brief = (message.content || [])
+      .filter((b: any) => b?.type === "text")
+      .map((b: any) => b.text)
+      .join("\n")
+      .trim();
+
+    return c.json({ success: true, brief: brief || null });
+  } catch (err: any) {
+    // A briefing that will not generate must not look like an Exchange that
+    // is on fire. The findings are the product; this is commentary on them.
+    return c.json({
+      success: true,
+      brief: null,
+      note: `The written briefing could not be generated (${String(err?.message || err)}). The findings are unaffected.`,
+    });
+  }
+});
+
+/**
+ * Do one of the things the page offered.
+ *
+ * THE ACTION MUST BE ONE THE RULES PRODUCED, and that is re-derived here
+ * rather than trusted from the request. A client — or an assistant with a
+ * loose grip on its instructions — can post anything; what it cannot do is
+ * make `assessExchange` return a finding that is not true of the data.
+ *
+ * APPROVAL IS ENFORCED HERE, not in the browser. An action marked 'ask' is
+ * refused without `approved: true` in the body, whatever the page did or
+ * did not render.
+ */
+exchangeUpkeepRoutes.post(`${PREFIX}/exchange/admin/health/act`, async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required for this." }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const findingId = String(body?.findingId ?? "").trim();
+  const approved = body?.approved === true;
+  if (!findingId) return c.json({ success: false, error: "Which finding?" }, 400);
+
+  /*
+   * RE-DERIVED, never trusted from the request. A client — or an assistant
+   * with a loose grip on its instructions — can post any finding id and any
+   * parameters it likes. What it cannot do is make `assessExchange` return a
+   * finding that is not true of the data as it stands right now.
+   *
+   * It also means a fix already applied cannot be applied twice: the finding
+   * that justified it is gone the moment it is no longer true.
+   */
+  const { findings } = await gatherHealth();
+  const finding = findings.find((f) => f.id === findingId);
+  if (!finding) {
+    return c.json({
+      success: false,
+      error: "That is no longer something that needs doing. The page has been refreshed.",
+    }, 409);
+  }
+  if (!finding.action) {
+    return c.json({ success: false, error: "That finding has nothing to press." }, 400);
+  }
+  if (finding.action.approval === "ask" && !approved) {
+    return c.json({
+      success: false,
+      needsApproval: true,
+      why: finding.action.whyApproval,
+      error: "This one needs approving first.",
+    }, 428);
+  }
+
+  const kind = finding.action.kind as ActionKind;
+  const params = finding.action.params || {};
+
+  try {
+    switch (kind) {
+      case "run-upkeep-now": {
+        const run = await runUpkeep("control page");
+        return c.json({ success: true, did: kind, run, summary: describeRun(run) });
+      }
+      case "publish-town": {
+        const slug = String((params as any).slug || "");
+        if (!slug) return c.json({ success: false, error: "Which town?" }, 400);
+        const sb = service();
+        const { error } = await sb
+          .from("exchange_territory")
+          .update({ status: "visible" })
+          .eq("slug", slug);
+        if (error) throw new Error(error.message);
+        return c.json({ success: true, did: kind, summary: `${slug} is now visible to the public.` });
+      }
+      case "open-review-list":
+      case "discover-county":
+        /*
+         * Navigation and discovery belong to the page, not to this route —
+         * discovery has its own endpoint that returns candidates to choose
+         * from, and a review list is a screen. Answering here with where to
+         * go keeps one definition of each action rather than two.
+         */
+        return c.json({
+          success: true,
+          did: kind,
+          navigate: kind === "discover-county"
+            ? `${PREFIX}/exchange/admin/territories/discover`
+            : "/exchange/admin/review",
+          params,
+        });
+      case "add-towns":
+        return c.json({
+          success: false,
+          error: "Adding towns goes through the discovery screen, so the list can be reviewed first.",
+        }, 400);
+      default:
+        return c.json({ success: false, error: "That is not an action this page performs." }, 400);
+    }
+  } catch (err: any) {
+    return c.json({ success: false, error: String(err?.message || err) }, 500);
+  }
+});
