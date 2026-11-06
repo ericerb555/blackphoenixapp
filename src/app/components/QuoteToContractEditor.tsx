@@ -1279,6 +1279,114 @@ export function QuoteToContractEditor({
   const depositPct = depositPctOverride ?? savedDepositPct ?? 30;
 
   /**
+   * Write a schedule, whatever produced it.
+   *
+   * `regenerateSchedule` had this inline, which was fine while generating
+   * was the only way a schedule could change. Editing one by hand needs the
+   * same save — state, server, parent — and two copies of a save that writes
+   * what a customer will be invoiced against is one too many.
+   */
+  const commitSchedule = async (draws: Draw[], note?: string) => {
+    const base: any = editedQuote || currentQuote;
+    const updated = { ...base, paymentSchedule: draws } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) { toast.success('Schedule changed. Save the quote to keep it.'); return; }
+    setSavingSchedule(true);
+    const ok = await persistQuotePatch({ paymentSchedule: draws });
+    setSavingSchedule(false);
+    if (!ok) {
+      setEditedQuote(base);
+      toast.error('Could not save the schedule.');
+      return;
+    }
+    syncQuote({ ...workRequest, quote: updated } as any);
+    if (note) toast.success(note);
+  };
+
+  /**
+   * A schedule somebody writes themselves.
+   *
+   * "please allow me to create a custom as well. deposit, after a certain
+   * part in the job then the final or on larger jobs more payment upon
+   * completion of certain projects."
+   *
+   * Building from phases gives a draw per phase, which is right for a job
+   * priced that way and wrong for plenty of others — a kitchen does not need
+   * seven invoices, and a build with a long structural stage may want two
+   * payments inside it. So every part of a draw is editable and draws can be
+   * added, reordered and removed.
+   *
+   * WHAT IS NOT EDITABLE IS A DRAW ALREADY INVOICED. There is a real invoice
+   * in the world against it; changing its amount here would leave the two
+   * disagreeing with nothing to say which is right, and deleting it would
+   * leave the invoice with no schedule line explaining what it was for.
+   *
+   * The sum is NOT forced to the contract. A custom schedule mid-edit is
+   * legitimately out by whatever has not been allocated yet, and snapping it
+   * straight would silently move money the moment somebody typed a figure.
+   * The existing mismatch banner below says what the gap is instead — which
+   * is the same thing a rebuilt schedule gets when the quote moves under it.
+   */
+  const drawLocked = (d: Draw) => d.status !== 'pending';
+
+  const addDraw = () => {
+    const draws = [...paymentSchedule, {
+      id: `draw_${Date.now().toString(36)}`,
+      type: 'phase' as const,
+      phase: null,
+      label: 'New payment',
+      amount: 0,
+      trigger: 'On agreement',
+      status: 'pending' as const,
+    }];
+    void commitSchedule(draws, 'Payment added to the schedule.');
+  };
+
+  const updateDraw = (id: string, field: string, value: any) => {
+    const draws = paymentSchedule.map((d) => {
+      if (d.id !== id || drawLocked(d)) return d;
+      if (field === 'phase') {
+        const phase = String(value || '').trim();
+        return {
+          ...d,
+          phase: phase || null,
+          type: (phase ? 'phase' : d.type === 'deposit' ? 'deposit' : 'balance') as any,
+          /* The trigger follows the phase unless somebody has written their
+             own words over it. A draw tied to Framing that still reads "on
+             completion of Strip-out" is worse than one with no trigger. */
+          trigger: phase ? `On completion of ${phase}` : d.trigger,
+        };
+      }
+      if (field === 'amount') {
+        return { ...d, amount: Math.max(0, Math.round((Number(value) || 0) * 100) / 100) };
+      }
+      return { ...d, [field]: value };
+    });
+    void commitSchedule(draws);
+  };
+
+  const removeDraw = (id: string) => {
+    const target = paymentSchedule.find((d) => d.id === id);
+    if (target && drawLocked(target)) {
+      toast.error('That draw has already been invoiced. Void the invoice first.');
+      return;
+    }
+    void commitSchedule(paymentSchedule.filter((d) => d.id !== id), 'Payment removed.');
+  };
+
+  const moveDraw = (id: string, by: -1 | 1) => {
+    const i = paymentSchedule.findIndex((d) => d.id === id);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= paymentSchedule.length) return;
+    const draws = paymentSchedule.slice();
+    [draws[i], draws[j]] = [draws[j], draws[i]];
+    void commitSchedule(draws);
+  };
+
+  /**
    * Build the schedule from the quote's own phases.
    *
    * A draw that has already been invoiced keeps its status and its invoice
@@ -1586,6 +1694,7 @@ export function QuoteToContractEditor({
    * repeating it here would be a second rule to keep in step with the first.
    */
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const handleDeleteQuote = async () => {
@@ -4575,30 +4684,62 @@ export function QuoteToContractEditor({
                       <span className="text-xs text-gray-500">%</span>
                       <button
                         type="button"
-                        onClick={regenerateSchedule}
+                        onClick={addDraw}
                         disabled={savingSchedule}
-                        className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-600/10 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-600/20 disabled:opacity-50"
+                        className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#141414] px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:border-gray-500 hover:text-white disabled:opacity-50"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add payment
+                      </button>
+                      {/*
+                        Two-step once a schedule exists, because rebuilding
+                        DISCARDS a schedule somebody wrote by hand. An
+                        accidental click on a job with a negotiated payment
+                        plan would replace it with a draw per phase and there
+                        is no undo.
+                      */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (paymentSchedule.length && !confirmingRebuild) { setConfirmingRebuild(true); return; }
+                          setConfirmingRebuild(false);
+                          void regenerateSchedule();
+                        }}
+                        onBlur={() => setConfirmingRebuild(false)}
+                        disabled={savingSchedule}
+                        title={paymentSchedule.length
+                          ? 'Replaces the whole schedule with one draw per phase'
+                          : 'Builds a deposit and one draw per phase'}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+                          confirmingRebuild
+                            ? 'border-amber-500/60 bg-amber-500/15 text-amber-300'
+                            : 'border-emerald-500/40 bg-emerald-600/10 text-emerald-300 hover:bg-emerald-600/20'
+                        }`}
                       >
                         {savingSchedule
                           ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           : <RefreshCw className="h-3.5 w-3.5" />}
-                        {paymentSchedule.length ? 'Rebuild' : 'Build from phases'}
+                        {!paymentSchedule.length
+                          ? 'Build from phases'
+                          : confirmingRebuild ? 'Replace the schedule?' : 'Rebuild'}
                       </button>
                     </div>
                   </div>
                   <p className="mb-4 text-sm text-gray-400">
-                    A deposit, then one draw for each phase of the work. Each draw is that
-                    phase&rsquo;s share of the contract, less its share of the deposit — so the
-                    deposit is worked off across the job rather than sitting as a credit at
-                    the end. Invoices are raised against these.
+                    Build one from the phases — a deposit, then a draw per phase, each carrying
+                    its share of the deposit — or write your own: a deposit, a payment partway
+                    through, a balance at the end, as many as a job needs. Edit any line, tie it
+                    to the phase whose completion triggers it, and reorder them. Invoices are
+                    raised against these.
                   </p>
 
                   {!paymentSchedule.length ? (
                     <div className="rounded-lg border border-dashed border-[#2A2A2A] bg-[#0A0A0A] p-5 text-center">
                       <p className="text-sm text-gray-400">No schedule yet.</p>
                       <p className="mt-1 text-xs text-gray-600">
-                        Build one from the phases on this quote. Change the deposit first if
-                        you want to — everything else follows from the phase prices.
+                        Build one from the phases on this quote — set the deposit first and the
+                        rest follows from the phase prices — or press <strong>Add payment</strong> and
+                        write your own.
                       </p>
                     </div>
                   ) : (
@@ -4611,9 +4752,19 @@ export function QuoteToContractEditor({
                               i % 2 ? 'bg-[#0D0D0D]' : 'bg-[#111]'
                             }`}
                           >
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold text-white">{draw.label}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {draw.status === 'pending' ? (
+                                  <input
+                                    type="text"
+                                    value={draw.label}
+                                    onChange={(e) => updateDraw(draw.id, 'label', e.target.value)}
+                                    className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-bold text-white hover:border-gray-700 focus:border-emerald-500/50 focus:bg-black focus:outline-none"
+                                    placeholder="What this payment is called"
+                                  />
+                                ) : (
+                                  <span className="text-sm font-bold text-white">{draw.label}</span>
+                                )}
                                 {draw.status !== 'pending' && (
                                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                                     draw.status === 'paid'
@@ -4624,12 +4775,68 @@ export function QuoteToContractEditor({
                                   </span>
                                 )}
                               </div>
-                              <p className="mt-0.5 text-xs text-gray-500">{draw.trigger}</p>
+                              {draw.status === 'pending' ? (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  {/*
+                                    A datalist, not a select: the phases of the
+                                    job are the useful answers, but "on signing"
+                                    and "14 days after start" are real triggers
+                                    too and a closed list would forbid them.
+                                    Leaving it blank unties the draw from any
+                                    phase, which is what a deposit or a
+                                    negotiated date payment wants.
+                                  */}
+                                  <input
+                                    type="text"
+                                    list="quote-phase-options"
+                                    value={draw.phase || ''}
+                                    onChange={(e) => updateDraw(draw.id, 'phase', e.target.value)}
+                                    className="w-44 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-white"
+                                    placeholder="tie to a phase (optional)"
+                                    title="Completing this phase makes the draw due"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={draw.trigger}
+                                    onChange={(e) => updateDraw(draw.id, 'trigger', e.target.value)}
+                                    className="min-w-0 flex-1 rounded border border-gray-700 bg-black px-2 py-1 text-[11px] text-gray-300"
+                                    placeholder="When this becomes payable"
+                                  />
+                                </div>
+                              ) : (
+                                <p className="mt-0.5 text-xs text-gray-500">{draw.trigger}</p>
+                              )}
                             </div>
                             <div className="text-right">
-                              <div className="text-sm font-bold text-white">
-                                ${draw.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </div>
+                              {draw.status === 'pending' ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-sm font-bold text-gray-500">$</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={draw.amount}
+                                    onChange={(e) => updateDraw(draw.id, 'amount', e.target.value)}
+                                    className="w-28 rounded border border-gray-700 bg-black px-2 py-1 text-right text-sm font-bold text-white focus:border-emerald-500/50 focus:outline-none"
+                                  />
+                                  {/*
+                                    The share of the contract, because that is
+                                    how a payment plan is negotiated out loud —
+                                    "a third up front" — and it is the figure
+                                    nobody wants to work out by hand each time
+                                    they nudge an amount.
+                                  */}
+                                  {contractTotal > 0 && (
+                                    <span className="w-10 text-right text-[11px] text-gray-500">
+                                      {Math.round((draw.amount / contractTotal) * 100)}%
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-sm font-bold text-white">
+                                  ${draw.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                              )}
                               {/*
                                 Shown only when it says something. The deposit
                                 draw has no credit, and repeating "− $0.00
@@ -4641,6 +4848,37 @@ export function QuoteToContractEditor({
                                   phase ${Number(draw.phaseValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   {' '}&minus; ${Number(draw.depositCredit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} deposit
                                 </p>
+                              )}
+                              {draw.status === 'pending' && (
+                                <div className="mt-1.5 flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveDraw(draw.id, -1)}
+                                    disabled={i === 0 || savingSchedule}
+                                    title="Move this payment earlier"
+                                    className="rounded border border-[#2A2A2A] px-1.5 py-0.5 text-[11px] text-gray-400 transition hover:border-gray-500 hover:text-white disabled:opacity-30"
+                                  >
+                                    &uarr;
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveDraw(draw.id, 1)}
+                                    disabled={i === paymentSchedule.length - 1 || savingSchedule}
+                                    title="Move this payment later"
+                                    className="rounded border border-[#2A2A2A] px-1.5 py-0.5 text-[11px] text-gray-400 transition hover:border-gray-500 hover:text-white disabled:opacity-30"
+                                  >
+                                    &darr;
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeDraw(draw.id)}
+                                    disabled={savingSchedule}
+                                    title="Remove this payment from the schedule"
+                                    className="rounded border border-red-500/40 px-1.5 py-0.5 text-red-400 transition hover:border-red-500 hover:bg-red-500/10 disabled:opacity-30"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
                               )}
                               {draw.status === 'pending' && (() => {
                                 const steps = (currentQuote as any)?.processSteps || [];
