@@ -642,3 +642,133 @@ which created **three anonymous rows in `auth.users`** (no email, no personal
 data, created 2026-10-16). They are mine, not a user's, and they should be
 deleted. Deleting auth rows is destructive, so I have not done it — say the word
 and it is one statement. Everything else in this audit was read-only.
+
+---
+
+## Remediation, 2026-11-06
+
+Three weeks after the assessment. Everything below was verified by running it,
+not by reading it.
+
+### Closed
+
+**Phase 3 Stage 1 — CI exists.** `.github/workflows/security.yml`:
+`pnpm audit` blocking at high, gitleaks across full history (a secret
+committed and reverted is still a secret, so the checkout is not shallow),
+CodeQL `security-extended` non-blocking to the Security tab, and the
+production probe on a Monday cron. `.github/dependabot.yml` groups Radix,
+three.js, types and build tooling so bumps get read rather than
+rubber-stamped — security updates deliberately ungrouped, because those
+should arrive and be merged on their own. **This was the only phase with
+nothing started.** Stage 3 (weekly advisors, ZAP) and Stage 4 (external
+pen test) remain.
+
+**H-2 follow-on — a moderate CVE that `DEP-1` is built not to see.**
+`DEP-1` fails on high and critical only, which is the right line for a gate
+and meant `vite@6.4.4` sat unnoticed: GHSA-8g5g-mxqh-grgj, `server.fs.deny`
+bypassed with queries. We were pinned to the vulnerable version *twice* —
+`devDependencies` and a `pnpm.overrides` entry holding it there. Bumped to
+6.4.5; `pnpm audit --audit-level=moderate` now reports nothing at all. The
+CI job above reports moderates without failing, so the next one is visible.
+
+**L-1 — the JSON-LD injection.** Fixed, with the detail that matters:
+the obvious fix is a no-op. `.replace(/</g, '<')` compiles, runs, and
+replaces `<` with `<`, because `'<'` *is* `<` in JavaScript source. It
+needs `'\\u003c'`. Both forms look correct in a diff. Extracted to an
+exported `jsonLdBlock()` and tested on the emitted text rather than on the
+call; proven by reverting to the no-op and watching 2 of 4 tests fail.
+
+**Phase 4 item 11 — `SECURITY.md`.** Disclosure address, the same
+three-business-day commitment already on the public security page and in the
+incident response plan, scope, out-of-scope, and safe harbour.
+
+**Item 10 was already done** and this document had not been updated to say
+so: `docs/security/incident-response.md` exists.
+
+### New finding, found and fixed in the same pass
+
+**The customer set the time on their own signature.**
+`POST /quotes/by-token/:token/sign` took `signedAt` from the request body,
+where `CustomerQuoteApproval.tsx` puts `new Date().toISOString()` off the
+customer's machine. The route goes to real trouble a few lines earlier to
+stop a second click rewriting *when* a quote was agreed — then accepted that
+date from the browser. A wrong system clock misdated the record by accident;
+anybody who wanted to could set it to any date at all, on the closest thing
+in this system to a signature on a contract. Now `signedAt: now`, from the
+value already computed for `updatedAt`.
+
+Severity Low — it is the signer's own timestamp, so the fraud is against
+their own position — but it is evidence integrity on a signing endpoint, and
+a buyer's counsel is exactly who reads that record.
+
+### H-3 follow-on — the CSP can now actually be promoted
+
+The policy shipped Report-Only on 16 October with instructions to collect for
+a week first, and the honest note that "right now nothing collects them, so
+this step means actually looking". Nothing collected, nobody looked, and the
+policy spent three weeks reporting into the void waiting on evidence that was
+never going to arrive.
+
+`report-uri` now points at `POST /csp-report`, with
+`GET /csp-report/summary` (staff only) to read it. See
+`supabase/functions/server/cspReports.ts` and the 21 tests. Two design points
+worth keeping:
+
+- **It does no storage work in the common case.** Browsers post with no
+  credentials, so the route is public — the only unauthenticated write here
+  that is not a payment webhook. Reports buffer in the isolate and flush at
+  most once every 30 seconds, so a flood costs one write, not one per
+  request. `ipReputation.ts` reached the same conclusion: a per-request
+  counter write makes the anti-abuse code its own amplifier.
+- **Overflow is counted, not discarded.** The blocked URI is
+  attacker-controlled, so distinct fingerprints are capped — but a store that
+  fills up and quietly stops counting looks exactly like a site with no
+  violations, and "clean, promote it" is the dangerous conclusion to draw
+  from it. `dropped` is in the summary.
+
+**A correction to `docs/security/headers.md`.** It listed the JSON-LD block
+as a known CSP violation. That was asserted, not checked. Per spec a
+`<script>` with a non-JavaScript MIME type is a *data block* — never
+executed, so there is nothing for `script-src` to block — and current Chrome
+does not report it. Read the reports before fixing it.
+
+The policy is still Report-Only, deliberately. Promoting a first-draft CSP
+blind is how you take down checkout on a Friday. The week starts now.
+
+### Still open, and what each one is waiting on
+
+| Item | Waiting on |
+|---|---|
+| `RLS-2` — every public table has RLS on | The service-role key. **Never run.** A skip is not a pass. |
+| `ANON-2` — leaked-password protection | A dashboard toggle; not published to anonymous callers, so it cannot be probed. |
+| Three anonymous `auth.users` rows from 16 Oct | A decision. Deleting auth rows is destructive. |
+| `public.slow_queries()` | Its definition. It is a **live function with no migration anywhere in this repository** — the only schema drift found — and the one still carrying an unpinned `search_path`. |
+| Origin lock → enforcing | Cloudflare. Fails open while unset, by design. |
+| IP reputation → enforcing | The `would-block` lines in the edge function logs. |
+| CSP → enforcing | A week of the reports now being collected. |
+| Phase 3 Stages 3–4 | A calendar and a budget, not a keyboard. |
+| Phase 4 items 12–14 | Subprocessor inventory, access review + MFA, a restore test. |
+
+### Verified
+
+    tests             2537/2537
+    typecheck app     307, exactly baseline
+    typecheck server   83, exactly baseline
+    typecheck tests    12, exactly baseline
+    build             clean
+    pnpm audit        nothing at moderate or above
+    probe             14 passed, 0 failed, 1 warning (CSP report-only), 2 skipped
+    deployed          server deployed and re-probed; /csp-report answers 204,
+                      /csp-report/summary answers 401 to a stranger
+
+### A process note, because it nearly cost the work
+
+Two Claude sessions were running against this repository at once. The other
+one committed with `git add -A` and swept this work into an unrelated quote
+commit, then `git reset` twice, orphaning the security commits both times.
+Nothing was lost — the resets were mixed, so the files survived in the
+working tree — but the commits had to be rebuilt.
+
+The work is therefore anchored: branch `security/audit-remediation-2026-11-06`
+and tag `security-work-2026-11-06`, both pushed. **One session per
+repository** is the cheap fix.
