@@ -955,7 +955,20 @@ export function QuoteToContractEditor({
    * they actually receive" is a question worth being able to answer without
    * sending it.
    */
-  const [previewAsCustomer, setPreviewAsCustomer] = useState(false);
+  /**
+   * Defaults to the CUSTOMER copy, because the risk is not symmetric.
+   *
+   * Download saves whichever copy this is set to, under the same filename
+   * either way. Defaulting to the office copy meant the quickest path —
+   * open, Download, attach to an email — produced the file that contains
+   * every line marked `visible: false`, annotated "(hidden from customer)".
+   * Seeing our own copy by accident costs nothing; sending it discloses the
+   * withheld lines and, on a de-rated quote, the rate card behind them.
+   *
+   * The Email button is unaffected: it has always built the customer copy
+   * explicitly and could not send the other one.
+   */
+  const [previewAsCustomer, setPreviewAsCustomer] = useState(true);
   const [previewUrl, setPreviewUrl] = useState('');
 
   /**
@@ -1473,7 +1486,25 @@ export function QuoteToContractEditor({
 
     const updated = { ...(editedQuote || currentQuote), paymentSchedule: draws } as any;
     setEditedQuote(updated);
-    if (editMode) return;
+    /**
+     * In edit mode this used to return in silence.
+     *
+     * Nothing was written, nothing was said, and the only visible change was
+     * a block further down the page that the person clicking is usually not
+     * looking at. From the chair it is a dead button — and if they leave
+     * without pressing Save, the schedule they just built is gone with no
+     * warning that it was ever only local.
+     *
+     * Saying so costs a line. The draws are on `editedQuote`, so Save does
+     * persist them; the problem was never the data, it was that nobody was
+     * told which of the two states they were in.
+     */
+    if (editMode) {
+      toast.success(
+        `Schedule built — ${draws.length} draw${draws.length === 1 ? '' : 's'}. Save the quote to keep it.`,
+      );
+      return;
+    }
 
     const quoteId = workRequest.quote?.id;
     if (!quoteId) { toast.success('Schedule built. Save the quote to keep it.'); return; }
@@ -1757,6 +1788,19 @@ export function QuoteToContractEditor({
    */
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
+
+  /**
+   * An armed rebuild lapses after a few seconds.
+   *
+   * Rebuilding discards a schedule somebody may have written by hand, so the
+   * two-click confirmation stays. What it must not do is cancel itself the
+   * instant focus moves — see the note on the button.
+   */
+  useEffect(() => {
+    if (!confirmingRebuild) return;
+    const timer = setTimeout(() => setConfirmingRebuild(false), 6000);
+    return () => clearTimeout(timer);
+  }, [confirmingRebuild]);
   const [deleting, setDeleting] = useState(false);
 
   const handleDeleteQuote = async () => {
@@ -4934,7 +4978,23 @@ export function QuoteToContractEditor({
                           setConfirmingRebuild(false);
                           void regenerateSchedule();
                         }}
-                        onBlur={() => setConfirmingRebuild(false)}
+                        /*
+                          It used to disarm on BLUR, which made the button
+                          unclickable in a way nobody could see. Arming is a
+                          state change, so anything that takes focus between
+                          the two clicks — the deposit field, the payments
+                          field, a toast, a re-render that remounts this
+                          subtree — silently put it back to "Rebuild". The
+                          next click re-armed it rather than confirming, and
+                          you could go round that loop forever while the
+                          button did nothing at all.
+
+                          It disarms on a timer instead: still safe, because
+                          the confirmation lapses on its own rather than
+                          sitting armed, and no longer cancelled by looking
+                          at the field next to it. The timer lives in an
+                          effect so it is cleared on unmount.
+                        */
                         disabled={savingSchedule}
                         title={paymentSchedule.length
                           ? 'Replaces the whole schedule with one draw per phase'
@@ -5951,9 +6011,11 @@ export function QuoteToContractEditor({
               <div className="flex items-center gap-3">
                 <h3 className="font-bold text-white">Quote PDF</h3>
                 {/*
-                  Which copy you are looking at. "My copy" by default — but
-                  being able to see what the customer actually receives,
-                  without sending it, is the point of having the switches.
+                  Which copy you are looking at. The CUSTOMER copy by
+                  default — seeing what they actually receive is the point of
+                  having the switches, and Download follows this toggle, so
+                  the default is also the one that cannot disclose a withheld
+                  line by being attached to an email in a hurry.
                 */}
                 <div className="flex overflow-hidden rounded-lg border border-[#2A2A2A]">
                   {([[false, 'My copy'], [true, 'Customer copy']] as Array<[boolean, string]>).map(([v, label]) => (
@@ -5982,7 +6044,16 @@ export function QuoteToContractEditor({
                   <Printer className="h-3.5 w-3.5" /> Open / Print
                 </button>
                 <button
-                  onClick={() => buildPdf(previewAsCustomer).save(`Estimate_${(currentQuote as any)?.quoteNumber || 'draft'}.pdf`)}
+                  /*
+                    The office copy says so in its filename.
+                    Both copies used to save as `Estimate_<number>.pdf`, so
+                    two files that differ by every withheld line were
+                    indistinguishable in a downloads folder and in an email
+                    attachment picker. Naming the risky one is free.
+                  */
+                  onClick={() => buildPdf(previewAsCustomer).save(
+                    `Estimate_${(currentQuote as any)?.quoteNumber || 'draft'}${previewAsCustomer ? '' : '_INTERNAL'}.pdf`,
+                  )}
                   className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1.5 text-xs font-bold text-gray-300 hover:text-white"
                 >
                   <Download className="h-3.5 w-3.5" /> Download
