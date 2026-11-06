@@ -90,3 +90,65 @@ test('a malformed quote does not throw', () => {
     assert.doesNotThrow(() => schedulePhasesOf(bad));
   }
 });
+
+/* ── the total the schedule divides up ───────────────────────────────────── */
+
+/**
+ * `contractTotalOf` read `totalCost ?? total` and nothing else, so a quote
+ * carrying its figure anywhere else resolved to ZERO — not an error, zero.
+ * `buildPaymentSchedule` then dutifully apportioned nothing and produced a
+ * full set of draws worth £0.00 each. The schedule looked built and was
+ * worthless.
+ *
+ * That is what "the rebuild payment schedule isn't working" turned out to
+ * be. The arithmetic was never wrong; it was being handed a zero.
+ *
+ * `grandTotal` is not hypothetical — the generator writes
+ * `totals.grandTotal`, and the editor reads `total || grandTotal ||
+ * totalCost` when converting a quote to a contract. The editor already knew
+ * the figure could live there. The schedule did not.
+ */
+test('the total is found wherever a quote actually keeps it', () => {
+  assert.equal(contractTotalOf({ totalCost: 9000 }), 9000);
+  assert.equal(contractTotalOf({ total: 9000 }), 9000);
+  assert.equal(contractTotalOf({ grandTotal: 9000 }), 9000);
+  assert.equal(contractTotalOf({ totals: { grandTotal: 9000 } }), 9000);
+  assert.equal(contractTotalOf({ totals: { total: 9000 } }), 9000);
+});
+
+/**
+ * The first POSITIVE one wins, not the first one present. A quote carrying
+ * `totalCost: 0` beside a real `grandTotal` is the exact shape that caused
+ * this; preferring a defined zero would keep the bug while looking fixed.
+ */
+test('a zero does not win over a real figure', () => {
+  assert.equal(contractTotalOf({ totalCost: 0, grandTotal: 9000 }), 9000);
+  assert.equal(contractTotalOf({ totalCost: null, total: 0, grandTotal: 1200 }), 1200);
+});
+
+test('a quote with no figure anywhere is zero, not NaN', () => {
+  for (const q of [{}, null, undefined, { totalCost: 'abc' }, { totalCost: NaN }]) {
+    const v = contractTotalOf(q as any);
+    assert.equal(v, 0, JSON.stringify(q));
+    assert.ok(Number.isFinite(v));
+  }
+});
+
+/** The end-to-end shape of the bug, as one assertion. */
+test('a grandTotal-only quote now builds a schedule worth something', () => {
+  const quote = {
+    grandTotal: 10000,
+    processSteps: [{ title: 'Set-up' }, { title: 'Fit out' }],
+    materials: [{ totalCost: 6000, phase: 'Fit out' }],
+    labor: [{ totalCost: 4000, phase: 'Set-up' }],
+  };
+  const draws = buildPaymentSchedule({
+    phases: schedulePhasesOf(quote),
+    total: contractTotalOf(quote),
+    depositRate: 0.3,
+  });
+
+  assert.ok(draws.length > 0);
+  assert.equal(scheduleTotal(draws), 10000);
+  assert.ok(draws.every((d) => d.amount > 0), 'no draw should be worth nothing');
+});

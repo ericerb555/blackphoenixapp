@@ -71,6 +71,39 @@ export function schedulePhasesOf(quote: any): SchedulePhase[] {
   return phases;
 }
 
-/** The contract total a schedule is apportioning — tax included. */
-export const contractTotalOf = (quote: any): number =>
-  Number(quote?.totalCost ?? quote?.total ?? 0) || 0;
+/**
+ * The contract total a schedule is apportioning — tax included.
+ *
+ * WHY THIS READS FIVE PLACES AND NOT ONE
+ *
+ * It read `totalCost ?? total`, and a quote carrying its figure anywhere
+ * else resolved to ZERO. Not an error — zero. `buildPaymentSchedule` then
+ * apportioned nothing, and the editor wrote a full set of draws every one
+ * of which was £0.00. The schedule looked built and was worthless, which is
+ * what "the rebuild payment schedule isn't working" turned out to mean.
+ *
+ * `grandTotal` is not hypothetical. The generator stores
+ * `totals.grandTotal` (quote-generator.tsx), and this very editor reads
+ * `total || grandTotal || totalCost` when it converts a quote to a
+ * contract — so the editor already knew the figure could live there, and
+ * the schedule did not.
+ *
+ * THE FIRST POSITIVE ONE WINS, not the first one present. A quote that
+ * carries `totalCost: 0` alongside a real `grandTotal` is the shape that
+ * caused this; preferring a defined zero over a real figure would keep the
+ * bug while looking like it had been fixed.
+ */
+export const contractTotalOf = (quote: any): number => {
+  const candidates = [
+    quote?.totalCost,
+    quote?.total,
+    quote?.grandTotal,
+    quote?.totals?.grandTotal,
+    quote?.totals?.total,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+};

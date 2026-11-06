@@ -1482,6 +1482,20 @@ export function QuoteToContractEditor({
   );
 
   const regenerateSchedule = async () => {
+    /**
+     * A schedule apportions a total. With no total there is nothing to
+     * apportion, and the allocator says so by handing back a full set of
+     * draws worth £0.00 each.
+     *
+     * That is the worst available answer: the schedule LOOKS built, every
+     * row is there, and every figure is zero. Refusing, and saying which
+     * thing is missing, is the whole fix — the arithmetic was never wrong.
+     */
+    if (!(contractTotal > 0)) {
+      toast.error("This quote has no total yet, so there is nothing to split into payments. Price the quote first.");
+      return;
+    }
+
     const phases = schedulePhasesOf(currentQuote);
     /* Merging happens before the money is worked out, so the draws still
        come out of the same tested allocator and still sum to the contract
