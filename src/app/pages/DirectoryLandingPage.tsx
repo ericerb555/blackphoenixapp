@@ -14,6 +14,7 @@ import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ReviewsSection from '../components/ReviewsSection';
 import GalleryPreview from '../components/GalleryPreview';
 import SponsoredMarquee from '../components/SponsoredMarquee';
+import ShowreelStrip from '../components/ShowreelStrip';
 import { publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
 
@@ -580,6 +581,9 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
       {/* ── UNIFIED MARQUEE — sponsors, logos, offers, all in one ─────────── */}
       <SponsoredMarquee onNavigate={handleNavigate} />
+
+      {/* ── SHOWREELS — our own jobs, playing, straight under the hero ───── */}
+      <ShowreelStrip onNavigate={handleNavigate} />
 
       {/* ── DEALS ZONE (moved to sign-up modal) ────────────────────────────── */}
       {false && <div className="w-full px-4 py-10 flex justify-center">
