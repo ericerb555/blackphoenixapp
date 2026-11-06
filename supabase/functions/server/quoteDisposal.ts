@@ -55,6 +55,81 @@
  */
 export const DISPOSAL_MINIMUM = 125;
 
+/**
+ * The name of the phase the rubbish belongs to.
+ *
+ * Eric: "trash removal should be its own process for every job."
+ *
+ * It was a soft cost with no phase, which meant three things, none of them
+ * obvious from looking at a quote:
+ *
+ *   - it never appeared in the by-process breakdown, because that groups
+ *     `materials` and `labor` and nothing else. The one screen whose job is
+ *     checking the money under each process could not see this money at all.
+ *   - it could never carry a draw. `schedulePhasesOf` builds milestones from
+ *     phases, so clearing the site was work the schedule did not know
+ *     happened and could not bill against.
+ *   - nobody could mark it done. Completion is per phase.
+ *
+ * Making it a phase fixes all three at once, and it is honest besides: a
+ * skip arriving, being loaded and being taken away is a stage of the job in
+ * exactly the way second fix is.
+ *
+ * THE MONEY DOES NOT MOVE BUCKETS. The line stays in `additionalCosts`, so
+ * `materialsSubtotal`, `laborSubtotal`, the markup, the tax and therefore
+ * `totalCost` are all byte-identical to before. What changes is only which
+ * heading it is drawn under. That invariant is the thing to protect, and
+ * there is a test that says so.
+ */
+export const DISPOSAL_PHASE = "Trash removal and disposal";
+
+/**
+ * The process step for it, in the shape the generator builds steps in.
+ *
+ * Last, deliberately. You cannot sweep up before the work that makes the
+ * mess, and a schedule that draws per phase should release this one at the
+ * end — it is genuinely the final thing that happens on site.
+ */
+export function disposalStep(makeId: () => string, stepNumber: number) {
+  return {
+    id: makeId(),
+    stepNumber,
+    title: DISPOSAL_PHASE,
+    description:
+      "Skip or dumpster on site, loading everything this job takes out, "
+      + "tip fees, and a clear swept site at the end.",
+    estimatedDuration: "",
+    trade: "general",
+  };
+}
+
+/**
+ * Put the phase on the end of the list, unless it is already there.
+ *
+ * Matched on the same loose reading `isDisposalLine` uses rather than on an
+ * exact title, because a model that wrote its own "Debris removal" phase has
+ * already done this job and a second one would split the money across two
+ * headings that mean the same thing.
+ *
+ * Returns the existing title when there was one, so the caller tags the line
+ * to the phase that EXISTS rather than to the one we would have made.
+ */
+export function ensureDisposalPhase(
+  steps: any[],
+  makeId: () => string,
+): { steps: any[]; phase: string; added: boolean } {
+  const list = Array.isArray(steps) ? steps : [];
+  const found = list.find((step) => isDisposalLine({ name: step?.title ?? step?.step, description: step?.description }));
+  if (found) {
+    return { steps: list, phase: String(found.title ?? found.step ?? DISPOSAL_PHASE).trim(), added: false };
+  }
+  return {
+    steps: [...list, disposalStep(makeId, list.length + 1)],
+    phase: DISPOSAL_PHASE,
+    added: true,
+  };
+}
+
 /** Words that mean "getting rid of what the job produces". */
 const DISPOSAL_TERMS = [
   'disposal', 'dispose', 'debris', 'dumpster', 'skip hire', 'skip',
@@ -145,6 +220,8 @@ export interface DisposalLine {
   description: string;
   category: string;
   amount: number;
+  /** The process this belongs to. See `DISPOSAL_PHASE`. */
+  phase: string;
   /** Set when this line exists only to bring the quote up to the floor. */
   atMinimum: true;
 }
@@ -159,7 +236,11 @@ export interface DisposalLine {
  * a tip fee; it does not cover a full house strip-out, and a line sitting
  * at the floor on a large job is one somebody should raise.
  */
-export function disposalPlaceholder(makeId: () => string, shortfall = DISPOSAL_MINIMUM): DisposalLine {
+export function disposalPlaceholder(
+  makeId: () => string,
+  shortfall = DISPOSAL_MINIMUM,
+  phase: string = DISPOSAL_PHASE,
+): DisposalLine {
   return {
     id: makeId(),
     name: 'Trash removal and disposal',
@@ -168,6 +249,7 @@ export function disposalPlaceholder(makeId: () => string, shortfall = DISPOSAL_M
       + `Charged at the $${DISPOSAL_MINIMUM} minimum — raise it if the job produces more than a single load.`,
     category: 'Disposal',
     amount: Math.round(shortfall * 100) / 100,
+    phase,
     atMinimum: true,
   };
 }
@@ -195,6 +277,7 @@ export function disposalPlaceholder(makeId: () => string, shortfall = DISPOSAL_M
 export function ensureDisposal(
   estimate: { additionalCosts?: any[]; materials?: any[]; labor?: any[] },
   makeId: () => string,
+  phase: string = DISPOSAL_PHASE,
 ): {
   additionalCosts: any[];
   added: boolean;
@@ -217,7 +300,9 @@ export function ensureDisposal(
     const row = existing[softIndex];
     const raisedTo = Math.round((amountOf(row) + shortfall) * 100) / 100;
     const next = existing.slice();
-    next[softIndex] = { ...row, amount: raisedTo, atMinimum: true };
+    // A phase the model already chose is left alone; only an untagged
+    // line is adopted into the disposal process.
+    next[softIndex] = { ...row, amount: raisedTo, phase: String(row?.phase || '').trim() || phase, atMinimum: true };
     return {
       additionalCosts: next,
       added: false,
@@ -229,7 +314,7 @@ export function ensureDisposal(
 
   // Nothing to raise — add the shortfall as its own line.
   return {
-    additionalCosts: [...existing, disposalPlaceholder(makeId, shortfall)],
+    additionalCosts: [...existing, disposalPlaceholder(makeId, shortfall, phase)],
     added: true,
     raised: false,
     foundIn: check.foundIn,

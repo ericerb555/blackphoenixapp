@@ -717,9 +717,22 @@ export function QuoteToContractEditor({
     const q: any = currentQuote || {};
     const materials: any[] = Array.isArray(q.materials) ? q.materials : [];
     const labor: any[] = Array.isArray(q.labor) ? q.labor : [];
+    /**
+     * Soft costs that name a phase belong to that phase.
+     *
+     * Trash removal is why. It sits in `additionalCosts` and now carries a
+     * phase, and this screen exists to check "the money under each process
+     * is right" — a subtotal that leaves the skip out is not right, and is
+     * wrong in the direction that reads as cheaper than the quote.
+     *
+     * Unphased soft costs are left out, exactly as before. They are not
+     * under any process, which is the honest answer for an overhead.
+     */
+    const softCosts: any[] = (Array.isArray(q.additionalCosts) ? q.additionalCosts : [])
+      .filter((a: any) => String(a?.phase || "").trim());
 
     const lineTotal = (line: any): number => {
-      const stated = Number(line?.totalCost);
+      const stated = Number(line?.totalCost ?? line?.amount);
       if (Number.isFinite(stated)) return stated;
       const qty = Number(line?.quantity ?? line?.hours ?? 1) || 0;
       const rate = Number(line?.unitCost ?? line?.unitPrice ?? line?.hourlyRate ?? 0) || 0;
@@ -742,11 +755,13 @@ export function QuoteToContractEditor({
       const labs = of(labor, phase);
       const matTotal = sum(mats);
       const labTotal = sum(labs);
-      const subtotal = Math.round((matTotal + labTotal) * 100) / 100;
+      const softs = of(softCosts, phase);
+      const softTotal = sum(softs);
+      const subtotal = Math.round((matTotal + labTotal + softTotal) * 100) / 100;
       return {
-        phase, mats, labs, matTotal, labTotal, subtotal,
+        phase, mats, labs, softs, matTotal, labTotal, softTotal, subtotal,
         markup: withMarkup ? markupOn(subtotal, rates).total : 0,
-        empty: mats.length === 0 && labs.length === 0,
+        empty: mats.length === 0 && labs.length === 0 && softs.length === 0,
       };
     });
 
@@ -4172,6 +4187,32 @@ export function QuoteToContractEditor({
                               <div className="grid gap-3 sm:grid-cols-2">
                                 {renderBucket({ label: 'Materials', rows: g.mats, total: g.matTotal, kind: 'materials', tint: 'text-blue-400', phase: g.phase })}
                                 {renderBucket({ label: 'Labour', rows: g.labs, total: g.labTotal, kind: 'labor', tint: 'text-purple-400', phase: g.phase })}
+                                {/*
+                                  Soft costs that belong to this process —
+                                  trash removal, chiefly. Read-only here:
+                                  they are edited where soft costs live, and
+                                  `renderRow` is built around a material or
+                                  a labour line. They are SHOWN because they
+                                  are in the subtotal above, and a subtotal
+                                  you cannot add up from the rows under it
+                                  reads as an arithmetic bug.
+                                */}
+                                {g.softs.length > 0 && (
+                                  <div>
+                                    <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide">
+                                      <span className="text-emerald-400">Other ({g.softs.length})</span>
+                                      <span className="text-gray-300">{cash(g.softTotal)}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      {g.softs.map((a: any) => (
+                                        <div key={a.id || a.name} className="flex items-baseline justify-between gap-2 rounded bg-black/40 px-2 py-1">
+                                          <span className="text-[11px] text-gray-300">{a.name || 'Additional cost'}</span>
+                                          <span className="text-[11px] font-semibold text-gray-200">{cash(phaseBreakdown.lineTotal(a))}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {phaseBreakdown.withMarkup && !g.empty && (

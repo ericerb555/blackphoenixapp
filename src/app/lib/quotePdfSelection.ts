@@ -214,6 +214,37 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     }
   }
 
+  /**
+   * Soft costs that belong to a phase are drawn under it.
+   *
+   * Trash removal is the reason. Eric: "trash removal should be its own
+   * process for every job." It lives in `additionalCosts`, and nothing
+   * customer-facing has ever read that array — not this selection, not the
+   * PDF, not the portal payload. So the $125 minimum was CHARGED on every
+   * quote and shown on none of them: it was in the total and nowhere else,
+   * which is the one combination a customer can reasonably object to.
+   *
+   * Only PHASED soft costs are included. An unphased one stays exactly as
+   * invisible as it was — widening this to every soft cost would start
+   * printing overheads nobody decided to show, which is a different change
+   * and not this one.
+   *
+   * Quantity and unit price are zero: a skip is a charge, not a rate times
+   * an amount, and inventing "1 x $125" would imply a unit nobody quoted.
+   */
+  for (const a of Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []) {
+    if (!keep(a)) continue;
+    const phase = String(a?.phase || "").trim();
+    if (!phase) continue;
+    lines.push({
+      description: mark([a?.name, a?.description].filter(Boolean).join(" — ") || "Additional cost", a),
+      quantity: 0,
+      unit_price: 0,
+      phase,
+      kind: "material",
+    });
+  }
+
   const steps = (Array.isArray(quote?.processSteps) ? quote.processSteps : []).filter(keep);
 
   /**
@@ -227,13 +258,21 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
   for (const l of [
     ...(Array.isArray(quote?.materials) ? quote.materials : []),
     ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    // Phased soft costs carry real money and a real milestone. Leaving them
+    // out would make the phase subtotal disagree with the lines printed
+    // under it, and would short the draw that releases on that phase.
+    ...(Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []),
   ]) {
     // Hidden lines count here; EXCLUDED ones do not. The phase total is what
     // the customer pays for that phase, and an excluded line is not charged.
     if (!isIncluded(l)) continue;
     const key = String(l?.phase || '').trim();
     if (!key) continue;
-    phaseCost.set(key, round2((phaseCost.get(key) || 0) + (Number(l?.totalCost) || 0)));
+    // `totalCost` on a material or labour line; `amount` on a soft cost.
+    // Reading only the first would silently count a phased skip as zero and
+    // make the phase subtotal disagree with the line printed under it.
+    const value = Number(l?.totalCost ?? (l as any)?.amount) || 0;
+    phaseCost.set(key, round2((phaseCost.get(key) || 0) + value));
   }
 
   const phaseText = new Map<string, string>();

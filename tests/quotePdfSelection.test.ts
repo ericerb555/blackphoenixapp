@@ -410,3 +410,81 @@ test('the line keeps its figures internally, because the amounts are summed from
   assert.equal(labour.unit_price, 55);
   assert.equal(labour.quantity * labour.unit_price, 1320);
 });
+
+/* ── soft costs that belong to a process ─────────────────────────────────── */
+
+/**
+ * Trash removal, and the reason this needed changing at all.
+ *
+ * `additionalCosts` was read by NOTHING customer-facing — not this
+ * selection, not the PDF, not the portal payload. So the $125 disposal
+ * minimum that goes on every quote was charged on all of them and shown on
+ * none: present in the total, absent from every line. That is the one
+ * combination a customer can fairly object to, and it is why the fix is to
+ * draw it rather than to hide it better.
+ *
+ * Only PHASED soft costs are drawn. An unphased one is not under any
+ * process, which is the honest answer for an overhead, and it stays exactly
+ * as invisible as it was.
+ */
+const withSoftCosts = {
+  materials: [{ name: 'Tile', quantity: 10, unitCost: 4, totalCost: 40, phase: 'First fix' }],
+  labor: [],
+  processSteps: [{ title: 'First fix' }, { title: 'Trash removal and disposal' }],
+  additionalCosts: [
+    { id: 'a1', name: 'Trash removal and disposal', amount: 125, phase: 'Trash removal and disposal' },
+    { id: 'a2', name: 'Site insurance', amount: 90 },
+  ],
+};
+
+test('a phased soft cost is drawn under its process', () => {
+  const sel = selectQuoteLines(withSoftCosts, true);
+  const line = sel.lines.find((l) => l.phase === 'Trash removal and disposal');
+
+  assert.ok(line, 'the disposal line should be selected');
+  assert.match(line!.description, /Trash removal/);
+  // A skip is a charge, not a rate times an amount.
+  assert.equal(line!.quantity, 0);
+  assert.equal(line!.unit_price, 0);
+});
+
+test('an unphased soft cost stays out, as it always was', () => {
+  const sel = selectQuoteLines(withSoftCosts, true);
+  assert.ok(!sel.lines.some((l) => /Site insurance/.test(l.description)));
+});
+
+/**
+ * The phase subtotal has to agree with the lines printed under it, and it
+ * feeds the payment schedule — a phase counted as zero gets a zero draw.
+ */
+test('the phase cost counts the soft cost, by its `amount`', () => {
+  const sel = selectQuoteLines(withSoftCosts, false);
+  assert.equal(sel.phaseCost.get('Trash removal and disposal'), 125);
+  assert.equal(sel.phaseCost.get('First fix'), 40);
+});
+
+test('an unphased soft cost is in no phase total', () => {
+  const sel = selectQuoteLines(withSoftCosts, false);
+  const counted = [...sel.phaseCost.values()].reduce((t, v) => t + v, 0);
+  assert.equal(counted, 165, '40 + 125, with the 90 left out');
+});
+
+test('an excluded soft cost is not charged and not drawn', () => {
+  const sel = selectQuoteLines({
+    ...withSoftCosts,
+    additionalCosts: [{ name: 'Skip', amount: 125, phase: 'Trash removal and disposal', included: false }],
+  }, true);
+  assert.ok(!sel.lines.some((l) => /Skip/.test(l.description)));
+  assert.equal(sel.phaseCost.get('Trash removal and disposal') ?? 0, 0);
+});
+
+test('a soft cost hidden from the customer is withheld from them and kept on our copy', () => {
+  const quote = {
+    ...withSoftCosts,
+    additionalCosts: [{ name: 'Skip', amount: 125, phase: 'Trash removal and disposal', visible: false }],
+  };
+  assert.ok(!selectQuoteLines(quote, true).lines.some((l) => /Skip/.test(l.description)));
+  assert.ok(selectQuoteLines(quote, false).lines.some((l) => /Skip/.test(l.description)));
+  // Hidden removes the detail and keeps the money — the phase total stands.
+  assert.equal(selectQuoteLines(quote, true).phaseCost.get('Trash removal and disposal'), 125);
+});

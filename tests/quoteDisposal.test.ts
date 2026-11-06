@@ -179,3 +179,111 @@ test('exactly the minimum is left alone', () => {
   assert.equal(out.added, false);
   assert.equal(out.raised, false);
 });
+
+/* ── trash removal is its own process ────────────────────────────────────── */
+
+/**
+ * Eric: "trash removal should be its own process for every job."
+ *
+ * It was a soft cost with no phase. Three things followed from that, none of
+ * them visible on the quote: it never appeared in the by-process breakdown
+ * (which groups materials and labour and nothing else), it could never carry
+ * a draw (the schedule builds milestones from phases), and nobody could mark
+ * it done (completion is per phase).
+ *
+ * THE INVARIANT WORTH PROTECTING is that none of this moves money. The line
+ * stays in `additionalCosts`; only the heading it is drawn under changes.
+ */
+import { DISPOSAL_PHASE, disposalStep, ensureDisposalPhase } from '../supabase/functions/server/quoteDisposal.ts';
+
+let seq = 0;
+const ids = () => `id-${++seq}`;
+
+test('a quote with no disposal phase gets one, last', () => {
+  const steps = [{ title: 'Set-up' }, { title: 'First fix' }];
+  const out = ensureDisposalPhase(steps, ids);
+
+  assert.equal(out.added, true);
+  assert.equal(out.phase, DISPOSAL_PHASE);
+  assert.equal(out.steps.length, 3);
+  assert.equal(out.steps[2].title, DISPOSAL_PHASE);
+  // Last, because you cannot sweep up before the work that makes the mess.
+  assert.equal(out.steps[2].stepNumber, 3);
+});
+
+/**
+ * The model names this a dozen ways. Appending ours next to its "Debris
+ * removal" would split one job's rubbish across two headings that mean the
+ * same thing — and the line can only be tagged to one of them.
+ */
+test('a phase the model already wrote is adopted, not duplicated', () => {
+  for (const title of ['Debris removal', 'Site clearance and haul-away', 'Dumpster & disposal']) {
+    const out = ensureDisposalPhase([{ title: 'Set-up' }, { title }], ids);
+    assert.equal(out.added, false, title);
+    assert.equal(out.phase, title, title);
+    assert.equal(out.steps.length, 2, title);
+  }
+});
+
+test('an empty or junk step list still ends up with the phase', () => {
+  assert.equal(ensureDisposalPhase([], ids).steps.length, 1);
+  assert.equal(ensureDisposalPhase(null as any, ids).steps.length, 1);
+});
+
+test('the step is shaped like every other process step', () => {
+  const step: any = disposalStep(ids, 4);
+  for (const key of ['id', 'stepNumber', 'title', 'description', 'estimatedDuration', 'trade']) {
+    assert.ok(key in step, `missing ${key}`);
+  }
+  assert.equal(step.stepNumber, 4);
+  assert.ok(step.description.length > 20, 'the customer is owed a sentence about it');
+});
+
+/* ── the line is tagged to it ────────────────────────────────────────────── */
+
+test('the added disposal line carries the phase', () => {
+  const out = ensureDisposal({ additionalCosts: [], materials: [], labor: [] }, ids);
+  const line: any = out.additionalCosts[0];
+  assert.equal(line.phase, DISPOSAL_PHASE);
+  assert.equal(out.added, true);
+});
+
+test('the line is tagged to the phase that EXISTS, not the one we would make', () => {
+  const found = ensureDisposalPhase([{ title: 'Debris removal' }], ids);
+  const out = ensureDisposal({ additionalCosts: [], materials: [], labor: [] }, ids, found.phase);
+  assert.equal((out.additionalCosts[0] as any).phase, 'Debris removal');
+});
+
+test('a raised existing line is adopted into the process', () => {
+  const out = ensureDisposal(
+    { additionalCosts: [{ name: 'Skip hire', amount: 80 }], materials: [], labor: [] },
+    ids,
+  );
+  const line: any = out.additionalCosts[0];
+  assert.equal(out.raised, true);
+  assert.equal(line.amount, DISPOSAL_MINIMUM);
+  assert.equal(line.phase, DISPOSAL_PHASE);
+});
+
+test('a phase the estimator already chose for the line is left alone', () => {
+  const out = ensureDisposal(
+    { additionalCosts: [{ name: 'Skip hire', amount: 80, phase: 'Demolition' }], materials: [], labor: [] },
+    ids,
+  );
+  assert.equal((out.additionalCosts[0] as any).phase, 'Demolition');
+});
+
+/**
+ * The invariant. Making it a process must not change what anybody is
+ * charged — the line never leaves `additionalCosts`, so every subtotal, the
+ * markup, the tax and the total are untouched.
+ */
+test('making it a process does not move a penny', () => {
+  const before = { additionalCosts: [{ name: 'Skip hire', amount: 300 }], materials: [], labor: [] };
+  const out = ensureDisposal(before, ids);
+  const sum = (rows: any[]) => rows.reduce((t, r) => t + Number(r.amount || 0), 0);
+
+  assert.equal(out.added, false);
+  assert.equal(out.raised, false, 'already over the floor');
+  assert.equal(sum(out.additionalCosts), sum(before.additionalCosts));
+});

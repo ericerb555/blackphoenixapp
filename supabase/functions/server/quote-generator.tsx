@@ -20,7 +20,7 @@ import { cors } from 'npm:hono@4/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
 import { reconcilePhases } from './quotePhasePlan.ts';
-import { ensureDisposal } from './quoteDisposal.ts';
+import { ensureDisposal, ensureDisposalPhase } from './quoteDisposal.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
@@ -260,7 +260,7 @@ function assembleEstimate(
    */
   const { lines: labor, adjusted: measuredLines } = applyMeasuredHours(rawLabor, factors);
 
-  const processSteps = (Array.isArray(raw?.processSteps) ? raw.processSteps : []).map((s: any, i: number) => ({
+  let processSteps = (Array.isArray(raw?.processSteps) ? raw.processSteps : []).map((s: any, i: number) => ({
     id: rid(),
     stepNumber: i + 1,
     title: s.step || s.title || `Phase ${i + 1}`,
@@ -325,9 +325,32 @@ function assembleEstimate(
    * smallest job there is. A quote already charging more for disposal is
    * left alone; one charging less is topped up to it.
    */
+  /**
+   * Taking the rubbish away is a stage of the job, so it is a phase.
+   *
+   * Eric: "trash removal should be its own process for every job."
+   *
+   * It was a soft cost with no phase, which meant it was invisible to the
+   * by-process breakdown, could not carry a draw, and could not be marked
+   * done — all three because every one of those works off phases, and a
+   * soft cost had none.
+   *
+   * The phase is appended unless the model already wrote one meaning the
+   * same thing, and the line is tagged to whichever of those exists, so a
+   * quote never ends up with the money split across two headings that mean
+   * "the skip".
+   *
+   * THE MONEY DOES NOT MOVE. The line stays in `additionalCosts`, so both
+   * subtotals, the markup, the tax and `totalCost` are identical to what
+   * they were. Only the heading it is drawn under changes.
+   */
+  const disposalPhase = ensureDisposalPhase(processSteps, rid);
+  processSteps = disposalPhase.steps;
+
   const disposal = ensureDisposal(
     { additionalCosts, materials: phasedMaterials, labor: phasedLabor },
     rid,
+    disposalPhase.phase,
   );
   const softCosts = disposal.additionalCosts;
   if (disposal.added || disposal.raised) {
