@@ -20,6 +20,7 @@ import { cors } from 'npm:hono@4/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
 import { reconcilePhases } from './quotePhasePlan.ts';
+import { ensureDisposal } from './quoteDisposal.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
@@ -74,7 +75,8 @@ Follow this methodology every time:
 1. QUANTITY TAKEOFF — Derive realistic quantities from the scope. If dimensions aren't given, infer them from the project type and estimated value, and state that assumption. Never invent absurd quantities.
 2. WASTE FACTORS — Apply industry-standard waste to each material by type: dimensional lumber ~10%, sheet goods/drywall ~10%, tile ~12%, flooring ~8%, paint ~5%, wire/cable ~5%, concrete ~5%, roofing ~10%, trim ~12%. Express as a decimal (0.10 = 10%).
 3. LABOR — Break work into trades (e.g., demolition, framing, electrical, plumbing, HVAC, drywall, tile, paint, cleanup). For each, reason about crew size and productivity to arrive at hours. Use 2026 prevailing wage rates for the given LOCATION (higher in CA/NY/major metros, lower in rural/southern markets). Include a licensed-trade premium where required (electrician, plumber, HVAC).
-4. SOFT COSTS — Always consider and include when applicable: building permits & inspection fees, debris disposal / dumpster rental, equipment/tool rental, mobilization & site protection, and testing/commissioning.
+4. SOFT COSTS — Always consider and include when applicable: building permits & inspection fees, equipment/tool rental, mobilization & site protection, and testing/commissioning.
+4b. TRASH REMOVAL IS NOT OPTIONAL — every job on earth produces waste, and EVERY estimate you return must price getting rid of it. Include skip or dumpster hire sized to the job, tip/landfill fees, and the labour hours to load and haul. This applies to the smallest job as much as the largest: offcuts, packaging, old units, broken tile and strip-out all have to go somewhere and somebody is paid to move them. Never omit it on the grounds that the job is small or clean. Tag the disposal to the phase that generates the waste — usually demolition or prep — and the final clearance to the clean-up phase.
 5. MARKUPS — Provide overhead, profit, and contingency as percentages appropriate to the project's risk and size (typical: overhead 10%, profit 10%, contingency 5%; raise contingency for demolition-heavy or unknown-condition work).
 6. TAX — Provide the local combined SALES TAX rate for the LOCATION as a decimal. It will be applied to MATERIALS only.
 7. THE WORK ITSELF — Describe how the job will actually be done, start to finish, as a sequence of phases. This is read by the customer and it is the part they judge you on: it is the difference between a price and a plan. For each phase say what physically happens on site, what gets removed, built or installed, what the customer will see and live with that week, and what has to be finished before the next phase can start. Name the trade doing it and how long it takes. Call out the disruptive realities honestly — water off, power down, dust, noise, a bathroom out of use, somewhere to park a skip. A customer who knows what Tuesday looks like does not ring up on Tuesday.
@@ -309,7 +311,30 @@ function assembleEstimate(
 
   const materialsSubtotal = round2(phasedMaterials.reduce((s: number, m: any) => s + m.totalCost, 0));
   const laborSubtotal = round2(phasedLabor.reduce((s: number, l: any) => s + l.totalCost, 0));
-  const additionalCostsSubtotal = round2(additionalCosts.reduce((s: number, a: any) => s + a.amount, 0));
+  /**
+   * Disposal, guaranteed.
+   *
+   * The prompt now demands it on every estimate. This is the check behind
+   * the demand, for the runs where the model does not comply — the same
+   * ask-then-verify shape as the phase reconciliation above, and for the
+   * same reason: a prompt is a request, and a fault that only shows up on
+   * some runs cannot be fixed by asking more firmly.
+   *
+   * It will not invent a price. An omitted skip becomes a zero-priced line
+   * that says it needs pricing, because a fabricated figure is worse than a
+   * blank one: blank is visible and gets filled in, invented is invisible
+   * and gets sent.
+   */
+  const disposal = ensureDisposal(
+    { additionalCosts, materials: phasedMaterials, labor: phasedLabor },
+    rid,
+  );
+  const softCosts = disposal.additionalCosts;
+  if (disposal.added) {
+    console.log('[quote-generator] disposal was missing; added an unpriced placeholder');
+  }
+
+  const additionalCostsSubtotal = round2(softCosts.reduce((s: number, a: any) => s + a.amount, 0));
 
   /**
    * Credits — material the customer supplied themselves.
@@ -384,7 +409,8 @@ function assembleEstimate(
     materials: phasedMaterials,
     labor: phasedLabor,
     processSteps,
-    additionalCosts,
+    // With disposal guaranteed — see the note above the check.
+    additionalCosts: softCosts,
     credits,
     creditsSubtotal,
     materialsSubtotal,
