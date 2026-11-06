@@ -16,6 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isDisposalLine, findDisposal, ensureDisposal, disposalPlaceholder,
+  disposalValueOf, DISPOSAL_MINIMUM,
 } from '../supabase/functions/server/quoteDisposal.ts';
 
 let n = 0;
@@ -78,12 +79,13 @@ test('an estimate with none says so', () => {
 
 /* ── what it does about it ───────────────────────────────────────────────── */
 
-test('a missing disposal line is added', () => {
+test('a missing disposal line is added at the minimum', () => {
   const out = ensureDisposal({ additionalCosts: [{ name: 'Permit', amount: 150 }] }, rid);
   assert.equal(out.added, true);
   assert.equal(out.additionalCosts.length, 2);
   const added: any = out.additionalCosts[1];
   assert.match(added.name, /trash removal/i);
+  assert.equal(added.amount, DISPOSAL_MINIMUM);
 });
 
 /**
@@ -98,13 +100,15 @@ test('disposal already present is never duplicated, under any of its names', () 
   ]) {
     const out = ensureDisposal({ additionalCosts: [row] }, rid);
     assert.equal(out.added, false, `${row.name} should have been recognised`);
+    assert.equal(out.raised, false, 'already over the floor');
     assert.equal(out.additionalCosts.length, 1);
+    assert.equal((out.additionalCosts[0] as any).amount, 400, 'and left at its own price');
   }
 });
 
 test('disposal priced as a material does not get a second soft cost', () => {
   const out = ensureDisposal(
-    { additionalCosts: [{ name: 'Permit' }], materials: [{ name: 'Dumpster rental' }] },
+    { additionalCosts: [{ name: 'Permit', amount: 150 }], materials: [{ name: 'Dumpster rental', totalCost: 400 }] },
     rid,
   );
   assert.equal(out.added, false);
@@ -112,27 +116,66 @@ test('disposal priced as a material does not get a second soft cost', () => {
   assert.equal(out.additionalCosts.length, 1);
 });
 
-/**
- * It must never invent what a skip costs. A fabricated figure is worse than
- * a blank one: blank is visible and gets filled in; invented is invisible
- * and gets sent to a customer.
- */
-test('the placeholder carries no price, and says it needs one', () => {
+/* ── the $125 floor ──────────────────────────────────────────────────────── */
+
+test('the placeholder carries the minimum, and says that is what it is', () => {
   const line = disposalPlaceholder(rid);
-  assert.equal(line.amount, 0);
-  assert.equal(line.needsPricing, true);
-  assert.match(line.description, /set the amount before sending/i);
+  assert.equal(line.amount, DISPOSAL_MINIMUM);
+  assert.equal(line.atMinimum, true);
+  assert.match(line.description, /minimum/i);
 });
 
-test('adding the placeholder does not change the total on its own', () => {
-  const before = [{ name: 'Permit', amount: 150 }];
-  const out = ensureDisposal({ additionalCosts: before }, rid);
-  const total = out.additionalCosts.reduce((t: number, a: any) => t + (Number(a.amount) || 0), 0);
-  assert.equal(total, 150);
-});
-
-test('an estimate with no soft costs at all still gets disposal', () => {
+test('an estimate with no soft costs at all still gets disposal at the floor', () => {
   const out = ensureDisposal({}, rid);
   assert.equal(out.added, true);
   assert.equal(out.additionalCosts.length, 1);
+  assert.equal((out.additionalCosts[0] as any).amount, DISPOSAL_MINIMUM);
+});
+
+/**
+ * The subtle case. Disposal IS priced, so nothing is missing — but it is
+ * priced under the company minimum, which is the situation the floor exists
+ * for and the one a presence-only check would sail straight past.
+ */
+test('disposal priced under the floor is raised to it, not duplicated', () => {
+  const out = ensureDisposal({ additionalCosts: [{ name: 'Skip hire', amount: 60 }] }, rid);
+  assert.equal(out.added, false, 'no second line');
+  assert.equal(out.raised, true);
+  assert.equal(out.additionalCosts.length, 1);
+  assert.equal((out.additionalCosts[0] as any).amount, DISPOSAL_MINIMUM);
+});
+
+test('a shortfall is topped up when there is no soft cost to raise', () => {
+  // Only the hauling labour is priced, at $80. The floor wants $125.
+  const out = ensureDisposal({ labor: [{ role: 'Labourer', description: 'haul away', totalCost: 80 }] }, rid);
+  assert.equal(out.added, true);
+  assert.equal((out.additionalCosts[0] as any).amount, 45, 'the shortfall, not another full minimum');
+});
+
+test('disposal spread across buckets is counted together', () => {
+  const estimate = {
+    additionalCosts: [{ name: 'Tip fees', amount: 40 }],
+    materials: [{ name: 'Skip hire', totalCost: 50 }],
+    labor: [{ role: 'Labourer', description: 'load the skip', totalCost: 45 }],
+  };
+  assert.equal(disposalValueOf(estimate), 135);
+  const out = ensureDisposal(estimate, rid);
+  assert.equal(out.added, false, '135 is over the floor');
+  assert.equal(out.raised, false);
+});
+
+test('a material priced by quantity counts at quantity times unit cost', () => {
+  assert.equal(disposalValueOf({ materials: [{ name: 'Skip hire', quantity: 2, unitCost: 300 }] }), 600);
+});
+
+test('non-disposal lines are not counted towards the floor', () => {
+  const out = ensureDisposal({ additionalCosts: [{ name: 'Building permit', amount: 500 }] }, rid);
+  assert.equal(out.added, true, 'a permit is not trash removal');
+  assert.equal((out.additionalCosts[1] as any).amount, DISPOSAL_MINIMUM);
+});
+
+test('exactly the minimum is left alone', () => {
+  const out = ensureDisposal({ additionalCosts: [{ name: 'Skip hire', amount: DISPOSAL_MINIMUM }] }, rid);
+  assert.equal(out.added, false);
+  assert.equal(out.raised, false);
 });
