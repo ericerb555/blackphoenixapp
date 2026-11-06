@@ -1815,7 +1815,41 @@ export function QuoteToContractEditor({
    * surfaced verbatim — that check has to live where it cannot be skipped, and
    * repeating it here would be a second rule to keep in step with the first.
    */
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /**
+   * Deleting a quote takes two confirmations, then a third if it is one of
+   * the dangerous ones.
+   *
+   * Eric: "i should be able to delete any quote with a fail safe of two
+   * confirmations."
+   *
+   *   0  Delete
+   *   1  Delete — are you sure?
+   *   2  Permanently delete
+   *   3  only reached when the server says this quote is signed or has a
+   *      contract; the label then names which, and the next click sends the
+   *      acknowledgement for it
+   *
+   * A step counter rather than a pile of booleans, so there is exactly one
+   * place that says how far through somebody is and no way to be half-armed.
+   */
+  const [deleteStep, setDeleteStep] = useState(0);
+  /** What the server told us must be accepted by name. */
+  const [deleteBlockers, setDeleteBlockers] = useState<Array<{ reason: string; detail: string }>>([]);
+
+  /**
+   * An armed delete lapses rather than cancelling on blur.
+   *
+   * The rebuild button had exactly this bug: disarming in `onBlur` meant
+   * anything that took focus between clicks silently reset it, so the next
+   * click re-armed instead of confirming and you could go round forever.
+   * Twelve seconds here rather than six — there are more steps to get
+   * through, and nothing is destroyed by the timer running out.
+   */
+  useEffect(() => {
+    if (deleteStep === 0) return;
+    const timer = setTimeout(() => { setDeleteStep(0); setDeleteBlockers([]); }, 12000);
+    return () => clearTimeout(timer);
+  }, [deleteStep]);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
 
   /**
@@ -1835,19 +1869,44 @@ export function QuoteToContractEditor({
   const handleDeleteQuote = async () => {
     const quoteId = workRequest.quote?.id;
     if (!quoteId) { toast.error('This work request has no saved quote to delete.'); return; }
-    if (!confirmingDelete) { setConfirmingDelete(true); return; }
+
+    // Two confirmations before anything is sent at all.
+    if (deleteStep < 2) { setDeleteStep(deleteStep + 1); return; }
 
     setDeleting(true);
     try {
       const response = await fetch(
         `${API_BASE_URL}/make-server-3eae23a6/quotes/${quoteId}`,
-        { method: 'DELETE', headers: await quoteAuthHeaders() },
+        {
+          method: 'DELETE',
+          headers: { ...(await quoteAuthHeaders(true)) },
+          /*
+           * Only ever the reasons the SERVER named, echoed back. Sending a
+           * blanket "yes to everything" would make the acknowledgement
+           * meaningless — the point is that deleting a signed quote
+           * requires the word "signed" to have been shown to somebody and
+           * sent back deliberately.
+           */
+          body: JSON.stringify({ acknowledge: deleteBlockers.map((b) => b.reason) }),
+        },
       );
       const data = await response.json().catch(() => ({}));
+      /*
+       * Not a failure — the server is telling us this quote is one of the
+       * dangerous ones and naming what has to be accepted. Arm the extra
+       * step with its words on the button; the next click sends them back.
+       */
+      if (response.status === 409 && data?.code === 'QUOTE_DELETE_NEEDS_ACKNOWLEDGEMENT') {
+        setDeleteBlockers(Array.isArray(data.details) ? data.details : []);
+        setDeleteStep(3);
+        toast.warning(data?.error || 'This quote needs one more confirmation.');
+        return;
+      }
+
       if (!response.ok || data?.success === false) {
-        // 409 carries a real explanation — signed, or already a contract.
         toast.error(data?.error || `Could not delete the quote (HTTP ${response.status}).`);
-        setConfirmingDelete(false);
+        setDeleteStep(0);
+        setDeleteBlockers([]);
         return;
       }
       toast.success('Quote deleted.', {
@@ -1858,7 +1917,8 @@ export function QuoteToContractEditor({
       onClose();
     } catch (error: any) {
       toast.error(`Could not delete the quote: ${error?.message || error}`);
-      setConfirmingDelete(false);
+      setDeleteStep(0);
+      setDeleteBlockers([]);
     } finally {
       setDeleting(false);
     }
@@ -3330,17 +3390,33 @@ export function QuoteToContractEditor({
             {workRequest.quote?.id && (
               <button
                 onClick={handleDeleteQuote}
-                onBlur={() => setConfirmingDelete(false)}
                 disabled={deleting}
-                title={confirmingDelete ? 'Click again to permanently delete this quote' : 'Delete this quote'}
+                title={
+                  deleteStep === 0 ? 'Delete this quote'
+                    : deleteStep === 3
+                      ? deleteBlockers.map((b) => b.detail).join(' ')
+                      : 'Click again to continue — nothing is deleted until the last step'
+                }
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-50 ${
-                  confirmingDelete
-                    ? 'bg-red-600 text-white hover:bg-red-500'
-                    : 'bg-red-600/10 border border-red-500/40 text-red-300 hover:bg-red-600/20'
+                  deleteStep === 0
+                    ? 'bg-red-600/10 border border-red-500/40 text-red-300 hover:bg-red-600/20'
+                    : deleteStep === 1
+                      ? 'bg-red-600/30 border border-red-500/60 text-red-200 hover:bg-red-600/40'
+                      : 'bg-red-600 text-white hover:bg-red-500'
                 }`}
               >
                 <Trash2 className="w-4 h-4" />
-                {deleting ? 'Deleting…' : confirmingDelete ? 'Delete — are you sure?' : 'Delete'}
+                {deleting ? 'Deleting…'
+                  : deleteStep === 0 ? 'Delete'
+                  : deleteStep === 1 ? 'Delete — are you sure?'
+                  : deleteStep === 2 ? 'Permanently delete'
+                  /*
+                    The last step NAMES what it is overriding. "Are you sure?"
+                    a third time teaches people to click through it; "Delete a
+                    SIGNED quote" is the only wording that can actually stop
+                    the hand that should stop.
+                  */
+                  : `Delete a ${deleteBlockers.map((b) => b.reason === 'signed' ? 'SIGNED' : 'CONTRACTED').join(' + ')} quote`}
               </button>
             )}
             <button

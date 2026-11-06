@@ -360,6 +360,9 @@ import {
   readReport, plausible, mergeViolation, mergeStore, emptyStore, summarise,
   BODY_MAX, type CspStore,
 } from "./cspReports.ts";
+import {
+  deletionBlockers, acknowledgementsFrom, unacknowledged, deletionTombstone,
+} from "./quoteDeletion.ts";
 import stripeConnectRouter from "./stripe-connect.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
@@ -20920,21 +20923,35 @@ app.put('/make-server-3eae23a6/quotes/:id', async (c) => {
  * to make it stop mattering was to leave it as a draft forever. Eric asked for
  * this plainly: "i dont have the ability to delete a quote".
  *
- * WHAT CANNOT BE DELETED, AND WHY IT IS A REFUSAL RATHER THAN A WARNING
+ * WHAT IS DANGEROUS TO DELETE, AND WHY IT IS NOW A NAMED ACT
  *
- * A quote a customer has signed is not a draft, it is evidence. It records
- * what somebody agreed to, when, and under what figures, and it is the
- * document a dispute is settled from. Losing one to a stray click is a
- * liability, and no confirmation dialog is worth as much as not having the
- * route accept it.
+ * Two cases used to be flat refusals. A quote a customer has signed is not a
+ * draft, it is evidence: it records what somebody agreed to, when, and under
+ * what figures, and it is the document a dispute is settled from. A quote
+ * already turned into a contract is worse still — the contract carries
+ * `quoteId` and reads back through it, so deleting the quote leaves that
+ * contract pointing at nothing.
  *
- * Same for a quote already turned into a contract: the contract carries
- * `quoteId` and reads back through it, so deleting the quote leaves a contract
- * pointing at nothing.
+ * All of that is still true. What changed is who gets to decide. Refusing
+ * outright meant a quote raised against the wrong customer, or signed by the
+ * wrong person, could only be removed from a database console — so the
+ * practical answer to a real mistake was "ask a developer", which is not an
+ * answer.
  *
- * Both answer 409 with the reason, so the editor can say which it is rather
- * than reporting a generic failure. A signed quote that genuinely must go is a
- * deliberate act for somebody with database access, not a button.
+ * Eric: "i should be able to delete any quote with a fail safe of two
+ * confirmations."
+ *
+ * So the refusal became an ACKNOWLEDGEMENT, in the same shape
+ * `send-to-customer` already uses for an unpriced quote: a distinct code, a
+ * 409, and the caller resends naming exactly what it accepts. That puts the
+ * failsafe in the protocol rather than only in a dialog — two clicks in a
+ * browser cannot satisfy it by accident, and nothing deletes a signed quote
+ * without sending the word "signed".
+ *
+ * A tombstone is written either way. Deleting means deleting, so it is not a
+ * copy of the document: it is the fact of the deletion, who did it, what the
+ * quote was worth and what they accepted. "Who deleted the signed quote?" is
+ * a question with a bad answer if nothing wrote it down.
  *
  * WHAT IS CLEANED UP
  *
@@ -20955,22 +20972,41 @@ app.delete('/make-server-3eae23a6/quotes/:id', async (c) => {
     const quote = await kv.get(`quote:${id}`) as any;
     if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
 
-    const decision = String(quote?.signature?.decision || '').toLowerCase();
-    if (quote?.signature?.signedAt || decision === 'approved' || decision === 'declined') {
-      return c.json({
-        success: false,
-        error: 'This quote has been signed by the customer and is a record of what they agreed to. It cannot be deleted.',
-        reason: 'signed',
-      }, 409);
-    }
-
+    /**
+     * ANY quote can be deleted, and the dangerous ones have to be named.
+     *
+     * Eric: "i should be able to delete any quote with a fail safe of two
+     * confirmations."
+     *
+     * These two cases used to be flat refusals, and the reasoning stands:
+     * a signed quote is the document a dispute is settled from, and a
+     * contract carries `quoteId` and reads back through it, so deleting
+     * the quote leaves the contract pointing at nothing. What changed is
+     * who decides. Refusing outright meant the only way to remove a quote
+     * raised in error against the wrong customer was a database console.
+     *
+     * So the block becomes an ACKNOWLEDGEMENT, the same shape
+     * `send-to-customer` already uses for an unpriced quote: a distinct
+     * code and a 409, and the caller resends naming what it accepts. The
+     * failsafe is therefore in the PROTOCOL and not only in the dialog —
+     * a second click in the browser cannot satisfy it by accident, and
+     * nothing can delete a signed quote without saying the word "signed".
+     */
     const contracts = (await kv.getByPrefix('contract:').catch(() => [])) as any[];
-    const linked = (contracts || []).find((row: any) => String(row?.quoteId || '') === id);
-    if (linked) {
+    const blockers = deletionBlockers(quote, id, contracts);
+
+    // Read from the body, falling back to the query string — see the module.
+    const askBody = await c.req.json().catch(() => ({} as any));
+    const acknowledged = acknowledgementsFrom(askBody, c.req.query('acknowledge'));
+
+    const outstanding = unacknowledged(blockers, acknowledged);
+    if (outstanding.length) {
       return c.json({
         success: false,
-        error: `This quote was turned into contract ${linked.title || linked.id}. Delete the contract first if it is genuinely unwanted.`,
-        reason: 'has_contract',
+        code: 'QUOTE_DELETE_NEEDS_ACKNOWLEDGEMENT',
+        error: outstanding.map((b) => b.detail).join(' '),
+        blockers: outstanding.map((b) => b.reason),
+        details: outstanding,
       }, 409);
     }
 
@@ -21002,6 +21038,24 @@ app.delete('/make-server-3eae23a6/quotes/:id', async (c) => {
       // worth refusing the delete over.
       console.log(`[quotes] token cleanup failed for ${id}: ${String(err)}`);
     }
+
+    /**
+     * A tombstone, because "it was deleted" has to be answerable.
+     *
+     * Not the quote — deleting means deleting. This is the fact OF the
+     * deletion: which quote, whose it was, what it was worth, whether it
+     * had been signed, who removed it and what they accepted when they
+     * did. A line in a log, not a copy of the document.
+     *
+     * It matters most in exactly the case this change unlocks. "Who
+     * deleted the signed quote, and when?" is a question with a bad answer
+     * if nothing wrote it down.
+     */
+    await kv.set(`quote_deleted:${id}`, deletionTombstone(quote, id, {
+      deletedBy: user.email,
+      acknowledged: [...acknowledged],
+      blockers,
+    })).catch((err: any) => console.log(`[quotes] tombstone failed for ${id}: ${String(err)}`));
 
     await kv.del(`quote:${id}`);
     await kv.del(`quote_bid_requests:${id}`).catch(() => {});
