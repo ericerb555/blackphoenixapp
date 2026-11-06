@@ -31,6 +31,13 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isStaffRequest } from "./requireStaff.ts";
 import { demandGaps } from "./exchangeLedger.ts";
+import { safeFetch } from "./outboundGuard.ts";
+import {
+  municipalityQuery,
+  candidatesFrom,
+  describeCandidates,
+  type TownCandidate,
+} from "./exchangeTownDiscovery.ts";
 
 export const exchangeTerritoryRoutes = new Hono();
 
@@ -338,4 +345,208 @@ exchangeTerritoryRoutes.post("/exchange/admin/territories/:slug/status", async (
   } catch (error) {
     return c.json({ success: false, error: String((error as Error).message) }, 500);
   }
+});
+
+
+/* ── growing the map ────────────────────────────────────────────────────── */
+
+/**
+ * Phoenix Exchange — finding towns to add, and adding the ones chosen.
+ *
+ * Eric: "i want it to grow over time so the app can cover larger areas and i
+ * sell more territories."
+ *
+ * Coverage had been flat at five towns because nothing in the system had
+ * ever created a territory — the seed listed three, two more were typed in,
+ * and the weekly clock faithfully refreshed those five forever. These two
+ * routes are the missing half: one asks OpenStreetMap what municipalities
+ * exist, the other adds the ones somebody picked.
+ *
+ * THE SPLIT IS THE POINT. Discovery writes nothing. A territory is inventory
+ * Eric sells as exclusive, so which towns exist stays a decision a person
+ * makes; what is removed is the typing, not the judgement.
+ */
+
+const OVERPASS = "https://overpass-api.de/api/interpreter";
+// Overpass rates and blocks by client. Same identity as the ingest, so the
+// two halves of this feature are one caller rather than two.
+const OVERPASS_AGENT = "PhoenixExchange/1.0 (local business directory; contact blackphoenixbuilds@proton.me)";
+
+/**
+ * Ask Overpass for the municipalities of a state, or one county of it.
+ *
+ * ONE CALL. The query asks for tags and a centre, never geometry — the
+ * polygons of 234 municipalities are megabytes this never reads, and asking
+ * a free shared endpoint for them is how this project got blocked once
+ * already.
+ *
+ * Staff only, and it writes nothing, so it is safe to press twice.
+ */
+exchangeTerritoryRoutes.post("/exchange/admin/territories/discover", async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required." }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const state = String(body?.state ?? "NH").trim().toUpperCase();
+  const county = String(body?.county ?? "").trim();
+  if (!/^[A-Z]{2}$/.test(state)) {
+    return c.json({ success: false, error: "Which state? Two letters, e.g. NH." }, 400);
+  }
+
+  let elements: unknown[] = [];
+  try {
+    /*
+     * The same call shape `exchangeIngestRun` uses, down to the User-Agent.
+     * Overpass rates and blocks by client, and two different shapes from one
+     * project is two things to be blocked for — this is the one already
+     * proven against the endpoint.
+     */
+    const result = await safeFetch(OVERPASS, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": OVERPASS_AGENT,
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ data: municipalityQuery(state, county) }).toString(),
+    });
+    if (!result.ok || !result.body) {
+      /*
+       * Say what Overpass actually said. "Could not reach it" sends somebody
+       * looking at their own network for a 504 from a free service that is
+       * entitled to refuse us.
+       */
+      return c.json({
+        success: false,
+        error: result.error || "Overpass did not answer. It is a free shared service and refuses "
+          + "under load — this is worth trying again in a few minutes.",
+      }, 502);
+    }
+    const payload = JSON.parse(result.body) as any;
+    elements = Array.isArray(payload?.elements) ? payload.elements : [];
+  } catch (err: any) {
+    return c.json({ success: false, error: String(err?.message || err) }, 502);
+  }
+
+  // Flagged as existing rather than filtered out, so a second look at a
+  // county shows what is already covered instead of a shorter list with no
+  // explanation of what happened to the rest.
+  const sb = service();
+  const have = must(
+    await sb.from("exchange_territory").select("slug"),
+    "reading the towns already here",
+  ) as Array<{ slug: string }> | null;
+
+  const found = candidatesFrom(
+    elements as any[],
+    state,
+    (have || []).map((r) => r.slug),
+  );
+
+  return c.json({
+    success: true,
+    state,
+    county: county || null,
+    summary: describeCandidates(found),
+    towns: found,
+  });
+});
+
+/**
+ * Add the towns somebody chose, as hidden territories.
+ *
+ * HIDDEN, ALWAYS — the same rule the single-town route states: "A town is
+ * ingested long before it is worth visiting, and whether it is ready is a
+ * judgement rather than a threshold." Adding thirty at once does not make
+ * that judgement thirty times faster.
+ *
+ * Every town is validated again HERE rather than trusted from the discovery
+ * response. The client could send anything, and a territory with a bad
+ * centre or no postcode quietly collects a neighbour's businesses — which is
+ * worse than one that was never added, because it looks right.
+ *
+ * Partial success is reported, not rolled back. Twenty-eight towns added and
+ * two refused is a better outcome than nothing added because two boundaries
+ * had no postcode, and the two are named so they can be fixed by hand.
+ */
+exchangeTerritoryRoutes.post("/exchange/admin/territories/bulk", async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: "Company access is required." }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const towns = Array.isArray(body?.towns) ? body.towns : [];
+  if (!towns.length) return c.json({ success: false, error: "No towns were sent." }, 400);
+  if (towns.length > 300) {
+    return c.json({ success: false, error: "That is more than 300 towns in one go." }, 400);
+  }
+
+  const sb = service();
+  const have = new Set(
+    ((must(await sb.from("exchange_territory").select("slug"), "reading the towns already here") as
+      Array<{ slug: string }> | null) || []).map((r) => String(r.slug).toLowerCase()),
+  );
+
+  const added: string[] = [];
+  const skipped: Array<{ slug: string; why: string }> = [];
+
+  for (const raw of towns as TownCandidate[]) {
+    const slug = String(raw?.slug ?? "").trim().toLowerCase();
+    const name = String(raw?.name ?? "").trim();
+    const state = String(raw?.state ?? "NH").trim().toUpperCase();
+    const lat = Number(raw?.lat);
+    const lng = Number(raw?.lng);
+    const postcodes = Array.isArray(raw?.postcodes)
+      ? raw.postcodes.map((x) => String(x).trim()).filter((x) => /^\d{5}$/.test(x))
+      : [];
+
+    if (!SLUG.test(slug) || name.length < 2) {
+      skipped.push({ slug: slug || name || "(unnamed)", why: "The name or the slug is not usable." });
+      continue;
+    }
+    if (have.has(slug)) {
+      skipped.push({ slug, why: "Already here." });
+      continue;
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180
+      || (lat === 0 && lng === 0)) {
+      skipped.push({ slug, why: "That centre is not a place." });
+      continue;
+    }
+    if (!postcodes.length) {
+      skipped.push({ slug, why: "No postcode, so the ingest could not tell it from its neighbours." });
+      continue;
+    }
+
+    try {
+      must(
+        await sb.from("exchange_territory").insert({
+          slug, name, state, postcodes,
+          center_lat: lat, center_lng: lng,
+          status: "hidden",
+        }),
+        `adding ${slug}`,
+      );
+      have.add(slug);
+      added.push(slug);
+    } catch (err: any) {
+      skipped.push({ slug, why: String(err?.message || err) });
+    }
+  }
+
+  /*
+   * Nothing is compiled here. The clock picks up a never-compiled town ahead
+   * of every stale one, so these join the front of its queue and are filled
+   * one per tick — which is what keeps a free endpoint answering.
+   */
+  return c.json({
+    success: true,
+    added: added.length,
+    skipped: skipped.length,
+    addedSlugs: added,
+    skippedTowns: skipped,
+    summary: `${added.length} town(s) added as hidden${skipped.length ? `, ${skipped.length} skipped` : ""}. `
+      + "The upkeep clock will compile them one at a time, newest-uncompiled first.",
+  });
 });
