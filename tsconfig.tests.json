@@ -12,8 +12,16 @@
   // the compiler resolve `node:test` and `node:assert` without it. Verified by
   // introducing a deliberate type error and watching this config catch it, which
   // is the only way to know a checker is checking anything.
+  //
+  // `allowJs` is on because one test imports `api/render.js` — the Vercel
+  // function that serves the public pages to crawlers. It is plain JavaScript
+  // by design (see its header on why this is not Next.js), so without this the
+  // import is an implicit `any` and the checker reports it. Letting TypeScript
+  // infer from the JavaScript is strictly better than the alternative, which is
+  // leaving the security-critical escaping in that file untested.
   "compilerOptions": {
     "noEmit": true,
+    "allowJs": true,
     "target": "es2022",
     "module": "esnext",
     "moduleResolution": "bundler",

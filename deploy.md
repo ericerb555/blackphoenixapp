@@ -9,9 +9,18 @@ one you need is most of the job.
 | anything under `supabase/functions/` | `npm run deploy:server` (below) | ~1 min |
 | a new file in `supabase/migrations/` | apply it by hand (below) | seconds |
 
-**Nothing is automatic except the frontend.** There is no CI in this repository.
-A push builds the site and does nothing else: it will not deploy the server and
-it will not apply a migration. Those are two deliberate acts.
+**Nothing is DEPLOYED automatically except the frontend.** A push builds the
+site and does nothing else: it will not deploy the server and it will not apply
+a migration. Those are two deliberate acts.
+
+CI does now exist (`.github/workflows/security.yml`), but it only *checks* —
+dependency advisories, secret scanning, CodeQL, and the production security
+probe on a weekly schedule. It deploys nothing.
+
+**Order matters when a change spans both halves.** If a frontend change depends
+on a new server route — as the CSP `report-uri` in `vercel.json` depends on
+`POST /csp-report` — deploy the server FIRST. Push first and the live site
+points at a route that does not exist yet.
 
 ---
 

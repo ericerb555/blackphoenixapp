@@ -97,23 +97,62 @@ available for content generated in the browser. This is the standard
 compromise for an Emotion app, and style injection is a far weaker vector than
 script injection.
 
-### Known violations the report will show
+## Collecting the reports
 
-Expected, and not yet fixed:
+**This now exists.** The policy carries `report-uri` pointing at
+`POST /csp-report` on the API, so real browsers on real traffic — the
+storefront, the portals, checkout, the Exchange map — report what the policy
+would have blocked.
 
-1. **`<script type="application/ld+json">` on `/work` and `/blog`.** CSP applies
-   to inline script of every type, data blocks included. `api/render.js` writes
-   these for SEO. Fix by serving the JSON-LD from an external file or adding a
-   per-request nonce.
+- `supabase/functions/server/cspReports.ts` — the fingerprinting, capping and
+  merging, with 21 tests. Read its header for why a public, unauthenticated
+  write endpoint on a usage-priced stack is survivable: nothing touches
+  storage in the common case.
+- `GET /csp-report/summary` — staff only, loudest violation first. The top of
+  that list is the work.
+- The summary reports `dropped` as well as the counts. A store that fills up
+  and quietly stops counting looks exactly like a site with no violations,
+  and "clean, promote it" is the dangerous conclusion to draw from it.
+
+It is **diagnostic and temporary**. When the policy is enforcing and quiet,
+take `report-uri` out of `vercel.json` and delete the route with it.
+
+## Known violations the report will show
+
+1. **`<script type="application/ld+json">` on `/work` and `/blog`.**
+   `api/render.js` writes these for SEO.
+
+   Two things changed here and they are easy to confuse. The **injection** bug
+   is fixed — the block escaped nothing, so a `</script>` inside a project
+   title closed the tag early (L-1 of the audit). It now escapes `<` and has
+   tests. That is a real vulnerability that is now closed.
+
+   Whether it is also a **CSP violation** is a separate question, and the
+   earlier version of this document asserted it without checking. Per spec a
+   `<script>` with a non-JavaScript MIME type is a *data block*: the element
+   is never executed, so there is nothing for `script-src` to block, and
+   current Chrome does not report it. Old Firefox did. **Do not fix this on
+   the assumption — read the reports.** If `script-src` violations naming
+   `/work` and `/blog` show up, serve the JSON-LD from an external file or
+   add a per-request nonce; if they do not, there was never anything here.
+
+   Note a nonce is not free: `vercel.json` sets the header statically, so a
+   per-request nonce means the function must set its own CSP, and two CSP
+   headers on one response are enforced as the intersection. Decide that
+   deliberately.
+
 2. **Anything new.** That is the point of this phase.
 
 ## Promoting to enforcing
 
-1. Collect reports for a week across the storefront, portals, checkout and the
-   Exchange map. Add a `report-uri`/`report-to` endpoint first, or read them
-   from browser consoles — right now nothing collects them, so this step means
-   actually looking.
-2. Fix the JSON-LD violation and anything legitimate the reports surface.
-3. Rename the header to `Content-Security-Policy` and redeploy.
-4. Flip `HDR-content-security-policy` in `scripts/security-probe.mjs` from
-   `warn` to `fail` so a regression is caught.
+1. **Collect for a week.** Leave it running across the storefront, portals,
+   checkout and the Exchange map. Check `GET /csp-report/summary`.
+2. **Fix everything legitimate the reports surface**, and decide explicitly
+   about anything you are content to break.
+3. **Confirm `dropped` is 0.** If it is not, the cap was reached and the
+   picture is incomplete — raise `FINGERPRINT_CAP` and collect again.
+4. **Rename the header** to `Content-Security-Policy` and redeploy.
+5. **Flip `HDR-content-security-policy`** in `scripts/security-probe.mjs` from
+   `warn` to `fail`, so a regression is caught rather than noted.
+6. **Remove `report-uri` and the route** once it has been quiet for a week
+   under enforcement.

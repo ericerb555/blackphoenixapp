@@ -356,6 +356,10 @@ import bidIntakeRouter from "./bid-intake.tsx";
 import architectReviewRouter from "./architect-review.tsx";
 import jurisdictionsRouter from "./jurisdictions.tsx";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
+import {
+  readReport, plausible, mergeViolation, mergeStore, emptyStore, summarise,
+  BODY_MAX, type CspStore,
+} from "./cspReports.ts";
 import stripeConnectRouter from "./stripe-connect.tsx";
 import {
   STAFF_NOTIFICATION_EVENTS, STAFF_NOTIFICATION_EVENT_LABELS, STAFF_NOTIFICATION_EVENT_DESCRIPTIONS,
@@ -1185,6 +1189,14 @@ const PUBLIC_POST_PATHS = [
    * going to schedule it.
    */
   '/store/watchdog',
+  /**
+   * Browsers post CSP violation reports with no credentials, so this cannot
+   * be gated. It is the only unauthenticated write here that is not a
+   * payment webhook; `cspReports.ts` explains what bounds it and why it does
+   * not touch storage per request. Diagnostic and temporary — it goes when
+   * the policy stops being report-only.
+   */
+  '/csp-report',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
@@ -1911,6 +1923,111 @@ app.get("/make-server-3eae23a6/health", (c) => {
     },
   });
 });
+
+/* ── CSP violation collection (diagnostic, temporary) ───────────────────── */
+
+/**
+ * The missing half of the Content-Security-Policy rollout.
+ *
+ * `docs/security/headers.md` ships the policy as `Report-Only` and says to
+ * collect for a week before promoting it — "right now nothing collects them,
+ * so this step means actually looking". Nothing collected, so the policy sat
+ * reporting into the void for three weeks while the promotion waited on
+ * evidence that was never going to arrive.
+ *
+ * Browsers post violations here with no credentials, so the route is public.
+ * See `cspReports.ts` for why that is survivable: nothing touches storage in
+ * the common case. Reports pile up in a buffer inside the isolate and are
+ * written at most once every `CSP_FLUSH_MS`, so a flood costs one write
+ * rather than one per request. An isolate recycled before its flush loses
+ * what it held, which is the right trade for a diagnostic and the reason
+ * nothing that must survive goes in here.
+ *
+ * TEMPORARY. When the policy is enforcing and quiet, drop `report-uri` from
+ * vercel.json and delete this.
+ */
+let cspBuffer: CspStore | null = null;
+let cspFlushedAt = 0;
+const CSP_STORE_KEY = 'csp_violations';
+const CSP_FLUSH_MS = 30_000;
+/** Distinct fingerprints one isolate will hold between flushes. */
+const CSP_BUFFER_MAX = 500;
+
+async function flushCspBuffer(): Promise<void> {
+  const pending = cspBuffer;
+  // Cleared BEFORE the await, so reports arriving during the write land in a
+  // fresh buffer instead of being folded in and then dropped on return.
+  cspBuffer = null;
+  cspFlushedAt = Date.now();
+  if (!pending) return;
+  try {
+    const stored = await kv.get(CSP_STORE_KEY) as CspStore | null;
+    const base = stored?.entries ? stored : emptyStore(new Date().toISOString());
+    await kv.set(CSP_STORE_KEY, mergeStore(base, pending));
+  } catch (err) {
+    console.error('[csp] could not flush violations', err);
+  }
+}
+
+app.post('/make-server-3eae23a6/csp-report', async (c) => {
+  /**
+   * Always 204, whatever happened.
+   *
+   * A browser cannot act on an error from a reporting endpoint — it will not
+   * retry and no user sees it — so the only audience for a status code here
+   * is somebody probing. Answering identically to a valid report, a malformed
+   * one and an oversized one tells them nothing.
+   */
+  try {
+    const raw = await c.req.text();
+    if (raw.length > BODY_MAX) return c.body(null, 204);
+
+    const parsed = JSON.parse(raw);
+    // `report-to` batches; `report-uri` sends one. Cap the batch so a single
+    // request cannot ask for unbounded work.
+    const items = (Array.isArray(parsed) ? parsed : [parsed]).slice(0, 20);
+    const now = new Date().toISOString();
+
+    for (const item of items) {
+      const violation = readReport(item);
+      if (!plausible(violation)) continue;
+      if (!cspBuffer) cspBuffer = emptyStore(now);
+      if (Object.keys(cspBuffer.entries).length >= CSP_BUFFER_MAX) {
+        cspBuffer.dropped += 1;
+        continue;
+      }
+      const body = item?.['csp-report'] ?? item?.body ?? item;
+      mergeViolation(cspBuffer, violation, now, String(body?.['blocked-uri'] ?? body?.blockedURL ?? ''));
+    }
+
+    if (cspBuffer && Date.now() - cspFlushedAt > CSP_FLUSH_MS) await flushCspBuffer();
+  } catch {
+    // A report we cannot parse is not an error worth a log line; it is the
+    // internet. Logging it would turn a junk POST into a write.
+  }
+  return c.body(null, 204);
+});
+
+/**
+ * What the policy would have blocked, loudest first. Staff only.
+ *
+ * Gated because the list is a map of our own URLs, the third-party origins we
+ * depend on, and which pages load what — a reconnaissance summary we would
+ * not otherwise publish.
+ */
+app.get('/make-server-3eae23a6/csp-report/summary', async (c) => {
+  const user = await intakeActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!await intakeIsAdmin(user)) {
+    return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  }
+  // Flush first, or the newest reports are invisible to the person deciding
+  // whether the policy is safe to enforce.
+  await flushCspBuffer();
+  const stored = await kv.get(CSP_STORE_KEY) as CspStore | null;
+  return c.json({ success: true, ...summarise(stored) });
+});
+
 
 // Browser-clickable email diagnostic. Visit this URL directly to see (a) which
 // domains Resend considers verified for this API key, and (b) the EXACT error
@@ -20995,7 +21112,20 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
     const body = stripBase64(await c.req.json().catch(() => ({})));
     const decision = body.decision === 'rejected' ? 'rejected' : 'approved';
     const now = new Date().toISOString();
-    const updated = { ...quote, status: decision, signature: { signerName: body.signerName || quote.customerName || 'Customer', signatureData: body.signatureData || null, signedAt: body.signedAt || now, decision }, updatedAt: now };
+    /**
+     * The signing time is ours, not the one the browser sent.
+     *
+     * This route goes to some trouble a few lines up to stop a second click
+     * rewriting when a quote was agreed, and then took that timestamp from
+     * the request body, where it was new Date().toISOString() off the
+     * customer machine. A wrong system clock misdated the record by
+     * accident; anyone who wanted to could set it to any date at all.
+     *
+     * `now` is already computed above for `updatedAt`. Using it here costs
+     * nothing and makes the two agree, which previously they need not have.
+     * The page may go on sending its own value; it is simply not read.
+     */
+    const updated = { ...quote, status: decision, signature: { signerName: body.signerName || quote.customerName || 'Customer', signatureData: body.signatureData || null, signedAt: now, decision }, updatedAt: now };
     await kv.set(`quote:${quote.id}`, updated);
     if (decision === 'approved' && quote.landlordEmail) {
       notifyRecipient(String(quote.landlordEmail), 'lease_signed', {

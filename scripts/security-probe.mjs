@@ -129,6 +129,10 @@ async function get(url, init = {}) {
 const GATED_PATHS = [
   'invoices', 'payments', 'customers', 'crm/contacts', 'portal-access',
   'users', 'applications', 'store/orders', 'market-alerts/preferences', 'dev/purge',
+  // The CSP violation summary: a map of our own URLs, the third-party
+  // origins we depend on and which page loads what. The collector it reads
+  // from is deliberately public; this is not.
+  'csp-report/summary',
 ];
 
 async function checkAuthGate() {
