@@ -219,3 +219,86 @@ export const scheduleOutstanding = (draws: Draw[]): number =>
       .filter((d) => d?.status === 'pending')
       .reduce((sum, d) => sum + toCents(d?.amount), 0),
   );
+
+/**
+ * The least deposit this company takes.
+ *
+ * Eric: "lets make the deposit a minimum of 30%." A floor, not a default —
+ * materials get bought and a crew gets booked before a penny of progress is
+ * billable, and a job that starts on less than this is financed by us.
+ */
+export const DEPOSIT_MINIMUM = 0.30;
+
+/**
+ * Fewer payments than phases, by merging phases into consecutive groups.
+ *
+ * "please allow me pick how many payments and the breakdown in which the
+ * payments are due."
+ *
+ * A draw per phase is right for a job priced that way and far too many
+ * invoices for a kitchen with seven stages. This merges neighbouring phases
+ * until there are `count` of them, so three payments across seven phases
+ * become three progress payments, each covering the stretch of work up to a
+ * milestone.
+ *
+ * ORDER IS NEVER BROKEN. Groups are consecutive runs of the job's own
+ * sequence, so a payment always covers work that happens together. Merging
+ * Framing with Snagging because their values happen to balance would
+ * produce a draw nobody could explain.
+ *
+ * EACH GROUP IS NAMED FOR ITS LAST PHASE, which is the one whose completion
+ * releases the money. A draw reading "On completion of Second fix" worth
+ * everything up to and including second fix is exactly how a progress
+ * payment works, and it keeps the title matching a real process step — so
+ * marking that step complete still makes the draw due.
+ *
+ * The split targets equal VALUE rather than an equal number of phases.
+ * Three payments should be roughly a third of the money each; a grouping
+ * that put six cheap phases in one payment and one expensive phase in
+ * another would be even in phases and useless in cash flow.
+ *
+ * No money is computed here — only which phases travel together. The
+ * amounts still come from `buildPaymentSchedule`, so the sum-to-the-contract
+ * guarantee and its four thousand randomised contracts cover this too.
+ */
+export function groupPhasesInto(phases: SchedulePhase[], count: number): SchedulePhase[] {
+  const list = Array.isArray(phases) ? phases.filter((p) => p && p.title) : [];
+  const want = Math.max(1, Math.floor(Number(count) || 0));
+  if (!list.length) return [];
+  if (want >= list.length) return list;
+
+  const totalCents = list.reduce((sum, p) => sum + toCents(p.subtotal), 0);
+  const groups: SchedulePhase[] = [];
+
+  let i = 0;
+  let runningCents = 0;
+  for (let g = 0; g < want; g++) {
+    const remainingGroups = want - g;
+    // Always leave at least one phase for every group still to come, or the
+    // last groups come out empty and the job loses a milestone.
+    const maxIndex = list.length - (remainingGroups - 1);
+    // Where this group should end if the money were split perfectly evenly.
+    const targetCents = Math.round((totalCents * (g + 1)) / want);
+
+    const start = i;
+    let cents = 0;
+    // Always take at least one phase.
+    do {
+      cents += toCents(list[i].subtotal);
+      i++;
+    } while (
+      i < maxIndex
+      && runningCents + cents < targetCents
+    );
+    runningCents += cents;
+
+    const members = list.slice(start, i);
+    groups.push({
+      // The milestone that releases the payment: the last phase in the run.
+      title: members[members.length - 1].title,
+      subtotal: toMoney(members.reduce((sum, p) => sum + toCents(p.subtotal), 0)),
+    });
+  }
+
+  return groups;
+}

@@ -65,7 +65,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import { buildPaymentSchedule, scheduleTotal, type Draw } from '../lib/paymentSchedule';
+import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, type Draw } from '../lib/paymentSchedule';
 import { drawReadiness, isPhaseComplete, withPhaseCompletion, dueCount } from '../lib/phaseCompletion';
 import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
 import { drawToInvoice } from '../lib/drawToInvoice';
@@ -1276,7 +1276,32 @@ export function QuoteToContractEditor({
     if (!deposit || !(contractTotal > 0)) return null;
     return Math.round((deposit.amount / contractTotal) * 100);
   })();
-  const depositPct = depositPctOverride ?? savedDepositPct ?? 30;
+  /**
+   * The deposit, never below the company minimum.
+   *
+   * "lets make the deposit a minimum of 30%." Clamped HERE rather than only
+   * on the input, because the stored value on an older quote can be lower —
+   * a saved 15% would otherwise survive untouched and rebuild a schedule
+   * under the floor without anybody typing anything.
+   *
+   * Materials are bought and a crew booked before a penny of progress is
+   * billable. A job that starts on less than this is one we are financing.
+   */
+  const depositFloorPct = Math.round(DEPOSIT_MINIMUM * 100);
+  const depositPct = Math.max(
+    depositFloorPct,
+    depositPctOverride ?? savedDepositPct ?? depositFloorPct,
+  );
+
+  /**
+   * How many payments to split the job into, after the deposit.
+   *
+   * Defaults to one per phase, which is what the schedule has always built.
+   * Choosing fewer merges neighbouring phases — see `groupPhasesInto` — so
+   * three payments across seven phases become three progress payments, each
+   * released by a milestone the customer can see finished.
+   */
+  const [paymentCountOverride, setPaymentCountOverride] = useState<number | null>(null);
 
   /**
    * Write a schedule, whatever produced it.
@@ -1394,10 +1419,23 @@ export function QuoteToContractEditor({
    * quietly un-bill something — losing that state would leave an invoice in
    * the world with nothing on the schedule saying it was ever raised.
    */
+  /** The phases a schedule could draw against — the ceiling on payments. */
+  const availablePhaseCount = useMemo(
+    () => schedulePhasesOf(currentQuote).length,
+    [currentQuote],
+  );
+  const paymentCount = Math.min(
+    Math.max(1, availablePhaseCount || 1),
+    paymentCountOverride ?? (availablePhaseCount || 1),
+  );
+
   const regenerateSchedule = async () => {
     const phases = schedulePhasesOf(currentQuote);
+    /* Merging happens before the money is worked out, so the draws still
+       come out of the same tested allocator and still sum to the contract
+       exactly. Nothing about the arithmetic changes with the count. */
     const fresh = buildPaymentSchedule({
-      phases,
+      phases: groupPhasesInto(phases, paymentCount),
       total: contractTotal,
       depositRate: depositPct / 100,
     });
@@ -4668,20 +4706,40 @@ export function QuoteToContractEditor({
                       <CalendarDays className="h-5 w-5 text-emerald-400" />
                       Payment schedule
                     </h4>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <label className="text-xs font-semibold text-gray-400">Deposit</label>
                       <input
                         type="number"
-                        min={0}
+                        min={depositFloorPct}
                         max={100}
                         value={depositPct}
                         onChange={(e) => {
-                          const v = Math.min(100, Math.max(0, Math.round(Number(e.target.value) || 0)));
-                          setDepositPctOverride(v);
+                          const typed = Math.round(Number(e.target.value) || 0);
+                          setDepositPctOverride(Math.min(100, Math.max(depositFloorPct, typed)));
                         }}
+                        title={`The company minimum is ${depositFloorPct}%`}
                         className="w-16 rounded-lg border border-[#2A2A2A] bg-[#111] px-2 py-1.5 text-right text-sm text-white focus:border-emerald-500/50 focus:outline-none"
                       />
-                      <span className="text-xs text-gray-500">%</span>
+                      <span className="text-xs text-gray-500">% (min {depositFloorPct})</span>
+
+                      <label className="ml-2 text-xs font-semibold text-gray-400">Payments</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(1, availablePhaseCount)}
+                        value={paymentCount}
+                        onChange={(e) => {
+                          const typed = Math.round(Number(e.target.value) || 1);
+                          setPaymentCountOverride(
+                            Math.min(Math.max(1, availablePhaseCount), Math.max(1, typed)),
+                          );
+                        }}
+                        title="How many payments after the deposit. Fewer merges neighbouring phases."
+                        className="w-14 rounded-lg border border-[#2A2A2A] bg-[#111] px-2 py-1.5 text-right text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                      />
+                      <span className="text-xs text-gray-500">
+                        after the deposit{availablePhaseCount ? ` (max ${availablePhaseCount})` : ''}
+                      </span>
                       <button
                         type="button"
                         onClick={addDraw}
@@ -4726,11 +4784,12 @@ export function QuoteToContractEditor({
                     </div>
                   </div>
                   <p className="mb-4 text-sm text-gray-400">
-                    Build one from the phases — a deposit, then a draw per phase, each carrying
-                    its share of the deposit — or write your own: a deposit, a payment partway
-                    through, a balance at the end, as many as a job needs. Edit any line, tie it
-                    to the phase whose completion triggers it, and reorder them. Invoices are
-                    raised against these.
+                    Set the deposit and how many payments follow it, then build — fewer payments
+                    than phases merges neighbouring stages, so three payments across seven phases
+                    become three progress payments, each released by a milestone the customer can
+                    see finished. Or write your own from scratch with <strong>Add payment</strong>.
+                    Edit any line, tie it to the phase whose completion triggers it, and reorder
+                    them. Invoices are raised against these.
                   </p>
 
                   {!paymentSchedule.length ? (

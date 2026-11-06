@@ -202,3 +202,104 @@ test('outstanding counts only what has not been raised', () => {
     Math.round((TOTAL - s[0].amount - s[1].amount) * 100) / 100,
   );
 });
+
+/* ── choosing how many payments ──────────────────────────────────────────── */
+
+/**
+ * "please allow me pick how many payments and the breakdown in which the
+ * payments are due."
+ *
+ * A draw per phase is too many invoices for most jobs. `groupPhasesInto`
+ * merges neighbouring phases until there are as many as were asked for.
+ *
+ * It computes no money — only which phases travel together — so the
+ * sum-to-the-contract guarantee above still covers the result. The last
+ * test here checks exactly that, because the whole point of grouping
+ * upstream of `buildPaymentSchedule` is not having to re-earn it.
+ */
+import { groupPhasesInto, DEPOSIT_MINIMUM } from '../src/app/lib/paymentSchedule.ts';
+
+const sevenPhases = [
+  { title: 'Set-up', subtotal: 800 },
+  { title: 'Strip-out', subtotal: 1200 },
+  { title: 'First fix', subtotal: 3000 },
+  { title: 'Plaster', subtotal: 1500 },
+  { title: 'Second fix', subtotal: 2600 },
+  { title: 'Decorate', subtotal: 1200 },
+  { title: 'Clean-up', subtotal: 700 },
+];
+
+test('the deposit floor is 30%', () => {
+  assert.equal(DEPOSIT_MINIMUM, 0.30);
+});
+
+test('asking for fewer payments merges phases into that many', () => {
+  for (const n of [1, 2, 3, 4, 6]) {
+    assert.equal(groupPhasesInto(sevenPhases, n).length, n, `${n} payments`);
+  }
+});
+
+test('asking for more payments than there are phases gives one per phase', () => {
+  assert.equal(groupPhasesInto(sevenPhases, 20).length, sevenPhases.length);
+});
+
+test('no money is lost or invented by the merge', () => {
+  const whole = sevenPhases.reduce((t, p) => t + p.subtotal, 0);
+  for (const n of [1, 2, 3, 4, 7]) {
+    const grouped = groupPhasesInto(sevenPhases, n);
+    assert.equal(grouped.reduce((t, p) => t + p.subtotal, 0), whole, `${n} payments`);
+  }
+});
+
+/**
+ * Groups are consecutive runs of the job's own order. Merging Framing with
+ * Snagging because their values balance would produce a draw nobody could
+ * explain to a customer.
+ */
+test('a group is named for its LAST phase, which is what releases the money', () => {
+  const three = groupPhasesInto(sevenPhases, 3);
+  assert.deepEqual(three.map((p) => p.title), ['First fix', 'Second fix', 'Clean-up']);
+  // And the final group always ends on the job's final phase.
+  assert.equal(three[three.length - 1].title, 'Clean-up');
+});
+
+test('the split chases equal value, not an equal number of phases', () => {
+  const [a, b] = groupPhasesInto(sevenPhases, 2);
+  // 6500 / 4500 out of 11000 — closer to even money than 4 phases vs 3
+  // would have been by count alone.
+  assert.equal(a.subtotal, 6500);
+  assert.equal(b.subtotal, 4500);
+});
+
+test('every group has at least one phase', () => {
+  for (let n = 1; n <= sevenPhases.length; n++) {
+    for (const g of groupPhasesInto(sevenPhases, n)) {
+      assert.ok(g.title, `${n} payments produced an unnamed group`);
+      assert.ok(Number.isFinite(g.subtotal));
+    }
+  }
+});
+
+test('no phases means no groups, whatever is asked for', () => {
+  assert.deepEqual(groupPhasesInto([], 3), []);
+  assert.deepEqual(groupPhasesInto(null as any, 3), []);
+});
+
+test('a nonsense count is treated as one payment', () => {
+  for (const n of [0, -4, NaN]) {
+    assert.equal(groupPhasesInto(sevenPhases, n as any).length, 1);
+  }
+});
+
+/** The property the grouping exists to inherit rather than re-earn. */
+test('a grouped schedule still sums to the contract exactly', () => {
+  const total = 12650;
+  for (const n of [1, 2, 3, 4, 7]) {
+    const draws = buildPaymentSchedule({
+      phases: groupPhasesInto(sevenPhases, n),
+      total,
+      depositRate: DEPOSIT_MINIMUM,
+    });
+    assert.equal(scheduleTotal(draws), total, `${n} payments`);
+  }
+});
