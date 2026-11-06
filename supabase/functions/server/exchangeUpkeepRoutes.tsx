@@ -220,6 +220,67 @@ async function runUpkeep(reason: string): Promise<UpkeepRun> {
 
 // ── the machine endpoint ────────────────────────────────────────────────────
 
+/**
+ * How long to wait before recording another refusal.
+ *
+ * The route is public — it has to be, pg_cron posts to it with no session —
+ * so anybody can POST at it. Recording every refusal would let a stranger
+ * push the real run history out of a 20-row log, which is worse than the
+ * blindness being fixed. One an hour is enough to make a misconfigured
+ * clock obvious within a day and useless as a way to flood anything.
+ */
+const REFUSAL_QUIET_MINUTES = 60;
+const REFRESH_QUIET_MS = REFUSAL_QUIET_MINUTES * 60_000;
+const LAST_REFUSAL_KEY = `${RUNS_KEY}:last_refusal`;
+
+/**
+ * A refused tick leaves a trace, instead of being the one outcome that does
+ * not.
+ *
+ * THIS IS THE HOLE THE SCHEDULE'S OWN MIGRATION WARNED ABOUT. Every other
+ * outcome is already recorded by `runUpkeep` — a success, a town that was
+ * not due, a database error, Overpass refusing. The 401 is returned BEFORE
+ * `runUpkeep` is ever called, so a clock whose secret is missing or stale
+ * writes nothing at all. pg_cron records the POST as "succeeded" because it
+ * got an HTTP response, and the only symptom is a directory that quietly
+ * stops growing. That is exactly the state this system was found in.
+ *
+ * `secretConfigured` on the status route catches one half — no secret
+ * stored at all. It cannot catch the other half, which is a secret that
+ * exists and does not match the one the cron job sends, and that half looks
+ * identical from the outside.
+ *
+ * What is recorded says nothing about either secret, not even its length.
+ * The fact of the refusal is the whole diagnostic.
+ */
+async function recordRefusal(hadHeader: boolean, secretExists: boolean): Promise<void> {
+  try {
+    const last = (await kv.get(LAST_REFUSAL_KEY)) as { at?: string } | null;
+    const since = last?.at ? Date.now() - Date.parse(String(last.at)) : Infinity;
+    if (Number.isFinite(since) && since < REFRESH_QUIET_MS) return;
+
+    await kv.set(LAST_REFUSAL_KEY, { at: new Date().toISOString() });
+    await recordRun({
+      at: new Date().toISOString(),
+      town: null,
+      ok: false,
+      why: "A tick was refused before it could run (scheduled).",
+      error: !secretExists
+        ? "No cron secret is configured, so every tick is refused. The schedule will "
+          + "never compile a town until one is set."
+        : hadHeader
+          ? "The secret sent with the tick did not match the one configured. The "
+            + "schedule is running and every tick is being turned away."
+          : "The tick arrived with no secret header. If this is the scheduled job, "
+            + "the header is resolving to null — check the cron command's subquery.",
+      ms: 0,
+    });
+  } catch {
+    // Never let the bookkeeping turn a refusal into a 500. A refused tick
+    // that also crashes is strictly worse than one that is merely refused.
+  }
+}
+
 exchangeUpkeepRoutes.post(`${PREFIX}/exchange/cron-tick`, async (c) => {
   const offered = String(c.req.header(SECRET_HEADER) || "");
   const expected = await expectedSecret();
@@ -228,6 +289,9 @@ exchangeUpkeepRoutes.post(`${PREFIX}/exchange/cron-tick`, async (c) => {
   // when unset — means arming the schedule before the secret exists silently
   // opens a route that rewrites a live directory.
   if (!expected || !secretMatches(offered, expected)) {
+    // Recorded, throttled, so a week of refusals is a row somebody can read
+    // rather than silence that looks exactly like a quiet clock.
+    await recordRefusal(Boolean(offered), Boolean(expected));
     return c.json({ success: false, error: "Not authorised." }, 401);
   }
 
@@ -263,8 +327,19 @@ exchangeUpkeepRoutes.get(`${PREFIX}/exchange/upkeep/status`, async (c) => {
     expectedSecret(),
   ]);
   const rows = Array.isArray(runs) ? runs : [];
+  /**
+   * Refusals and failures counted separately, because they mean different
+   * things and have different fixes. A run of refusals is a misconfigured
+   * clock; a run of failures is usually Overpass saying no, which is
+   * expected and self-correcting.
+   */
+  const refused = rows.filter((r) => r && r.ok === false && r.town === null
+    && String(r.why || '').startsWith('A tick was refused')).length;
+  const failed = rows.filter((r) => r && r.ok === false && r.town !== null).length;
   return c.json({
     success: true,
+    refusedRecently: refused,
+    failedRecently: failed,
     // Whether a secret exists, never what it is. Without one the schedule can
     // be armed and every tick will be refused, which is worth seeing here
     // rather than discovering from a week of silence.
