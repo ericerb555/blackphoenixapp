@@ -66,6 +66,7 @@ import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 import { buildPaymentSchedule, scheduleTotal, type Draw } from '../lib/paymentSchedule';
+import { drawReadiness, isPhaseComplete, withPhaseCompletion, dueCount } from '../lib/phaseCompletion';
 import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
 import { drawToInvoice } from '../lib/drawToInvoice';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
@@ -1322,6 +1323,54 @@ export function QuoteToContractEditor({
     } finally {
       setSavingSchedule(false);
     }
+  };
+
+  /**
+   * Mark a phase of the job finished, or unfinished again.
+   *
+   * "we can set payment schedules with completion of certain phases." The
+   * schedule already drew one invoice per phase and each draw already said
+   * "on completion of Framing" — but nothing recorded whether Framing was
+   * DONE, so that sentence was a note to a human and the list could not
+   * tell a draw that was due from one months away.
+   *
+   * Stored on the process step rather than on the draw, because it is a
+   * fact about the job and not about the invoice: rebuilding the schedule
+   * after a re-price must not lose which phases are finished.
+   *
+   * Saves immediately outside edit mode, like the visibility switches and
+   * for the same reason — a control that looks like it worked and is gone
+   * on reload is worse than one that is disabled.
+   */
+  const [markingPhase, setMarkingPhase] = useState<string | null>(null);
+
+  const togglePhaseComplete = async (phase: string) => {
+    const base: any = currentQuote || editedQuote;
+    if (!base) { toast.error('The quote is still loading — try that again in a moment.'); return; }
+
+    const steps = Array.isArray(base.processSteps) ? base.processSteps : [];
+    const done = isPhaseComplete(steps, phase);
+    const next = withPhaseCompletion(steps, phase, done ? null : new Date().toISOString());
+    const updated = { ...base, processSteps: next } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) return;
+    setMarkingPhase(phase);
+    const ok = await persistQuotePatch({ processSteps: next });
+    setMarkingPhase(null);
+    if (!ok) {
+      setEditedQuote(base);
+      toast.error('Could not save that change.');
+      return;
+    }
+    syncQuote({ ...workRequest, quote: updated } as any);
+    toast.success(
+      done
+        ? `${phase} is no longer marked complete.`
+        : `${phase} marked complete — its draw is ready to invoice.`,
+    );
   };
 
   /**
@@ -4593,19 +4642,61 @@ export function QuoteToContractEditor({
                                   {' '}&minus; ${Number(draw.depositCredit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} deposit
                                 </p>
                               )}
-                              {draw.status === 'pending' && (
-                                <button
-                                  type="button"
-                                  onClick={() => raiseInvoiceForDraw(draw)}
-                                  disabled={raisingDraw === draw.id}
-                                  className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-2.5 py-1 text-[11px] font-bold text-gray-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-50"
-                                >
-                                  {raisingDraw === draw.id
-                                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                                    : <Send className="h-3 w-3" />}
-                                  Raise invoice
-                                </button>
-                              )}
+                              {draw.status === 'pending' && (() => {
+                                const steps = (currentQuote as any)?.processSteps || [];
+                                const r = drawReadiness(draw, steps);
+                                const complete = draw.phase ? isPhaseComplete(steps, draw.phase) : false;
+                                return (
+                                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                    {draw.phase && (
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePhaseComplete(draw.phase as string)}
+                                        disabled={markingPhase === draw.phase}
+                                        title={complete
+                                          ? `Mark ${draw.phase} as not finished after all`
+                                          : `Mark ${draw.phase} finished — this draw becomes due`}
+                                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                                          complete
+                                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                            : 'border-[#2A2A2A] bg-[#1A1A1A] text-gray-400 hover:border-emerald-500/40 hover:text-emerald-300'
+                                        }`}
+                                      >
+                                        {markingPhase === draw.phase
+                                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                                          : <CheckCircle2 className="h-3 w-3" />}
+                                        {complete ? 'Phase complete' : 'Mark phase complete'}
+                                      </button>
+                                    )}
+                                    {/*
+                                      Raising is never BLOCKED by an unfinished
+                                      phase. Part-billing a phase that is nearly
+                                      done, or taking a payment a customer
+                                      offered early, are ordinary things to do.
+                                      An unfinished phase makes the draw look
+                                      premature; it does not make it wrong.
+                                    */}
+                                    <button
+                                      type="button"
+                                      onClick={() => raiseInvoiceForDraw(draw)}
+                                      disabled={raisingDraw === draw.id}
+                                      className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                                        r.ready
+                                          ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                          : 'border-[#2A2A2A] bg-[#1A1A1A] text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {raisingDraw === draw.id
+                                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                                        : <Send className="h-3 w-3" />}
+                                      {r.ready ? 'Raise invoice' : 'Raise early'}
+                                    </button>
+                                    <span className={`text-[11px] ${r.ready ? 'text-emerald-400/80' : 'text-gray-500'}`}>
+                                      {r.note}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         ))}
