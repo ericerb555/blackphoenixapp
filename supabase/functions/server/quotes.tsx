@@ -13,6 +13,7 @@ import { cors } from "npm:hono@4/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { ensureJobId } from "./jobs.tsx";
+import { customerQuoteSummary } from "./customerQuoteView.ts";
 
 const quotesRouter = new Hono();
 
@@ -427,10 +428,24 @@ quotesRouter.get("/make-server-3eae23a6/quotes", async (c) => {
     const { email, staff, userId } = await quoteActor(c);
     if (!email) return c.json({ success: false, error: "Sign in required." }, 401);
     const docs = (await kv.getByPrefix("quote:")) || [];
-    return c.json({
-      success: true,
-      quotes: staff ? docs : docs.filter((doc: any) => quoteBelongsTo(doc, email, userId)),
-    });
+
+    /**
+     * Staff get the document. A customer gets the customer view.
+     *
+     * Ownership was the only thing checked here, so a customer reading their
+     * own quote in the portal received the WHOLE stored record — lines
+     * marked `visible: false`, lines marked `included: false`, the
+     * repricing summary and its margin, the estimator context, and every
+     * unit cost and hourly rate even on a quote set to show none of them.
+     *
+     * The public by-token route was fixed for exactly this and this one was
+     * not; owning a quote is not permission to see what it cost us. See
+     * `customerQuoteSummary`.
+     */
+    if (staff) return c.json({ success: true, quotes: docs });
+
+    const mine = docs.filter((doc: any) => quoteBelongsTo(doc, email, userId));
+    return c.json({ success: true, quotes: mine.map(customerQuoteSummary) });
   } catch (error) {
     console.error("[Quotes] Error fetching quotes:", error);
     return c.json({ success: false, error: "Failed to load quotes", details: String(error) }, 500);

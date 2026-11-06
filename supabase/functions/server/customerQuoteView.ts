@@ -382,3 +382,56 @@ export function customerQuoteView(quote: any): CustomerQuote {
     scopeOfWork: str(quote?.aiSummary),
   };
 }
+
+/**
+ * What a signed-in customer gets from `GET /quotes`.
+ *
+ * Eric: "make sure what i block never ends up in there portal."
+ *
+ * THE HOLE THIS CLOSES
+ *
+ * `customerQuoteView` above was written for the share link, and the comment
+ * on that route is emphatic about why: the public by-token handler used to
+ * answer with `stripBase64(quote)` — the entire stored record — so every
+ * line marked `visible: false` was already in the customer's browser while
+ * the editor politely declined to draw it.
+ *
+ * That was fixed for the LINK and not for the LIST. `GET /quotes` returns
+ * `kv.getByPrefix("quote:")` filtered by `quoteBelongsTo` and nothing else,
+ * so a customer with an account — reading their own quote in
+ * `CustomerPortalView` — received the raw document: hidden lines, excluded
+ * lines, the repricing summary and its margin, what subcontractors quoted,
+ * the estimator's context, and every unit cost and hourly rate even on a
+ * quote set to show no rates at all.
+ *
+ * Same bug, different door. Ownership was checked; disclosure was not.
+ *
+ * WHY IT IS BUILT, NOT STRIPPED
+ *
+ * Listing what to remove means a field added next year is disclosed by
+ * default and nobody finds out. Building the answer from an allowlist means
+ * it is absent by default, and the worst case is a portal missing something
+ * rather than a customer holding our costings.
+ */
+export function customerQuoteSummary(quote: any) {
+  const view = customerQuoteView(quote);
+  return {
+    ...view,
+    /*
+     * The list-level fields `CustomerPortalView` reads that are not part of
+     * the document itself. Each one is either the customer's own fact or a
+     * figure already on the quote they were sent.
+     */
+    status: String(quote?.status || 'draft'),
+    title: String(quote?.title || quote?.projectTitle || view.projectTitle || ''),
+    project_name: String(quote?.project_name || quote?.projectName || ''),
+    total: num(quote?.total ?? view.totalCost),
+    amount: num(quote?.amount ?? view.totalCost),
+    createdAt: String(quote?.createdAt || view.generatedAt || ''),
+    expiryDate: String(quote?.expiryDate || view.validUntil || ''),
+    workRequestId: String(quote?.workRequestId || ''),
+    deposit_paid: quote?.deposit_paid === true,
+    quote_approved: quote?.quote_approved === true,
+    approvalUrl: String(quote?.approvalUrl || ''),
+  };
+}

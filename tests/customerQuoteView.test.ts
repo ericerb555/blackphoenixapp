@@ -333,3 +333,127 @@ test('de-rating a section turns the phase costs on', () => {
   };
   assert.equal(customerQuoteView(quote).processSteps[0].cost, 1800);
 });
+
+/* ── the portal list, which had no projection at all ─────────────────────── */
+
+/**
+ * `customerQuoteSummary` — what a SIGNED-IN customer gets from GET /quotes.
+ *
+ * Eric: "make sure what i block never ends up in there portal."
+ *
+ * The share link was fixed for this and the portal list was not. `GET
+ * /quotes` filtered by ownership and returned the raw stored document, so a
+ * customer reading their own quote held every hidden line, every excluded
+ * line, the margin and the whole rate card. Owning a quote is not permission
+ * to see what it cost us.
+ *
+ * These assert on the SERIALISED payload rather than on named fields,
+ * because the failure being guarded against is a field nobody thought to
+ * name — a projection that forgets one should fail here, not in somebody's
+ * devtools.
+ */
+import { customerQuoteSummary } from '../supabase/functions/server/customerQuoteView.ts';
+
+const portalQuote = {
+  id: 'q-portal',
+  quoteNumber: 'Q-2026-414',
+  status: 'sent',
+  title: 'Kitchen refit',
+  project_name: 'Erb kitchen',
+  total: 18400,
+  createdAt: '2026-11-01T09:00:00.000Z',
+  expiryDate: '2026-12-01T09:00:00.000Z',
+  workRequestId: 'wr-9',
+  customerName: 'A Customer',
+  customerEmail: 'customer@example.com',
+  totalCost: 18400,
+  materials: [
+    { name: 'Shaker doors', quantity: 12, unitCost: 140, totalCost: 1680 },
+    { name: 'SECRET-HIDDEN-UNIT', quantity: 2, unitCost: 900, totalCost: 1800, visible: false },
+    { name: 'SECRET-EXCLUDED-UNIT', quantity: 1, unitCost: 500, totalCost: 500, included: false },
+  ],
+  labor: [
+    { role: 'Carpenter', hours: 24, hourlyRate: 55, totalCost: 1320 },
+    { role: 'SECRET-HIDDEN-TRADE', hours: 8, hourlyRate: 95, totalCost: 760, visible: false },
+  ],
+  processSteps: [
+    { title: 'First fix', description: 'rough in' },
+    { title: 'SECRET-HIDDEN-PHASE', description: 'internal only', visible: false },
+  ],
+  // Everything that must never travel.
+  repricingSummary: { margin: 0.42, note: 'SECRET-MARGIN' },
+  markupRates: { materials: 0.3, labor: 0.25 },
+  subcontractorBids: [{ vendor: 'SECRET-SUBBIE', amount: 4200 }],
+  estimatorContext: 'SECRET-CONTEXT',
+  internalNotes: 'SECRET-NOTE',
+  costBasis: { trueCost: 9100 },
+};
+
+test('a hidden or excluded line is absent from the portal payload entirely', () => {
+  const wire = JSON.stringify(customerQuoteSummary(portalQuote));
+  for (const secret of [
+    'SECRET-HIDDEN-UNIT',
+    'SECRET-EXCLUDED-UNIT',
+    'SECRET-HIDDEN-TRADE',
+    'SECRET-HIDDEN-PHASE',
+  ]) {
+    assert.ok(!wire.includes(secret), `${secret} reached the customer portal`);
+  }
+});
+
+test('nothing internal travels, named or not', () => {
+  const wire = JSON.stringify(customerQuoteSummary(portalQuote));
+  for (const secret of [
+    'SECRET-MARGIN', 'SECRET-SUBBIE', 'SECRET-CONTEXT', 'SECRET-NOTE',
+    'repricingSummary', 'markupRates', 'subcontractorBids', 'estimatorContext',
+    'internalNotes', 'costBasis', 'trueCost',
+  ]) {
+    assert.ok(!wire.includes(secret), `${secret} reached the customer portal`);
+  }
+});
+
+/** The visible work still has to arrive, or the portal shows an empty quote. */
+test('what the customer is allowed to see still arrives', () => {
+  const out: any = customerQuoteSummary(portalQuote);
+  assert.equal(out.materials.length, 1);
+  assert.equal(out.materials[0].name, 'Shaker doors');
+  assert.equal(out.labor.length, 1);
+  assert.equal(out.processSteps.length, 1);
+  assert.equal(out.totalCost, 18400);
+});
+
+/** The fields CustomerPortalView renders the list from. */
+test('the list still has what the portal needs to draw a row', () => {
+  const out: any = customerQuoteSummary(portalQuote);
+  assert.equal(out.id, 'q-portal');
+  assert.equal(out.status, 'sent');
+  assert.equal(out.title, 'Kitchen refit');
+  assert.equal(out.project_name, 'Erb kitchen');
+  assert.equal(out.total, 18400);
+  assert.equal(out.amount, 18400);
+  assert.equal(out.createdAt, '2026-11-01T09:00:00.000Z');
+  assert.equal(out.expiryDate, '2026-12-01T09:00:00.000Z');
+  assert.equal(out.workRequestId, 'wr-9');
+  assert.equal(out.deposit_paid, false);
+  assert.equal(out.quote_approved, false);
+});
+
+/**
+ * A quote set to withhold rates must withhold them here too. The portal is
+ * a second door onto the same document and the rule cannot differ by door.
+ */
+test('rates withheld on the quote do not appear in the portal payload', () => {
+  const wire = JSON.stringify(customerQuoteSummary({
+    ...portalQuote,
+    customerSections: { materials: 'no-rates', labor: 'no-rates', processDetail: true },
+  }));
+  assert.ok(!wire.includes('140'), 'a material unit cost reached the portal');
+  assert.ok(!wire.includes('55'), 'an hourly rate reached the portal');
+  // The amount of the line is the thing being shown, and still is.
+  assert.ok(wire.includes('1680'), 'the line total should still travel');
+});
+
+test('a junk or empty quote does not throw', () => {
+  assert.doesNotThrow(() => customerQuoteSummary({}));
+  assert.doesNotThrow(() => customerQuoteSummary(null));
+});
