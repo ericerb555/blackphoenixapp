@@ -47,6 +47,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import { estimateCostCents } from "./modelPricing.ts";
+import { assertAiAllowed } from "./aiKillSwitch.ts";
 
 export type AiAuthority = 'staff' | 'subscriber' | 'public' | 'cron' | 'internal';
 export type AiOutcome = 'running' | 'ok' | 'refused' | 'error';
@@ -376,6 +377,10 @@ export async function recordedOpenAIFetch(
 ): Promise<Response> {
   const { agent, operation, bucket, ...context } = meta;
 
+  // Before anything else, and before a ledger row exists: a stopped agent
+  // should leave no trace of work it never did.
+  await assertAiAllowed(agent);
+
   // Best effort, and never allowed to break the call it is describing.
   let model: string | undefined;
   let prompt: string | undefined;
@@ -446,6 +451,8 @@ export async function recordedAnthropic(
   params: any,
 ): Promise<any> {
   const { agent, operation, bucket, ...context } = meta;
+
+  await assertAiAllowed(agent);
 
   // The prompt, for its length and hash only.
   let prompt: string | undefined;

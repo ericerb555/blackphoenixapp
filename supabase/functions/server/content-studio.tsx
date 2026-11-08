@@ -17,6 +17,7 @@ import * as kv from "./kv_store.tsx";
 import { beginAiCall, recordedOpenAIFetch, type LedgerContext } from "./aiLedger.ts";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { safeFetch } from "./safeFetch.ts";
+import { assertAiAllowed } from "./aiKillSwitch.ts";
 
 export const contentStudioRouter = new Hono();
 
@@ -115,6 +116,11 @@ async function aiJson(
    * served stock photos while appearing to generate images — was visible for
    * exactly one HTTP response and then gone. Now it is countable.
    */
+  // The stop is checked before the ledger row opens, so a stopped
+  // agent leaves no record of work it never did. Separate from the
+  // ledger on purpose: that only observes, this is allowed to refuse.
+  await assertAiAllowed('content-studio');
+
   const call = await beginAiCall({
     agent: "content-studio", operation,
     provider: first, bucket: "ai", input: user,

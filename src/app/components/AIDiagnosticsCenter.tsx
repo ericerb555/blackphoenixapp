@@ -24,6 +24,7 @@ import {
 import { toast } from 'sonner';
 import {
   fetchSummary, fetchCalls, toActivity, toSystem, deriveAlerts, NotPermitted,
+  fetchStops, engageStop, releaseStop, GLOBAL_SCOPE, type StopState,
   type ActivitySummary,
 } from '../lib/aiActivity';
 
@@ -127,6 +128,40 @@ export default function AIDiagnosticsCenter() {
    * admitting a gap is worth more than one filling it with reassurance.
    */
   const [supervisorMessages] = useState<SupervisorMessage[]>([]);
+
+  /** What is currently stopped, and how long a press takes to bite. */
+  const [stops, setStops] = useState<StopState[]>([]);
+  const [stopWindowSeconds, setStopWindowSeconds] = useState(15);
+  const globalStop = stops.find(s => s.scope === GLOBAL_SCOPE) || null;
+
+  const refreshStops = async () => {
+    try {
+      const status = await fetchStops();
+      setStops(status.stops);
+      setStopWindowSeconds(status.takesEffectWithinSeconds);
+    } catch {
+      // A portal user gets a 403 here. The banner simply does not render;
+      // the Activity tab already reports the permission problem once.
+    }
+  };
+
+  useEffect(() => { refreshStops(); }, []);
+
+  const toggleGlobalStop = async () => {
+    try {
+      if (globalStop) {
+        toast.success(await releaseStop(GLOBAL_SCOPE));
+      } else {
+        const reason = window.prompt(
+          'Stop ALL AI across the platform. Why?', '',
+        ) ?? '';
+        toast.success(await engageStop(GLOBAL_SCOPE, reason));
+      }
+      await refreshStops();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not change the stop.');
+    }
+  };
 
   /**
    * The real activity feed, from `ai_call_log` via `/ai-activity/calls`.
@@ -232,39 +267,48 @@ export default function AIDiagnosticsCenter() {
   };
 
   /**
-   * There is no pause mechanism on the server, so this cannot pause anything.
+   * Stop or restart one agent. This now actually does it.
    *
-   * It used to flip a local boolean and toast "disabled", which is the most
-   * dangerous thing this page did: a control that looks like it stops an AI
-   * agent, reports success, and leaves the agent running. Somebody reaching
-   * for it in an incident would believe they had stopped the spend.
-   *
-   * A platform-wide stop is gap 6 in `tasks/phoenix-ai-audit.md`. Until it
-   * exists this says so rather than lying politely.
+   * It used to flip a local boolean and toast "disabled" while the agent
+   * carried on — the most dangerous thing on this page, because somebody
+   * reaching for it during a runaway loop would have believed they had
+   * stopped the spend. It is backed by `ai_kill_switch` now, and the server
+   * refuses the agent's model calls within the stated window.
    */
-  const toggleSystem = (systemId: string) => {
+  const toggleSystem = async (systemId: string) => {
     const system = aiSystems.find(s => s.id === systemId);
-    toast.error(
-      `Cannot pause ${system?.name || 'this agent'} — no stop control is built yet. `
-      + 'Per-account limits are enforced server-side by aiSpend.',
-    );
+    const name = system?.name || systemId;
+    const engaged = stops.some(s => s.scope === systemId);
+    try {
+      if (engaged) {
+        toast.success(await releaseStop(systemId));
+      } else {
+        const reason = window.prompt(`Why are you stopping ${name}?`, '') ?? '';
+        toast.success(await engageStop(systemId, reason));
+      }
+      await refreshStops();
+    } catch (err: any) {
+      // Includes the owner-only refusal on release, whose message explains
+      // the asymmetry. Shown verbatim rather than flattened to "failed".
+      toast.error(err?.message || 'Could not change the stop.');
+    }
   };
 
   /**
-   * There is nothing to restart. An agent here is a function, not a service.
+   * Still nothing to restart, and that stays true.
    *
-   * This used to wait two seconds and then set the system to healthy with a
-   * zero error rate and a response time 30% faster, and toast "restarted
-   * successfully". It fabricated a recovery. Against the mock data that was
-   * merely untrue; against the ledger it would overwrite counted figures
-   * with invented ones, so the screen would report a fix that never
-   * happened and lose the evidence of the problem in the same click.
+   * An agent here is a function, not a service — there is no process to
+   * bounce. This used to wait two seconds, set the system to healthy with a
+   * zero error rate and a 30% faster response time, and toast "restarted
+   * successfully", fabricating a recovery. Unlike pause, this one has no
+   * real counterpart to wire up: the honest action is to stop the agent and
+   * fix the cause.
    */
   const restartSystem = (systemId: string) => {
     const system = aiSystems.find(s => s.id === systemId);
     toast.error(
       `${system?.name || 'This agent'} is a function, not a service — there is nothing to restart. `
-      + 'Its figures come from the call ledger and only change when it next runs.',
+      + 'To halt it, use Stop. Its figures come from the call ledger and change when it next runs.',
     );
   };
 
@@ -328,6 +372,55 @@ export default function AIDiagnosticsCenter() {
                 ${totalCost.toFixed(2)} Est. cost (24h)
               </span>
             </div>
+          </div>
+        </div>
+
+        {/*
+          The emergency stop, above the tabs, so it is reachable from
+          wherever somebody happens to be when they need it. Gap 6 in
+          tasks/phoenix-ai-audit.md, and items 20 and 24 of the spec.
+
+          It states its own latency. A stop that implied it was instant
+          would be wrong at exactly the moment somebody relies on it, and
+          the number comes from the server so the promise and the
+          enforcement cannot drift.
+        */}
+        <div className={`rounded-xl p-4 mb-6 border ${
+          globalStop
+            ? 'bg-red-500/15 border-red-500/50'
+            : 'bg-[#0A0A0A] border-[#2A2A2A]'
+        }`}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3">
+              {globalStop
+                ? <XCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                : <Shield className="w-5 h-5 text-gray-500 shrink-0 mt-0.5" />}
+              <div>
+                <p className={`text-sm font-semibold ${globalStop ? 'text-red-200' : 'text-gray-300'}`}>
+                  {globalStop ? 'AI is STOPPED platform-wide' : 'Emergency stop'}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {globalStop
+                    ? `Engaged by ${globalStop.engagedBy}${globalStop.reason ? ` — ${globalStop.reason}` : ''}. Releasing needs a platform owner.`
+                    : `Refuses every model call across the platform. Takes effect within ${stopWindowSeconds}s; calls already running finish.`}
+                </p>
+                {stops.filter(s => s.scope !== GLOBAL_SCOPE).length > 0 && (
+                  <p className="text-xs text-yellow-500/80 mt-1">
+                    Also stopped: {stops.filter(s => s.scope !== GLOBAL_SCOPE).map(s => s.scope).join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={toggleGlobalStop}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0 ${
+                globalStop
+                  ? 'bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 hover:border-green-500/50 hover:text-green-400'
+                  : 'bg-red-600 text-white hover:bg-red-500'
+              }`}
+            >
+              {globalStop ? 'Release' : 'Stop all AI'}
+            </button>
           </div>
         </div>
       </div>

@@ -31,6 +31,8 @@ import {
   summarise, byAgent, concerns, effectiveState, type LedgerRow,
 } from "./aiLedgerView.ts";
 import { unverifiedModels } from "./modelPricing.ts";
+import { allStops, engageStop, releaseStop, GLOBAL_SCOPE } from "./aiKillSwitch.ts";
+import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
 
 export const aiActivityRouter = new Hono();
 
@@ -170,6 +172,110 @@ aiActivityRouter.get(`${BASE}/running`, async (c) => {
       success: true,
       running: rows.filter((r) => r.state === 'running'),
       abandoned: rows.filter((r) => r.state === 'abandoned'),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/* ── the emergency stop ──────────────────────────────────────────────────── */
+
+/**
+ * Who is asking, from the actor the auth wall already resolved.
+ *
+ * `requireStaffOn` above has already refused anybody who is not staff, so
+ * this only needs the identity for the record, not for the decision.
+ */
+function askerEmail(c: any): string {
+  const user = c.get?.('actor');
+  return String(user?.email || '').toLowerCase() || 'unknown';
+}
+
+/** What is stopped right now, and how far behind a reading can be. */
+aiActivityRouter.get(`${BASE}/stop`, async (c) => {
+  try {
+    return c.json({
+      success: true,
+      stops: await allStops(),
+      /**
+       * Stated rather than glossed. The switch is read through a 15s cache
+       * and Supabase may run several isolates, so a press takes effect
+       * within that window rather than instantly — and a model call already
+       * in flight finishes. A stop that claimed to be instantaneous would
+       * be wrong at exactly the moment somebody relies on it.
+       */
+      takesEffectWithinSeconds: 15,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/**
+ * Engage the stop. Any staff member may do this.
+ *
+ * Deliberately the easy half. An emergency is the wrong moment to discover
+ * you lack a permission, and the cost of a stop engaged in error is some
+ * downtime — recoverable, and visible to everybody. The cost of not being
+ * able to stop it is money leaving and output going to customers.
+ */
+aiActivityRouter.post(`${BASE}/stop`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const scope = String(body?.scope || GLOBAL_SCOPE).trim() || GLOBAL_SCOPE;
+    const reason = String(body?.reason || '').trim().slice(0, 500);
+    const by = askerEmail(c);
+
+    const result = await engageStop(scope, by, reason);
+    if (!result.ok) return c.json({ success: false, error: result.error }, 500);
+
+    console.warn(`[aiKillSwitch] ENGAGED scope=${scope} by=${by} reason=${reason || '(none given)'}`);
+    return c.json({
+      success: true,
+      scope,
+      alreadyEngaged: !!result.already,
+      takesEffectWithinSeconds: 15,
+      message: scope === GLOBAL_SCOPE
+        ? 'Every model call is now refused. In-flight calls will finish.'
+        : `The ${scope} agent is now refused. In-flight calls will finish.`,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/**
+ * Release the stop. Platform owners only.
+ *
+ * The asymmetry is the point. Turning a safety control back off is the
+ * decision that wants a named owner against it, and `PLATFORM_OWNER_EMAILS`
+ * is the same list the rest of the server treats as the floor of authority.
+ * Staff can stop the AI; only an owner can start it again.
+ */
+aiActivityRouter.delete(`${BASE}/stop`, async (c) => {
+  try {
+    const by = askerEmail(c);
+    if (!PLATFORM_OWNER_EMAILS.has(by)) {
+      return c.json({
+        success: false,
+        error: 'Releasing the AI stop is restricted to a platform owner. '
+          + 'Any staff member can engage it; releasing it needs an owner.',
+      }, 403);
+    }
+
+    const scope = String(c.req.query('scope') || GLOBAL_SCOPE).trim() || GLOBAL_SCOPE;
+    const result = await releaseStop(scope, by);
+    if (!result.ok) return c.json({ success: false, error: result.error }, 500);
+
+    console.warn(`[aiKillSwitch] RELEASED scope=${scope} by=${by} wasEngaged=${result.wasEngaged}`);
+    return c.json({
+      success: true,
+      scope,
+      wasEngaged: result.wasEngaged,
+      takesEffectWithinSeconds: 15,
+      message: result.wasEngaged
+        ? 'Released. Model calls resume within fifteen seconds.'
+        : 'Nothing was engaged for that scope.',
     });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);

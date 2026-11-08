@@ -359,3 +359,63 @@ export function deriveAlerts(summary: ActivitySummary, now: number = Date.now())
   }
   return alerts;
 }
+
+/* ── the emergency stop ──────────────────────────────────────────────────── */
+
+export interface StopState {
+  scope: string;
+  engagedAt: string;
+  engagedBy: string;
+  reason: string | null;
+}
+
+export interface StopStatus {
+  stops: StopState[];
+  /**
+   * The honest upper bound on "how long after I press stop does it stop".
+   *
+   * Comes from the server rather than being typed in here, so the number
+   * shown and the number enforced cannot drift apart.
+   */
+  takesEffectWithinSeconds: number;
+}
+
+export const GLOBAL_SCOPE = 'global';
+
+export async function fetchStops(): Promise<StopStatus> {
+  const res = await fetch(`${await base()}/stop`, { headers: await authHeader() });
+  if (res.status === 403) throw new NotPermitted('Company access is required for this.');
+  if (!res.ok) throw new Error(`Could not read the AI stop (HTTP ${res.status}).`);
+  const body = await res.json();
+  if (!body?.success) throw new Error(body?.error || 'Could not read the AI stop.');
+  return { stops: body.stops || [], takesEffectWithinSeconds: body.takesEffectWithinSeconds ?? 15 };
+}
+
+export async function engageStop(scope: string, reason: string): Promise<string> {
+  const res = await fetch(`${await base()}/stop`, {
+    method: 'POST',
+    headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, reason }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error || `Could not engage the stop (HTTP ${res.status}).`);
+  }
+  return body.message || 'Stopped.';
+}
+
+/**
+ * Release. Owner-only on the server, and the 403 it returns is worth showing
+ * verbatim — it explains the asymmetry rather than just refusing.
+ */
+export async function releaseStop(scope: string): Promise<string> {
+  const res = await fetch(`${await base()}/stop?scope=${encodeURIComponent(scope)}`, {
+    method: 'DELETE',
+    headers: await authHeader(),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error || `Could not release the stop (HTTP ${res.status}).`);
+  }
+  return body.message || 'Released.';
+}

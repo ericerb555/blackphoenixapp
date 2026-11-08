@@ -27,6 +27,7 @@ import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { reserve, refund } from "./aiSpend.ts";
 import { beginAiCall, ledgerContextFor, recordedOpenAIFetch } from "./aiLedger.ts";
+import { assertAiAllowed } from "./aiKillSwitch.ts";
 
 const app = new Hono();
 
@@ -610,6 +611,11 @@ app.post("/analyze", async (c) => {
     // has been counted.
     const actor = c.get("actor");
     const model = Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5";
+    // The stop is checked before the ledger row opens, so a stopped
+    // agent leaves no record of work it never did. Separate from the
+    // ledger on purpose: that only observes, this is allowed to refuse.
+    await assertAiAllowed('house-capture');
+
     const call = await beginAiCall({
       agent: "house-capture",
       operation: `read ${blocks.length} photo${blocks.length === 1 ? "" : "s"} of the house`,

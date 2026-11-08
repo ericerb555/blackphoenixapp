@@ -31,6 +31,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { readTrade, systemFor, describe, CHANGE_FIELDS } from "./assistantPrompt.ts";
 import { beginAiCall, ledgerContextFor, type AiCallHandle } from "./aiLedger.ts";
+import { assertAiAllowed } from "./aiKillSwitch.ts";
 
 const app = new Hono();
 
@@ -70,6 +71,11 @@ app.post("/ask", async (c) => {
     if (!question) return c.json({ error: "Ask a question." }, 400);
 
     const model = Deno.env.get("DESIGN_ASSISTANT_MODEL") || "claude-opus-5";
+    // The stop is checked before the ledger row opens, so a stopped
+    // agent leaves no record of work it never did. Separate from the
+    // ledger on purpose: that only observes, this is allowed to refuse.
+    await assertAiAllowed('design-assistant');
+
     call = await beginAiCall({
       agent: "design-assistant",
       operation: `answer a ${trade} question`,

@@ -25,6 +25,7 @@ import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
 import { beginAiCall, ledgerContextFor, type LedgerContext } from './aiLedger.ts';
+import { assertAiAllowed } from './aiKillSwitch.ts';
 
 const quoteRouter = new Hono();
 
@@ -532,6 +533,11 @@ export async function runEstimator(
    * `usedAI` already recorded that distinction and went nowhere. Now it lands
    * somewhere a person can read a week later.
    */
+  // The stop is checked before the ledger row opens, so a stopped
+  // agent leaves no record of work it never did. Separate from the
+  // ledger on purpose: that only observes, this is allowed to refuse.
+  await assertAiAllowed('quote-generator');
+
   const call = await beginAiCall({
     agent: 'quote-generator',
     // The trade, not the customer's description — the description is theirs
