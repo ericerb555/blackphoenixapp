@@ -9,6 +9,7 @@
 //   email_log:{timestamp}  -> { id, to, subject, html, templateKey, status, provider, error, sentAt }
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { REPLY_TO_EMAIL } from './emailIdentity.ts';
 
 export const emailCenterRouter = new Hono();
 
@@ -18,9 +19,16 @@ const LOG_PREFIX = 'email_log:';
 const FROM_EMAIL =
   Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'noreply@theblackphoenixcompany.com';
 const COMPANY_NAME = Deno.env.get('COMPANY_NAME') || 'The Black Phoenix Company';
-// Where customer replies should land. The verified `send.` subdomain isn't a real
-// mailbox, so replies are routed to a monitored inbox instead.
-const REPLY_TO_EMAIL = Deno.env.get('REPLY_TO_EMAIL') || 'blackphoenixbuilds@proton.me';
+// REPLY_TO_EMAIL is imported from `emailIdentity.ts` at the top of this file.
+// It was declared here, in `index.tsx` and in `fulfillment.tsx`, three times,
+// with the same fallback written out three times.
+//
+// NOTE the sender above does NOT yet come from there. This file falls back to
+// `noreply@theblackphoenixcompany.com` where the other two fall back to
+// `onboarding@resend.dev`, so they have already drifted. Unifying them changes
+// which address mail comes from when the secret is unset, which is a decision
+// about deliverability rather than a tidy-up, so it is left alone and written
+// down instead.
 
 // ── Default templates (seeded on first read if none exist) ─────────────────
 const DEFAULT_TEMPLATES = [

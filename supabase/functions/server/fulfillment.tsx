@@ -10,6 +10,7 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 
@@ -22,8 +23,8 @@ const COMPANY = Deno.env.get("COMPANY_NAME") || "The Black Phoenix Company";
 // account owner and shows up as "onboarding@resend.dev" — not a real fix.
 const FROM_EMAIL = Deno.env.get("NOTIFICATION_FROM_EMAIL") || "onboarding@resend.dev";
 // Customer replies route to a monitored inbox (the verified send. subdomain is
-// not a real mailbox).
-const REPLY_TO_EMAIL = Deno.env.get("REPLY_TO_EMAIL") || "blackphoenixbuilds@proton.me";
+// not a real mailbox). Imported from `emailIdentity.ts` at the top of this
+// file; it used to be a third copy of the same line and the same fallback.
 
 // ── Notification senders ──────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, html: string) {
