@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 import ReelRenderer, { type ReelStoryboard, type ReelMusic } from './ReelRenderer';
 import { DEFAULT_MUSIC_VOLUME } from '../lib/reelAudioMix';
+import { buildSearchUrl, usableTracks, type FreeTrack } from '../lib/freeMusicSearch';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
@@ -75,6 +76,41 @@ export default function ReelStudio() {
 
   // Object URLs are a leak if nobody revokes them.
   useEffect(() => () => { if (musicUrl) URL.revokeObjectURL(musicUrl); }, [musicUrl]);
+
+  /** The credit line this reel owes, if the chosen track is CC-BY. */
+  const [musicCredit, setMusicCredit] = useState('');
+  const [library, setLibrary] = useState<FreeTrack[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [musicQuery, setMusicQuery] = useState('upbeat');
+
+  /**
+   * Openverse — no API key, CORS-enabled, filtered to CC0 and CC-BY.
+   *
+   * Only those two licences are offered: `nd` forbids the derivative a
+   * ducked, trimmed bed obviously is, and `sa` invites an argument about
+   * whether it infects the reel. See `freeMusicSearch`.
+   */
+  const searchMusic = useCallback(async () => {
+    setSearching(true);
+    try {
+      const res = await fetch(buildSearchUrl(musicQuery, 24));
+      const data = await res.json().catch(() => null);
+      const tracks = usableTracks(data?.results || []);
+      setLibrary(tracks);
+      if (!tracks.length) toast.message('Nothing usable for that word — try "ambient", "upbeat" or "acoustic".');
+    } catch {
+      toast.error('Could not reach the music library.');
+    } finally {
+      setSearching(false);
+    }
+  }, [musicQuery]);
+
+  const chooseTrack = (track: FreeTrack) => {
+    if (musicUrl?.startsWith('blob:')) URL.revokeObjectURL(musicUrl);
+    setMusicUrl(track.url);
+    setMusicName(`${track.title}${track.creator ? ` — ${track.creator}` : ''}`);
+    setMusicCredit(track.attribution);
+  };
 
   const music: ReelMusic | null = musicUrl ? { url: musicUrl, volume: musicVolume } : null;
 
@@ -392,6 +428,7 @@ export default function ReelStudio() {
                     if (musicUrl) URL.revokeObjectURL(musicUrl);
                     setMusicUrl(URL.createObjectURL(file));
                     setMusicName(file.name);
+                    setMusicCredit('');
                   }}
                 />
               </label>
@@ -418,6 +455,7 @@ export default function ReelStudio() {
                       if (musicUrl) URL.revokeObjectURL(musicUrl);
                       setMusicUrl(null);
                       setMusicName('');
+                      setMusicCredit('');
                     }}
                     className="text-xs font-semibold text-gray-500 hover:text-red-400"
                   >
@@ -426,6 +464,60 @@ export default function ReelStudio() {
                 </>
               )}
             </div>
+
+            {/* Free library — searched on demand, never preloaded. */}
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#2A2A2A] pt-3">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Free library</span>
+              <input
+                value={musicQuery}
+                onChange={(e) => setMusicQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void searchMusic(); }}
+                placeholder="ambient, upbeat, acoustic…"
+                className="w-44 rounded-lg border border-[#2A2A2A] bg-[#111] px-2 py-1 text-xs text-white focus:border-emerald-500/50 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void searchMusic()}
+                disabled={searching}
+                className="rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1 text-xs font-bold text-gray-300 hover:text-white disabled:opacity-50"
+              >
+                {searching ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
+            {library.length > 0 && (
+              <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
+                {library.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 rounded-lg bg-black/40 px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => chooseTrack(t)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-xs text-gray-200">{t.title}</span>
+                      <span className="block truncate text-[10px] text-gray-500">
+                        {t.creator || 'Unknown'} · {t.duration ? `${Math.round(t.duration)}s · ` : ''}{t.licenceLabel}
+                      </span>
+                    </button>
+                    {/* Preview before committing to a render. */}
+                    <audio src={t.url} controls preload="none" className="h-7 w-40" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/*
+              A CC-BY track is free to use and REQUIRES credit. Posting
+              without it is a licence breach, not a discourtesy, so the line
+              is shown where it cannot be missed and in a form that can be
+              copied straight into the caption.
+            */}
+            {musicCredit && (
+              <div className="mt-2 rounded-lg px-2 py-1.5" style={{ background: 'rgba(180,83,9,0.12)', border: '1px solid rgba(180,83,9,0.4)' }}>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-400">Credit required in the caption</p>
+                <p className="mt-0.5 select-all text-[11px] leading-snug text-amber-200">{musicCredit}</p>
+              </div>
+            )}
 
             <p className="mt-2 text-[11px] leading-snug text-gray-600">
               {musicName
