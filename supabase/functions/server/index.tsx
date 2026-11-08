@@ -360,6 +360,11 @@ import {
 import { areasFromQuote, pricingRefusal } from './reportPricing.ts';
 import { workRequestActor, ownsWorkRequest, readWorkRequests, persistWorkRequest } from "./workRequests.ts";
 import {
+  type StripeAccount, STRIPE_KEY_ENVS, stripeAccountLabel, STRIPE_TEST_KEY_ENV,
+  stripeTestKey, stripeKeyMode, stripeTestAccountEmail, isStripeTestAccount,
+  activeStripeMode, readStripeKey, stripeKeyFor,
+} from "./stripeAccounts.ts";
+import {
   NOTIF_EVENTS, NOTIF_EVENT_LABELS, type NotifEvent,
   notifPrefsKey, notifInboxKey, defaultNotifPrefs, loadNotifPrefs,
   pushInAppNotification, notifyRecipient,
@@ -13651,115 +13656,6 @@ function createGiftCardCode() {
 
 function validGiftCardEmail(value: unknown) {
   return typeof value === 'string' && /^\S+@\S+\.\S+$/.test(value.trim());
-}
-
-type StripeAccount = 'services' | 'tbpco_ecommerce';
-
-// Separate Stripe accounts are intentionally selected server-side by workflow.
-// Services, invoices, subscriptions, maintenance, and gift cards remain on Black
-// Phoenix Builds. Store merchandise uses the TBPCO e-commerce account.
-//
-// STRICT SEPARATION — the two accounts are hard-partitioned and MUST NOT be able
-// to settle each other's transactions:
-//   • Neither account falls back to the other's key. A missing key is a loud
-//     configuration error, never a silent charge into the wrong business.
-//   • If both env vars are set to the SAME secret, that is a misconfiguration
-//     that would merge the books, so it is rejected outright.
-// Construction/services money can therefore only ever reach the Black Phoenix
-// Builds account, and store money only ever reaches the TBPCO account.
-const STRIPE_KEY_ENVS: Record<StripeAccount, string[]> = {
-  services: ['STRIPE_SECRET_KEY_SERVICES', 'STRIPE_SECRET_KEY'],
-  tbpco_ecommerce: ['TBPCO_ECOMMERCE_STRIPE_SECRET_KEY'],
-};
-
-function stripeAccountLabel(account: StripeAccount) {
-  return account === 'tbpco_ecommerce' ? 'TBPCO E-commerce' : 'Black Phoenix Builds Services';
-}
-
-/**
- * The TEST-mode key, for exercising a paid flow without taking real money.
- *
- * Its own secret, and it NEVER falls back to the live key. That is the entire
- * point: a "test" path that quietly used the live key would charge a real card
- * while everybody involved believed they were rehearsing, which is the single
- * worst outcome available in this file.
- *
- * Only the services account has one. The store has no test flow asking for it.
- */
-const STRIPE_TEST_KEY_ENV = 'STRIPE_SECRET_KEY_TEST';
-
-function stripeTestKey(): string {
-  return (Deno.env.get(STRIPE_TEST_KEY_ENV) || '').trim();
-}
-
-/** live | test | unknown, from the key's own prefix. Never returns the key. */
-function stripeKeyMode(key: string): 'live' | 'test' | 'unknown' {
-  if (key.startsWith('sk_live') || key.startsWith('rk_live')) return 'live';
-  if (key.startsWith('sk_test') || key.startsWith('rk_test')) return 'test';
-  return 'unknown';
-}
-
-/**
- * Which mode this server sells in right now.
- *
- * Derived from the configured services key rather than from a setting, because
- * a setting and a key can disagree and the key is the one that decides what
- * actually happens to somebody's card.
- */
-/**
- * The one account allowed to rehearse a paid flow against test Stripe.
- *
- * Set as STRIPE_TEST_ACCOUNT_EMAIL. Unset means nobody, which is the safe
- * default — the rehearsal path does not exist until somebody is named.
- *
- * It must be an account nobody is relying on. Whoever is named here can be
- * granted a paid plan by a payment that never happened, which is exactly what
- * makes the rehearsal useful and exactly why it must not be a real vendor.
- */
-function stripeTestAccountEmail(): string {
-  return (Deno.env.get('STRIPE_TEST_ACCOUNT_EMAIL') || '').trim().toLowerCase();
-}
-
-function isStripeTestAccount(email: string): boolean {
-  const nominated = stripeTestAccountEmail();
-  return Boolean(nominated) && nominated === String(email || '').trim().toLowerCase();
-}
-
-function activeStripeMode(): 'live' | 'test' {
-  const mode = stripeKeyMode(readStripeKey('services').key);
-  // An unrecognised prefix is treated as live, because assuming test would be
-  // assuming safety about a key we cannot identify.
-  return mode === 'test' ? 'test' : 'live';
-}
-
-function readStripeKey(account: StripeAccount) {
-  for (const name of STRIPE_KEY_ENVS[account]) {
-    const value = (Deno.env.get(name) || '').trim();
-    if (value) return { key: value, env: name };
-  }
-  return { key: '', env: '' };
-}
-
-function stripeKeyFor(account: StripeAccount = 'services') {
-  const mine = readStripeKey(account);
-  if (!mine.key) {
-    const expected = STRIPE_KEY_ENVS[account].join(' or ');
-    throw new Error(
-      `${stripeAccountLabel(account)} Stripe is not configured. Set ${expected} in the Supabase edge function secrets. ` +
-      `This account never falls back to another Stripe account's key, so no payment was attempted.`,
-    );
-  }
-  // Cross-contamination guard: the same secret must not serve both businesses.
-  const other: StripeAccount = account === 'services' ? 'tbpco_ecommerce' : 'services';
-  const theirs = readStripeKey(other);
-  if (theirs.key && theirs.key === mine.key) {
-    throw new Error(
-      `Stripe account separation error: ${mine.env} and ${theirs.env} hold the same secret key, so ` +
-      `${stripeAccountLabel(account)} and ${stripeAccountLabel(other)} would settle into the same Stripe account. ` +
-      `Set each to its own account's key. No payment was attempted.`,
-    );
-  }
-  return mine.key;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
