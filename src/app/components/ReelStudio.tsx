@@ -15,12 +15,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Sparkles, Loader2, Film, Image as ImageIcon, Check, ChevronRight,
-  AlertTriangle, Wand2, Mic, RefreshCw,
+  AlertTriangle, Wand2, Mic, RefreshCw, Music,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
-import ReelRenderer, { type ReelStoryboard } from './ReelRenderer';
+import ReelRenderer, { type ReelStoryboard, type ReelMusic } from './ReelRenderer';
+import { DEFAULT_MUSIC_VOLUME } from '../lib/reelAudioMix';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
@@ -57,6 +58,25 @@ export default function ReelStudio() {
   const [seconds, setSeconds] = useState(30);
   const [voice, setVoice] = useState('onyx');
   const [narrate, setNarrate] = useState(true);
+
+  /**
+   * The music bed.
+   *
+   * A file you choose, not a library. The twelve tracks in
+   * `musicAssetManager`'s demo library all point at `example.com` and play
+   * nothing, and shipping a real library would mean shipping a licence —
+   * music on a commercial post is the one asset a contractor actually gets
+   * chased for. Your file, your licence, and it never leaves the browser:
+   * it is read as an object URL and mixed locally.
+   */
+  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [musicName, setMusicName] = useState('');
+  const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
+
+  // Object URLs are a leak if nobody revokes them.
+  useEffect(() => () => { if (musicUrl) URL.revokeObjectURL(musicUrl); }, [musicUrl]);
+
+  const music: ReelMusic | null = musicUrl ? { url: musicUrl, volume: musicVolume } : null;
 
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [productId, setProductId] = useState('');
@@ -348,9 +368,76 @@ export default function ReelStudio() {
       {storyboard && (
         <div className={card}>
           {step(4, 'Render and download', false)}
+          {/*
+            The bed sits with the render step because it is part of the
+            finished file, not part of the script. Ducking under the
+            narration is automatic — see reelAudioMix — so the only real
+            decision here is the track and how loud it sits.
+          */}
+          <div className="mb-4 rounded-xl border border-[#2A2A2A] bg-black/40 p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-gray-400">
+                <Music className="h-3.5 w-3.5" /> Music bed
+              </span>
+
+              <label className="cursor-pointer rounded-lg border border-[#2A2A2A] bg-[#111] px-3 py-1.5 text-xs font-bold text-gray-300 hover:text-white">
+                {musicName ? 'Change track' : 'Choose a track'}
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (musicUrl) URL.revokeObjectURL(musicUrl);
+                    setMusicUrl(URL.createObjectURL(file));
+                    setMusicName(file.name);
+                  }}
+                />
+              </label>
+
+              {musicName && (
+                <>
+                  <span className="max-w-[16rem] truncate text-xs text-gray-400">{musicName}</span>
+                  <label className="flex items-center gap-2 text-xs text-gray-400">
+                    Level
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={musicVolume}
+                      onChange={(e) => setMusicVolume(Number(e.target.value))}
+                      className="w-28"
+                    />
+                    <span className="w-8 tabular-nums text-gray-500">{Math.round(musicVolume * 100)}%</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (musicUrl) URL.revokeObjectURL(musicUrl);
+                      setMusicUrl(null);
+                      setMusicName('');
+                    }}
+                    className="text-xs font-semibold text-gray-500 hover:text-red-400"
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
+
+            <p className="mt-2 text-[11px] leading-snug text-gray-600">
+              {musicName
+                ? 'Ducks automatically under the voiceover, and fades in and out. Use a track you are licensed to post.'
+                : 'Optional. A track you are licensed to post — it is mixed in your browser and never uploaded.'}
+            </p>
+          </div>
+
           <ReelRenderer
             storyboard={storyboard}
             filename={(subject || 'reel').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}
+            music={music}
           />
         </div>
       )}

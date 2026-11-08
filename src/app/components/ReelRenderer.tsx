@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pickRecordingFormat } from '../lib/reelSpec';
+import { musicGainPlan, narrationSpansOf } from '../lib/reelAudioMix';
 import { Download, Loader2, Square, AlertTriangle, Film, Settings2 } from 'lucide-react';
 
 export interface ReelSlide {
@@ -362,12 +363,25 @@ function drawCaption(
   });
 }
 
+/** A music bed to lay under the reel. */
+export interface ReelMusic {
+  url: string;
+  /** Bed level with nobody talking, 0–1. */
+  volume?: number;
+  /** Level under narration, 0–1. */
+  duckTo?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+}
+
 export default function ReelRenderer({
   storyboard,
   filename = 'reel',
+  music = null,
 }: {
   storyboard: ReelStoryboard;
   filename?: string;
+  music?: ReelMusic | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cancelRef = useRef(false);
@@ -408,6 +422,7 @@ export default function ReelRenderer({
     setProgress(0);
 
     let audioCtx: AudioContext | null = null;
+    let musicBed: { node: AudioBufferSourceNode; gain: GainNode; plan: { time: number; gain: number }[] } | null = null;
     // Every clip opened for this render, so the teardown can stop them. They
     // loop by design, so one left running keeps decoding for the life of the tab.
     const clips: HTMLVideoElement[] = [];
@@ -437,13 +452,22 @@ export default function ReelRenderer({
       for (const s of renderable) { starts.push(clock); clock += s.duration; }
 
       const scheduled: { node: AudioBufferSourceNode; at: number }[] = [];
-      if (renderable.some((s) => s.audioUrl)) {
+      /*
+       * Music counts as audio. This used to read `some(s => s.audioUrl)`,
+       * so a reel with a bed and no voiceover got no AudioContext, no
+       * destination track, and silence — the one case where the music is
+       * the entire soundtrack.
+       */
+      const hasNarration = renderable.some((s) => s.audioUrl);
+      if (hasNarration || music?.url) {
         audioCtx = new AudioContext();
         const dest = audioCtx.createMediaStreamDestination();
 
         // TTS clips come back at inconsistent levels. A compressor keeps the
         // quiet ones audible over a phone speaker without the loud ones
         // clipping, which is the difference between "narrated" and "amateur".
+        // The voice chain. Music does NOT go through this — compressing a
+        // bed against the voice pumps it audibly every time a line lands.
         const comp = audioCtx.createDynamicsCompressor();
         comp.threshold.value = -20;
         comp.ratio.value = 4;
@@ -467,6 +491,43 @@ export default function ReelRenderer({
             // A beat without narration is still a beat — keep its picture.
           }
         }
+        /**
+         * The music bed, on its own gain, ducked under the voice.
+         *
+         * The curve comes from `reelAudioMix`, which is tested — including
+         * the part that matters most here, that the automation times are
+         * strictly increasing. `linearRampToValueAtTime` on a time that is
+         * not after the previous one is undefined behaviour, and the
+         * symptom is silence rather than an error.
+         */
+        if (music?.url) {
+          try {
+            const raw = await fetch(music.url).then((r) => r.arrayBuffer());
+            const decoded = await audioCtx.decodeAudioData(raw);
+            const bedSource = audioCtx.createBufferSource();
+            bedSource.buffer = decoded;
+            // A track shorter than the reel loops rather than stopping
+            // dead halfway through, which reads as a mistake.
+            bedSource.loop = decoded.duration < clock;
+
+            const bedGain = audioCtx.createGain();
+            const plan = musicGainPlan({
+              reelSeconds: clock,
+              narration: narrationSpansOf(renderable),
+              volume: music.volume,
+              duckTo: music.duckTo,
+              fadeIn: music.fadeIn,
+              fadeOut: music.fadeOut,
+            });
+            bedGain.gain.value = plan.length ? plan[0].gain : 0;
+            bedSource.connect(bedGain).connect(dest);
+            musicBed = { node: bedSource, gain: bedGain, plan };
+          } catch {
+            // A bed that will not decode is not a reason to lose the reel.
+            console.warn('[ReelRenderer] music track could not be decoded; rendering without it');
+          }
+        }
+
         dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
       }
 
@@ -492,6 +553,19 @@ export default function ReelRenderer({
         // still spinning up.
         const base = audioCtx.currentTime + 0.12;
         for (const s of scheduled) s.node.start(base + s.at);
+
+        if (musicBed) {
+          // Anchored to the same `base` as the voice, so the duck lands
+          // where the words actually are.
+          const g = musicBed.gain.gain;
+          g.cancelScheduledValues(base);
+          g.setValueAtTime(musicBed.plan[0]?.gain ?? 0, base);
+          for (const point of musicBed.plan) {
+            g.linearRampToValueAtTime(point.gain, base + point.time);
+          }
+          musicBed.node.start(base);
+          musicBed.node.stop(base + clock);
+        }
       }
 
       const totalMs = clock * 1000;
