@@ -334,7 +334,7 @@ import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
  * dependencies because they used to be unimportable.
  */
 import {
-  intakeActor, intakeIsAdmin,
+  intakeActor, intakeIsAdmin, financialActor,
   INTAKE_ADMIN_ROLES, PLATFORM_OWNER_EMAILS, STAFF_VIEW_ROLES,
 } from "./identity.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
@@ -12429,7 +12429,6 @@ app.patch('/make-server-3eae23a6/intake/onboarding/:id/documents/:documentId', a
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to review document.' }, 500); }
 });
 
-async function financialActor(c: any) { const user = await intakeActor(c); return { user, admin: await intakeIsAdmin(user) }; }
 /**
  * Does this financial record belong to this person?
  *

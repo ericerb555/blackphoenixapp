@@ -110,3 +110,21 @@ export async function intakeIsAdmin(user: any) {
     return hasPermissionRole || hasCompanyAuthority;
   } catch { return false; }
 }
+
+/**
+ * The same question as `intakeActor`, answered in one call with "and are they
+ * an administrator".
+ *
+ * Used 112 times — more than any other helper on this server — by every route
+ * that reads or writes a quote, invoice, payment, payout or order. It is a
+ * two-line composition of the pair above and lived in `index.tsx`, so all 112
+ * of those call sites were pinned to that file.
+ *
+ * Named for the financial routes it grew up in rather than for what it does,
+ * which is nothing financial. Left under that name because renaming it is 112
+ * edits that change no behaviour and would bury the move it is part of.
+ */
+export async function financialActor(c: any) {
+  const user = await intakeActor(c);
+  return { user, admin: await intakeIsAdmin(user) };
+}
