@@ -334,6 +334,13 @@ import {
 } from "./identity.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
 import { propertyManagementRouter } from "./property-management.tsx";
+/**
+ * Leaf utilities that used to be declared in the middle of this file, which
+ * is what pinned every block that used them to it. `money` alone was used 85
+ * times. `rentAppUrl` was a second reading of the same APP_URL secret and is
+ * now `appUrl`, which agrees with the constant by construction.
+ */
+import { APP_URL, appUrl, money, toE164, resolveCompanyName } from "./serverPrimitives.ts";
 import imageUploadRouter from "./image-upload.tsx";
 import bigBoxProductsRouter from "./bigBoxProducts.tsx";
 import { cohortsRouter } from "./cohorts.tsx";
@@ -1912,19 +1919,6 @@ app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
 app.route("/make-server-3eae23a6", cohortsRouter);
 
 // Health check
-// Resolve a human-friendly company name. The COMPANY_NAME secret was set to a
-// random ID (e.g. "YFAeZ3ZfzSyU35D"), which then showed up as the email SENDER
-// NAME and inside the invite body. A `|| 'default'` doesn't help because the
-// env var IS set — just to garbage. This detects a random-looking token (no
-// spaces, mixed letters + digits, 10+ chars) and falls back to the real name.
-function resolveCompanyName(): string {
-  const fallback = 'The Black Phoenix Company';
-  const raw = (Deno.env.get('COMPANY_NAME') || '').trim();
-  if (!raw) return fallback;
-  const looksLikeRandomId = !/\s/.test(raw) && /[A-Za-z]/.test(raw) && /[0-9]/.test(raw) && raw.length >= 10 && !/[.\-_&]/.test(raw);
-  return looksLikeRandomId ? fallback : raw;
-}
-
 app.get("/make-server-3eae23a6/health", (c) => {
   // `emailConfig` lets us confirm a deploy picked up the latest code + secrets
   // without exposing anything sensitive: it reports the (public) sender/reply-to
@@ -4781,7 +4775,7 @@ app.post('/make-server-3eae23a6/auth/forgot-password', async (c) => {
       await kv.set(`pwreset:${token}`, { email, userId: account.id, expiresAt, createdAt: new Date().toISOString() });
       const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
       const COMPANY_NAME = resolveCompanyName();
-      const link = `${rentAppUrl()}/reset-password?token=${token}`;
+      const link = `${appUrl()}/reset-password?token=${token}`;
       if (RESEND_API_KEY) {
         try {
           const res = await fetch('https://api.resend.com/emails', {
@@ -6012,7 +6006,7 @@ app.post('/make-server-3eae23a6/quotes/generate-link', async (c) => {
      * the path — so the emailed link landed on the wrong screen, which then
      * found no token. The third of three reasons a quote link never worked.
      */
-    const link = `${rentAppUrl()}/customer-quote-approval?token=${token}`;
+    const link = `${appUrl()}/customer-quote-approval?token=${token}`;
     /**
      * `approvalUrl` is the name the caller actually reads.
      *
@@ -9541,8 +9535,6 @@ function addRentPaymentMethods(params: URLSearchParams, opts?: { includeAch?: bo
   return params;
 }
 
-function rentAppUrl() { return (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, ''); }
-
 // Landlord: begin (or resume) Stripe Connect onboarding — returns onboarding URL.
 app.post('/make-server-3eae23a6/landlord/stripe/connect', async (c) => {
   try {
@@ -9564,7 +9556,7 @@ app.post('/make-server-3eae23a6/landlord/stripe/connect', async (c) => {
       rec = { accountId: acct.id, chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, createdAt: now, updatedAt: now };
       await kv.set(landlordStripeKey(email), rec);
     }
-    const appUrl = rentAppUrl();
+    const appUrl = APP_URL;
     const link = await stripeReq('account_links', new URLSearchParams({
       account: rec.accountId,
       refresh_url: `${appUrl}/landlord-portal?tab=settings&stripe=refresh`,
@@ -9637,7 +9629,7 @@ app.post('/make-server-3eae23a6/tenant/rent/pay', async (c) => {
     }
 
     const paymentId = crypto.randomUUID();
-    const appUrl = rentAppUrl();
+    const appUrl = APP_URL;
     // Optional platform fee (percent) — set RENT_PLATFORM_FEE_PERCENT to enable.
     const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
     const applicationFee = feePercent > 0 ? Math.round(amount * 100 * (feePercent / 100)) : 0;
@@ -9789,7 +9781,7 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/charge', async (c) => {
 
     const paymentId = crypto.randomUUID();
     const now = new Date().toISOString();
-    const appUrl = rentAppUrl();
+    const appUrl = APP_URL;
     let checkoutUrl = '';
     let stripeCheckoutSessionId = '';
 
@@ -9912,7 +9904,7 @@ app.post('/make-server-3eae23a6/landlord/tenants/:id/autopay', async (c) => {
     if (amount <= 0) return c.json({ success: false, error: 'A positive rent amount is required.' }, 400);
     const dayOfMonth = Math.min(28, Math.max(1, Number(body.dayOfMonth) || 1));
 
-    const appUrl = rentAppUrl();
+    const appUrl = APP_URL;
     const feePercent = Number(Deno.env.get('RENT_PLATFORM_FEE_PERCENT') || '0');
     const params = new URLSearchParams({
       mode: 'subscription', customer_email: tenantEmail,
@@ -10125,7 +10117,7 @@ app.get('/make-server-3eae23a6/landlord/applications', async (c) => {
       success: true,
       applications,
       token: active ? token : '',
-      applyUrl: active ? `${rentAppUrl()}/apply?t=${token}` : '',
+      applyUrl: active ? `${appUrl()}/apply?t=${token}` : '',
       link: {
         state: link.state,
         expiresAt: link.meta?.expiresAt || null,
@@ -10158,7 +10150,7 @@ app.post('/make-server-3eae23a6/landlord/applications/link', async (c) => {
     return c.json({
       success: true,
       token,
-      applyUrl: `${rentAppUrl()}/apply?t=${token}`,
+      applyUrl: `${appUrl()}/apply?t=${token}`,
       link: { state: link.state, expiresAt: link.meta?.expiresAt || null, revokedAt: null },
     });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to rotate the link.' }, 500); }
@@ -10558,7 +10550,7 @@ async function inviteForOrder(order: any): Promise<{ ok: boolean; order: any }> 
       orderId: order.id,
       applicantName: String(order.applicantName || ''),
       applicantEmail: String(order.applicantEmail || ''),
-      returnUrl: `${rentAppUrl()}/apply`,
+      returnUrl: `${appUrl()}/apply`,
     });
     // The applicant's own token. 128 bits, bound to this one order, and the
     // only thing that reveals it to them.
@@ -10605,7 +10597,7 @@ async function inviteForOrder(order: any): Promise<{ ok: boolean; order: any }> 
  * rather than guessing from the event type.
  */
 async function createScreeningCheckout(order: any, decision: { payer: string | null; amountCents: number }) {
-  const base = rentAppUrl();
+  const base = appUrl();
   const params = new URLSearchParams();
   params.set('mode', 'payment');
   params.set('success_url', `${base}/landlord-portal?screening=paid`);
@@ -10858,7 +10850,7 @@ app.post('/make-server-3eae23a6/landlord/applications/:id/screening', async (c) 
           await kv.set(screeningDisclosureKey(disclosureToken), { orderId: id, createdAt: new Date().toISOString() });
 
           const to = String(order.applicantEmail || '').trim().toLowerCase();
-          const payUrl = `${rentAppUrl()}/screening-fee?t=${disclosureToken}`;
+          const payUrl = `${appUrl()}/screening-fee?t=${disclosureToken}`;
           if (to) {
             notifyRecipient(to, 'form_completed', {
               subject: 'One step to continue your rental application',
@@ -12582,22 +12574,6 @@ const LINKEDIN_CLIENT_SECRET = Deno.env.get('LINKEDIN_CLIENT_SECRET') || '';
 // X (Twitter) API v2 uses OAuth 2.0 with PKCE.
 const TWITTER_CLIENT_ID      = Deno.env.get('TWITTER_CLIENT_ID')      || '';
 const TWITTER_CLIENT_SECRET  = Deno.env.get('TWITTER_CLIENT_SECRET')  || '';
-const APP_URL             = Deno.env.get('APP_URL')             || 'https://www.theblackphoenixcompany.com';
-// REPLY_TO_EMAIL and NOTIFICATION_FROM_EMAIL now come from `emailIdentity.ts`,
-// imported at the top of this file. They used to be declared here and in two
-// other server files, with three copies of the fallback address between them.
-// Normalize a phone number to E.164 (e.g. "(555) 123-4567" -> "+15551234567").
-// Twilio rejects non-E.164 numbers, which is why raw formatted input never sends.
-function toE164(raw: string): string {
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  const digits = s.replace(/\D/g, '');
-  if (!digits) return '';
-  if (s.startsWith('+')) return '+' + digits;
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  return '+' + digits;
-}
 
 /**
  * Reads and validates the Twilio credentials from env, trimming stray
@@ -13842,11 +13818,6 @@ function createGiftCardCode() {
 
 function validGiftCardEmail(value: unknown) {
   return typeof value === 'string' && /^\S+@\S+\.\S+$/.test(value.trim());
-}
-
-function money(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
 }
 
 type StripeAccount = 'services' | 'tbpco_ecommerce';
@@ -15424,7 +15395,7 @@ app.post('/make-server-3eae23a6/gift-cards/checkout', async (c) => {
       };
     }
 
-    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const appUrl = APP_URL;
     const session = await stripeCheckoutSession(new URLSearchParams({
       'payment_method_types[]': 'card',
       mode: 'payment',
@@ -18040,7 +18011,7 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
     }
     if (amount <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
     const paymentId = crypto.randomUUID();
-    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const appUrl = APP_URL;
     const portal = invoicePortal(invoice?.recipientPortal || invoice?.recipient_portal || body.recipientPortal);
     const returnTo = invoicePortalRoutes[portal]; const rail: StripeAccount = invoice?.paymentRail === 'tbpco_ecommerce' || invoice?.payment_rail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
     const paymentMethod = body.paymentMethod === 'us_bank_account' ? 'us_bank_account' : 'card';
@@ -18399,7 +18370,7 @@ app.post('/make-server-3eae23a6/store/checkout', async (c) => {
       const order = await finalizeStoreOrder(checkout, null);
       return c.json({ success: true, checkoutId, order, zeroBalanceOrder: true });
     }
-    const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const appUrl = APP_URL;
     const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
     const params = new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', customer_email: email, success_url: `${appUrl}/public-store?checkout_id=${checkoutId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/public-store?checkout=cancelled`, expires_at: String(expiresAt), 'metadata[store_checkout_id]': checkoutId, 'metadata[commerce_account]': 'TBPCO_ECOMMERCE', 'metadata[gift_card_amount]': String(money(giftCardReservation?.amount)) });
     let remainingCredit = money(giftCardReservation?.amount);
@@ -19908,7 +19879,7 @@ app.post('/make-server-3eae23a6/subscriptions/checkout', async (c) => {
     else if (plan !== 'premium' || amount !== 49) return c.json({ success: false, error: 'A valid paid plan is required.' }, 400);
     const now = new Date().toISOString(); const subscriptionId = `SUB-${crypto.randomUUID()}`;
     const subscription = { id: subscriptionId, type: 'customer', stakeholderId: user.id || user.email, stakeholderName: String(body.name || user.user_metadata?.full_name || user.email.split('@')[0]), stakeholderEmail: user.email, plan, status: 'pending_payment', billingCycle: body.billingCycle === 'annual' ? 'annual' : 'monthly', amount, startDate: now, renewalDate: new Date(Date.now() + (body.billingCycle === 'annual' ? 365 : 30) * 86400000).toISOString(), hoursIncluded: Number(body.hoursIncluded || 0), hoursUsed: 0, hoursRollover: 0, hoursGifted: 0, autoRenew: true, paymentMethod: 'stripe', createdAt: now, updatedAt: now, createdBy: user.email };
-    const paymentId = crypto.randomUUID(); const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const paymentId = crypto.randomUUID(); const appUrl = APP_URL;
     const session = await stripeCheckoutSession(new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', success_url: `${appUrl}/customer-portal-app?tab=dashboard&payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/customer-portal-app?tab=dashboard&subscription=cancelled`, 'line_items[0][price_data][currency]': 'usd', 'line_items[0][price_data][product_data][name]': `Black Phoenix ${plan} subscription`, 'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)), 'line_items[0][quantity]': '1', customer_email: user.email, 'metadata[payment_id]': paymentId, 'metadata[subscription_id]': subscriptionId }));
     const payment = { id: paymentId, subscriptionId, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: now, updatedAt: now };
     await kv.set(subscriptionKey(subscriptionId), subscription); await kv.set(`payment:${paymentId}`, payment);
@@ -19924,7 +19895,7 @@ app.post('/make-server-3eae23a6/subscriptions/:id/checkout', async (c) => {
     if (!subscription) return c.json({ success: false, error: 'Subscription not found.' }, 404);
     if (!admin && !ownsSubscription(subscription, user.email)) return c.json({ success: false, error: 'You may only pay your own subscription.' }, 403);
     const amount = money(subscription.amount); if (amount <= 0) return c.json({ success: false, error: 'This subscription does not have a payable amount.' }, 400);
-    const now = new Date().toISOString(); const paymentId = crypto.randomUUID(); const appUrl = (Deno.env.get('APP_URL') || 'https://www.theblackphoenixcompany.com').replace(/\/$/, '');
+    const now = new Date().toISOString(); const paymentId = crypto.randomUUID(); const appUrl = APP_URL;
     const session = await stripeCheckoutSession(new URLSearchParams({ 'payment_method_types[]': 'card', mode: 'payment', success_url: `${appUrl}/customer-portal-app?tab=dashboard&payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${appUrl}/customer-portal-app?tab=dashboard&subscription=cancelled`, 'line_items[0][price_data][currency]': 'usd', 'line_items[0][price_data][product_data][name]': `Black Phoenix ${subscription.plan || 'subscription'} payment`, 'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)), 'line_items[0][quantity]': '1', customer_email: user.email, 'metadata[payment_id]': paymentId, 'metadata[subscription_id]': subscription.id }));
     const payment = { id: paymentId, subscriptionId: subscription.id, amount, status: 'pending_confirmation', customerEmail: user.email, stripeCheckoutSessionId: session.id, createdAt: now, updatedAt: now };
     await kv.set(`payment:${paymentId}`, payment);
@@ -20715,7 +20686,7 @@ app.post('/make-server-3eae23a6/change-orders/:id/send', async (c) => {
       updatedAt: nowIso,
     });
 
-    const link = `${rentAppUrl()}/change-order-approval?token=${token}`;
+    const link = `${appUrl()}/change-order-approval?token=${token}`;
     const cost = Number(co.estimatedCost || 0);
     notifyRecipient(to, 'work_request', {
       subject: `Approval needed: ${co.title || co.coNumber} — ${co.projectName || 'your project'}`,
