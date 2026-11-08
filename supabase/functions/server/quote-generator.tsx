@@ -24,6 +24,7 @@ import { ensureDisposal, ensureDisposalPhase } from './quoteDisposal.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
+import { beginAiCall, ledgerContextFor, type LedgerContext } from './aiLedger.ts';
 
 const quoteRouter = new Hono();
 
@@ -516,9 +517,36 @@ export type Repricer = (estimate: any) => { estimate: any; summary?: any };
  */
 export async function runEstimator(
   input: EstimatorInput, reprice?: Repricer, factors: Record<string, TradeFactor> = {},
+  ledger: LedgerContext = {},
 ) {
+  /**
+   * Opened before the model is called, closed on every path out.
+   *
+   * This estimator is the most valuable thing on the platform to have a record
+   * of, because its failure mode is silent BY DESIGN: every unhappy path below
+   * returns a heuristic estimate rather than an error, so a quote that the
+   * model never saw is indistinguishable to the caller from one it wrote. That
+   * is the right behaviour — a thinner quote beats no quote — and it means
+   * nobody finds out when the model stopped answering.
+   *
+   * `usedAI` already recorded that distinction and went nowhere. Now it lands
+   * somewhere a person can read a week later.
+   */
+  const call = await beginAiCall({
+    agent: 'quote-generator',
+    // The trade, not the customer's description — the description is theirs
+    // and this column is read by a person scanning a list.
+    operation: `estimate: ${String(input?.serviceType || 'unspecified trade')}`,
+    model: ESTIMATOR_MODEL,
+    provider: 'openai',
+    bucket: 'ai',
+    input: buildUserPrompt(input),
+    ...ledger,
+  });
+
   if (!Deno.env.get('OPENAI_API_KEY')) {
     console.log('[AI Quote Generator] No OPENAI_API_KEY — using heuristic fallback.');
+    await call.refused('OPENAI_API_KEY is not set', { summary: 'fell back to the heuristic estimate' });
     return { estimate: heuristicEstimate(input, factors), usedAI: false };
   }
   try {
@@ -569,13 +597,31 @@ export async function runEstimator(
     }
 
     const estimate = assembleEstimate(priced, input, factors);
+    const usage = (completion as any)?.usage || {};
     // If the model returned nothing usable, fall back rather than send an empty quote.
     if (estimate.materials.length === 0 && estimate.labor.length === 0) {
+      /**
+       * Recorded as `refused` rather than `ok`, because from the customer's
+       * point of view the model contributed nothing. This is the case the
+       * 16,000-token note above describes: a truncated response parses to an
+       * object with no line items, and the only previous symptom was a
+       * thinner quote labelled `server-heuristic`.
+       */
+      await call.refused('the model returned no usable line items', {
+        summary: 'fell back to the heuristic estimate',
+        tokensIn: usage.prompt_tokens, tokensOut: usage.completion_tokens,
+      });
       return { estimate: heuristicEstimate(input, factors), usedAI: false };
     }
+    await call.ok({
+      summary: `${estimate.materials.length} material and ${estimate.labor.length} labour lines`
+        + (priceSummary ? ', repriced from the company catalogue' : ', at the model’s own prices'),
+      tokensIn: usage.prompt_tokens, tokensOut: usage.completion_tokens,
+    });
     return { estimate: { ...estimate, priceSummary }, usedAI: true };
   } catch (error: any) {
     console.error('[AI Quote Generator] Estimator error, falling back:', error?.message || error);
+    await call.failed(error, { summary: 'fell back to the heuristic estimate' });
     return { estimate: heuristicEstimate(input, factors), usedAI: false };
   }
 }
@@ -622,6 +668,7 @@ quoteRouter.post('/generate-quote', async (c) => {
       },
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
+      ledgerContextFor(c),
     );
 
     // Legacy-compatible field names for older callers.
@@ -687,6 +734,7 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       },
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
+      ledgerContextFor(c),
     );
 
     console.log('[AI Quote Generator] Auto-generated quote:', {

@@ -14,6 +14,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { beginAiCall, type LedgerContext } from "./aiLedger.ts";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { safeFetch } from "./safeFetch.ts";
 
@@ -89,25 +90,63 @@ async function aiJson(
   user: string,
   maxTokens: number,
   prefer: "anthropic" | "openai" = "openai",
+  /**
+   * What this generation is for, and who asked. Optional so existing callers
+   * are unchanged; a caller that passes nothing still produces a ledger row,
+   * just one attributed to nobody.
+   */
+  meta: LedgerContext & { operation?: string } = {},
 ): Promise<{ data: any; provider: string; fallbackReason: string | null }> {
   const override = (Deno.env.get("CONTENT_STUDIO_PROVIDER") || "").toLowerCase();
   const first = override === "anthropic" || override === "openai"
     ? (override as "anthropic" | "openai")
     : prefer;
 
+  const { operation = "generate", ...context } = meta;
+  /**
+   * Instrumented here rather than at each route, because this is the one
+   * place every content-studio generation passes through — and because the
+   * thing most worth recording is the fallback below.
+   *
+   * The comment above says the substitution is "reported, not hidden", and it
+   * is: the caller gets `fallbackReason`. But the caller is a browser, and
+   * nothing kept it. So the failure mode that comment is guarding against —
+   * silently serving a second-choice engine, the way this codebase once
+   * served stock photos while appearing to generate images — was visible for
+   * exactly one HTTP response and then gone. Now it is countable.
+   */
+  const call = await beginAiCall({
+    agent: "content-studio", operation,
+    provider: first, bucket: "ai", input: user,
+    ...context,
+  });
+
   try {
     const data = first === "anthropic"
       ? await anthropicJson(system, user, maxTokens)
       : await openaiJson(system, user, maxTokens);
+    await call.ok({ summary: `${operation} via ${first}` });
     return { data, provider: first, fallbackReason: null };
   } catch (err: any) {
     const second = first === "anthropic" ? "openai" : "anthropic";
     const reason = err?.error?.error?.message || err?.message || String(err);
     console.log(`[Content Studio] ${first} failed (${reason}); falling back to ${second}.`);
-    const data = second === "anthropic"
-      ? await anthropicJson(system, user, maxTokens)
-      : await openaiJson(system, user, maxTokens);
-    return { data, provider: second, fallbackReason: `${first}: ${reason}` };
+    try {
+      const data = second === "anthropic"
+        ? await anthropicJson(system, user, maxTokens)
+        : await openaiJson(system, user, maxTokens);
+      // Recorded as OK, because the caller got what they asked for — but the
+      // summary says which engine actually answered and why.
+      await call.ok({
+        summary: `${operation} via ${second} after ${first} failed: ${reason}`,
+        model: second,
+      });
+      return { data, provider: second, fallbackReason: `${first}: ${reason}` };
+    } catch (second_err: any) {
+      // Both engines gone. This is the one case the caller sees as an error.
+      await call.failed(second_err, { summary: `both engines failed; ${first}: ${reason}` });
+      throw second_err;
+    }
   }
 }
 

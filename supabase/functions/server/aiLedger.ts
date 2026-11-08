@@ -45,6 +45,7 @@
  * that, and they fail closed. This only observes.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 
 export type AiAuthority = 'staff' | 'subscriber' | 'public' | 'cron' | 'internal';
 export type AiOutcome = 'running' | 'ok' | 'refused' | 'error';
@@ -54,8 +55,17 @@ export interface BeginAiCall {
   agent: string;
   /** What it was asked for within that capability. */
   operation: string;
-  /** On what basis this was allowed. Recorded, never inferred later. */
-  authority: AiAuthority;
+  /**
+   * On what basis this was allowed. Recorded, never inferred later.
+   *
+   * Optional here and defaulted to `internal` by `beginAiCall`, because the
+   * column is NOT NULL and the common instrumentation pattern is a route
+   * spreading a context object into this call. A caller that forgets to set
+   * it should get a row saying "we did not record who authorised this", which
+   * is true and visible, rather than a failed INSERT that loses the row
+   * entirely and takes the record of the call with it.
+   */
+  authority?: AiAuthority;
   /** The verified user, where there is one. Never anything caller-supplied. */
   actor?: { id?: string; email?: string } | null;
   actorRole?: string;
@@ -160,7 +170,7 @@ export async function beginAiCall(input: BeginAiCall): Promise<AiCallHandle> {
       actor_email: input.actor?.email ? String(input.actor.email).toLowerCase() : null,
       actor_id: input.actor?.id || null,
       actor_role: input.actorRole || null,
-      authority: input.authority,
+      authority: input.authority || 'internal',
       agent: input.agent,
       operation: input.operation,
       provider: input.provider || null,
@@ -240,5 +250,61 @@ export async function recordAiCall<T>(
   } catch (e) {
     await call.failed(e);
     throw e;
+  }
+}
+
+/**
+ * The parts of a ledger entry a ROUTE knows and a worker function does not.
+ *
+ * Instrumented functions like `runEstimator` are called from several places
+ * and have no Hono context of their own, so they take this and spread it. It
+ * is optional at every call site: an un-instrumented caller still produces a
+ * row, just one that says `internal` and names nobody — a truthful record of
+ * a call nobody attributed, rather than no record at all.
+ */
+export type LedgerContext = Partial<Pick<
+  BeginAiCall,
+  'actor' | 'actorRole' | 'authority' | 'requestPath' | 'businessId' | 'applicationId'
+>>;
+
+/**
+ * Describe who is asking, from a Hono context, for free.
+ *
+ * READS THE ACTOR OFF THE CONTEXT, NEVER RE-RESOLVES IT
+ *
+ * The auth wall in `index.tsx` already calls `intakeActor` for every request
+ * that is not public and stores the result with `c.set('actor', user)`,
+ * specifically so that nothing downstream looks it up again. `intakeActor` is
+ * a network round trip to Supabase auth; calling it here would add one to
+ * every instrumented route purely to write a log line, which is a bad trade
+ * on a latency-sensitive path and would make instrumenting a route something
+ * people avoid.
+ *
+ * So this reads what the gate already established. A route with no actor on
+ * the context is a public one, and is recorded as such.
+ *
+ * AUTHORITY IS DERIVED FROM app_metadata ONLY
+ *
+ * Through `isTrustedStaff`, for the reason set out in `trustedRole.ts`: a role
+ * read from `user_metadata` is one the account holder wrote themselves. A
+ * ledger that believed it would record a customer's own claim about their
+ * authority as though the platform had agreed with it — which is worse than
+ * recording nothing, because it reads as verified.
+ */
+export function ledgerContextFor(c: any): LedgerContext {
+  let requestPath: string | undefined;
+  try { requestPath = new URL(c.req.url).pathname; } catch { /* not worth failing over */ }
+
+  try {
+    const user = c.get?.('actor');
+    if (!user?.id && !user?.email) return { authority: 'public', requestPath };
+    return {
+      actor: { id: user.id, email: user.email },
+      actorRole: trustedRole(user) || undefined,
+      authority: isTrustedStaff(user) ? 'staff' : 'subscriber',
+      requestPath,
+    };
+  } catch {
+    return { authority: 'internal', requestPath };
   }
 }

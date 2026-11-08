@@ -30,6 +30,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { readTrade, systemFor, describe, CHANGE_FIELDS } from "./assistantPrompt.ts";
+import { beginAiCall, ledgerContextFor, type AiCallHandle } from "./aiLedger.ts";
 
 const app = new Hono();
 
@@ -51,6 +52,15 @@ async function requireSignedIn(c: any, next: any) {
 app.use("*", requireSignedIn);
 
 app.post("/ask", async (c) => {
+  /**
+   * Declared out here so the catch below can close the row.
+   *
+   * Inside the `try` it would be out of scope exactly when it is needed — on
+   * the path where something threw — and the row would be left saying
+   * `running` forever, which is the state the ledger reads as "a handler died
+   * without recording an outcome". True, but not the reason.
+   */
+  let call: AiCallHandle | null = null;
   try {
     const body = await c.req.json().catch(() => ({}));
     const question = String(body?.question || "").trim().slice(0, 2000);
@@ -59,8 +69,20 @@ app.post("/ask", async (c) => {
 
     if (!question) return c.json({ error: "Ask a question." }, 400);
 
+    const model = Deno.env.get("DESIGN_ASSISTANT_MODEL") || "claude-opus-5";
+    call = await beginAiCall({
+      agent: "design-assistant",
+      operation: `answer a ${trade} question`,
+      model, provider: "anthropic", bucket: "ai",
+      input: question,
+      ...ledgerContextFor(c),
+    });
+
     const key = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!key) return c.json({ error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
+    if (!key) {
+      await call.refused("ANTHROPIC_API_KEY is not set");
+      return c.json({ error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
+    }
 
     const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
 
@@ -72,7 +94,7 @@ app.post("/ask", async (c) => {
     ];
 
     const message = await client.messages.create({
-      model: Deno.env.get("DESIGN_ASSISTANT_MODEL") || "claude-opus-5",
+      model,
       max_tokens: 6000,
       thinking: { type: "adaptive" },
       system: systemFor(trade),
@@ -92,9 +114,11 @@ app.post("/ask", async (c) => {
     const candidate = first !== -1 && last > first ? text.slice(first, last + 1) : text;
 
     let parsed: any;
+    let jsonParsed = true;
     try {
       parsed = JSON.parse(candidate);
     } catch {
+      jsonParsed = false;
       // A well-formed sentence that failed to be JSON is still a useful answer;
       // losing it to a parse error would be the worse outcome.
       parsed = { answer: raw, changes: [], needsFromTown: [], engineerRequired: false };
@@ -111,6 +135,25 @@ app.post("/ask", async (c) => {
      */
     const applicable = Object.prototype.hasOwnProperty.call(CHANGE_FIELDS, trade);
 
+    /**
+     * Recorded as the answer leaves, with whether the model's reply actually
+     * parsed as JSON.
+     *
+     * That distinction is invisible to the caller — a reply that failed to
+     * parse still comes back as a perfectly good `answer`, with `changes`
+     * silently empty. Worth being able to see how often that happens, because
+     * the Apply buttons the customer never gets are the feature quietly not
+     * working.
+     */
+    const usage = (message as any)?.usage || {};
+    const proposals = applicable && Array.isArray(parsed.changes) ? parsed.changes.slice(0, 8).length : 0;
+    await call.ok({
+      summary: `${trade}: answered${proposals ? `, ${proposals} proposal${proposals === 1 ? '' : 's'}` : ''}`
+        + (jsonParsed ? '' : ', reply was prose rather than JSON')
+        + (parsed.engineerRequired ? ', flagged for an engineer' : ''),
+      tokensIn: usage.input_tokens, tokensOut: usage.output_tokens,
+    });
+
     return c.json({
       answer: String(parsed.answer || "").trim() || "No answer came back — try asking again.",
       changes: applicable && Array.isArray(parsed.changes) ? parsed.changes.slice(0, 8) : [],
@@ -120,6 +163,7 @@ app.post("/ask", async (c) => {
     });
   } catch (err: any) {
     console.log(`[design-assistant] ask failed: ${err?.message || err}`);
+    await call?.failed(err);
     return c.json({ error: `Could not answer that: ${err?.message || err}` }, 500);
   }
 });

@@ -26,6 +26,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { reserve, refund } from "./aiSpend.ts";
+import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
 
 const app = new Hono();
 
@@ -608,14 +609,33 @@ app.post("/analyze", async (c) => {
     // a burst of parallel requests all pass the same check before any of them
     // has been counted.
     const actor = c.get("actor");
+    const model = Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5";
+    const call = await beginAiCall({
+      agent: "house-capture",
+      operation: `read ${blocks.length} photo${blocks.length === 1 ? "" : "s"} of the house`,
+      model, provider: "anthropic", bucket: "ai",
+      ...ledgerContextFor(c),
+    });
+
     const refused = await reserveRead(actor, 1);
-    if (refused) return c.json(refused, 429);
+    if (refused) {
+      /**
+       * A ceiling refusal is worth a row of its own.
+       *
+       * It is the one outcome where nothing was spent and nothing was wrong —
+       * the limit did its job — and it is also the first thing to look at when
+       * a customer says the feature stopped working for them. Without this it
+       * is a 429 in a log nobody reads.
+       */
+      await call.refused("over the account's model-call ceiling");
+      return c.json(refused, 429);
+    }
 
     let message: any;
     try {
       const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
       message = await client.messages.create({
-        model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
+        model,
         max_tokens: 8000,
         thinking: { type: "adaptive" },
         system: analysisSystem(scaleRefs, subject),
@@ -623,8 +643,14 @@ app.post("/analyze", async (c) => {
       });
     } catch (err) {
       await refundRead(actor, 1);
+      await call.failed(err, { summary: "refunded the reserved call" });
       throw err;
     }
+    const usage = (message as any)?.usage || {};
+    await call.ok({
+      summary: `read ${blocks.length} photo${blocks.length === 1 ? "" : "s"}`,
+      tokensIn: usage.input_tokens, tokensOut: usage.output_tokens,
+    });
 
     const raw = message.content
       .filter((b: any) => b.type === "text")
