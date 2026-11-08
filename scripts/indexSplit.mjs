@@ -55,14 +55,56 @@ function decommented(text) {
   let i = 0;
   let state = 'code';
   let quote = '';
+  /**
+   * The last character that decides whether a `/` opens a regex or divides.
+   *
+   * This is not pedantry. `signalFor` in `index.tsx` contains
+   *
+   *     /\/(by-token|screening|architect-review\/review)\//.test(path)
+   *
+   * which ends `\//`. Without this, the final `//` reads as a line comment,
+   * the rest of the line is discarded along with its closing braces, and the
+   * brace balance never recovers — so the function's extent runs on for
+   * thousands of lines and every symbol in them is reported as one of its
+   * dependencies. That is how `propertyAdminAlert` came back as "used by
+   * signalFor" when the two are 3,500 lines apart and unrelated.
+   *
+   * The error was in the safe direction — it invents dependencies rather than
+   * hiding them, so it discourages a clean extraction instead of permitting a
+   * dangerous one. It still has to go, because a tool that cries wolf is one
+   * whose output gets skimmed.
+   */
+  let prevSignificant = '';
+  const REGEX_MAY_FOLLOW = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^', 'return']);
   while (i < text.length) {
     const ch = text[i];
     const next = text[i + 1];
     if (state === 'code') {
       if (ch === '/' && next === '*') { state = 'block'; i += 2; continue; }
       if (ch === '/' && next === '/') { state = 'line'; i += 2; continue; }
+      if (ch === '/' && REGEX_MAY_FOLLOW.has(prevSignificant)) {
+        // A regex literal. Skip to its unescaped closing slash, keeping the
+        // line structure but contributing no brackets.
+        let j = i + 1;
+        let inClass = false;
+        while (j < text.length) {
+          const r = text[j];
+          if (r === '\\') { j += 2; continue; }
+          if (r === '\n') break;            // unterminated: treat as not a regex
+          if (r === '[') inClass = true;
+          else if (r === ']') inClass = false;
+          else if (r === '/' && !inClass) { j++; break; }
+          j++;
+        }
+        out += ' '.repeat(j - i);
+        i = j;
+        prevSignificant = 'x';              // a value, so a following / divides
+        continue;
+      }
       if (ch === '"' || ch === "'" || ch === '`') { state = 'str'; quote = ch; out += ' '; i++; continue; }
-      out += ch; i++; continue;
+      out += ch;
+      if (!/\s/.test(ch)) prevSignificant = ch;
+      i++; continue;
     }
     if (state === 'block') {
       if (ch === '*' && next === '/') { state = 'code'; i += 2; continue; }
