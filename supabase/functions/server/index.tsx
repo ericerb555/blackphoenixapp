@@ -340,6 +340,7 @@ import {
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
 import { propertyManagementRouter } from "./property-management.tsx";
 import { rentalRouter, landlordActor, propertyManagerActor, TENANT_SUBPORTAL_QUOTA } from "./rental-portals.tsx";
+import { aiActivityRouter } from "./ai-activity.tsx";
 /**
  * Leaf utilities that used to be declared in the middle of this file, which
  * is what pinned every block that used them to it. `money` alone was used 85
@@ -1931,6 +1932,12 @@ app.route("/", propertyManagementRouter);
  * account and each one establishes which is asking.
  */
 app.route("/", rentalRouter);
+/**
+ * What the AI is doing and has done — the read side of `ai_call_log`.
+ * Staff only, and read only: rows are written by `aiLedger.ts` from inside
+ * the code being described, never over HTTP.
+ */
+app.route("/", aiActivityRouter);
 app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
 
 // Cohorts — the subscription tiers, their pricing and what they earn. Mounted
