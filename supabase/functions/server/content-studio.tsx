@@ -14,7 +14,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { beginAiCall, type LedgerContext } from "./aiLedger.ts";
+import { beginAiCall, recordedOpenAIFetch, type LedgerContext } from "./aiLedger.ts";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { safeFetch } from "./safeFetch.ts";
 
@@ -153,6 +153,15 @@ async function aiJson(
 async function openaiJson(system: string, user: string, maxTokens = 2500): Promise<any> {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw new Error("AI generation not configured. Set the OPENAI_API_KEY secret.");
+  /**
+   * Deliberately a plain `fetch`, not `recordedOpenAIFetch`.
+   *
+   * `aiJson` above already opens a ledger row around whichever engine it
+   * picks, including the fallback from one provider to the other. Recording
+   * here as well would write two rows for one generation and double every
+   * count on the dashboard — and the second row would be the less useful of
+   * the two, because it cannot see that a fallback happened.
+   */
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -820,7 +829,7 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
 
           const failures: string[] = [];
           for (const model of candidates) {
-            const res = await fetch("https://api.openai.com/v1/images/generations", {
+            const res = await recordedOpenAIFetch({ agent: "content-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
               method: "POST",
               headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
               body: JSON.stringify({ model, prompt, n: 1, size: sizeFor(model) }),
@@ -1047,7 +1056,7 @@ async function drawBeat(prompt: string): Promise<string | null> {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key || !prompt.trim()) return null;
   try {
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
+    const res = await recordedOpenAIFetch({ agent: "content-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({

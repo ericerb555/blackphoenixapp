@@ -75,6 +75,7 @@ import {
 import {
   pickTownToRefresh, describeRun, REFRESH_AFTER_DAYS, type UpkeepRun,
 } from "./exchangeUpkeep.ts";
+import { recordedAnthropic } from "./aiLedger.ts";
 
 export const exchangeUpkeepRoutes = new Hono();
 
@@ -553,7 +554,7 @@ exchangeUpkeepRoutes.post(`${PREFIX}/exchange/admin/health/brief`, async (c) => 
 
   try {
     const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
-    const message = await client.messages.create({
+    const message = await recordedAnthropic({ agent: "exchangeUpkeepRoutes", operation: "Exchange upkeep pass" }, client, {
       // The same model and override the Exchange assistant already uses, so
       // there is one answer to "which model does the Exchange run on".
       model: Deno.env.get("EXCHANGE_ASSISTANT_MODEL") || "claude-opus-5",

@@ -308,3 +308,151 @@ export function ledgerContextFor(c: any): LedgerContext {
     return { authority: 'internal', requestPath };
   }
 }
+
+/* ── instrumenting a call without rewriting the call site ────────────────── */
+
+/**
+ * `fetch` to OpenAI, with the ledger written around it.
+ *
+ * WHY A FETCH WRAPPER RATHER THAN A NICER CLIENT
+ *
+ * There are 31 `api.openai.com/v1/chat/completions` calls across this server
+ * and 11 image generations, each with its own body, its own response
+ * handling and its own idea of what a failure means. A tidy `askTheModel()`
+ * that returned parsed content would mean rewriting all 42 of them, and a
+ * rewrite of 42 working call sites to add LOGGING is a bad trade.
+ *
+ * This takes the same arguments as `fetch` and returns the same `Response`,
+ * so converting a call site is one line and the code around it — `res.ok`,
+ * `await res.json()`, every existing error path — is untouched.
+ *
+ * HOW IT READS USAGE WITHOUT CONSUMING THE BODY
+ *
+ * `res.clone()`. A `Response` body can only be read once, so reading usage
+ * directly would leave the caller with a consumed stream and a confusing
+ * failure some distance away. The clone is read on a background path and its
+ * own failures are swallowed — a malformed response is the caller's problem
+ * to report, not something this should turn into a second error.
+ *
+ * WHAT COUNTS AS FAILURE HERE
+ *
+ * A non-2xx reply is recorded as an error even though `fetch` does not throw
+ * on one. That is the specific trap that made `/leads/blast` claim it had
+ * sent fifty emails while the auth wall refused every one.
+ *
+ * WHY `meta` COMES FIRST
+ *
+ * So converting a call site is a single-line change. The arguments after it
+ * are exactly `fetch`'s, and the body of the init object — which is where
+ * all the length and all the per-site variation lives — does not have to be
+ * touched or even read. With `meta` last, every conversion would mean
+ * finding the matching close brace of a forty-line object literal, 42 times,
+ * by hand. That is how a mechanical change becomes a risky one.
+ */
+export async function recordedOpenAIFetch(
+  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' } & LedgerContext,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const { agent, operation, bucket, ...context } = meta;
+
+  // Best effort, and never allowed to break the call it is describing.
+  let model: string | undefined;
+  let prompt: string | undefined;
+  try {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+    model = body?.model;
+    prompt = typeof body?.prompt === 'string'
+      ? body.prompt
+      : Array.isArray(body?.messages)
+        ? body.messages.map((m: any) => (typeof m?.content === 'string' ? m.content : '')).join('\n')
+        : undefined;
+  } catch { /* an unparseable body is still a call worth recording */ }
+
+  const call = await beginAiCall({
+    agent, operation, bucket: bucket || 'ai',
+    provider: 'openai', model, input: prompt,
+    ...context,
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (e) {
+    await call.failed(e, { summary: 'the request never completed' });
+    throw e;
+  }
+
+  if (!res.ok) {
+    // Read the error text off a clone so the caller can still read it too.
+    let detail = '';
+    try { detail = (await res.clone().text()).slice(0, 300); } catch { /* ignore */ }
+    await call.refused(`HTTP ${res.status}`, { summary: detail || `HTTP ${res.status}` });
+    return res;
+  }
+
+  try {
+    const copy = await res.clone().json();
+    const usage = copy?.usage || {};
+    await call.ok({
+      summary: operation,
+      tokensIn: usage.prompt_tokens ?? usage.input_tokens,
+      tokensOut: usage.completion_tokens ?? usage.output_tokens,
+      model: copy?.model || model,
+    });
+  } catch {
+    // A 2xx whose body is not JSON — an image endpoint returning binary, say.
+    // The call still succeeded; we just know less about it.
+    await call.ok({ summary: operation });
+  }
+
+  return res;
+}
+
+/**
+ * `client.messages.create(...)` with the ledger written around it.
+ *
+ * The Anthropic counterpart to `recordedOpenAIFetch`, and `meta` comes first
+ * for the same reason: every one of these call sites passes a multi-line
+ * object literal, and a one-line conversion cannot go wrong in the way that
+ * hunting for a closing brace can.
+ *
+ * Returns exactly what the SDK returned, so the caller's handling of
+ * `message.content`, usage and errors is untouched.
+ */
+export async function recordedAnthropic(
+  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' } & LedgerContext,
+  client: any,
+  params: any,
+): Promise<any> {
+  const { agent, operation, bucket, ...context } = meta;
+
+  // The prompt, for its length and hash only.
+  let prompt: string | undefined;
+  try {
+    const parts = (params?.messages || []).map((m: any) =>
+      typeof m?.content === 'string' ? m.content : '');
+    prompt = [params?.system, ...parts].filter(Boolean).join('\n') || undefined;
+  } catch { /* shape is unusual; the call is still worth recording */ }
+
+  const call = await beginAiCall({
+    agent, operation, bucket: bucket || 'ai',
+    provider: 'anthropic', model: params?.model, input: prompt,
+    ...context,
+  });
+
+  try {
+    const message = await client.messages.create(params);
+    const usage = (message as any)?.usage || {};
+    await call.ok({
+      summary: operation,
+      tokensIn: usage.input_tokens,
+      tokensOut: usage.output_tokens,
+      model: (message as any)?.model || params?.model,
+    });
+    return message;
+  } catch (e) {
+    await call.failed(e);
+    throw e;
+  }
+}

@@ -33,6 +33,7 @@ import { approvalAfterSave, isPublishable, decide } from "./publishApproval.ts";
 import { isPlaceholderLink } from "./placeholderLink.ts";
 import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productImages.tsx";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -390,7 +391,7 @@ advertisingRouter.post("/advertising/images/generate", async (c) => {
     let base64: string | null = null;
 
     for (const model of candidates) {
-      const res = await fetch("https://api.openai.com/v1/images/generations", {
+      const res = await recordedOpenAIFetch({ agent: "advertising", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, prompt, n: 1, size: "1024x1024" }),

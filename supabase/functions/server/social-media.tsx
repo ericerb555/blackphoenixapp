@@ -25,6 +25,7 @@ import * as kv from "./kv_store.tsx";
 import {
   PLATFORMS, PLATFORM_SETUP, isPlatform, refusalFor, fitToPlatform, costOfPost, containsLink,
 } from "./socialPlatforms.ts";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const PREFIX = "/make-server-3eae23a6";
 const GRAPH = "https://graph.facebook.com/v18.0";
@@ -1917,7 +1918,7 @@ socialRouter.post(`${PREFIX}/social/ai-repurpose`, async (c) => {
     if (!OPENAI_API_KEY) {
       return c.json({ error: "OpenAI is not configured (missing OPENAI_API_KEY)." }, 400);
     }
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await recordedOpenAIFetch({ agent: "social-media", operation: "draft a social post" }, "https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

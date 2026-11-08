@@ -19,6 +19,7 @@
 // Everything is KV-backed and best-effort so the tool works out of the box.
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { recordedAnthropic } from "./aiLedger.ts";
 
 // ── Which model writes the page ─────────────────────────────────────────────
 // Set PAGE_PILOT_PROVIDER=anthropic to write pages with Claude instead of
@@ -51,7 +52,7 @@ async function writeWithClaude(system: string, user: string): Promise<string> {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set.');
 
   const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey });
-  const message = await client.messages.create({
+  const message = await recordedAnthropic({ agent: "page-pilot", operation: "draft page content" }, client, {
     model: Deno.env.get('PAGE_PILOT_ANTHROPIC_MODEL') || 'claude-opus-5',
     // Thinking is on by default and counts against max_tokens, so a limit sized
     // for the JSON alone would truncate the page mid-object. The JSON runs

@@ -24,6 +24,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";
 import { winningArchetypesFragment } from "./reel-scoreboard.tsx";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const videoStudioRouter = new Hono();
 
@@ -128,7 +129,7 @@ Open with a strong 3-second hook. Return ONLY JSON with this exact shape:
   ]
 }`;
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const resp = await recordedOpenAIFetch({ agent: "video-studio", operation: "chat completion" }, "https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -200,7 +201,7 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
     // then fall back. gpt-image-1 uses 1536-wide/tall rather than 1792 and
     // returns b64 without being asked.
     const gptSize = aspect === "landscape" ? "1536x1024" : aspect === "square" ? "1024x1024" : "1024x1536";
-    let aiRes = await fetch("https://api.openai.com/v1/images/generations", {
+    let aiRes = await recordedOpenAIFetch({ agent: "video-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       // Same minimal parameter set verified working in content-studio.
@@ -208,7 +209,7 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
     });
     if (!aiRes.ok) {
       console.log(`[Video Studio] gpt-image-1 unavailable (HTTP ${aiRes.status}), trying dall-e-3`);
-      aiRes = await fetch("https://api.openai.com/v1/images/generations", {
+      aiRes = await recordedOpenAIFetch({ agent: "video-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, response_format: "b64_json" }),
@@ -317,7 +318,7 @@ videoStudioRouter.post("/video-studio/describe-photos", async (c) => {
       "} ] } with exactly one entry per image, in the order given.";
 
     const look = async (batch: any[]): Promise<any[]> => {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const res = await recordedOpenAIFetch({ agent: "video-studio", operation: "chat completion" }, "https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -625,7 +626,7 @@ Return ONLY JSON:
 One scene per photograph, exactly ${photos.length} scenes per variant, in the order given.
 narration: 1-2 sentences, natural read aloud. seconds: between 3 and 6.`;
 
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiRes = await recordedOpenAIFetch({ agent: "video-studio", operation: "chat completion" }, "https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1021,7 +1022,7 @@ Return ONLY JSON:
   ]
 }`;
 
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiRes = await recordedOpenAIFetch({ agent: "video-studio", operation: "chat completion" }, "https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

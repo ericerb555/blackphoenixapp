@@ -17,6 +17,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest, requireStaff } from "./requireStaff.ts";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const router = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -364,7 +365,7 @@ router.post(`${PREFIX}/marketplace/generate-image`, async (c) => {
     // Top-tier: try gpt-image-1 (highest fidelity) first, fall back to DALL·E 3
     // HD/vivid if the org isn't verified. Both return b64 so we can persist.
     async function genImage(): Promise<{ b64: string; revised: string }> {
-      const primary = await fetch("https://api.openai.com/v1/images/generations", {
+      const primary = await recordedOpenAIFetch({ agent: "marketplace", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "high" }),
@@ -376,7 +377,7 @@ router.post(`${PREFIX}/marketplace/generate-image`, async (c) => {
       } else {
         console.log("gpt-image-1 failed, falling back to dall-e-3 HD:", await primary.text());
       }
-      const fb = await fetch("https://api.openai.com/v1/images/generations", {
+      const fb = await recordedOpenAIFetch({ agent: "marketplace", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: "1024x1024", quality: "hd", style: "vivid", response_format: "b64_json" }),

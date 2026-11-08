@@ -21,6 +21,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const storeAiPricingRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -105,7 +106,7 @@ ${shippingLine}
 Products:
 ${JSON.stringify(chunk.map((i) => ({ id: i.id, name: i.name, category: i.category, myCost: i.cost })))}`;
 
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      const resp = await recordedOpenAIFetch({ agent: "store-ai-pricing", operation: "suggest a product price" }, "https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAIKey}` },
         body: JSON.stringify({

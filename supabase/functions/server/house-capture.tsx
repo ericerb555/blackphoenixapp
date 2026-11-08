@@ -26,7 +26,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { reserve, refund } from "./aiSpend.ts";
-import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
+import { beginAiCall, ledgerContextFor, recordedOpenAIFetch } from "./aiLedger.ts";
 
 const app = new Hono();
 
@@ -1543,7 +1543,7 @@ app.post("/photoreal-3d", async (c) => {
     const refused = await reserveImages(actor, 1);
     if (refused) return c.json(refused, 429);
 
-    const res = await fetch("https://api.openai.com/v1/images/edits", {
+    const res = await recordedOpenAIFetch({ agent: "house-capture", operation: "edit an image", bucket: "render" }, "https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` },
       body: form,

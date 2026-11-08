@@ -46,6 +46,7 @@ import * as kv from "./kv_store.tsx";
 import { requireStaff } from "./requireStaff.ts";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
 import { leadPathNeedsStaff } from "./leadsAccess.ts";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const leadsRouter = new Hono();
 
@@ -106,7 +107,7 @@ Lead data:
 
 Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "one sentence why", "recommendedAction": "what email to send first"}`;
 
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        const res = await recordedOpenAIFetch({ agent: 'leads', operation: 'chat completion' }, 'https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -262,7 +263,7 @@ async function sendLeadEmail(
 
     if (OPENAI_API_KEY) {
       try {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        const res = await recordedOpenAIFetch({ agent: 'leads', operation: 'chat completion' }, 'https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({

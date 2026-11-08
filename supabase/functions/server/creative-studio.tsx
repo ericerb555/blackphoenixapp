@@ -19,6 +19,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { loadBrandVisual } from "./content-studio.tsx";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const creativeStudioRouter = new Hono();
 
@@ -134,7 +135,7 @@ creativeStudioRouter.post("/creative-studio/generate", async (c) => {
 
     // Top-tier: gpt-image-1 (highest fidelity) first, fall back to DALL·E 3 HD/vivid.
     async function genImage(): Promise<{ b64: string; revised: string }> {
-      const primary = await fetch("https://api.openai.com/v1/images/generations", {
+      const primary = await recordedOpenAIFetch({ agent: "creative-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "gpt-image-1", prompt: finalPrompt, n: 1, size: gptSize, quality: wantHd ? "high" : "medium" }),
@@ -146,7 +147,7 @@ creativeStudioRouter.post("/creative-studio/generate", async (c) => {
       } else {
         console.log("[Creative Studio] gpt-image-1 failed, falling back to dall-e-3 HD:", (await primary.text()).slice(0, 300));
       }
-      const fb = await fetch("https://api.openai.com/v1/images/generations", {
+      const fb = await recordedOpenAIFetch({ agent: "creative-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "dall-e-3", prompt: finalPrompt, n: 1, size, quality: "hd", style: "vivid", response_format: "b64_json" }),

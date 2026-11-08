@@ -14,6 +14,7 @@ import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import * as config from "./dropshipper-config.tsx";
 import { screenAndQuarantine } from "./content-filter.tsx";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const zendropRouter = new Hono();
 
@@ -861,7 +862,7 @@ zendropRouter.post(`${PREFIX}/zendrop/publish-to-store`, async (c) => {
       const openaiKey = Deno.env.get("OPENAI_API_KEY");
       if (openaiKey) {
         try {
-          const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          const res = await recordedOpenAIFetch({ agent: "zendrop", operation: "describe a supplier product" }, "https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({

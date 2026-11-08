@@ -3,6 +3,7 @@
 import { Hono } from 'npm:hono@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const marketingAssetsRouter = new Hono();
 
@@ -175,7 +176,7 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
         // fallback instead of a real branded image. Try the current model
         // first, exactly as creative-studio.tsx and marketplace.tsx already do,
         // and send only parameters both accept (b64 is the default).
-        let imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+        let imageResponse = await recordedOpenAIFetch({ agent: 'marketing-assets', operation: 'generate an image', bucket: 'render' }, 'https://api.openai.com/v1/images/generations', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${openaiKey}`,
@@ -199,7 +200,7 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
           // parameter vs unknown model vs content policy) changes the fix.
           const why = await imageResponse.clone().text().catch(() => '');
           console.log(`[marketing-assets] gpt-image-1 failed (HTTP ${imageResponse.status}): ${why.slice(0, 300)}`);
-          imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+          imageResponse = await recordedOpenAIFetch({ agent: 'marketing-assets', operation: 'generate an image', bucket: 'render' }, 'https://api.openai.com/v1/images/generations', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${openaiKey}`,
@@ -410,7 +411,7 @@ The description should be 2-3 paragraphs, highlight key benefits, use persuasive
 Respond ONLY with strict JSON of the form:
 {"headline":"<product name or short hook>","tagline":"<one-line summary>","description":"<the full 2-3 paragraph description>"}`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await recordedOpenAIFetch({ agent: 'marketing-assets', operation: 'chat completion' }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiKey}`,
@@ -509,7 +510,7 @@ Format as JSON:
   "tags": ["tag1", "tag2", ...]
 }`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await recordedOpenAIFetch({ agent: 'marketing-assets', operation: 'chat completion' }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiKey}`,

@@ -14,6 +14,7 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { loadBrandContext } from "./content-studio.tsx";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 export const seoEngineRouter = new Hono();
 
@@ -36,7 +37,7 @@ async function openaiJson(
     throw new Error("AI generation not configured. Set the OPENAI_API_KEY secret.");
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await recordedOpenAIFetch({ agent: "seo-engine", operation: "generate SEO content" }, "https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${openaiKey}`,

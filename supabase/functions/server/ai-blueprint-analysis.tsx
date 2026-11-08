@@ -14,6 +14,7 @@ import { Hono } from 'npm:hono@4';
 import { cors } from 'npm:hono@4/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { reserve, refund } from './aiSpend.ts';
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const aiBlueprintRouter = new Hono();
 
@@ -144,7 +145,7 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
     console.log('[AI Blueprint] Calling OpenAI GPT-4 Vision API...');
 
     // Call OpenAI API with Vision
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await recordedOpenAIFetch({ agent: 'blueprint-analysis', operation: 'analyse blueprint sheets' }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,

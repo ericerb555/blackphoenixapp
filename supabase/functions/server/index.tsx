@@ -338,6 +338,7 @@ import {
   INTAKE_ADMIN_ROLES, PLATFORM_OWNER_EMAILS, STAFF_VIEW_ROLES,
 } from "./identity.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
+import { recordedOpenAIFetch, ledgerContextFor } from "./aiLedger.ts";
 import { propertyManagementRouter } from "./property-management.tsx";
 import { rentalRouter, landlordActor, propertyManagerActor, TENANT_SUBPORTAL_QUOTA } from "./rental-portals.tsx";
 import { aiActivityRouter } from "./ai-activity.tsx";
@@ -4090,7 +4091,7 @@ Valid values:
 
 IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIELDS> block must always be last.`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await recordedOpenAIFetch({ agent: 'ai-guide', operation: 'answer an in-app guide question', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -6566,7 +6567,7 @@ Available skill levels: ${skillLevels.join(', ') || 'standard'}
 
 Respond with ONLY a JSON object (no markdown) of the form:
 {"serviceIds":["id1","id2"],"planName":"short name","skillLevel":"one of the skill levels","frequency":"one of the frequencies","rationale":"1-2 sentences on why these fit","followUpQuestion":"one question to refine the plan"}`;
-    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResp = await recordedOpenAIFetch({ agent: 'plan-builder', operation: 'generate a maintenance plan', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.4, max_tokens: 700, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
@@ -6613,7 +6614,7 @@ ${catalog.slice(0, 40).map((s: any) => `- ${s.name} [${s.category}]: $${s.baseMo
 
 Estimate a fair monthly base price consistent with the reference items. Respond with ONLY a JSON object (no markdown) of the form:
 {"name":"short service name","category":"best-fit category","baseMonthlyPrice":<integer dollars>,"unit":"per month|per visit|per unit","rationale":"1 sentence explaining the price"}`;
-    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResp = await recordedOpenAIFetch({ agent: 'plan-builder', operation: 'price a custom plan', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 400, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
@@ -6720,7 +6721,7 @@ app.post('/make-server-3eae23a6/permit-ai/chat', async (c) => {
     const system = String(body.systemOverride || `You are a permitting and construction expert for New England / New Hampshire projects. Answer clearly and practically. Work type: ${body.workType || 'general'}. Project address: ${body.address || 'not provided'}.`);
     const history = Array.isArray(body.history) ? body.history.filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-12) : [];
     const messages = [{ role: 'system', content: system }, ...history.map((m: any) => ({ role: m.role, content: m.content })), { role: 'user', content: message }];
-    const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResp = await recordedOpenAIFetch({ agent: 'permit-ai', operation: 'answer a permit question', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.5, max_tokens: 900, messages }),
@@ -7669,7 +7670,7 @@ Title: ${title}
 Description: ${description}
 Requirements: ${Array.isArray(body.requirements) ? body.requirements.join(', ') : String(body.requirements || '')}
 Type: ${body.type || 'unknown'}`;
-        const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+        const aiResp = await recordedOpenAIFetch({ agent: 'bid-router', operation: 'analyse an incoming bid', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.3, max_tokens: 500, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
@@ -7746,7 +7747,7 @@ app.post('/make-server-3eae23a6/video/ai-edit', async (c) => {
       try {
         const prompt = `You are a video editing assistant. A clip named "${body.name || 'clip'}" is ${duration || 'unknown'}s long at ${body.width || '?'}x${body.height || '?'}. Suggest edits as ONLY JSON with this exact shape:
 {"summary":"short","recommendedAspectRatio":"e.g. 9:16","trimPoints":[{"start":seconds,"end":seconds,"reason":"why"}],"effects":[{"type":"effect name","start":seconds,"end":seconds,"intensity":"low|medium|high","reason":"why"}],"transitions":[{"type":"transition name","between":[clipNumber,clipNumber],"duration":seconds}]}`;
-        const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+        const aiResp = await recordedOpenAIFetch({ agent: 'video-studio', operation: 'plan a video edit', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model: 'gpt-4.1-mini', temperature: 0.5, max_tokens: 700, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }),
@@ -8657,7 +8658,7 @@ app.post('/make-server-3eae23a6/social/ai-repurpose', async (c) => {
       tiktok: 'punchy hook first line, casual Gen-Z friendly tone, 3-5 trending hashtags, very short',
     };
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await recordedOpenAIFetch({ agent: 'social-media', operation: 'repurpose a post', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -9038,7 +9039,7 @@ Return ONLY the JSON object.`,
     }
 
     const model = photoUrls.length > 0 ? 'gpt-4o' : 'gpt-4o-mini';
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await recordedOpenAIFetch({ agent: 'ai-floorplan', operation: 'draft a plan for a work request', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.4 }),
@@ -13968,7 +13969,7 @@ app.post('/make-server-3eae23a6/ai/vision', async (c) => {
     const content = Array.isArray(body.messages?.[0]?.content) ? body.messages[0].content : [];
     const image = content.find((item: any) => item?.type === 'image')?.source; const prompt = String(content.find((item: any) => item?.type === 'text')?.text || 'Analyze this construction blueprint.');
     if (!image?.data || !image?.media_type) return c.json({ error: 'A blueprint image is required.' }, 400);
-    const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${image.media_type};base64,${image.data}` } }] }], max_tokens: Math.min(4096, Number(body.max_tokens || 2048)) }) });
+    const response = await recordedOpenAIFetch({ agent: 'vision-read', operation: 'read an image', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${image.media_type};base64,${image.data}` } }] }], max_tokens: Math.min(4096, Number(body.max_tokens || 2048)) }) });
     const data = await response.json(); if (!response.ok) return c.json({ error: data?.error?.message || 'AI vision request failed.' }, response.status);
     const text = data?.choices?.[0]?.message?.content || ''; return c.json({ content: [{ type: 'text', text }], text });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to analyze blueprint.' }, 500); }
@@ -14973,7 +14974,7 @@ Return STRICT JSON: {"prices":[{"sku","price","confidence","rationale"}]}.
 Products:
 ${JSON.stringify(chunk.map((i) => ({ sku: i.sku, name: i.name, category: i.category, myCost: i.cost })))}`;
 
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      const resp = await recordedOpenAIFetch({ agent: 'dropshipper', operation: 'suggest inventory pricing', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openAIKey}` },
         body: JSON.stringify({

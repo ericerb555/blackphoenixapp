@@ -30,6 +30,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { recordedAnthropic } from "./aiLedger.ts";
 
 export const inspectionsRouter = new Hono();
 
@@ -521,7 +522,7 @@ Return ONLY a JSON object, no prose, no code fence:
 }`;
 
     const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
-    const message = await client.messages.create({
+    const message = await recordedAnthropic({ agent: "property-inspections", operation: "draft an inspection plan" }, client, {
       model: Deno.env.get("INSPECTION_PLAN_MODEL") || "claude-opus-5",
       max_tokens: 4000,
       system,

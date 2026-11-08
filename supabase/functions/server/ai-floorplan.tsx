@@ -13,6 +13,7 @@
  */
 
 import { Hono } from 'npm:hono@4';
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const app = new Hono();
 
@@ -153,7 +154,7 @@ async function analyzeWithOpenAI(
     }
   ];
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await recordedOpenAIFetch({ agent: 'ai-floorplan', operation: 'read a floor plan from an image' }, 'https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -467,7 +468,7 @@ Generate a complete floor plan with rooms, walls, doors, and windows. Return you
 
 All measurements in inches. Create a functional, realistic layout.`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await recordedOpenAIFetch({ agent: 'ai-floorplan', operation: 'draft a floor plan from a description' }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

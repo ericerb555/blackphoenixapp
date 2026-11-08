@@ -12,6 +12,7 @@
 
 import { Hono } from "npm:hono@4";
 import { cors } from "npm:hono@4/cors";
+import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const projectVisionRouter = new Hono();
 
@@ -111,7 +112,7 @@ projectVisionRouter.post("/make-server-3eae23a6/project-vision/analyze", async (
 
     console.log(`[ProjectVision] Analyzing ${imageContent.length} image(s) via GPT-4o Vision`);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await recordedOpenAIFetch({ agent: "project-vision", operation: "analyse project notes" }, "https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

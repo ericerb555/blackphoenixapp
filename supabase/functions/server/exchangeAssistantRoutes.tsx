@@ -33,6 +33,7 @@ import {
   resolveFromAliases, weOfferSomething, fenceRows, holdingCategoryOf,
   withinDailyCap, assistantSystemPrompt, DAILY_MODEL_ASKS,
 } from "./exchangeAssistant.ts";
+import { recordedAnthropic } from "./aiLedger.ts";
 /*
  * `keepKnownIds` is deliberately NOT imported yet.
  *
@@ -114,7 +115,7 @@ async function interpret(ask: string, categories: any[], townName: string | null
   const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
   const menu = categories.map((c) => `${c.slug} — ${c.name}`).join("\n");
 
-  const message = await client.messages.create({
+  const message = await recordedAnthropic({ agent: "exchangeAssistantRoutes", operation: "answer an Exchange question" }, client, {
     model: Deno.env.get("EXCHANGE_ASSISTANT_MODEL") || "claude-opus-5",
     max_tokens: 400,
     system: [
@@ -173,7 +174,7 @@ async function phrase(ask: string, rows: any[], townName: string | null): Promis
 
   try {
     const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
-    const message = await client.messages.create({
+    const message = await recordedAnthropic({ agent: "exchangeAssistantRoutes", operation: "answer an Exchange question" }, client, {
       model: Deno.env.get("EXCHANGE_ASSISTANT_MODEL") || "claude-opus-5",
       max_tokens: 300,
       system: assistantSystemPrompt(townName),

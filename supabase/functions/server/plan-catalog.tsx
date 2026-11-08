@@ -40,6 +40,7 @@ import { PORTAL_UPGRADE_PRICES } from "./portalUpgradePrices.ts";
 import { AGREED_LADDERS, AGREED_ADD_ONS } from "./agreedLadders.ts";
 import { QUOTE_DISCOUNT_CAP_PERCENT } from "./discounts.ts";
 import { retiredTierAudience } from "./retiredAudiences.ts";
+import { recordedAnthropic } from "./aiLedger.ts";
 
 /**
  * Which Stripe mode this server sells in, from the key's own prefix.
@@ -412,7 +413,7 @@ Return ONLY a JSON object, no prose, no code fence:
       : "They sell nothing for this portal yet.";
 
     const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
-    const message = await client.messages.create({
+    const message = await recordedAnthropic({ agent: "plan-catalog", operation: "draft a plan tier" }, client, {
       model: Deno.env.get("PLAN_DRAFT_MODEL") || "claude-opus-5",
       max_tokens: 4000,
       system,
