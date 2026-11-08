@@ -14,6 +14,7 @@
  * almost nothing to get right.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { pickRecordingFormat } from '../lib/reelSpec';
 import { Download, Loader2, Square, AlertTriangle, Film, Settings2 } from 'lucide-react';
 
 export interface ReelSlide {
@@ -56,22 +57,27 @@ const DISSOLVE = 0.4; // seconds of overlap between beats
 const SAFE_TOP = 0.14;
 const SAFE_BOTTOM = 0.78;
 
-function pickMimeType(): { mimeType: string; ext: string } | null {
-  // VP9 first: markedly better detail per bit than VP8 at the bitrates a reel
-  // needs, and text edges are exactly where weak compression shows.
-  const candidates: Array<[string, string]> = [
-    ['video/webm;codecs=vp9,opus', 'webm'],
-    ['video/webm;codecs=vp8,opus', 'webm'],
-    ['video/mp4;codecs=h264,aac', 'mp4'],
-    ['video/webm', 'webm'],
-  ];
-  for (const [mimeType, ext] of candidates) {
-    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mimeType)) {
-      return { mimeType, ext };
-    }
-  }
-  return null;
-}
+/**
+ * WHY THIS NO LONGER CHOOSES ITS OWN FORMAT
+ *
+ * It used to, and it chose wrong. The list here tried VP9 first, on the
+ * reasoning that it holds text edges better per bit. True, and beside the
+ * point: Instagram, TikTok and Facebook Reels all REFUSE WebM.
+ * `reelSpec.ts` exists to say exactly that, and is tested on it —
+ *
+ *   "only MP4/MOV with H.264 codec work — other formats silently fail with
+ *    error code 24"
+ *
+ * So on Chrome, which supports VP9, this studio spent its effort rendering a
+ * careful 16 Mbps file that could not be posted anywhere, and nothing said
+ * so. The sister screen already used `pickRecordingFormat`; this one kept a
+ * copy that disagreed with it, which is the same two-implementations problem
+ * that has bitten this project repeatedly. One of the two had to go, and it
+ * was not going to be the tested one.
+ *
+ * `postable` comes back with the format, so the UI can say plainly when a
+ * browser can only manage a download.
+ */
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -368,6 +374,15 @@ export default function ReelRenderer({
   const [status, setStatus] = useState<'idle' | 'loading' | 'rendering' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether the file this browser can produce is one a platform will accept.
+   *
+   * Recording happens either way — a WebM you can download and convert beats
+   * refusing to render at all — but it has to SAY so. The failure this
+   * replaces was Meta rejecting the upload with error code 24, long after
+   * the render had finished and the time had been spent.
+   */
+  const [postable, setPostable] = useState(true);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [ext, setExt] = useState('webm');
   const [quality, setQuality] = useState<'high' | 'max'>('high');
@@ -382,13 +397,9 @@ export default function ReelRenderer({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const codec = pickMimeType();
-    if (!codec) {
-      setError('This browser cannot record video. Chrome or Firefox will work.');
-      setStatus('error');
-      return;
-    }
-    setExt(codec.ext);
+    const codec = pickRecordingFormat();
+    setExt(codec.extension);
+    setPostable(codec.postable);
 
     cancelRef.current = false;
     setError(null);
@@ -614,12 +625,35 @@ export default function ReelRenderer({
             href={videoUrl}
             download={`${filename}.${ext}`}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
-            style={{ background: 'rgba(22,163,74,0.9)' }}
+            style={{ background: postable ? 'rgba(22,163,74,0.9)' : 'rgba(180,83,9,0.9)' }}
           >
-            <Download className="w-4 h-4" /> Download
+            <Download className="w-4 h-4" /> Download {ext.toUpperCase()}
           </a>
         )}
       </div>
+
+      {/*
+        Said BEFORE the upload, not by Meta afterwards.
+        A browser that can only record WebM still renders a perfectly good
+        file — it just is not one Instagram, TikTok or Facebook Reels will
+        take, and their refusal arrives as "error code 24" with no
+        explanation, long after the render finished. Better to be told now,
+        with the two things that actually fix it.
+      */}
+      {!postable && (
+        <div
+          className="flex items-start gap-2 rounded-xl px-3 py-2 text-xs"
+          style={{ background: 'rgba(180,83,9,0.12)', border: '1px solid rgba(180,83,9,0.45)' }}
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+          <span className="text-amber-200">
+            <strong>This browser can only record WebM.</strong> The file will be fine to keep and
+            to convert, but Instagram, TikTok and Facebook Reels all refuse WebM and say so only
+            as “error code 24” after the upload. Record in Safari or Edge for a postable MP4, or
+            convert this file before posting.
+          </span>
+        </div>
+      )}
 
       {busy && status === 'rendering' && (
         <p className="text-xs text-gray-500">

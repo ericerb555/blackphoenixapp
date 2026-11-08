@@ -8,6 +8,7 @@ import { Download, Film, Settings, Image as ImageIcon, Zap, Upload, Check, X, Lo
 import { toast } from 'sonner';
 import { PhotoSlide } from './PhotoToVideoConverter';
 import { MusicAsset } from '../lib/musicAssetManager';
+import { pickRecordingFormat } from '../lib/reelSpec';
 
 interface VideoExportOptionsProps {
   slides: PhotoSlide[];
@@ -129,15 +130,23 @@ export default function VideoExportOptions({
         }
       }
 
-      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : 'video/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      /**
+       * The format screen offers "MP4 — Best compatibility" and defaults to
+       * it. This then recorded WebM regardless and saved a `.webm` file, so
+       * the choice above it was decoration — and the file it produced is one
+       * Instagram, TikTok and Facebook Reels all refuse.
+       *
+       * `pickRecordingFormat` is the tested rule for this (see reelSpec.ts).
+       * It takes MP4/H.264 wherever the browser can manage it and says so
+       * when it cannot, instead of quietly picking the unpostable one.
+       */
+      const format = pickRecordingFormat();
+      const recorder = new MediaRecorder(stream, { mimeType: format.mimeType });
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       const finished = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: format.mimeType }));
       });
 
       recorder.start();
@@ -185,7 +194,9 @@ export default function VideoExportOptions({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `slideshow-${Date.now()}.webm`;
+      // Named for what it IS. A `.webm` called `.mp4` is refused on upload
+      // with no useful message, which is worse than an honest extension.
+      a.download = `slideshow-${Date.now()}.${format.extension}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

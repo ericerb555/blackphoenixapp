@@ -127,3 +127,55 @@ test('the running time is the sum of the scenes, ignoring nonsense', () => {
   assert.equal(totalSeconds([{ seconds: 4 }, {}, { seconds: -3 }]), 4);
   assert.equal(totalSeconds([]), 0);
 });
+
+/* ── nobody gets to decide this twice ────────────────────────────────────── */
+
+/**
+ * The rule this file encodes is only worth anything if the code that records
+ * actually asks it.
+ *
+ * `ReelRenderer` carried its own copy and preferred VP9, on the reasonable
+ * grounds that it holds text edges better per bit. The consequence was that
+ * every reel rendered in Chrome came out as a WebM that Instagram, TikTok
+ * and Facebook Reels all refuse — and refuse as "error code 24", after the
+ * upload, with no explanation. A careful 16 Mbps file nobody could post.
+ *
+ * Two implementations, one tested and one not, and the untested one was the
+ * one running. This is a source-level check for the same reason `API-1` in
+ * the security probe is: the next component pasted from an old one brings
+ * the mistake back, and nothing else would notice.
+ */
+import { readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
+
+test('no component picks its own recording format', () => {
+  const dirs = ['src/app/components', 'src/app/pages', 'src/app/lib'];
+  const offenders: string[] = [];
+
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(new URL(`../${dir}`, import.meta.url), { withFileTypes: true })) {
+      if (entry.isDirectory()) { walk(`${dir}/${entry.name}`); continue; }
+      if (!/\.tsx?$/.test(entry.name)) continue;
+      // The two modules ALLOWED to know, both tested.
+      //   reelSpec.ts    the posting rules — MP4 or it cannot be posted
+      //   videoCapture.ts a different job (camera and screen capture) with its
+      //                  own documented policy and its own tests: prefer mp4
+      //                  so the clip plays on whatever phone is in the hand
+      if (entry.name === 'reelSpec.ts' || entry.name === 'videoCapture.ts') continue;
+
+      const text = readFileSync(new URL(`../${dir}/${entry.name}`, import.meta.url), 'utf8');
+      // Deciding for yourself looks like asking the browser directly.
+      if (text.includes('MediaRecorder.isTypeSupported')) {
+        offenders.push(`${dir}/${entry.name}`);
+      }
+    }
+  };
+  dirs.forEach(walk);
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'these choose a codec themselves instead of calling pickRecordingFormat() — '
+    + 'which is how every reel rendered in Chrome became an unpostable WebM',
+  );
+});
