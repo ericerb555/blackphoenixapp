@@ -46,6 +46,11 @@ import {
 } from "./workRequests.ts";
 import { deliverPortalInvite, INVITE_TEMPLATE_KEY } from "./portalInvite.ts";
 import { stripeKeyFor } from "./stripeAccounts.ts";
+import {
+  isLandlord, isPropertyManager, assignedToManager,
+  subPortalPlan, overrideIsUsable, TENANT_SUBPORTAL_QUOTA,
+  type SubPortalPlan,
+} from "./rentalAccess.ts";
 import { auditEntry, auditKey, auditMonthPrefix } from "./screeningAudit.ts";
 import { providerFor, DEFAULT_PROVIDER } from "./screeningProvider.ts";
 import { isStaffRequest } from "./requireStaff.ts";
@@ -97,39 +102,32 @@ const supabase = new Proxy({} as any, {
 // Property managers have a scoped operations queue.  Unlike the legacy
 // property-management routes, this route requires a signed-in portal user and
 // only returns requests explicitly assigned to that manager.
+//
+// The reads live here; the decision lives in `rentalAccess.ts`, where it is
+// checked by `tests/rentalAccess.test.ts` without a server.
 export async function propertyManagerActor(c: any) {
   const user = await intakeActor(c);
   if (!user?.email) return { user: null, admin: false, manager: false };
   const admin = await intakeIsAdmin(user);
   if (admin) return { user, admin: true, manager: true };
   const email = String(user.email).toLowerCase();
-  const access = await kv.get(`portal_access:${email}:property_manager`) as any;
-  const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
-  const manager = ['property_manager', 'condo_manager'].includes(metadataRole) || access?.status === 'active';
+  // Deliberately not the `:landlord` key — see the asymmetry note in rentalAccess.ts.
+  const managerAccess = await kv.get(`portal_access:${email}:property_manager`) as any;
+  const manager = isPropertyManager({
+    metadataRole: user.app_metadata?.role || user.app_metadata?.accountType,
+    managerAccess,
+  });
   return { user, admin: false, manager };
 }
 
-function assignedToPropertyManager(record: any, user: any) {
-  const email = String(user?.email || '').toLowerCase();
-  // A manager can always operate requests their own authenticated account created.
-  // Tenant/owner requests additionally require an explicit manager assignment.
-  return ownsWorkRequest(record, user) || Boolean(
-    (user?.id && [record.propertyManagerUserId, record.property_manager_user_id, record.assignedManagerUserId]
-      .some((value: any) => String(value || '') === String(user.id))) ||
-    (email && [record.propertyManagerEmail, record.property_manager_email, record.managerEmail, record.assignedManagerEmail]
-      .some((value: any) => String(value || '').toLowerCase() === email))
-  );
-}
+// A manager can always operate requests their own authenticated account created.
+// Tenant/owner requests additionally require an explicit manager assignment, and
+// the two managers' assignment fields are one table in `rentalAccess.ts`.
+const assignedToPropertyManager = (record: any, user: any) =>
+  ownsWorkRequest(record, user) || assignedToManager(record, user, 'property');
 
-function assignedToCondoManager(record: any, user: any) {
-  const email = String(user?.email || '').toLowerCase();
-  return ownsWorkRequest(record, user) || Boolean(
-    (user?.id && [record.condoManagerUserId, record.condo_manager_user_id, record.assignedManagerUserId]
-      .some((value: any) => String(value || '') === String(user.id))) ||
-    (email && [record.condoManagerEmail, record.condo_manager_email, record.managerEmail, record.assignedManagerEmail]
-      .some((value: any) => String(value || '').toLowerCase() === email))
-  );
-}
+const assignedToCondoManager = (record: any, user: any) =>
+  ownsWorkRequest(record, user) || assignedToManager(record, user, 'condo');
 
 function condoUnitsKey(email: string) { return `condo_manager_units:${String(email).toLowerCase()}`; }
 
@@ -189,43 +187,40 @@ export async function landlordActor(c: any) {
   const admin = await intakeIsAdmin(user);
   if (admin) return { user, admin: true, landlord: true };
   const email = String(user.email).toLowerCase();
-  const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   // Earlier landlord applications used the property_manager intake type. Keep
   // those approved accounts working while allowing the explicit landlord role.
-  const access = await kv.get(`portal_access:${email}:property_manager`) as any || await kv.get(`portal_access:${email}:landlord`) as any;
-  return { user, admin: false, landlord: metadataRole === 'landlord' || access?.status === 'active' };
+  // The second read only happens when the first finds nothing, as before.
+  const managerAccess = await kv.get(`portal_access:${email}:property_manager`) as any;
+  const landlordAccess = managerAccess ? null : await kv.get(`portal_access:${email}:landlord`) as any;
+  const landlord = isLandlord({
+    metadataRole: user.app_metadata?.role || user.app_metadata?.accountType,
+    managerAccess,
+    landlordAccess,
+  });
+  return { user, admin: false, landlord };
 }
 
-// Tenant sub-portal quota by property-management plan tier.
 // Tier 1 Landlord = 25, Tier 2 Condo Manager = 50, Tier 3 Property Manager = 100.
-export const TENANT_SUBPORTAL_QUOTA: Record<string, number> = {
-  'landlord': 25,
-  'condo-manager': 50,
-  'property-manager': 100,
-};
+// Re-exported because three routes left behind in `index.tsx` import it from here.
+export { TENANT_SUBPORTAL_QUOTA };
 
 // Resolves a landlord's active plan tier and the tenant sub-portal quota it grants.
-// An active subscription's planId is the most reliable signal; when absent we fall
-// back to the Landlord tier (safe minimum). Admins are unlimited. An admin may set
-// an explicit override via `landlord_subportal_quota:${email}`.
-async function landlordSubPortalPlan(actor: any): Promise<{ planId: string; quota: number }> {
-  if (actor?.admin) return { planId: 'property-manager', quota: Number.POSITIVE_INFINITY };
+// The reads are here, the ordering of authority is in `rentalAccess.ts`. A usable
+// override settles the answer without the `subscription:` prefix scan, and an
+// unreadable store falls back to Tier 1 rather than to nothing.
+async function landlordSubPortalPlan(actor: any): Promise<SubPortalPlan> {
+  if (actor?.admin) return subPortalPlan({ admin: true });
   const email = String(actor?.user?.email || '').toLowerCase();
-  if (!email) return { planId: 'landlord', quota: TENANT_SUBPORTAL_QUOTA['landlord'] };
+  if (!email) return subPortalPlan({});
+
   const override = await kv.get(`landlord_subportal_quota:${email}`) as any;
-  if (override && Number.isFinite(Number(override.quota))) {
-    return { planId: String(override.planId || 'custom'), quota: Number(override.quota) };
-  }
+  if (overrideIsUsable(override)) return subPortalPlan({ email, override });
+
+  let subscriptions: any[] = [];
   try {
-    const subs = (await kv.getByPrefix('subscription:')) as any[] || [];
-    const mine = subs.filter((s: any) => String(s?.ownerEmail || s?.email || '').toLowerCase() === email && String(s?.status || '').toLowerCase() === 'active');
-    for (const planId of ['property-manager', 'condo-manager', 'landlord']) {
-      if (mine.some((s: any) => String(s?.planId || s?.plan || '').toLowerCase().includes(planId))) {
-        return { planId, quota: TENANT_SUBPORTAL_QUOTA[planId] };
-      }
-    }
-  } catch (_error) { /* fall through to default tier */ }
-  return { planId: 'landlord', quota: TENANT_SUBPORTAL_QUOTA['landlord'] };
+    subscriptions = (await kv.getByPrefix('subscription:')) as any[] || [];
+  } catch (_error) { /* an unreadable store is Tier 1, not no tier */ }
+  return subPortalPlan({ email, subscriptions });
 }
 
 /**

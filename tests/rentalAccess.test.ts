@@ -40,12 +40,15 @@ test('a missing role is the empty string, not a crash', () => {
   assert.equal(normalizeRole(null), '');
 });
 
-test('only an active access record counts', () => {
+test('only an active access record counts, matched exactly', () => {
   assert.equal(accessIsActive(active), true);
-  assert.equal(accessIsActive({ status: 'ACTIVE' }), true);
   assert.equal(accessIsActive(pending), false);
   assert.equal(accessIsActive(null), false);
   assert.equal(accessIsActive(undefined), false);
+  // Not case-insensitive. Our approval code writes lowercase, and loosening
+  // an authorisation check to accept a spelling nothing produces is a widening
+  // for no gain.
+  assert.equal(accessIsActive({ status: 'ACTIVE' }), false);
 });
 
 /* ── the asymmetry ───────────────────────────────────────────────────────── */
@@ -122,8 +125,10 @@ test('an unassigned request belongs to nobody', () => {
 });
 
 test('a user with no id or email matches no record, not every record', () => {
-  // The bug this guards: String(undefined) === String(undefined) is true, so
-  // an empty actor would match every request that names no manager.
+  // Both originals guarded this and so does the replacement. Unguarded,
+  // String(undefined) === String(undefined) is true, so an empty actor would
+  // match every request that names no manager. Pinned so it survives the next
+  // rewrite rather than being rediscovered.
   assert.equal(assignedToManager({}, {}, 'property'), false);
   assert.equal(assignedToManager({ propertyManagerUserId: undefined }, {}, 'property'), false);
   assert.equal(assignedToManager({ propertyManagerEmail: '' }, { email: '' }, 'property'), false);

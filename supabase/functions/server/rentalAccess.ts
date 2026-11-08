@@ -51,9 +51,16 @@ export function normalizeRole(raw: unknown): string {
   return String(raw ?? '').toLowerCase().replace(/[\s-]+/g, '_');
 }
 
-/** True when a portal-access record grants the role right now. */
+/**
+ * True when a portal-access record grants the role right now.
+ *
+ * Exact match, deliberately. The status is written by our own approval code
+ * and is always lowercase; accepting `Active` as well would widen an
+ * authorisation check to buy nothing, and the direction to be wrong in on a
+ * check like this is "too strict".
+ */
 export function accessIsActive(access: PortalAccess): boolean {
-  return String(access?.status ?? '').toLowerCase() === 'active';
+  return access?.status === 'active';
 }
 
 /** The metadata roles that stand in for an approved manager portal. */
@@ -108,13 +115,16 @@ export type ManagerKind = keyof typeof MANAGER_ASSIGNMENT_FIELDS;
  * `ownsWorkRequest(record, user) || assignedToManager(...)` — because a
  * manager can always operate a request their own account created, and
  * ownership is a wider rule that belongs with the work-request code.
+ *
+ * The empty-actor guards are carried over from both originals, not added:
+ * without them `String(undefined) === String(undefined)` is true on both
+ * sides, so an actor with neither id nor email would match every request
+ * that names no manager. They were correct before and they stay.
  */
 export function assignedToManager(record: any, user: any, kind: ManagerKind): boolean {
   const fields = MANAGER_ASSIGNMENT_FIELDS[kind];
   const id = String(user?.id ?? '');
   const email = String(user?.email ?? '').toLowerCase();
-  // An absent id must not match an absent field: String(undefined) === '' on
-  // both sides would make every unassigned request everyone's.
   if (id && fields.userId.some((field) => String(record?.[field] ?? '') === id)) return true;
   if (email && fields.email.some((field) => String(record?.[field] ?? '').toLowerCase() === email)) return true;
   return false;
@@ -150,6 +160,17 @@ export interface SubPortalPlanInput {
 export interface SubPortalPlan { planId: string; quota: number }
 
 /**
+ * True when an override record carries a quota worth honouring.
+ *
+ * Exposed so the caller can skip the `subscription:` prefix scan when an
+ * override already settles the answer — that read is the expensive one, and
+ * the original did not perform it either.
+ */
+export function overrideIsUsable(override: SubPortalPlanInput['override']): boolean {
+  return Boolean(override) && Number.isFinite(Number(override?.quota));
+}
+
+/**
  * The plan tier an account is on, and the tenant sub-portal quota it grants.
  *
  * Order of authority: admin, then an explicit override, then the best active
@@ -164,9 +185,8 @@ export function subPortalPlan(input: SubPortalPlanInput): SubPortalPlan {
   const email = String(input.email ?? '').toLowerCase();
   if (!email) return { ...DEFAULT_SUBPORTAL_PLAN };
 
-  const quota = Number(input.override?.quota);
-  if (input.override && Number.isFinite(quota)) {
-    return { planId: String(input.override.planId ?? 'custom'), quota };
+  if (overrideIsUsable(input.override)) {
+    return { planId: String(input.override?.planId ?? 'custom'), quota: Number(input.override?.quota) };
   }
 
   const mine = (input.subscriptions ?? []).filter((s: any) =>
