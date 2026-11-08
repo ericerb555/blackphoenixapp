@@ -378,10 +378,17 @@ export default function ReelRenderer({
   storyboard,
   filename = 'reel',
   music = null,
+  onPublish,
 }: {
   storyboard: ReelStoryboard;
   filename?: string;
   music?: ReelMusic | null;
+  /**
+   * Publish the finished file. Supplied by the studio, which knows the
+   * API; the renderer only knows it has produced a blob. Absent means no
+   * button, which is how the invoice preview uses this component.
+   */
+  onPublish?: (blob: Blob, ext: string) => Promise<void>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cancelRef = useRef(false);
@@ -398,6 +405,9 @@ export default function ReelRenderer({
    */
   const [postable, setPostable] = useState(true);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // The object URL is for the <a download>; publishing needs the bytes.
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [ext, setExt] = useState('webm');
   const [quality, setQuality] = useState<'high' | 'max'>('high');
 
@@ -641,6 +651,7 @@ export default function ReelRenderer({
       const blob = await finished;
 
       setVideoUrl(URL.createObjectURL(blob));
+      setVideoBlob(blob);
       setProgress(100);
       setStatus(cancelRef.current ? 'idle' : 'done');
     } catch (err: any) {
@@ -703,6 +714,21 @@ export default function ReelRenderer({
           >
             <Download className="w-4 h-4" /> Download {ext.toUpperCase()}
           </a>
+        )}
+        {videoUrl && videoBlob && onPublish && (
+          <button
+            type="button"
+            disabled={publishing}
+            onClick={async () => {
+              setPublishing(true);
+              try { await onPublish(videoBlob, ext); } finally { setPublishing(false); }
+            }}
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            style={{ background: 'rgba(234,88,12,0.9)' }}
+          >
+            {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
+            {publishing ? 'Publishing…' : 'Publish to site'}
+          </button>
         )}
       </div>
 

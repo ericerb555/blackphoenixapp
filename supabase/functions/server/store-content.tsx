@@ -160,6 +160,106 @@ storeContentRouter.post('/reels', async (c) => {
   }
 });
 
+/**
+ * Publish a rendered reel: the file and the record, in one call.
+ *
+ * WHY THIS EXISTS WHEN BOTH HALVES ALREADY DID
+ *
+ * ReelStudio could render a reel and hand you a download, and this router
+ * could store a reel record — but nothing joined them, because the record
+ * needs a `videoUrl` and nothing ever put the file anywhere. So every reel
+ * the studio has ever made ended in the downloads folder, and
+ * `/store-content/reels` has stayed empty, which is why `HeroSideReels`
+ * renders nothing on the store.
+ *
+ * NOT /media/upload, WHICH ALREADY UPLOADS VIDEO
+ *
+ * It returns a SIGNED url good for seven days. On a landing page that is a
+ * reel which plays for a week and then 403s, with no error anywhere — the
+ * page just quietly loses a tile. A public bucket is the honest fit for
+ * marketing material meant to be seen by strangers, same reasoning as the
+ * gallery bucket.
+ *
+ * Admin only, like every other write here. The bucket accepts video types
+ * and nothing else, so this cannot become a general file drop.
+ */
+const REEL_BUCKET = 'make-3eae23a6-reels';
+
+/** Service-role client, for the bucket work. Same shape `requireAdmin` uses. */
+const service = () => createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+);
+
+async function ensureReelBucket() {
+  const db = service();
+  const { data: buckets } = await db.storage.listBuckets();
+  if ((buckets || []).some((b: any) => b.name === REEL_BUCKET)) return;
+  await db.storage.createBucket(REEL_BUCKET, {
+    public: true,
+    fileSizeLimit: 104857600,
+    allowedMimeTypes: ['video/mp4', 'video/quicktime', 'video/webm'],
+  });
+}
+
+storeContentRouter.post('/reels/publish', async (c) => {
+  const auth = await requireAdmin(c);
+  if (!auth.ok) return c.json({ success: false, error: auth.error }, 401);
+  try {
+    const form = await c.req.parseBody();
+    const file = form.file;
+    if (!(file instanceof File)) {
+      return c.json({ success: false, error: 'A rendered video file is required.' }, 400);
+    }
+    if (!String(file.type || '').startsWith('video/')) {
+      return c.json({ success: false, error: 'Only video files can be published as a reel.' }, 400);
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      return c.json({ success: false, error: 'Reels are limited to 100MB.' }, 400);
+    }
+
+    await ensureReelBucket();
+    const db = service();
+    const reelId = String(form.id || `reel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const ext = String(file.type).includes('mp4') ? 'mp4' : String(file.type).includes('quicktime') ? 'mov' : 'webm';
+    const path = `${reelId}.${ext}`;
+
+    const { error: upErr } = await db.storage
+      .from(REEL_BUCKET)
+      .upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: true });
+    if (upErr) throw upErr;
+
+    const videoUrl = db.storage.from(REEL_BUCKET).getPublicUrl(path).data.publicUrl;
+
+    const existing = await kv.get(`${REEL_PREFIX}${reelId}`);
+    const record = {
+      id: reelId,
+      title: String(form.title || existing?.title || 'Untitled reel').slice(0, 160),
+      videoUrl,
+      posterUrl: existing?.posterUrl || '',
+      productId: existing?.productId ?? null,
+      productName: existing?.productName ?? '',
+      ctaText: String(form.ctaText || existing?.ctaText || 'See our work'),
+      active: true,
+      order: existing?.order ?? 0,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      /*
+       * A CC-BY bed obliges us to credit it wherever the reel is shown.
+       * Carried on the record so the obligation travels with the file
+       * rather than living only in the browser tab that made it.
+       */
+      musicCredit: String(form.musicCredit || '').slice(0, 500),
+    };
+    await kv.set(`${REEL_PREFIX}${reelId}`, record);
+    invalidateReelsCache();
+
+    return c.json({ success: true, reel: record });
+  } catch (error) {
+    console.error('[StoreContent] Failed to publish reel:', error);
+    return c.json({ success: false, error: `Failed to publish reel: ${error}` }, 500);
+  }
+});
+
 storeContentRouter.delete('/reels/:id', async (c) => {
   const auth = await requireAdmin(c);
   if (!auth.ok) return c.json({ success: false, error: auth.error }, 401);

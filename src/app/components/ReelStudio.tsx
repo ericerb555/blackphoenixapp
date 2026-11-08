@@ -105,6 +105,45 @@ export default function ReelStudio() {
     }
   }, [musicQuery]);
 
+  /**
+   * Upload the rendered file and write the reel record, in one request.
+   *
+   * Until now the studio could render a reel and hand you a download, and
+   * the server could store a reel record, and nothing joined them — the
+   * record needs a `videoUrl` and nothing ever put the file anywhere. So
+   * `/store-content/reels` stayed empty and the store hero rendered
+   * nothing, which is the gap this closes.
+   *
+   * The music credit travels with it. A CC-BY bed has to be credited
+   * wherever the reel is shown, and an obligation that lives only in this
+   * browser tab is one nobody will honour next month.
+   */
+  const publishReel = useCallback(async (blob: Blob, ext: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { toast.error('Sign in to publish.'); return; }
+
+      const body = new FormData();
+      body.append('file', new File([blob], `reel.${ext}`, { type: blob.type || `video/${ext}` }));
+      body.append('title', subject || 'Untitled reel');
+      if (musicCredit) body.append('musicCredit', musicCredit);
+
+      const res = await fetch(`${SERVER}/store-content/reels/publish`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      toast.success('Published — it is live on the site.', {
+        description: musicCredit ? 'The music credit was saved with it.' : undefined,
+      });
+    } catch (err: any) {
+      toast.error(`Could not publish: ${err?.message || err}`);
+    }
+  }, [subject, musicCredit]);
+
   const chooseTrack = (track: FreeTrack) => {
     if (musicUrl?.startsWith('blob:')) URL.revokeObjectURL(musicUrl);
     setMusicUrl(track.url);
@@ -530,6 +569,7 @@ export default function ReelStudio() {
             storyboard={storyboard}
             filename={(subject || 'reel').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}
             music={music}
+            onPublish={publishReel}
           />
         </div>
       )}
