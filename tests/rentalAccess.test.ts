@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 import {
   normalizeRole, accessIsActive, isLandlord, isPropertyManager,
   assignedToManager, subPortalPlan, TENANT_SUBPORTAL_QUOTA,
+  managerAccessAnswersLandlord,
 } from '../supabase/functions/server/rentalAccess.ts';
 
 const active = { status: 'active' };
@@ -215,4 +216,72 @@ test('the quota table is the three sold tiers', () => {
     'condo-manager': 50,
     'property-manager': 100,
   });
+});
+
+/* ── the read-order bug that locked landlords out of their own buildings ──── */
+
+/**
+ * `landlordActor` reads the property-manager record first and only reads the
+ * landlord one if the first cannot answer. "Cannot answer" used to mean "is
+ * absent", which is not the same as "grants nothing" — and the gap between
+ * those two is a live 403 for a real person.
+ */
+
+test('an active manager record answers it alone: no second read needed', () => {
+  assert.equal(managerAccessAnswersLandlord({ status: 'active' }), true);
+});
+
+test('a PENDING manager record does not answer it', () => {
+  // This is the bug. A pending record is truthy, so the old `managerAccess ?`
+  // test skipped the landlord read and the landlord was refused.
+  assert.equal(managerAccessAnswersLandlord({ status: 'pending' }), false);
+});
+
+test('no manager record at all does not answer it', () => {
+  assert.equal(managerAccessAnswersLandlord(null), false);
+  assert.equal(managerAccessAnswersLandlord(undefined), false);
+});
+
+test('any non-active status still requires the landlord read', () => {
+  for (const status of ['pending', 'rejected', 'revoked', 'suspended', '', 'Active']) {
+    assert.equal(
+      managerAccessAnswersLandlord({ status }), false,
+      `status ${JSON.stringify(status)} must not short-circuit the landlord read`,
+    );
+  }
+});
+
+/**
+ * The combination, which is what actually broke. These assert against
+ * `isLandlord` fed the way the fixed caller feeds it, because `isLandlord`
+ * was never wrong — it was starved of the record it needed.
+ */
+
+test('pending manager + active landlord is a landlord', () => {
+  const managerAccess = { status: 'pending' };
+  // The fixed caller reads the landlord key because the manager one cannot answer.
+  const landlordAccess = managerAccessAnswersLandlord(managerAccess)
+    ? null
+    : { status: 'active' };
+  assert.equal(isLandlord({ managerAccess, landlordAccess }), true);
+});
+
+test('and under the OLD read order the same person was refused', () => {
+  // Kept as a regression witness: this is exactly what production did.
+  const managerAccess: any = { status: 'pending' };
+  const landlordAccessOldWay = managerAccess ? null : { status: 'active' };
+  assert.equal(isLandlord({ managerAccess, landlordAccess: landlordAccessOldWay }), false);
+});
+
+test('pending manager + no landlord record is still not a landlord', () => {
+  // The fix must not hand the portal to someone whose only record is pending.
+  const managerAccess = { status: 'pending' };
+  const landlordAccess = managerAccessAnswersLandlord(managerAccess) ? null : null;
+  assert.equal(isLandlord({ managerAccess, landlordAccess }), false);
+});
+
+test('a pending manager record still cannot use the manager routes', () => {
+  // The fix widens the LANDLORD answer only. isPropertyManager is untouched.
+  assert.equal(isPropertyManager({ managerAccess: { status: 'pending' } }), false);
+  assert.equal(isPropertyManager({ managerAccess: { status: 'active' } }), true);
 });

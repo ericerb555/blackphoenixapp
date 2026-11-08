@@ -48,6 +48,7 @@ import { deliverPortalInvite, INVITE_TEMPLATE_KEY } from "./portalInvite.ts";
 import { stripeKeyFor } from "./stripeAccounts.ts";
 import {
   isLandlord, isPropertyManager, assignedToManager,
+  managerAccessAnswersLandlord,
   subPortalPlan, overrideIsUsable, TENANT_SUBPORTAL_QUOTA,
   type SubPortalPlan,
 } from "./rentalAccess.ts";
@@ -189,9 +190,17 @@ export async function landlordActor(c: any) {
   const email = String(user.email).toLowerCase();
   // Earlier landlord applications used the property_manager intake type. Keep
   // those approved accounts working while allowing the explicit landlord role.
-  // The second read only happens when the first finds nothing, as before.
+  //
+  // The second read is skipped only when the manager record is ACTIVE, because
+  // that already settles the question. It used to be skipped whenever the
+  // manager record merely EXISTED, which meant a leftover `pending` one — from
+  // precisely the old intake path this compatibility is for — hid an active
+  // landlord record and returned 403 on the person's own building. See
+  // `managerAccessAnswersLandlord`.
   const managerAccess = await kv.get(`portal_access:${email}:property_manager`) as any;
-  const landlordAccess = managerAccess ? null : await kv.get(`portal_access:${email}:landlord`) as any;
+  const landlordAccess = managerAccessAnswersLandlord(managerAccess)
+    ? null
+    : await kv.get(`portal_access:${email}:landlord`) as any;
   const landlord = isLandlord({
     metadataRole: user.app_metadata?.role || user.app_metadata?.accountType,
     managerAccess,

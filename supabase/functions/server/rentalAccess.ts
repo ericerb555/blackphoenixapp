@@ -63,6 +63,37 @@ export function accessIsActive(access: PortalAccess): boolean {
   return access?.status === 'active';
 }
 
+/**
+ * Can the landlord question be answered from the manager record alone?
+ *
+ * WHY THIS IS A NAMED RULE AND NOT AN `IF` AT THE CALL SITE
+ *
+ * Because the `if` at the call site was wrong, in a way that locked real
+ * landlords out of their own buildings. `landlordActor` read the
+ * property-manager record and then did:
+ *
+ *     const landlordAccess = managerAccess ? null : await kv.get(...landlord)
+ *
+ * which short-circuits on the record EXISTING rather than on it granting
+ * anything. A landlord who once applied under the old property-manager intake
+ * — the exact compatibility case the second read is there to serve — has a
+ * `pending` manager record sitting in the way. That record is truthy, so the
+ * landlord key was never read, so `isLandlord` was handed a pending manager
+ * and a null landlord and quite correctly said no. 403 on their own property.
+ *
+ * The saved read is still worth having, so it is kept where it is valid:
+ * when the manager record is ACTIVE, `isLandlord` returns true on that alone
+ * and the second lookup genuinely cannot change the answer. Any other state —
+ * pending, rejected, revoked, absent — has to go and look.
+ *
+ * Nobody loses access from this. An account reaching the landlord portal here
+ * is one holding an active landlord record, which is what the data already
+ * said before anything was read in the wrong order.
+ */
+export function managerAccessAnswersLandlord(managerAccess: PortalAccess): boolean {
+  return accessIsActive(managerAccess);
+}
+
 /** The metadata roles that stand in for an approved manager portal. */
 export const MANAGER_ROLES: readonly string[] = ['property_manager', 'condo_manager'];
 
