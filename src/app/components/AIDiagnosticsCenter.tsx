@@ -23,9 +23,25 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  fetchSummary, fetchCalls, toActivity, NotPermitted,
+  fetchSummary, fetchCalls, toActivity, toSystem, deriveAlerts, NotPermitted,
   type ActivitySummary,
 } from '../lib/aiActivity';
+
+/**
+ * Cosmetic only — which glyph an agent gets on the Systems tab.
+ *
+ * Kept here rather than in `aiActivity.ts` because these are React
+ * components and that module is plain data a node test can import. An agent
+ * with no entry gets the generic bot, which is also what every future agent
+ * gets until somebody chooses otherwise.
+ */
+const AGENT_ICONS: Record<string, any> = {
+  'quote-generator': FileText,
+  'design-assistant': Sparkles,
+  'house-capture': Image,
+  'content-studio': Megaphone,
+  'lead-scoring': Target,
+};
 
 interface AISystem {
   id: string;
@@ -95,472 +111,22 @@ export default function AIDiagnosticsCenter() {
   const [selectedUpgrade, setSelectedUpgrade] = useState<any>(null);
 
   // AI Systems Registry
-  const [aiSystems, setAISystems] = useState<AISystem[]>([
-    {
-      id: 'ai-product-catalog',
-      name: 'AI Product Catalog Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 99.8,
-      lastCheck: new Date().toISOString(),
-      responseTime: 340,
-      apiCalls: 2847,
-      tokensUsed: 1284750,
-      cost: 142.50,
-      errorRate: 0.2,
-      features: ['Product descriptions', 'Category suggestions', 'SKU generation', 'Bulk import'],
-      icon: ShoppingBag,
-      color: 'text-blue-400',
-      enabled: true,
-      version: '2.1.0',
-      latestVersion: '2.3.0',
-      updateAvailable: true,
-      lastUpdated: 'Jan 15, 2026'
-    },
-    {
-      id: 'ai-crm-import',
-      name: 'AI CRM Data Import Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 98.5,
-      lastCheck: new Date().toISOString(),
-      responseTime: 420,
-      apiCalls: 1523,
-      tokensUsed: 842300,
-      cost: 89.20,
-      errorRate: 1.5,
-      features: ['Data mapping', 'Field validation', 'Duplicate detection', 'Smart suggestions'],
-      icon: Database,
-      color: 'text-green-400',
-      enabled: true,
-      version: '1.8.2',
-      latestVersion: '1.8.2',
-      updateAvailable: false,
-      lastUpdated: 'Feb 18, 2026'
-    },
-    {
-      id: 'ai-content-studio',
-      name: 'AI Content Studio',
-      category: 'content',
-      status: 'healthy',
-      uptime: 99.2,
-      lastCheck: new Date().toISOString(),
-      responseTime: 1240,
-      apiCalls: 5692,
-      tokensUsed: 3456890,
-      cost: 398.75,
-      errorRate: 0.8,
-      features: ['Image generation', 'Content writing', 'Style transfer', 'Background removal'],
-      icon: Sparkles,
-      color: 'text-purple-400',
-      enabled: true,
-      version: '3.0.1',
-      latestVersion: '3.2.0',
-      updateAvailable: true,
-      lastUpdated: 'Jan 8, 2026'
-    },
-    {
-      id: 'ai-price-automation',
-      name: 'AI Price Automation Engine',
-      category: 'automation',
-      status: 'healthy',
-      uptime: 99.9,
-      lastCheck: new Date().toISOString(),
-      responseTime: 180,
-      apiCalls: 8934,
-      tokensUsed: 456720,
-      cost: 52.30,
-      errorRate: 0.1,
-      features: ['Dynamic pricing', 'Market analysis', 'Revenue optimization', 'Demand forecasting'],
-      icon: Zap,
-      color: 'text-yellow-400',
-      enabled: true,
-      version: '2.5.4',
-      latestVersion: '2.5.4',
-      updateAvailable: false,
-      lastUpdated: 'Feb 20, 2026'
-    },
-    {
-      id: 'ai-supervisor',
-      name: 'AI Supervisor Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 100,
-      lastCheck: new Date().toISOString(),
-      responseTime: 95,
-      apiCalls: 12456,
-      tokensUsed: 234560,
-      cost: 28.90,
-      errorRate: 0.0,
-      features: ['System monitoring', 'Issue detection', 'Auto-resolution', 'Performance optimization'],
-      icon: Brain,
-      color: 'text-orange-400',
-      enabled: true,
-      version: '1.9.5',
-      latestVersion: '2.0.0',
-      updateAvailable: true,
-      lastUpdated: 'Jan 28, 2026'
-    },
-    {
-      id: 'ai-analytics',
-      name: 'AI Analytics & Insights',
-      category: 'analytics',
-      status: 'degraded',
-      uptime: 97.3,
-      lastCheck: new Date().toISOString(),
-      responseTime: 890,
-      apiCalls: 4256,
-      tokensUsed: 1567890,
-      cost: 178.40,
-      errorRate: 2.7,
-      features: ['Trend analysis', 'Predictive modeling', 'Anomaly detection', 'Custom reports'],
-      icon: BarChart3,
-      color: 'text-cyan-400',
-      enabled: true,
-      version: '1.5.2',
-      latestVersion: '1.7.0',
-      updateAvailable: true,
-      lastUpdated: 'Dec 12, 2025'
-    },
-    {
-      id: 'ai-chatbot',
-      name: 'AI Customer Support Chatbot',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 98.9,
-      lastCheck: new Date().toISOString(),
-      responseTime: 520,
-      apiCalls: 15678,
-      tokensUsed: 4567890,
-      cost: 512.60,
-      errorRate: 1.1,
-      features: ['24/7 support', 'Multi-language', 'Context awareness', 'Ticket creation'],
-      icon: MessageSquare,
-      color: 'text-pink-400',
-      enabled: true,
-      version: '4.2.1',
-      latestVersion: '4.2.1',
-      updateAvailable: false,
-      lastUpdated: 'Feb 10, 2026'
-    },
-    {
-      id: 'ai-image-recognition',
-      name: 'AI Image Recognition',
-      category: 'vision',
-      status: 'critical',
-      uptime: 89.5,
-      lastCheck: new Date().toISOString(),
-      responseTime: 2340,
-      apiCalls: 3421,
-      tokensUsed: 2345670,
-      cost: 289.30,
-      errorRate: 10.5,
-      features: ['Object detection', 'Text extraction', 'Quality analysis', 'Auto-tagging'],
-      icon: Eye,
-      color: 'text-red-400',
-      enabled: false,
-      version: '0.9.8',
-      latestVersion: '1.2.0',
-      updateAvailable: true,
-      lastUpdated: 'Nov 5, 2025'
-    },
-    {
-      id: 'ai-bid-assistant',
-      name: 'AI Bid Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 99.4,
-      lastCheck: new Date().toISOString(),
-      responseTime: 385,
-      apiCalls: 2156,
-      tokensUsed: 967840,
-      cost: 103.20,
-      errorRate: 0.6,
-      features: ['Smart routing', 'Provider matching', 'Complexity analysis', 'Auto-bidding'],
-      icon: Target,
-      color: 'text-blue-400',
-      enabled: true,
-      version: '1.4.2',
-      latestVersion: '1.5.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 15, 2026'
-    },
-    {
-      id: 'ai-video-analysis',
-      name: 'AI Video Analysis Studio',
-      category: 'vision',
-      status: 'healthy',
-      uptime: 98.1,
-      lastCheck: new Date().toISOString(),
-      responseTime: 1850,
-      apiCalls: 1892,
-      tokensUsed: 3245670,
-      cost: 342.80,
-      errorRate: 1.9,
-      features: ['Material detection', 'Dimension extraction', 'Floor plan generation', 'Cost estimation'],
-      icon: Video,
-      color: 'text-purple-400',
-      enabled: true,
-      version: '2.3.1',
-      latestVersion: '2.4.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 12, 2026'
-    },
-    {
-      id: 'ai-quote-builder',
-      name: 'AI Quote Builder',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 99.6,
-      lastCheck: new Date().toISOString(),
-      responseTime: 420,
-      apiCalls: 3567,
-      tokensUsed: 1456720,
-      cost: 156.40,
-      errorRate: 0.4,
-      features: ['Auto-pricing', 'Material suggestions', 'Labor estimates', 'Profit optimization'],
-      icon: FileText,
-      color: 'text-green-400',
-      enabled: true,
-      version: '3.1.5',
-      latestVersion: '3.1.5',
-      updateAvailable: false,
-      lastUpdated: 'Feb 22, 2026'
-    },
-    {
-      id: 'ai-work-request-analytics',
-      name: 'AI Work Request Analytics',
-      category: 'analytics',
-      status: 'healthy',
-      uptime: 98.8,
-      lastCheck: new Date().toISOString(),
-      responseTime: 625,
-      apiCalls: 2934,
-      tokensUsed: 1123450,
-      cost: 118.90,
-      errorRate: 1.2,
-      features: ['Pattern recognition', 'Conversion analysis', 'Customer insights', 'Performance metrics'],
-      icon: BarChart3,
-      color: 'text-cyan-400',
-      enabled: true,
-      version: '1.6.3',
-      latestVersion: '1.7.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 5, 2026'
-    },
-    {
-      id: 'ai-floor-plan',
-      name: 'AI Floor Plan Generator',
-      category: 'vision',
-      status: 'healthy',
-      uptime: 97.9,
-      lastCheck: new Date().toISOString(),
-      responseTime: 1520,
-      apiCalls: 1456,
-      tokensUsed: 2134560,
-      cost: 234.70,
-      errorRate: 2.1,
-      features: ['CAD generation', 'Measurement extraction', 'Compliance checking', 'Design suggestions'],
-      icon: Layers,
-      color: 'text-orange-400',
-      enabled: true,
-      version: '2.0.8',
-      latestVersion: '2.1.0',
-      updateAvailable: true,
-      lastUpdated: 'Jan 30, 2026'
-    },
-    {
-      id: 'ai-report-generator',
-      name: 'AI Report Generator',
-      category: 'automation',
-      status: 'healthy',
-      uptime: 99.3,
-      lastCheck: new Date().toISOString(),
-      responseTime: 890,
-      apiCalls: 1823,
-      tokensUsed: 894560,
-      cost: 95.60,
-      errorRate: 0.7,
-      features: ['Custom reports', 'Data visualization', 'Natural language queries', 'Export automation'],
-      icon: FileText,
-      color: 'text-blue-400',
-      enabled: true,
-      version: '1.3.2',
-      latestVersion: '1.4.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 8, 2026'
-    },
-    {
-      id: 'ai-recommendations',
-      name: 'AI Product Recommendations Engine',
-      category: 'automation',
-      status: 'healthy',
-      uptime: 99.7,
-      lastCheck: new Date().toISOString(),
-      responseTime: 215,
-      apiCalls: 18945,
-      tokensUsed: 2345670,
-      cost: 245.80,
-      errorRate: 0.3,
-      features: ['Personalization', 'Behavior tracking', 'Cross-sell optimization', 'Bundle suggestions'],
-      icon: Target,
-      color: 'text-pink-400',
-      enabled: true,
-      version: '2.8.1',
-      latestVersion: '2.8.1',
-      updateAvailable: false,
-      lastUpdated: 'Feb 18, 2026'
-    },
-    {
-      id: 'ai-prompt-templates',
-      name: 'AI Prompt Template Designer',
-      category: 'automation',
-      status: 'healthy',
-      uptime: 99.1,
-      lastCheck: new Date().toISOString(),
-      responseTime: 280,
-      apiCalls: 1267,
-      tokensUsed: 456780,
-      cost: 48.90,
-      errorRate: 0.9,
-      features: ['Template management', 'Version control', 'Testing framework', 'Performance tracking'],
-      icon: Wrench,
-      color: 'text-yellow-400',
-      enabled: true,
-      version: '1.2.4',
-      latestVersion: '1.3.0',
-      updateAvailable: true,
-      lastUpdated: 'Jan 25, 2026'
-    },
-    {
-      id: 'ai-workflow-chat',
-      name: 'AI Workflow Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 99.5,
-      lastCheck: new Date().toISOString(),
-      responseTime: 340,
-      apiCalls: 8234,
-      tokensUsed: 3456780,
-      cost: 367.90,
-      errorRate: 0.5,
-      features: ['Workflow monitoring', 'Issue resolution', 'Performance insights', 'Proactive alerts'],
-      icon: Bot,
-      color: 'text-purple-400',
-      enabled: true,
-      version: '2.4.6',
-      latestVersion: '2.5.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 14, 2026'
-    },
-    {
-      id: 'ai-payment-assistant',
-      name: 'AI Payment Assistant',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 99.8,
-      lastCheck: new Date().toISOString(),
-      responseTime: 195,
-      apiCalls: 4567,
-      tokensUsed: 1234560,
-      cost: 132.50,
-      errorRate: 0.2,
-      features: ['Payment monitoring', 'Anomaly detection', 'Auto-recovery', 'Smart routing'],
-      icon: DollarSign,
-      color: 'text-green-400',
-      enabled: true,
-      version: '1.7.3',
-      latestVersion: '1.8.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 10, 2026'
-    },
-    {
-      id: 'ai-work-request-guide',
-      name: 'Client Work Request AI Guide',
-      category: 'assistant',
-      status: 'healthy',
-      uptime: 98.7,
-      lastCheck: new Date().toISOString(),
-      responseTime: 465,
-      apiCalls: 6789,
-      tokensUsed: 2987650,
-      cost: 318.40,
-      errorRate: 1.3,
-      features: ['Conversational UI', 'Auto-fill forms', 'Requirement extraction', 'Quote generation'],
-      icon: MessageSquare,
-      color: 'text-blue-400',
-      enabled: true,
-      version: '2.2.1',
-      latestVersion: '2.3.0',
-      updateAvailable: true,
-      lastUpdated: 'Feb 16, 2026'
-    }
-  ]);
+  const [aiSystems, setAISystems] = useState<AISystem[]>([]);
+  const [alerts, setAlerts] = useState<AIAlert[]>([]);
 
-  // Active Alerts
-  const [alerts, setAlerts] = useState<AIAlert[]>([
-    {
-      id: 'alert-1',
-      systemId: 'ai-image-recognition',
-      systemName: 'AI Image Recognition',
-      severity: 'critical',
-      title: 'High Error Rate Detected',
-      message: 'Error rate has increased to 10.5%, exceeding threshold of 5%. Multiple API timeout errors detected.',
-      timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-      resolved: false,
-      recommendation: 'Restart service and check API key quota. Consider switching to backup provider.',
-      autoResolvable: true
-    },
-    {
-      id: 'alert-2',
-      systemId: 'ai-analytics',
-      systemName: 'AI Analytics & Insights',
-      severity: 'warning',
-      title: 'Slow Response Time',
-      message: 'Average response time is 890ms, above normal baseline of 600ms. Performance degradation detected.',
-      timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
-      resolved: false,
-      recommendation: 'Increase server resources or implement caching layer.',
-      autoResolvable: false
-    },
-    {
-      id: 'alert-3',
-      systemId: 'ai-crm-import',
-      systemName: 'AI CRM Data Import Assistant',
-      severity: 'warning',
-      title: 'Elevated Error Rate',
-      message: 'Error rate at 1.5%, slightly above normal. May indicate data quality issues.',
-      timestamp: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-      resolved: false,
-      recommendation: 'Review recent import batches for data format issues.',
-      autoResolvable: false
-    },
-    {
-      id: 'alert-4',
-      systemId: 'ai-content-studio',
-      systemName: 'AI Content Studio',
-      severity: 'info',
-      title: 'High API Usage',
-      message: 'API calls have increased 45% this week. Monitor costs and consider rate limiting.',
-      timestamp: new Date(Date.now() - 3 * 60 * 60000).toISOString(),
-      resolved: false,
-      recommendation: 'Review usage patterns and implement caching for frequently requested content.',
-      autoResolvable: false
-    },
-    {
-      id: 'alert-5',
-      systemId: 'ai-supervisor',
-      systemName: 'AI Supervisor Assistant',
-      severity: 'info',
-      title: 'System Health Check Complete',
-      message: 'Completed routine health check across all AI systems. 2 issues detected and flagged.',
-      timestamp: new Date(Date.now() - 10 * 60000).toISOString(),
-      resolved: true,
-      resolvedBy: 'AI Supervisor',
-      resolvedAt: new Date(Date.now() - 5 * 60000).toISOString(),
-      autoResolvable: true
-    }
-  ]);
+  /**
+   * There is no AI supervisor, and there never was.
+   *
+   * This held four invented messages — one claiming it had automatically
+   * disabled a failing system, one offering to apply a performance fix, one
+   * reporting 32,807 requests and $1,247 saved. No service produced any of
+   * them, and no button acted on them.
+   *
+   * Kept as empty state rather than deleted outright, because the tab that
+   * renders it now says plainly that the capability is not built. A screen
+   * admitting a gap is worth more than one filling it with reassurance.
+   */
+  const [supervisorMessages] = useState<SupervisorMessage[]>([]);
 
   /**
    * The real activity feed, from `ai_call_log` via `/ai-activity/calls`.
@@ -586,6 +152,19 @@ export default function AIDiagnosticsCenter() {
         if (cancelled) return;
         setLedgerSummary(summary);
         setActivities(calls.map(toActivity) as AIActivity[]);
+        /**
+         * Systems and alerts are derived from the same window, so the three
+         * tabs can never disagree with each other about what happened.
+         *
+         * The icon is attached here rather than in the mapper, because it is
+         * a React component and the mapper is plain data that a node test
+         * can import.
+         */
+        setAISystems(summary.agents.map((a) => ({
+          ...toSystem(a),
+          icon: AGENT_ICONS[a.agent] || Bot,
+        })) as AISystem[]);
+        setAlerts(deriveAlerts(summary) as AIAlert[]);
         setLedgerError(null);
       } catch (err: any) {
         if (cancelled) return;
@@ -605,44 +184,7 @@ export default function AIDiagnosticsCenter() {
   }, []);
 
 
-  // Supervisor Messages
-  const [supervisorMessages, setSupervisorMessages] = useState<SupervisorMessage[]>([
-    {
-      id: 'msg-1',
-      type: 'alert',
-      message: '🚨 Critical issue detected in AI Image Recognition. I\'ve automatically disabled the system to prevent further errors. Investigating root cause...',
-      timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-      priority: 'high',
-      actionable: true,
-      action: 'View Details'
-    },
-    {
-      id: 'msg-2',
-      type: 'recommendation',
-      message: '💡 AI Analytics is running slower than usual. I recommend increasing server resources or implementing a caching layer. Would you like me to proceed?',
-      timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
-      priority: 'medium',
-      actionable: true,
-      action: 'Apply Fix'
-    },
-    {
-      id: 'msg-3',
-      type: 'status',
-      message: '✅ All critical systems are operational. Completed routine health check - everything looks good!',
-      timestamp: new Date(Date.now() - 2 * 60 * 60000).toISOString(),
-      priority: 'low',
-      actionable: false
-    },
-    {
-      id: 'msg-4',
-      type: 'report',
-      message: '📊 Weekly summary: Processed 32,807 AI requests, saved $1,247 through optimization, prevented 3 potential outages.',
-      timestamp: new Date(Date.now() - 24 * 60 * 60000).toISOString(),
-      priority: 'low',
-      actionable: true,
-      action: 'View Report'
-    }
-  ]);
+
 
   // Calculate overall stats
   const totalSystems = aiSystems.length;
@@ -650,7 +192,11 @@ export default function AIDiagnosticsCenter() {
   const criticalAlerts = alerts.filter(a => !a.resolved && a.severity === 'critical').length;
   const totalApiCalls = aiSystems.reduce((sum, s) => sum + s.apiCalls, 0);
   const totalCost = aiSystems.reduce((sum, s) => sum + s.cost, 0);
-  const avgResponseTime = Math.round(aiSystems.reduce((sum, s) => sum + s.responseTime, 0) / aiSystems.length);
+  // Guarded: with no agents this divided by zero and rendered "NaNms". The
+  // mock data never had zero systems, so the empty case had never run.
+  const avgResponseTime = aiSystems.length
+    ? Math.round(aiSystems.reduce((sum, s) => sum + s.responseTime, 0) / aiSystems.length)
+    : 0;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -685,29 +231,41 @@ export default function AIDiagnosticsCenter() {
     toast.success(auto ? 'Alert auto-resolved by AI Supervisor' : 'Alert marked as resolved');
   };
 
+  /**
+   * There is no pause mechanism on the server, so this cannot pause anything.
+   *
+   * It used to flip a local boolean and toast "disabled", which is the most
+   * dangerous thing this page did: a control that looks like it stops an AI
+   * agent, reports success, and leaves the agent running. Somebody reaching
+   * for it in an incident would believe they had stopped the spend.
+   *
+   * A platform-wide stop is gap 6 in `tasks/phoenix-ai-audit.md`. Until it
+   * exists this says so rather than lying politely.
+   */
   const toggleSystem = (systemId: string) => {
-    setAISystems(systems =>
-      systems.map(s =>
-        s.id === systemId ? { ...s, enabled: !s.enabled } : s
-      )
-    );
     const system = aiSystems.find(s => s.id === systemId);
-    toast.success(`${system?.name} ${system?.enabled ? 'disabled' : 'enabled'}`);
+    toast.error(
+      `Cannot pause ${system?.name || 'this agent'} — no stop control is built yet. `
+      + 'Per-account limits are enforced server-side by aiSpend.',
+    );
   };
 
+  /**
+   * There is nothing to restart. An agent here is a function, not a service.
+   *
+   * This used to wait two seconds and then set the system to healthy with a
+   * zero error rate and a response time 30% faster, and toast "restarted
+   * successfully". It fabricated a recovery. Against the mock data that was
+   * merely untrue; against the ledger it would overwrite counted figures
+   * with invented ones, so the screen would report a fix that never
+   * happened and lose the evidence of the problem in the same click.
+   */
   const restartSystem = (systemId: string) => {
     const system = aiSystems.find(s => s.id === systemId);
-    toast.info(`Restarting ${system?.name}...`);
-    setTimeout(() => {
-      setAISystems(systems =>
-        systems.map(s =>
-          s.id === systemId
-            ? { ...s, status: 'healthy', errorRate: 0, responseTime: s.responseTime * 0.7 }
-            : s
-        )
-      );
-      toast.success(`${system?.name} restarted successfully`);
-    }, 2000);
+    toast.error(
+      `${system?.name || 'This agent'} is a function, not a service — there is nothing to restart. `
+      + 'Its figures come from the call ledger and only change when it next runs.',
+    );
   };
 
   const filteredAlerts = alerts.filter(alert => {
@@ -767,7 +325,7 @@ export default function AIDiagnosticsCenter() {
                 {avgResponseTime}ms Avg Response
               </span>
               <span className="px-3 py-1 bg-[#0A0A0A] border border-[#ea580c]/30 text-[#ea580c] text-sm rounded-lg">
-                ${totalCost.toFixed(2)} Total Cost
+                ${totalCost.toFixed(2)} Est. cost (24h)
               </span>
             </div>
           </div>
@@ -833,8 +391,19 @@ export default function AIDiagnosticsCenter() {
             </div>
             <div className="bg-[#0A0A0A] border border-purple-500/30 rounded-xl p-5 hover:border-purple-500 hover:shadow-lg hover:shadow-purple-500/20 transition-all duration-300">
               <DollarSign className="w-6 h-6 text-purple-400 mb-3" />
-              <p className="text-3xl font-bold text-white mb-1">${totalCost.toFixed(2)}</p>
-              <p className="text-sm text-gray-400">Total Cost (24h)</p>
+              {/*
+                Cost is recorded per call but nothing computes it yet — the
+                ledger has a cost_cents column and the instrumentation does
+                not fill it, because a per-token price table that is wrong is
+                worse than an honest blank. Tokens ARE counted, so that is
+                what gets shown until pricing is wired.
+              */}
+              <p className="text-3xl font-bold text-white mb-1">
+                {totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—'}
+              </p>
+              <p className="text-sm text-gray-400">
+                {totalCost > 0 ? 'Est. cost (24h)' : 'Cost not yet computed'}
+              </p>
             </div>
           </div>
 
@@ -869,7 +438,7 @@ export default function AIDiagnosticsCenter() {
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">Uptime:</span>
+                      <span className="text-gray-400">Success rate:</span>
                       <span className={`font-semibold ${system.uptime >= 99 ? 'text-green-400' : system.uptime >= 95 ? 'text-yellow-400' : 'text-red-400'}`}>
                         {system.uptime}%
                       </span>
@@ -934,6 +503,27 @@ export default function AIDiagnosticsCenter() {
       {/* Systems Tab */}
       {activeTab === 'systems' && (
         <div className="space-y-4">
+          {/*
+            An agent appears here once it has made a call. There is no
+            registry of agents yet — gap 2 in tasks/phoenix-ai-audit.md — so
+            this is "what has run", not "what exists". Saying so beats
+            implying the list is complete.
+          */}
+          {!ledgerLoading && !ledgerError && aiSystems.length === 0 && (
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-8 text-center">
+              <Bot className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">No agent has run in the last 24 hours.</p>
+              <p className="text-xs text-gray-600 mt-1">
+                Agents are listed here once they make a call. This is what has run, not a registry of what exists.
+              </p>
+            </div>
+          )}
+          {ledgerError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+              <XCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
+              <p className="text-sm text-red-200">{ledgerError}</p>
+            </div>
+          )}
           {aiSystems.map(system => {
             const Icon = system.icon;
             const statusInfo = getStatusColor(system.status);
@@ -973,7 +563,7 @@ export default function AIDiagnosticsCenter() {
 
                       <div className="grid grid-cols-5 gap-4 mb-4">
                         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
-                          <p className="text-xs text-gray-400 mb-1">Uptime</p>
+                          <p className="text-xs text-gray-400 mb-1">Success rate</p>
                           <p className={`text-lg font-bold ${system.uptime >= 99 ? 'text-green-400' : system.uptime >= 95 ? 'text-yellow-400' : 'text-red-400'}`}>
                             {system.uptime}%
                           </p>
@@ -1081,6 +671,25 @@ export default function AIDiagnosticsCenter() {
               <option value="info">Info Only</option>
             </select>
           </div>
+
+          {/*
+            These are derived from counted rows, not raised by a monitor.
+            There is no alerting service on this platform; two conditions
+            qualify — work that never finished, and an agent failing a fifth
+            or more of its calls. Nothing here can auto-resolve, so nothing
+            claims it can.
+          */}
+          {!ledgerLoading && !ledgerError && alerts.length === 0 && (
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-8 text-center">
+              <CheckCircle className="w-8 h-8 text-green-500/60 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">
+                Nothing to report in the last 24 hours.
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                Alerts appear when calls fail repeatedly or start and never finish.
+              </p>
+            </div>
+          )}
 
           {filteredAlerts.map(alert => {
             const severityInfo = getSeverityColor(alert.severity);
@@ -1257,6 +866,25 @@ export default function AIDiagnosticsCenter() {
       {/* Supervisor Chat Tab */}
       {activeTab === 'supervisor' && (
         <div className="space-y-4">
+          {/*
+            Said before the panel, not instead of it, so the layout survives
+            for when the capability is built. Until then the banner is the
+            honest part and everything below it is an empty shell.
+          */}
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+              <div className="text-sm text-yellow-100">
+                <p className="font-semibold mb-1">This is not built yet.</p>
+                <p className="text-yellow-200/80">
+                  There is no supervisor service. This tab previously showed four written-in
+                  messages — including one claiming it had disabled a failing system by itself,
+                  and a weekly report of 32,807 requests and $1,247 saved. None of it ever
+                  happened. The real record of what the AI has done is the Activity tab.
+                </p>
+              </div>
+            </div>
+          </div>
           <div className="bg-gradient-to-r from-orange-600/20 to-purple-600/20 border-2 border-orange-500 rounded-xl p-6">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-orange-600 to-orange-700 flex items-center justify-center animate-pulse">
@@ -1346,7 +974,11 @@ export default function AIDiagnosticsCenter() {
             </h3>
             <div className="space-y-3">
               {aiSystems.slice(0, 5).map(system => {
-                const percentage = ((system.cost / totalCost) * 100).toFixed(1);
+                // Guarded: totalCost is 0 until per-token pricing is wired,
+                // and 0/0 rendered "NaN%" on every row.
+                const percentage = totalCost > 0
+                  ? ((system.cost / totalCost) * 100).toFixed(1)
+                  : '0.0';
                 return (
                   <div key={system.id}>
                     <div className="flex items-center justify-between mb-2">

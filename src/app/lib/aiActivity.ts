@@ -20,9 +20,22 @@
  * stay labelled an estimate. Those are rules, and rules belong somewhere a
  * test can reach them.
  */
-import { API_BASE_URL } from './apiConfig';
-
-const BASE = `${API_BASE_URL}/make-server-3eae23a6/ai-activity`;
+/**
+ * The base URL is resolved lazily, inside the fetchers.
+ *
+ * A top-level `import { API_BASE_URL } from './apiConfig'` is fine for Vite,
+ * which resolves extensionless paths, and fatal for `node --test`, which does
+ * not — the whole module fails to load and every mapping test dies at import
+ * before asserting anything.
+ *
+ * The mappings below are the part worth testing and they need no config at
+ * all, so the config stays on the side that does. Nothing here runs in a test;
+ * the dynamic imports are only reached from the browser.
+ */
+async function base(): Promise<string> {
+  const { API_BASE_URL } = await import('./apiConfig');
+  return `${API_BASE_URL}/make-server-3eae23a6/ai-activity`;
+}
 
 /** One row of the ledger, as the server sends it. */
 export interface LedgerCall {
@@ -90,7 +103,7 @@ async function authHeader(): Promise<Record<string, string>> {
 export class NotPermitted extends Error {}
 
 export async function fetchSummary(hours = 24): Promise<ActivitySummary> {
-  const res = await fetch(`${BASE}/summary?hours=${hours}`, { headers: await authHeader() });
+  const res = await fetch(`${await base()}/summary?hours=${hours}`, { headers: await authHeader() });
   if (res.status === 403) throw new NotPermitted('Company access is required for this.');
   if (!res.ok) throw new Error(`Could not load AI activity (HTTP ${res.status}).`);
   const body = await res.json();
@@ -99,7 +112,7 @@ export async function fetchSummary(hours = 24): Promise<ActivitySummary> {
 }
 
 export async function fetchCalls(hours = 24, limit = 100): Promise<LedgerCall[]> {
-  const res = await fetch(`${BASE}/calls?hours=${hours}&limit=${limit}`, { headers: await authHeader() });
+  const res = await fetch(`${await base()}/calls?hours=${hours}&limit=${limit}`, { headers: await authHeader() });
   if (res.status === 403) throw new NotPermitted('Company access is required for this.');
   if (!res.ok) throw new Error(`Could not load AI activity (HTTP ${res.status}).`);
   const body = await res.json();
@@ -205,4 +218,142 @@ export function formatCost(cents: number): string {
   if (dollars === 0) return '$0.00';
   if (dollars < 0.01) return '<$0.01';
   return `$${dollars.toFixed(2)}`;
+}
+
+/* ── the systems and alerts views ────────────────────────────────────────── */
+
+/**
+ * An agent, in the shape the Systems tab renders.
+ *
+ * WHAT IS REAL AND WHAT IS LEFT EMPTY
+ *
+ * Everything here comes from counted rows: calls, tokens, errors, median
+ * duration, estimated cost. The fields the old mock carried that have NO
+ * source are deliberately left empty rather than filled with a plausible
+ * number — `features`, `version`, `latestVersion`, `updateAvailable`.
+ *
+ * An agent is a function in this codebase. It does not have a version, it
+ * does not have an upgrade available, and inventing "2.1.0 → 2.3.0" is what
+ * the page did before. The component hides those sections when they are
+ * empty, so the screen is shorter and true rather than longer and false.
+ *
+ * `uptime` is NOT uptime. There is no uptime for a function that only exists
+ * while a request is in flight. The field keeps its name because the
+ * component's type uses it, and the component now LABELS IT "Success rate",
+ * which is what the number actually is: ok ÷ total.
+ */
+export interface MappedSystem {
+  id: string;
+  name: string;
+  category: 'content' | 'analytics' | 'automation' | 'assistant' | 'vision';
+  status: 'healthy' | 'degraded' | 'critical' | 'offline';
+  /** Success rate as a percentage. Labelled as such in the UI, not as uptime. */
+  uptime: number;
+  lastCheck: string;
+  /** Median, not mean — one slow blueprint read would set a mean on its own. */
+  responseTime: number;
+  apiCalls: number;
+  tokensUsed: number;
+  /** Dollars. An estimate, and shown next to that word. */
+  cost: number;
+  errorRate: number;
+  features: string[];
+  color: string;
+  enabled: boolean;
+  version: string;
+}
+
+/** Cosmetic only. An agent with no entry gets the neutral default. */
+const AGENT_LOOK: Record<string, { category: MappedSystem['category']; color: string }> = {
+  'quote-generator': { category: 'assistant', color: 'text-blue-400' },
+  'design-assistant': { category: 'assistant', color: 'text-purple-400' },
+  'house-capture': { category: 'vision', color: 'text-green-400' },
+  'content-studio': { category: 'content', color: 'text-orange-400' },
+  'lead-scoring': { category: 'analytics', color: 'text-cyan-400' },
+};
+
+export function toSystem(a: AgentRollup): MappedSystem {
+  const look = AGENT_LOOK[a.agent] || { category: 'automation' as const, color: 'text-gray-400' };
+  return {
+    id: a.agent,
+    name: agentLabel(a.agent),
+    category: look.category,
+    status: agentStatus(a),
+    uptime: a.total ? Math.round((a.ok / a.total) * 1000) / 10 : 0,
+    lastCheck: a.lastSeen || '',
+    responseTime: a.medianDurationMs ?? 0,
+    apiCalls: a.total,
+    tokensUsed: (a.tokensIn || 0) + (a.tokensOut || 0),
+    cost: (Number(a.estimatedCostCents) || 0) / 100,
+    errorRate: errorRatePercent(a),
+    features: [],
+    color: look.color,
+    // No pause mechanism exists on the server, so nothing here can be
+    // disabled. Reported as enabled because that is the truth; the controls
+    // are disabled in the UI rather than pretending to work.
+    enabled: true,
+    version: '',
+  };
+}
+
+export interface MappedAlert {
+  id: string;
+  systemId: string;
+  systemName: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  message: string;
+  timestamp: string;
+  resolved: boolean;
+  autoResolvable: boolean;
+}
+
+/**
+ * Alerts derived from what the ledger actually recorded.
+ *
+ * There is no alerting system on this platform, and the old page pretended
+ * there was — eight invented alerts with recommendations and auto-resolve
+ * flags. These are not that. They are a restatement of counted facts, and
+ * `autoResolvable` is false on every one because nothing here can resolve
+ * anything.
+ *
+ * Only two conditions qualify, both from `concerns` on the server plus the
+ * per-agent rollup: work that started and never finished, and an agent
+ * failing a fifth or more of its calls. Anything weaker is noise, and a list
+ * of weak alerts is a list nobody reads.
+ */
+export function deriveAlerts(summary: ActivitySummary, now: number = Date.now()): MappedAlert[] {
+  const alerts: MappedAlert[] = [];
+  const stamp = new Date(now).toISOString();
+
+  for (const a of summary.agents) {
+    if (a.abandoned > 0) {
+      alerts.push({
+        id: `abandoned-${a.agent}`,
+        systemId: a.agent,
+        systemName: agentLabel(a.agent),
+        severity: 'critical',
+        title: 'Calls started and never finished',
+        message: `${a.abandoned} call${a.abandoned === 1 ? '' : 's'} opened a ledger row and never recorded an outcome. `
+          + 'That usually means the handler threw somewhere it does not catch.',
+        timestamp: a.lastSeen || stamp,
+        resolved: false,
+        autoResolvable: false,
+      });
+    }
+    if (a.total >= 5 && a.errors / a.total >= 0.2) {
+      alerts.push({
+        id: `errors-${a.agent}`,
+        systemId: a.agent,
+        systemName: agentLabel(a.agent),
+        severity: a.errors / a.total >= 0.5 ? 'critical' : 'warning',
+        title: `${errorRatePercent(a)}% of calls failed`,
+        message: `${a.errors} of ${a.total} calls returned an error in this window.`,
+        timestamp: a.lastSeen || stamp,
+        resolved: false,
+        autoResolvable: false,
+      });
+    }
+  }
+  return alerts;
 }
