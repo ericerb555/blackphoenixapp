@@ -29,6 +29,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { trustedRole } from "./trustedRole.ts";
 import { recordedAnthropic } from "./aiLedger.ts";
+import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
 
 const app = new Hono();
 
@@ -131,6 +132,26 @@ app.post("/read", async (c) => {
       if (p) blocks.push({ type: "image", source: { type: "base64", media_type: p.mediaType, data: p.base64 } });
     }
 
+    /**
+     * Their quote is fenced; our scope lines are not.
+     *
+     * The distinction is the whole point. The scope lines came out of our own
+     * database and are ours; the quote text arrived from a subcontractor, or
+     * from whoever emailed one to a subcontractor, and went into this prompt
+     * under the bare label "Their quote, as text:" with nothing separating
+     * their words from our instructions.
+     *
+     * The damage here is bounded — this route writes nothing, and the office
+     * accepts the matches by hand, which is stated at the top of this file —
+     * but "a human checks it" is a reason to fence it properly rather than a
+     * reason not to bother. A reading quietly skewed by a line in a PDF is
+     * exactly the kind of wrong number that gets accepted.
+     */
+    const theirQuote = text.trim() ? fence("Their quote", text.trim()) : null;
+    if (theirQuote?.suspicion) {
+      console.warn(`[bid-intake] quote text looks like a prompt injection attempt: ${theirQuote.suspicion}`);
+    }
+
     blocks.push({
       type: "text",
       text: [
@@ -142,17 +163,18 @@ app.post("/read", async (c) => {
           phase: String(l.phase || ""),
         })), null, 1),
         "",
-        text.trim() ? "Their quote, as text:" : "Their quote is in the attached image(s).",
-        text.trim(),
+        theirQuote ? theirQuote.text : "Their quote is in the attached image(s).",
       ].filter(Boolean).join("\n"),
     });
 
     const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
-    const message = await recordedAnthropic({ agent: "bid-intake", operation: "read an incoming bid" }, client, {
+    const message = await recordedAnthropic({ agent: "bid-intake", operation: theirQuote?.suspicion ? "read an incoming bid (content flagged)" : "read an incoming bid" }, client, {
       model: Deno.env.get("BID_INTAKE_MODEL") || "claude-opus-5",
       max_tokens: 8000,
       thinking: { type: "adaptive" },
-      system: SYSTEM,
+      system: `${SYSTEM}
+
+${UNTRUSTED_PREAMBLE}`,
       messages: [{ role: "user", content: blocks }],
     });
 

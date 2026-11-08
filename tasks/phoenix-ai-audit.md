@@ -214,3 +214,93 @@ than the start.
 
 No credentials are needed for any of the above. Nothing in this audit modified
 a production system, which §24 Phase 1 required.
+
+---
+
+## Progress, 2026-11-08
+
+Written the same day as the audit above, after a session of building. The
+gap list in §3 is the thing to read against; this says what moved.
+
+### Closed
+
+**Gap 3 — no AI audit log.** `ai_call_log` plus `aiLedger.ts`. One row per
+model call: who asked, on what authority, which agent, outcome, tokens, cost,
+and whether anything actually changed. Holds shape, never content — no prompt
+and no completion, because the inputs here are customer photographs,
+addresses, blueprints and screening context, and a transcript store would be
+the most sensitive table in the database for almost none of the value. Rows
+open before the call and close after, so in-flight work is visible and a row
+still saying `running` is itself a finding. All 40-odd call sites are wired;
+`rental-portals.tsx` is the one exception and is asserted by name in a test.
+
+**Gap 6 — no global emergency stop.** `ai_kill_switch` plus
+`aiKillSwitch.ts`. Global or per-agent. Fails to the last known state, so an
+engaged stop is held through a database outage and never silently releases.
+Engaging is open to any staff member; releasing is platform-owner only. The
+check runs before the ledger row opens, so a stopped agent leaves no record
+of work it never did. **Migration written and NOT YET APPLIED.**
+
+**The dashboard that reported all of this was fiction.** Worth recording
+separately, because it was not in the gap list and should have been.
+`AIDiagnosticsCenter.tsx` — 1,676 lines of activity log, health monitoring,
+alerts and an AI supervisor — made zero network calls. Every number was a
+hardcoded array: a batch of 45 product images, a service auto-disabling, a
+weekly report of 32,807 requests and $1,247 saved. None of it ever happened.
+Its pause button flipped a boolean in React state and toasted "disabled"
+while the agent carried on; its restart button faked a recovery by setting
+status healthy, error rate zero and response time 30% faster. It now reads
+the ledger, and the pause button stops the agent for real.
+
+### Partly done
+
+**Gap 1 — no orchestration layer.** The "one front door" from recommendation
+D exists for the things that matter at the boundary: every model call now
+passes a stop check, a ledger write and a cost estimate. What does not exist
+is the part above it — no task object, no way to ask what the AI is working
+on as a unit of work rather than as a list of calls.
+
+**Gap 2 — no agent registry.** The Systems tab lists agents, but it is "what
+has run in the last 24 hours", not a registry of what exists. An agent that
+has never been called does not appear, and the screen says so rather than
+implying the list is complete.
+
+**Gap 7 — prompt injection.** `untrustedContent.ts`: a per-call nonce fence
+that content cannot close, a system clause naming fenced text as data, and
+narrow detection that informs the record rather than blocking the call — a
+filter that rejects honest work and misses careful attacks is worse than
+none, because it gets believed.
+
+Applied to `bid-intake`, which took a subcontractor's pasted text straight
+into a prompt under the bare label "Their quote, as text:".
+
+Correcting the audit above: this was not uniformly unaddressed. The Exchange
+assistant already had a fence AND `keepKnownIds`, an output allowlist that
+drops any listing id the model did not retrieve. That is the strongest
+pattern here and the one the rest should copy — constraining the output is
+worth more than sanitising the input. The remaining untrusted sources —
+vendor catalogues, OSM descriptions, uploaded blueprints, inbound email —
+are still unfenced.
+
+### Untouched
+
+Gaps 4 (durable workflow engine), 5 (platform-wide autonomy levels),
+8 (AI-facing memory), 9 (multi-application registry), 10 (App Factory),
+11 (voice). 9, 10 and 11 were deliberately deferred.
+
+### Also done, from §5
+
+`index.tsx` went from 22,858 lines to about 17,500 across eight extractions,
+each a pure move verified by diffing the served route set rather than by
+reading. Two live bugs surfaced in the process and were fixed: the `/leads`
+routes were readable and mailable by any signed-in portal account, and
+`/leads/blast` reported sending fifty emails while the auth wall refused
+every one.
+
+### What is not verified
+
+Everything above is verified by typecheck, unit tests, and a route-surface
+diff. None of it is verified by a request against the deployed system except
+the security probe, which covers the exposed surface rather than these
+features. The ledger and the stop both want a deliberate end-to-end check:
+make a call, see the row; engage the stop, confirm the next call is refused.
