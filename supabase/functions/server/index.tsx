@@ -338,7 +338,7 @@ import {
   INTAKE_ADMIN_ROLES, PLATFORM_OWNER_EMAILS, STAFF_VIEW_ROLES,
 } from "./identity.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
-import { recordedOpenAIFetch, ledgerContextFor } from "./aiLedger.ts";
+import { recordedOpenAIFetch, ledgerContextFor, type LedgerContext } from "./aiLedger.ts";
 import { propertyManagementRouter } from "./property-management.tsx";
 import { rentalRouter, landlordActor, propertyManagerActor, TENANT_SUBPORTAL_QUOTA } from "./rental-portals.tsx";
 import { aiActivityRouter } from "./ai-activity.tsx";
@@ -4163,7 +4163,20 @@ IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIEL
  * watching, which is the same reason `matchCatalogItem` is shared rather than
  * reimplemented per screen.
  */
-async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any; usedAI: boolean }> {
+async function estimateForWorkRequest(
+  workRequest: any,
+  /**
+   * Who asked, threaded down from the route.
+   *
+   * Found by reading the ledger rather than the code: the first real quote
+   * it recorded came back `authority: internal` with no actor, because this
+   * helper called `runEstimator` without a context while the two routes
+   * inside `quote-generator.tsx` passed one. Both Command Center quote
+   * paths run through here, so that was most drafts attributed to nobody —
+   * exactly the column the ledger exists to fill.
+   */
+  ledger: LedgerContext = {},
+): Promise<{ estimate: any; usedAI: boolean }> {
   /**
    * One composition, shared with the quote-generator routes.
    *
@@ -4195,7 +4208,8 @@ async function estimateForWorkRequest(workRequest: any): Promise<{ estimate: any
     extra,
   },
   (raw) => repriceEstimate(raw, repricerDeps(ctx)),
-  ctx.factors);
+  ctx.factors,
+  ledger);
 }
 
 /**
@@ -4244,7 +4258,7 @@ app.post('/make-server-3eae23a6/quote-draft/:workRequestId', async (c) => {
     const workRequest = (all || []).find((r: any) => String(r?.id || '') === wrId);
     if (!workRequest) return c.json({ success: false, error: 'No such work request.' }, 404);
 
-    const { estimate, usedAI } = await estimateForWorkRequest(workRequest);
+    const { estimate, usedAI } = await estimateForWorkRequest(workRequest, ledgerContextFor(c));
     const now = new Date().toISOString();
 
     const draft = {
@@ -4287,7 +4301,7 @@ app.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
     // One setup, shared with the on-open draft route. Two copies would mean two
     // places loading the catalogue and two ideas about which rates apply, and
     // the one that drifted would be the one nobody was watching.
-    const { estimate, usedAI } = await estimateForWorkRequest(workRequest);
+    const { estimate, usedAI } = await estimateForWorkRequest(workRequest, ledgerContextFor(c));
 
     console.log('[Auto-Quote] Estimator result:', {
       usedAI,
