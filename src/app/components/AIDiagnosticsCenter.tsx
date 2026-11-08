@@ -10,7 +10,7 @@
  * - Integration status and diagnostics
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Brain, Activity, AlertTriangle, CheckCircle, XCircle, Clock, Zap,
   TrendingUp, TrendingDown, Cpu, Database, Globe, Server, Shield,
@@ -22,6 +22,10 @@ import {
   Wrench, Gift, Crown, Building2, LineChart, PieChart, Layers, Video, X
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  fetchSummary, fetchCalls, toActivity, NotPermitted,
+  type ActivitySummary,
+} from '../lib/aiActivity';
 
 interface AISystem {
   id: string;
@@ -558,62 +562,48 @@ export default function AIDiagnosticsCenter() {
     }
   ]);
 
-  // Activity Log
-  const [activities, setActivities] = useState<AIActivity[]>([
-    {
-      id: 'act-1',
-      systemId: 'ai-image-recognition',
-      systemName: 'AI Image Recognition',
-      type: 'error',
-      action: 'Service Disabled',
-      details: 'System automatically disabled due to critical error rate',
-      timestamp: new Date(Date.now() - 10 * 60000).toISOString(),
-      status: 'success'
-    },
-    {
-      id: 'act-2',
-      systemId: 'ai-supervisor',
-      systemName: 'AI Supervisor Assistant',
-      type: 'alert',
-      action: 'Alert Generated',
-      details: 'Created critical alert for AI Image Recognition high error rate',
-      timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-      status: 'success'
-    },
-    {
-      id: 'act-3',
-      systemId: 'ai-price-automation',
-      systemName: 'AI Price Automation Engine',
-      type: 'execution',
-      action: 'Price Rule Executed',
-      details: 'Peak Hours Premium rule increased advertising prices by 15%',
-      timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-      user: 'System',
-      status: 'success'
-    },
-    {
-      id: 'act-4',
-      systemId: 'ai-analytics',
-      systemName: 'AI Analytics & Insights',
-      type: 'config',
-      action: 'Configuration Updated',
-      details: 'Increased timeout threshold from 60s to 90s',
-      timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-      user: 'Admin User',
-      status: 'success'
-    },
-    {
-      id: 'act-5',
-      systemId: 'ai-content-studio',
-      systemName: 'AI Content Studio',
-      type: 'execution',
-      action: 'Batch Processing',
-      details: 'Generated 45 product images for Materials Hub vendor catalog',
-      timestamp: new Date(Date.now() - 90 * 60000).toISOString(),
-      user: 'Admin User',
-      status: 'success'
-    }
-  ]);
+  /**
+   * The real activity feed, from `ai_call_log` via `/ai-activity/calls`.
+   *
+   * This used to be five hardcoded entries describing things that never
+   * happened — a batch of 45 product images, a service auto-disabling, a
+   * timeout threshold being raised. They were written when the screen was
+   * built and nobody was ever told they were fiction.
+   *
+   * It starts empty and fills from the ledger, which means an empty list is
+   * now the truth rather than a placeholder.
+   */
+  const [activities, setActivities] = useState<AIActivity[]>([]);
+  const [ledgerSummary, setLedgerSummary] = useState<ActivitySummary | null>(null);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [summary, calls] = await Promise.all([fetchSummary(24), fetchCalls(24, 100)]);
+        if (cancelled) return;
+        setLedgerSummary(summary);
+        setActivities(calls.map(toActivity) as AIActivity[]);
+        setLedgerError(null);
+      } catch (err: any) {
+        if (cancelled) return;
+        /**
+         * Reported, never swallowed into an empty list. "You are not allowed
+         * to see this" and "nothing has happened" render identically as zero
+         * rows, and they mean completely different things.
+         */
+        setLedgerError(err instanceof NotPermitted
+          ? 'Activity is only shown to company accounts.'
+          : (err?.message || 'Could not load AI activity.'));
+      } finally {
+        if (!cancelled) setLedgerLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
 
   // Supervisor Messages
   const [supervisorMessages, setSupervisorMessages] = useState<SupervisorMessage[]>([
@@ -1164,7 +1154,58 @@ export default function AIDiagnosticsCenter() {
       {/* Activity Log Tab */}
       {activeTab === 'activity' && (
         <div className="space-y-3">
-          <h2 className="text-xl font-bold text-white mb-4">System Activity Log</h2>
+          <div className="flex items-baseline justify-between mb-4">
+            <h2 className="text-xl font-bold text-white">System Activity Log</h2>
+            {ledgerSummary && (
+              <span className="text-xs text-gray-500">
+                last {ledgerSummary.windowHours}h · {ledgerSummary.summary.total} call
+                {ledgerSummary.summary.total === 1 ? '' : 's'}
+                {ledgerSummary.truncated && ' (most recent shown)'}
+              </span>
+            )}
+          </div>
+
+          {/* Anything the ledger thinks is worth saying, said plainly. */}
+          {ledgerSummary?.concerns?.length ? (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-2">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+                <div className="text-sm text-yellow-200 space-y-1">
+                  {ledgerSummary.concerns.map((reason) => <div key={reason}>{reason}</div>)}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {ledgerLoading && (
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-8 text-center text-gray-500">
+              Reading the activity ledger…
+            </div>
+          )}
+
+          {!ledgerLoading && ledgerError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+              <XCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
+              <p className="text-sm text-red-200">{ledgerError}</p>
+            </div>
+          )}
+
+          {/*
+            An empty ledger is a real answer, not a broken screen, so it says
+            which of the two it is. This page spent its whole life showing five
+            invented entries; showing nothing when nothing happened is the
+            point of the change.
+          */}
+          {!ledgerLoading && !ledgerError && activities.length === 0 && (
+            <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-8 text-center">
+              <Activity className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">No model calls in the last 24 hours.</p>
+              <p className="text-xs text-gray-600 mt-1">
+                Every AI call is recorded here as it happens.
+              </p>
+            </div>
+          )}
+
           {activities.map(activity => {
             const typeColors = {
               execution: { bg: 'bg-blue-500/20', text: 'text-blue-400', icon: Zap },
