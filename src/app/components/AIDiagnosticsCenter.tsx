@@ -402,8 +402,20 @@ export default function AIDiagnosticsCenter() {
                 {totalCost > 0 ? `$${totalCost.toFixed(2)}` : '—'}
               </p>
               <p className="text-sm text-gray-400">
-                {totalCost > 0 ? 'Est. cost (24h)' : 'Cost not yet computed'}
+                {totalCost > 0 ? 'Est. cost (24h)' : 'No priced calls yet'}
               </p>
+              {/*
+                Said where the number is, not in a footnote. Anthropic rates
+                come from their published table; the OpenAI ones are from
+                recall and have not been checked against openai.com/pricing.
+                A figure that cannot say how solid it is does not belong on
+                a page that spent its life showing invented ones.
+              */}
+              {totalCost > 0 && (ledgerSummary?.unverifiedPricing?.length ?? 0) > 0 && (
+                <p className="text-[11px] text-yellow-500/70 mt-1 leading-snug">
+                  Includes unverified rates for {ledgerSummary!.unverifiedPricing!.join(', ')}
+                </p>
+              )}
             </div>
           </div>
 

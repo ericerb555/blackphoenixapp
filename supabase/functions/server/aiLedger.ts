@@ -46,6 +46,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
+import { estimateCostCents } from "./modelPricing.ts";
 
 export type AiAuthority = 'staff' | 'subscriber' | 'public' | 'cron' | 'internal';
 export type AiOutcome = 'running' | 'ok' | 'refused' | 'error';
@@ -191,14 +192,14 @@ export async function beginAiCall(input: BeginAiCall): Promise<AiCallHandle> {
       console.error('[aiLedger] could not open a row:', error?.message || 'no id returned');
       return deadHandle();
     }
-    return handleFor(String(data.id), startedAt);
+    return handleFor(String(data.id), startedAt, input.model);
   } catch (e: any) {
     console.error('[aiLedger] beginAiCall threw:', e?.message || e);
     return deadHandle();
   }
 }
 
-function handleFor(id: string, startedAt: number): AiCallHandle {
+function handleFor(id: string, startedAt: number, openedWithModel?: string): AiCallHandle {
   async function close(outcome: AiOutcome, finish: FinishAiCall, error?: string) {
     try {
       const patch: Record<string, unknown> = {
@@ -212,7 +213,26 @@ function handleFor(id: string, startedAt: number): AiCallHandle {
       if (finish.model) patch.model = finish.model;
       if (Number.isFinite(finish.tokensIn as number)) patch.tokens_in = finish.tokensIn;
       if (Number.isFinite(finish.tokensOut as number)) patch.tokens_out = finish.tokensOut;
-      if (Number.isFinite(finish.costCents as number)) patch.cost_cents = finish.costCents;
+
+      /**
+       * Cost is derived here rather than at each call site.
+       *
+       * Every wrapper and every hand-written `call.ok(...)` passes through
+       * this one function, so pricing it here covers all 40-odd of them at
+       * once and means a price-table change takes effect everywhere without
+       * touching a single agent. A caller that computed its own figure is
+       * still honoured — nothing here second-guesses an explicit number.
+       *
+       * An unpriceable model leaves the column NULL, which the dashboard
+       * reads as "not computed" rather than as zero.
+       */
+      if (Number.isFinite(finish.costCents as number)) {
+        patch.cost_cents = finish.costCents;
+      } else {
+        const model = finish.model || openedWithModel;
+        const estimate = estimateCostCents(model, finish.tokensIn, finish.tokensOut);
+        if (estimate) patch.cost_cents = estimate.cents;
+      }
 
       const { error: failure } = await admin()
         .from('ai_call_log').update(patch).eq('id', id);

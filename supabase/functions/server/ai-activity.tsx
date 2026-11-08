@@ -30,6 +30,7 @@ import { requireStaffOn } from "./requireStaff.ts";
 import {
   summarise, byAgent, concerns, effectiveState, type LedgerRow,
 } from "./aiLedgerView.ts";
+import { unverifiedModels } from "./modelPricing.ts";
 
 export const aiActivityRouter = new Hono();
 
@@ -112,6 +113,15 @@ aiActivityRouter.get(`${BASE}/summary`, async (c) => {
       agents: byAgent(rows),
       concerns: concerns(summary),
       costIsEstimate: true,
+      /**
+       * Which models in the price table carry a rate nobody has checked.
+       *
+       * Sent so the screen can say so next to the figure. A cost derived
+       * from a recalled price is still worth showing — most calls here are
+       * OpenAI and a report covering none of them is useless — but it must
+       * not be presented as firmly as one read off a published table.
+       */
+      unverifiedPricing: unverifiedModels(),
     });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);

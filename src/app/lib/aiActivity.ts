@@ -82,6 +82,8 @@ export interface ActivitySummary {
   agents: AgentRollup[];
   concerns: string[];
   costIsEstimate: boolean;
+  /** Models whose price is from an unchecked rate. Shown beside the cost. */
+  unverifiedPricing?: string[];
 }
 
 async function authHeader(): Promise<Record<string, string>> {
