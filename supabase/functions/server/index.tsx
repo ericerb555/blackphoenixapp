@@ -342,6 +342,7 @@ import { recordedOpenAIFetch, ledgerContextFor, type LedgerContext } from "./aiL
 import { propertyManagementRouter } from "./property-management.tsx";
 import { rentalRouter, landlordActor, propertyManagerActor, TENANT_SUBPORTAL_QUOTA } from "./rental-portals.tsx";
 import { aiActivityRouter } from "./ai-activity.tsx";
+import { phoenixChatRouter } from "./phoenix-chat.tsx";
 /**
  * Leaf utilities that used to be declared in the middle of this file, which
  * is what pinned every block that used them to it. `money` alone was used 85
@@ -1939,6 +1940,11 @@ app.route("/", rentalRouter);
  * the code being described, never over HTTP.
  */
 app.route("/", aiActivityRouter);
+/**
+ * The assistant you can ask about the AI. Staff-only, read-only, and
+ * recorded in the same ledger it reports on.
+ */
+app.route("/", phoenixChatRouter);
 app.route("/make-server-3eae23a6/big-box-products", bigBoxProductsRouter);
 
 // Cohorts — the subscription tiers, their pricing and what they earn. Mounted
