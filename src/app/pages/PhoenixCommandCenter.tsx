@@ -14,7 +14,7 @@
  */
 import { useState } from 'react';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import PhoenixMark from '../components/PhoenixMark';
 import PhoenixConsole from '../components/PhoenixConsole';
 import PhoenixWorkspace from '../components/PhoenixWorkspace';
 import type { OpenDirective } from '../lib/aiActivity';
@@ -52,7 +52,7 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
               The mark at the size the brand uses it, not shrunk into an
               icon slot. On this screen it is the subject, not a label.
             */}
-            <img src={phoenixLogo} alt="" className="h-14 w-14 object-contain" />
+            <PhoenixMark className="h-14 w-14" pad="p-2" round={false} />
             <div>
               <h1 className="text-3xl font-bold text-white">Phoenix</h1>
               <p className="mt-0.5 text-gray-400">

@@ -71,7 +71,7 @@ import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
 import { API_BASE_URL } from '../lib/apiConfig';
-import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
+import PhoenixMark from '../components/PhoenixMark';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
@@ -542,13 +542,12 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                   onClick={() => handleNavigate('phoenix-ai')}
                   title="Open Phoenix"
                   aria-label="Open Phoenix, the AI command center"
-                  className="group relative p-2 rounded-xl border border-orange-500/30 bg-[#0A0A0A] transition hover:scale-105 hover:border-orange-500/70 hover:shadow-lg hover:shadow-orange-900/40"
+                  className="group relative rounded-xl p-0.5 transition hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                 >
-                  <img
-                    src={phoenixLogo}
-                    alt=""
-                    className="w-14 h-14 object-contain transition group-hover:brightness-110"
-                  />
+                  {/* Light tile: the mark is black on transparency, so a dark
+                      ground renders it invisible. See PhoenixMark. */}
+                  <PhoenixMark className="w-14 h-14" pad="p-2" round={false} />
+                  <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-orange-500/40 transition group-hover:ring-2 group-hover:ring-orange-500/80" />
                 </button>
                 <div>
                   <h1 className="text-4xl font-bold text-white">Owner's Control Center</h1>
