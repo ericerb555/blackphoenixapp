@@ -2,7 +2,8 @@
 
 Written 2026-11-08, in response to the "PHOENIX AI MUST BE THE LIVING INTERFACE"
 brief. Section 9 of that brief says: inspect first, do not code until approved.
-This is the inspection and the plan. **Nothing below Phase 0 is built.**
+This is the inspection and the plan. **Phases 0, 2 and 3 are now built and
+live; 2.5 is next.** Each phase below carries its own status.
 
 ---
 
