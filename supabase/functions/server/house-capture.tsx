@@ -28,6 +28,7 @@ import { trustedRole } from "./trustedRole.ts";
 import { reserve, refund } from "./aiSpend.ts";
 import { beginAiCall, ledgerContextFor, recordedOpenAIFetch } from "./aiLedger.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";
+import { imageModel } from "./imageModel.ts";
 
 const app = new Hono();
 
@@ -911,7 +912,7 @@ async function paintDeck(opts: {
 
   const buildForm = (multi: boolean) => {
     const form = new FormData();
-    form.append("model", "gpt-image-1");
+    form.append("model", imageModel());
     // A mask applies to one image. Reference views would make the edit
     // ambiguous about which image the mask belongs to, so the caller gets
     // precise placement OR extra reference views, and placement wins.
@@ -1534,7 +1535,7 @@ app.post("/photoreal-3d", async (c) => {
     ].filter(Boolean).join("\n");
 
     const form = new FormData();
-    form.append("model", "gpt-image-1");
+    form.append("model", imageModel());
     form.append("image", new Blob([base64ToBytes(parts.base64)], { type: parts.mediaType }), "view.png");
     form.append("prompt", prompt);
     form.append("size", "1536x1024");

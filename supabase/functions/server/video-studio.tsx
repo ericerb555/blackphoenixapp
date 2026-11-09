@@ -25,6 +25,7 @@ import * as kv from "./kv_store.tsx";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";
 import { winningArchetypesFragment } from "./reel-scoreboard.tsx";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { imageModel } from "./imageModel.ts";
 
 export const videoStudioRouter = new Hono();
 
@@ -79,7 +80,7 @@ videoStudioRouter.get("/video-studio/status", (c) => {
     success: true,
     capabilities: {
       script: { available: openai, provider: openai ? "openai" : null },
-      images: { available: openai, provider: openai ? "dall-e-3" : null },
+      images: { available: openai, provider: openai ? imageModel() : null },
       voiceover: { available: openai, provider: openai ? "openai-tts" : null, voices: OPENAI_VOICES },
       // Faceless assembly is client-side; always available in the browser.
       assembly: { available: true, provider: "browser-canvas" },
@@ -205,7 +206,7 @@ videoStudioRouter.post("/video-studio/scene-image", async (c) => {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       // Same minimal parameter set verified working in content-studio.
-      body: JSON.stringify({ model: "gpt-image-1", prompt: finalPrompt, n: 1, size: gptSize }),
+      body: JSON.stringify({ model: imageModel(), prompt: finalPrompt, n: 1, size: gptSize }),
     });
     if (!aiRes.ok) {
       console.log(`[Video Studio] gpt-image-1 unavailable (HTTP ${aiRes.status}), trying dall-e-3`);

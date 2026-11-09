@@ -20,6 +20,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { loadBrandVisual } from "./content-studio.tsx";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { imageModel } from "./imageModel.ts";
 
 export const creativeStudioRouter = new Hono();
 
@@ -138,7 +139,7 @@ creativeStudioRouter.post("/creative-studio/generate", async (c) => {
       const primary = await recordedOpenAIFetch({ agent: "creative-studio", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-image-1", prompt: finalPrompt, n: 1, size: gptSize, quality: wantHd ? "high" : "medium" }),
+        body: JSON.stringify({ model: imageModel(), prompt: finalPrompt, n: 1, size: gptSize, quality: wantHd ? "high" : "medium" }),
       });
       if (primary.ok) {
         const d = await primary.json();

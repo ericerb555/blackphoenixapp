@@ -15,6 +15,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { beginAiCall, recordedOpenAIFetch, type LedgerContext } from "./aiLedger.ts";
+import { imageModel } from "./imageModel.ts";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { safeFetch } from "./safeFetch.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";
@@ -828,8 +829,11 @@ contentStudioRouter.post("/content-studio/package", async (c) => {
           //
           // Try the current model first and fall back, sending only parameters
           // both accept. OPENAI_IMAGE_MODEL overrides the list entirely.
-          const forced = Deno.env.get("OPENAI_IMAGE_MODEL");
-          const candidates = forced ? [forced] : ["gpt-image-1", "dall-e-3"];
+          // One answer for the whole server, from `imageModel.ts`. This used to
+    // default to ["gpt-image-1", "dall-e-3"] when unset — both of which
+    // OpenAI no longer lists, and the second of which is verified dead on
+    // this account by the comment above.
+          const candidates = [imageModel()];
           const sizeFor = (model: string) =>
             wide ? (model === "dall-e-3" ? "1792x1024" : "1536x1024") : "1024x1024";
 
@@ -1066,7 +1070,7 @@ async function drawBeat(prompt: string): Promise<string | null> {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-image-1",
+        model: imageModel(),
         // Vertical, because the caption and the product both need the height.
         // Text is banned in the image: captions are burned on at render time,
         // and a model's idea of lettering undermines them.

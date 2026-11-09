@@ -18,6 +18,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest, requireStaff } from "./requireStaff.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { imageModel } from "./imageModel.ts";
 
 const router = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -368,7 +369,7 @@ router.post(`${PREFIX}/marketplace/generate-image`, async (c) => {
       const primary = await recordedOpenAIFetch({ agent: "marketplace", operation: "generate an image", bucket: "render" }, "https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-image-1", prompt, n: 1, size: "1024x1024", quality: "high" }),
+        body: JSON.stringify({ model: imageModel(), prompt, n: 1, size: "1024x1024", quality: "high" }),
       });
       if (primary.ok) {
         const d = await primary.json();

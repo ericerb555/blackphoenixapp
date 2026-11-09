@@ -34,6 +34,7 @@ import { isPlaceholderLink } from "./placeholderLink.ts";
 import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productImages.tsx";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { imageModel } from "./imageModel.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -385,8 +386,11 @@ advertisingRouter.post("/advertising/images/generate", async (c) => {
      */
     const prompt = `${brief}. Clean commercial photography or flat illustration suitable for a small advertisement tile. No text, words, letters or logos anywhere in the image.`;
 
-    const forced = Deno.env.get("OPENAI_IMAGE_MODEL");
-    const candidates = forced ? [forced] : ["gpt-image-1", "dall-e-3"];
+    // One answer for the whole server, from `imageModel.ts`. This used to
+    // default to ["gpt-image-1", "dall-e-3"] when unset — both of which
+    // OpenAI no longer lists, and the second of which is verified dead on
+    // this account by the comment above.
+    const candidates = [imageModel()];
     const failures: string[] = [];
     let base64: string | null = null;
 

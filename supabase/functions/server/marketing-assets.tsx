@@ -4,6 +4,7 @@ import { Hono } from 'npm:hono@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { imageModel } from './imageModel.ts';
 
 export const marketingAssetsRouter = new Hono();
 
@@ -187,7 +188,7 @@ marketingAssetsRouter.post('/marketing-assets/generate', async (c) => {
           // `response_format` are each rejected by one model or the other, and
           // any rejection here silently degrades the asset to a stock photo.
           body: JSON.stringify({
-            model: 'gpt-image-1',
+            model: imageModel(),
             prompt: prompt,
             n: 1,
             size: '1024x1024',
