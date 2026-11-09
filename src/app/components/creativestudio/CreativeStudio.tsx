@@ -12,10 +12,32 @@ import {
   Trash2, Wand2, Lock, RefreshCw, X, Check,
 } from 'lucide-react';
 import { publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 import { API_BASE_URL } from '../../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request Creative Studio made went out unauthenticated. The auth wall
+ * treats `/creative-studio/*` as signed-in-only, so all four loads returned
+ * 401, `caps` stayed null, and the Generate button sat permanently disabled
+ * with no explanation — the hint beneath it is guarded on `caps &&`, which is
+ * false when caps is null. The screen looked configured and was never able to
+ * call anything.
+ *
+ * A function rather than a constant because the session does not exist at
+ * module load and can change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+    'Content-Type': 'application/json',
+  };
+}
 
 interface Preset { id: string; name: string; emoji: string; category: string }
 interface Asset {
@@ -50,14 +72,29 @@ export default function CreativeStudio() {
   async function loadAll() {
     try {
       const [pr, as, st, bk] = await Promise.all([
-        fetch(`${SERVER}/creative-studio/presets`, { headers: authHeaders }),
-        fetch(`${SERVER}/creative-studio/assets`, { headers: authHeaders }),
-        fetch(`${SERVER}/creative-studio/status`, { headers: authHeaders }),
-        fetch(`${SERVER}/content-studio/brand-kit`, { headers: authHeaders }),
+        fetch(`${SERVER}/creative-studio/presets`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/creative-studio/assets`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/creative-studio/status`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/content-studio/brand-kit`, { headers: await authHeaders() }),
       ]);
       if (pr.ok) setPresets((await pr.json()).presets || []);
       if (as.ok) setAssets((await as.json()).assets || []);
-      if (st.ok) setCaps((await st.json()).capabilities || null);
+      /**
+       * A failed status call used to leave `caps` null and say nothing.
+       *
+       * The Generate button is disabled on `!caps?.image.available`, and the
+       * explanation underneath is guarded on `caps &&` — so when the call
+       * failed, the button greyed out and there was no reason given
+       * anywhere. That is how this screen could be completely broken and
+       * look merely idle.
+       */
+      if (st.ok) {
+        setCaps((await st.json()).capabilities || null);
+      } else {
+        setError(st.status === 401
+          ? 'Not signed in, or the session expired — sign in again to generate images.'
+          : `Could not read studio status (HTTP ${st.status}). Generation is disabled until it loads.`);
+      }
       if (bk.ok) {
         const kit = (await bk.json()).brandKit || {};
         setBrandConfigured(Object.keys(kit).some((k) => k !== 'updatedAt' && kit[k] && (!Array.isArray(kit[k]) || kit[k].length)));
@@ -74,7 +111,7 @@ export default function CreativeStudio() {
     setGenerating(true); setError('');
     try {
       const res = await fetch(`${SERVER}/creative-studio/generate`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ prompt, presetId: presetId || undefined, size, quality, useBrandKit }),
       });
       const data = await res.json();
@@ -90,7 +127,7 @@ export default function CreativeStudio() {
   async function del(id: string) {
     setBusyId(id);
     try {
-      await fetch(`${SERVER}/creative-studio/assets/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/creative-studio/assets/${id}`, { method: 'DELETE', headers: await authHeaders() });
       setAssets((prev) => prev.filter((a) => a.id !== id));
     } finally { setBusyId(''); }
   }
