@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  priceFor, estimateCostCents, unverifiedModels, MODEL_PRICES,
+  priceFor, estimateCostCents, estimateTtsCostCents, unverifiedModels, MODEL_PRICES,
 } from '../supabase/functions/server/modelPricing.ts';
 
 /* ── the prefix trap ─────────────────────────────────────────────────────── */
@@ -158,5 +158,63 @@ test('an estimate reports whether its rate was checked', () => {
 test('every price has a source that says where it came from', () => {
   for (const [id, price] of Object.entries(MODEL_PRICES)) {
     assert.ok(price.source && price.source.length > 10, `${id} needs a source`);
+  }
+});
+
+/* ── speech, which bills per character ───────────────────────────────── */
+
+test('a spoken line is priced per character, not per token', () => {
+  // The mistake this guards: routing characters through the token path. At
+  // $15 per million characters versus a token rate the two differ by about
+  // four times, and nothing would fail — the dashboard would just be wrong.
+  const c = estimateTtsCostCents('tts-1', 1_000_000);
+  assert.ok(c);
+  assert.equal(c!.cents, 1500);                 // $15.00
+  assert.equal(c!.verified, true);
+  assert.equal(estimateTtsCostCents('tts-1-hd', 1_000_000)!.cents, 3000);
+});
+
+test('a short line costs a fraction of a cent and does not round to zero', () => {
+  // 200 characters is a typical spoken answer. Rounding it away would have
+  // the ledger report the voice as free, which is the one claim this module
+  // exists to avoid making.
+  const c = estimateTtsCostCents('tts-1', 200);
+  assert.ok(c!.cents > 0, 'a real cost must not round away');
+  assert.equal(c!.cents, 0.3);
+});
+
+test('speech pricing refuses a model with no character rate', () => {
+  // gpt-4o-mini-tts is deliberately absent: the pricing page showed $12.00
+  // for its audio output without naming the unit, and a guessed unit would
+  // look exactly as authoritative on the dashboard as a verified one.
+  assert.equal(estimateTtsCostCents('gpt-4o-mini-tts', 500), null);
+  assert.equal(estimateTtsCostCents('gpt-4o', 500), null, 'a text model has no character rate');
+  assert.equal(estimateTtsCostCents('made-up', 500), null);
+});
+
+test('an unknown character count is null, never zero', () => {
+  for (const bad of [null, undefined, NaN, -1, 'lots']) {
+    assert.equal(estimateTtsCostCents('tts-1', bad as any), null, String(bad));
+  }
+  // Zero characters genuinely is free, and that is a different answer.
+  assert.equal(estimateTtsCostCents('tts-1', 0)!.cents, 0);
+});
+
+test('the token estimator never reports a speech model as free', () => {
+  // tts-1 carries inputPerMTok 0, so the token path would return exactly
+  // 0.0000 for a call that cost real money. Either it declines, or it
+  // returns zero only because zero tokens were passed — never a confident
+  // free verdict on real characters.
+  const viaTokens = estimateCostCents('tts-1', 500, 0);
+  assert.ok(viaTokens === null || viaTokens.cents === 0,
+    'if this ever returns a non-zero token price the two paths have crossed');
+});
+
+test('every speech price carries its provenance', () => {
+  for (const id of ['tts-1', 'tts-1-hd']) {
+    const p = MODEL_PRICES[id];
+    assert.ok(p.perMChar! > 0, `${id} needs a character rate`);
+    assert.match(p.source, /openai/i, `${id} must say where the number came from`);
+    assert.match(p.asOf, /^\d{4}-\d{2}-\d{2}$/, `${id} must say when`);
   }
 });

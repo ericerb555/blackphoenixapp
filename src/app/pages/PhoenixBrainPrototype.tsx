@@ -8,23 +8,28 @@
  * reads as thinking, and you cannot get the command centre into seven states
  * on demand. Here they are buttons.
  *
- * The microphone is real — LISTENING is driven by an analyser on your voice,
- * not by a sine wave pretending to be one. SPEAKING is the honest gap: no
- * text-to-speech is connected to this application, so that state has nothing
- * feeding it. The slider underneath exists to show what it will look like
- * when something does, and it is labelled as a slider rather than dressed up
- * as the AI talking.
+ * Both the ears and the voice are real. LISTENING runs an analyser on your
+ * microphone; SPEAKING runs the same analyser on Phoenix's own generated
+ * speech, so the particles move to the actual waveform of the words rather
+ * than to a plausible-looking envelope.
+ *
+ * The gap that remains is smaller and worth naming: Phoenix speaks text you
+ * type here. Having it speak its own answers is a change to the chat page,
+ * not to this prototype.
  */
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Mic, MicOff, Gauge } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, Mic, MicOff, Gauge, Volume2, Square } from 'lucide-react';
 import PhoenixParticleBrain, { type PhoenixState } from '../components/phoenix/PhoenixParticleBrain';
 import { budgetFor } from '../components/phoenix/phoenixParticleSource';
+import {
+  usePhoenixVoice, VOICES, DEFAULT_VOICE, type PhoenixVoice,
+} from '../components/phoenix/usePhoenixVoice';
 
 const STATES: { id: PhoenixState; label: string; note: string }[] = [
   { id: 'idle',      label: 'Idle',      note: 'Breathing. Slow circulation through the shape.' },
   { id: 'listening', label: 'Listening', note: 'Driven by your microphone, if you allow it.' },
   { id: 'thinking',  label: 'Thinking',  note: 'Currents accelerate; the shape loosens and holds.' },
-  { id: 'speaking',  label: 'Speaking',  note: 'Needs TTS. Use the slider to see the behaviour.' },
+  { id: 'speaking',  label: 'Speaking',  note: "Driven by the waveform of Phoenix's own voice." },
   { id: 'working',   label: 'Working',   note: 'A stream peels off toward the panel being worked on.' },
   { id: 'success',   label: 'Success',   note: 'One-shot bloom, then it reforms.' },
   { id: 'alert',     label: 'Alert',     note: 'Unrest and a colour shift. Nothing else moves faster.' },
@@ -37,71 +42,24 @@ export default function PhoenixBrainPrototype({
   const [fps, setFps] = useState(0);
   const [count, setCount] = useState(0);
   const [budget, setBudget] = useState<number>(() => budgetFor());
-  const [manual, setManual] = useState(0);
-  const [micOn, setMicOn] = useState(false);
-  const [micError, setMicError] = useState<string | null>(null);
-  const [level, setLevel] = useState(0);
+  const [voice, setVoice] = useState<PhoenixVoice>(DEFAULT_VOICE);
+  const [line, setLine] = useState(
+    'Four quotes are out for eighteen thousand, and two invoices are overdue.',
+  );
 
-  const audio = useRef<{ ctx: AudioContext; stream: MediaStream; raf: number } | null>(null);
+  const v = usePhoenixVoice();
 
-  /**
-   * Microphone teardown matters more than it looks. Leaving the stream open
-   * keeps the browser's recording indicator lit after you have navigated
-   * away, which is alarming and fair enough.
+  /*
+   * The state follows the audio, not the other way round, so what you see is
+   * always what is actually happening to the sound.
    */
-  const stopMic = () => {
-    const a = audio.current;
-    if (!a) return;
-    cancelAnimationFrame(a.raf);
-    a.stream.getTracks().forEach((t) => t.stop());
-    a.ctx.close().catch(() => {});
-    audio.current = null;
-    setLevel(0);
-  };
+  useEffect(() => {
+    if (v.speaking) setState('speaking');
+    else if (v.micOn) setState('listening');
+  }, [v.speaking, v.micOn]);
 
-  useEffect(() => stopMic, []);
-
-  async function startMic() {
-    setMicError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ctx = new AudioContext();
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      src.connect(analyser);
-      const buf = new Uint8Array(analyser.frequencyBinCount);
-
-      const tick = () => {
-        analyser.getByteFrequencyData(buf);
-        // RMS over the band where speech actually lives. A plain average
-        // across all bins sits near zero and barely moves the particles.
-        let sum = 0;
-        const n = Math.floor(buf.length * 0.4);
-        for (let i = 0; i < n; i++) sum += buf[i] * buf[i];
-        const rms = Math.sqrt(sum / n) / 255;
-        setLevel(Math.min(1, rms * 2.6));
-        audio.current!.raf = requestAnimationFrame(tick);
-      };
-
-      audio.current = { ctx, stream, raf: 0 };
-      audio.current.raf = requestAnimationFrame(tick);
-      setMicOn(true);
-      setState('listening');
-    } catch (e: any) {
-      setMicError(e?.name === 'NotAllowedError'
-        ? 'Microphone permission refused.'
-        : e?.message || 'No microphone available.');
-    }
-  }
-
-  const toggleMic = () => {
-    if (micOn) { stopMic(); setMicOn(false); setState('idle'); } else { startMic(); }
-  };
-
-  // Mic while listening; the slider stands in everywhere else.
-  const audioLevel = micOn && state === 'listening' ? level : manual;
   const current = STATES.find((s) => s.id === state)!;
+  const pct = Math.round(v.meter * 100);
 
   return (
     <div className="flex h-screen flex-col bg-[#060606] text-white">
@@ -116,9 +74,9 @@ export default function PhoenixBrainPrototype({
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-lg font-semibold">Phoenix particle brain</h1>
+            <h1 className="text-lg font-semibold">Phoenix</h1>
             <p className="text-[11px] text-gray-500">
-              Prototype — not wired into the Agent page
+              Particle brain — prototype, not on the Agent page yet
             </p>
           </div>
         </div>
@@ -130,23 +88,34 @@ export default function PhoenixBrainPrototype({
           </span>
           <span className="text-gray-700">·</span>
           <span>{count.toLocaleString()} particles</span>
+          {/*
+            The audio context's state, on screen. It is the thing that was
+            silently wrong before — a suspended context reports silence
+            forever without erroring, which looks like a broken feature.
+          */}
+          {v.contextState && (
+            <>
+              <span className="text-gray-700">·</span>
+              <span className={v.contextState === 'running' ? 'text-emerald-400' : 'text-amber-400'}>
+                audio {v.contextState}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* The Phoenix */}
+        {/* Phoenix */}
         <div className="relative min-h-0 flex-1">
-          {/* A faint ground glow, so the bird sits in space rather than on a void. */}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
-              background:
-                'radial-gradient(ellipse at 50% 55%, rgba(234,88,12,0.10), transparent 62%)',
+              background: 'radial-gradient(ellipse at 50% 55%, rgba(234,88,12,0.10), transparent 62%)',
             }}
           />
           <PhoenixParticleBrain
             state={state}
-            audioLevel={audioLevel}
+            audioLevelRef={v.levelRef}
             particleCount={budget}
             onFps={setFps}
             onReady={setCount}
@@ -178,42 +147,99 @@ export default function PhoenixBrainPrototype({
             <p className="mt-2 text-[11px] leading-relaxed text-gray-500">{current.note}</p>
           </div>
 
+          {/* One meter, whichever source is live. */}
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
+              <span>{v.speaking ? 'Phoenix speaking' : v.micOn ? 'Hearing you' : 'No audio'}</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded bg-[#1A1A1A]">
+              <div
+                className={`h-full transition-[width] duration-100 ${
+                  v.speaking ? 'bg-orange-400' : 'bg-emerald-400'
+                }`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+
           <div>
             <button
-              onClick={toggleMic}
+              onClick={() => {
+                if (v.micOn) { v.stopMic(); setState('idle'); } else { v.startMic(); }
+              }}
               className={`flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-semibold transition ${
-                micOn
+                v.micOn
                   ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
                   : 'border-[#262626] bg-[#101010] text-gray-300 hover:border-[#3A3A3A]'
               }`}
             >
-              {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-              {micOn ? 'Microphone live' : 'Use my microphone'}
+              {v.micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+              {v.micOn ? 'Microphone live' : 'Use my microphone'}
             </button>
-            {micError && <p className="mt-1.5 text-[11px] text-rose-400">{micError}</p>}
-            {micOn && (
-              <div className="mt-2 h-1 overflow-hidden rounded bg-[#1A1A1A]">
-                <div
-                  className="h-full bg-emerald-400 transition-[width] duration-75"
-                  style={{ width: `${Math.round(level * 100)}%` }}
-                />
-              </div>
-            )}
+            {v.micError && <p className="mt-1.5 text-[11px] text-rose-400">{v.micError}</p>}
           </div>
 
+          {/* Voice */}
           <div>
-            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-              Audio level (stand-in)
-            </label>
-            <input
-              type="range" min={0} max={100} value={Math.round(manual * 100)}
-              onChange={(e) => setManual(Number(e.target.value) / 100)}
-              className="w-full accent-orange-500"
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              The voice
+            </p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {VOICES.map((x) => (
+                <button
+                  key={x.id}
+                  onClick={() => setVoice(x.id)}
+                  title={x.note}
+                  className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium capitalize transition ${
+                    voice === x.id
+                      ? 'border-orange-500/60 bg-orange-500/15 text-orange-200'
+                      : 'border-[#262626] bg-[#101010] text-gray-400 hover:border-[#3A3A3A] hover:text-white'
+                  }`}
+                >
+                  {x.id}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-gray-600">
+              {VOICES.find((x) => x.id === voice)?.note}
+            </p>
+
+            <textarea
+              rows={3}
+              value={line}
+              onChange={(e) => setLine(e.target.value)}
+              className="mt-2 w-full resize-none rounded-lg border border-[#262626] bg-[#101010] px-3 py-2 text-xs text-white placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none"
+              placeholder="Give Phoenix something to say…"
             />
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-600">
-              There is no text-to-speech connected to this application, so SPEAKING
-              has nothing real driving it. This slider is what that state will
-              receive when something does.
+
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => v.speak(line, voice)}
+                disabled={v.speaking || !line.trim()}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-500 disabled:opacity-40"
+              >
+                <Volume2 className="h-4 w-4" />
+                {v.speaking ? 'Speaking…' : 'Speak'}
+              </button>
+              {v.speaking && (
+                <button
+                  onClick={v.stopSpeaking}
+                  className="rounded-lg border border-[#262626] px-3 py-2 text-xs text-gray-400 hover:text-white"
+                  aria-label="Stop speaking"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {v.speakError && <p className="mt-1.5 text-[11px] text-rose-400">{v.speakError}</p>}
+            <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
+              {v.lastCostCents !== null && `Last line cost ${v.lastCostCents.toFixed(4)}¢. `}
+              tts-1 bills $15 per million characters — roughly a third of a cent
+              per hundred words. Every line is on the ledger as{' '}
+              <span className="text-gray-500">phoenix-voice</span>, and the
+              emergency stop silences it like anything else.
             </p>
           </div>
 
@@ -228,17 +254,7 @@ export default function PhoenixBrainPrototype({
             />
             <p className="mt-1 text-[11px] leading-relaxed text-gray-600">
               This machine was budgeted {budgetFor().toLocaleString()} automatically.
-              Drag it until the frame rate drops to find the real ceiling here.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-[#1F1F1F] bg-[#0C0C0C] p-3">
-            <p className="text-[11px] leading-relaxed text-gray-500">
-              Every particle sits on a pixel of your actual logo — the PNG's alpha
-              channel is the silhouette and its orange outline is sampled
-              separately so the edge stays crisp. The body is drawn as glowing
-              ember rather than black, because a black hologram on a black screen
-              is the bug we just fixed.
+              Drag until the frame rate drops to find the real ceiling here.
             </p>
           </div>
         </div>

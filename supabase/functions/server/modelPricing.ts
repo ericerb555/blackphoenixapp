@@ -45,6 +45,12 @@ export interface ModelPrice {
   outputPerMTok: number;
   /** Flat dollars per call, for endpoints that do not bill by token. */
   perCall?: number;
+  /**
+   * US dollars per million CHARACTERS of input. Speech synthesis bills this
+   * way, not by token — and the two are not interchangeable: a character
+   * price applied to a token count under-reports by roughly four times.
+   */
+  perMChar?: number;
   /** True only where the rate was read from the provider's published table. */
   verified: boolean;
   source: string;
@@ -138,7 +144,41 @@ const OPENAI: Record<string, ModelPrice> = {
   ...RETIRED_IMAGE,
 };
 
-export const MODEL_PRICES: Record<string, ModelPrice> = { ...ANTHROPIC, ...OPENAI };
+/**
+ * Speech. Billed per character, which is why ModelPrice grew perMChar.
+ *
+ * Read off developers.openai.com/api/docs/pricing on 2026-11-09. tts-1 and
+ * tts-1-hd both state their unit plainly. gpt-4o-mini-tts is DELIBERATELY
+ * ABSENT: the page shows $12.00 for its audio output without naming the
+ * unit, and a price whose unit is a guess is worse than no price — it would
+ * appear on the dashboard looking exactly as authoritative as the others.
+ */
+const OPENAI_TTS_SOURCE = 'developers.openai.com/api/docs/pricing';
+
+const OPENAI_TTS: Record<string, ModelPrice> = {
+  'tts-1':    { inputPerMTok: 0, outputPerMTok: 0, perMChar: 15, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-09' },
+  'tts-1-hd': { inputPerMTok: 0, outputPerMTok: 0, perMChar: 30, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-09' },
+};
+
+export const MODEL_PRICES: Record<string, ModelPrice> = { ...ANTHROPIC, ...OPENAI, ...OPENAI_TTS };
+
+/**
+ * What a piece of speech cost, in cents.
+ *
+ * Separate from estimateCostCents because the billable unit is different,
+ * and folding characters into the token path would mean one of the two
+ * callers was silently passing the wrong kind of number.
+ */
+export function estimateTtsCostCents(
+  model: unknown, characters: number | null | undefined,
+): CostEstimate | null {
+  const price = priceFor(model);
+  if (!price?.perMChar) return null;
+  const n = Number(characters);
+  if (characters === null || characters === undefined || !Number.isFinite(n) || n < 0) return null;
+  const dollars = (n / 1_000_000) * price.perMChar;
+  return { cents: Math.round(dollars * 100 * 10000) / 10000, verified: price.verified };
+}
 
 /**
  * The price for a model id, or null when we do not know one.

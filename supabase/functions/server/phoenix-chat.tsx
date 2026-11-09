@@ -53,6 +53,7 @@ import {
 import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
 import { actionCatalogue } from "./aiActions.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
+import { estimateTtsCostCents } from "./modelPricing.ts";
 import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
@@ -615,5 +616,106 @@ phoenixChatRouter.post(`${QUEUE}/:id/reject`, async (c) => {
     return c.json({ success: true });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/* ── Phoenix's voice ─────────────────────────────────────────────────────── */
+
+const SPEAK = '/make-server-3eae23a6/phoenix/speak';
+phoenixChatRouter.use('*', requireStaffOn([SPEAK]));
+
+/**
+ * The voices OpenAI offers for tts-1, pinned.
+ *
+ * Allowlisted rather than passed through, because this value goes straight
+ * into a request body — and an unrecognised voice is a 400 from OpenAI that
+ * would surface to the owner as "Phoenix has lost its voice" with nothing
+ * in the ledger explaining why.
+ */
+const VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
+const DEFAULT_VOICE = 'onyx';
+
+/**
+ * How much speech one request may buy.
+ *
+ * tts-1 bills $15 per million characters, so this cap is worth about a
+ * twentieth of a cent. The cap is not really about money — it is that an
+ * unbounded text field reaching a paid endpoint is how a loop somebody
+ * writes next year quietly spends a fortune overnight.
+ */
+const MAX_SPEECH_CHARS = 1200;
+
+phoenixChatRouter.post(SPEAK, async (c) => {
+  let call: any = null;
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const raw = String(body?.text || '').trim();
+    if (!raw) return c.json({ success: false, error: 'Nothing to say.' }, 400);
+
+    const text = raw.slice(0, MAX_SPEECH_CHARS);
+    const truncated = raw.length > MAX_SPEECH_CHARS;
+
+    const voice = VOICES.has(String(body?.voice)) ? String(body.voice)
+      : (VOICES.has(Deno.env.get('PHOENIX_VOICE') || '') ? Deno.env.get('PHOENIX_VOICE')! : DEFAULT_VOICE);
+
+    const key = Deno.env.get('OPENAI_API_KEY');
+    if (!key) return c.json({ success: false, error: 'No voice is configured.' }, 503);
+
+    // Same gate as every other model call. A stopped AI does not get to talk.
+    await assertAiAllowed('phoenix-voice');
+
+    const model = 'tts-1';
+    call = await beginAiCall({
+      agent: 'phoenix-voice',
+      operation: `speak ${text.length} characters as ${voice}`,
+      model, provider: 'openai', bucket: 'ai',
+      input: text,
+      ...ledgerContextFor(c),
+    });
+
+    const res = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, voice, input: text, response_format: 'mp3' }),
+    });
+
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300);
+      await call.failed({ summary: `openai ${res.status}` }, detail || `HTTP ${res.status}`);
+      return c.json({ success: false, error: `The voice service refused: ${res.status}` }, 502);
+    }
+
+    const audio = new Uint8Array(await res.arrayBuffer());
+
+    /*
+     * Priced here rather than in the ledger's own estimator, because speech
+     * bills per character and the ledger's path bills per token. Passing
+     * characters down the token path would under-report by about four times
+     * and do it silently.
+     */
+    const cost = estimateTtsCostCents(model, text.length);
+    await call.ok({
+      costCents: cost?.cents,
+      summary: `${text.length} chars as ${voice}, ${audio.byteLength} bytes${truncated ? ' (text was truncated)' : ''}`,
+    });
+
+    return new Response(audio, {
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Cache-Control': 'no-store',
+        // So the client can show the cost and say the text was cut short,
+        // neither of which fits in an audio body.
+        'X-Phoenix-Cost-Cents': String(cost?.cents ?? ''),
+        'X-Phoenix-Truncated': truncated ? '1' : '0',
+        'X-Phoenix-Voice': voice,
+      },
+    });
+  } catch (err: any) {
+    if (err instanceof AiStopped) {
+      await call?.refused?.({ summary: 'stopped' }, err.message);
+      return c.json({ success: false, stopped: true, error: err.message }, 503);
+    }
+    await call?.failed?.({ summary: 'speak failed' }, String(err?.message || err));
+    return c.json({ success: false, error: 'The voice could not be generated.' }, 500);
   }
 });

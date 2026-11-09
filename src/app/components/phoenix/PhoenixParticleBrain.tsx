@@ -265,11 +265,12 @@ const FRAG = /* glsl */`
 /* ── the points ──────────────────────────────────────────────────────── */
 
 function Swarm({
-  field, state, audioLevel, reducedMotion, onFps,
+  field, state, audioLevel, audioLevelRef, reducedMotion, onFps,
 }: {
   field: ParticleField;
   state: PhoenixState;
   audioLevel: number;
+  audioLevelRef?: React.MutableRefObject<number>;
   reducedMotion: boolean;
   onFps?: (fps: number) => void;
 }) {
@@ -360,7 +361,14 @@ function Swarm({
     u.uJitter.value  = c.jitter;
     u.uStream.value  = c.stream;
     u.uWarm.value    = c.warm;
-    u.uAudio.value  += (audioLevel - u.uAudio.value) * (1 - Math.exp(-dt * 12));
+    /*
+     * The ref wins when it is supplied. A live voice changes sixty times a
+     * second, and routing that through a React prop re-renders this whole
+     * tree on every frame to deliver one float — while competing for the
+     * main thread with the frame it is trying to animate.
+     */
+    const liveLevel = audioLevelRef ? audioLevelRef.current : audioLevel;
+    u.uAudio.value  += (liveLevel - u.uAudio.value) * (1 - Math.exp(-dt * 12));
     // Easing out of a cubic so the bloom snaps and settles.
     u.uBurst.value   = b * b * (3 - 2 * b) * 0.55;
     u.uGlow.value    = c.glow * (1 + b * 0.8);
@@ -453,6 +461,11 @@ export interface PhoenixParticleBrainProps {
   state?: PhoenixState;
   /** 0..1. Mic level while listening, speech level while speaking. */
   audioLevel?: number;
+  /**
+   * The same thing as a ref, for anything that updates at frame rate.
+   * Preferred over the plain number — see the note inside Swarm.
+   */
+  audioLevelRef?: React.MutableRefObject<number>;
   /** Override the device budget. The prototype exposes this; the app will not. */
   particleCount?: number;
   className?: string;
@@ -463,6 +476,7 @@ export interface PhoenixParticleBrainProps {
 export default function PhoenixParticleBrain({
   state = 'idle',
   audioLevel = 0,
+  audioLevelRef,
   particleCount,
   className,
   onFps,
@@ -514,6 +528,7 @@ export default function PhoenixParticleBrain({
               field={field}
               state={state}
               audioLevel={audioLevel}
+              audioLevelRef={audioLevelRef}
               reducedMotion={reducedMotion}
               onFps={onFps}
             />

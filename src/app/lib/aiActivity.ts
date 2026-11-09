@@ -86,7 +86,7 @@ export interface ActivitySummary {
   unverifiedPricing?: string[];
 }
 
-async function authHeader(): Promise<Record<string, string>> {
+export async function authHeader(): Promise<Record<string, string>> {
   // Imported lazily so this module can be unit-tested without the Supabase
   // client, which reaches for browser storage at import time.
   const { supabase } = await import('./supabase');
