@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
+import PhoenixAssistant from '../components/PhoenixAssistant';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -669,6 +670,9 @@ export default function CommandCenterHome({
           </section>
         ))}
       </main>
+
+      {/* The assistant. Its launcher is the company mark, bottom-right. */}
+      <PhoenixAssistant />
     </div>
   );
 }

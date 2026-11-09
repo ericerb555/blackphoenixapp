@@ -18,6 +18,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { Sparkles, X, Send, Loader2, Bot, User, AlertTriangle, ShieldOff } from 'lucide-react';
+import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import {
   askPhoenix, AiIsStopped, NotPermitted, TOOL_LABELS, type ChatTurn,
   fetchActionQueue, approveAction, rejectActionRequest, type ActionRequest,
@@ -96,8 +97,14 @@ export default function PhoenixAssistant() {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // The queue is re-read when the panel opens and after every exchange —
-  // a proposal made in the last answer should be visible without a reload.
+  /**
+   * The queue is read on mount, not only when the panel opens.
+   *
+   * The badge on the closed button is the whole point of knowing: if the
+   * count only loaded after you opened it, you would have to open it to
+   * discover there was a reason to.
+   */
+  useEffect(() => { refreshQueue(); }, []);
   useEffect(() => { if (open) refreshQueue(); }, [open]);
 
   async function send(text: string) {
@@ -145,9 +152,25 @@ export default function PhoenixAssistant() {
       <button
         onClick={() => setOpen(true)}
         title="Ask Phoenix"
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-gradient-to-br from-orange-600 to-orange-500 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 transition hover:scale-105 hover:shadow-orange-900/60"
+        aria-label="Open the Phoenix assistant"
+        className="group fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full border border-orange-500/30 bg-[#0A0A0A] shadow-lg shadow-black/60 transition hover:scale-105 hover:border-orange-500/70 hover:shadow-orange-900/40"
       >
-        <Sparkles className="h-4 w-4" /> Ask Phoenix
+        {/*
+          The company's own mark, not a generic chat bubble. It is the
+          button, so it carries an aria-label — an image alone tells a
+          screen reader nothing about what pressing it does.
+        */}
+        <img
+          src={phoenixLogo}
+          alt=""
+          className="h-11 w-11 object-contain transition group-hover:brightness-110"
+        />
+        {/* A quiet pulse when something is waiting on a decision. */}
+        {queue.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-orange-600 text-[10px] font-bold text-white ring-2 ring-[#0A0A0A]">
+            {queue.length}
+          </span>
+        )}
       </button>
     );
   }
@@ -161,8 +184,8 @@ export default function PhoenixAssistant() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#2A2A2A] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-orange-600 to-orange-500">
-              <Sparkles className="h-4 w-4 text-white" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#2A2A2A] bg-[#101010]">
+              <img src={phoenixLogo} alt="" className="h-7 w-7 object-contain" />
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Phoenix</p>
