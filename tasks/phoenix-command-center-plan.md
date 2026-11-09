@@ -150,6 +150,45 @@ Phoenix mark beside the crown in the Owner's Control Center; opens
 `phoenix-ai`, its own page. Conversation extracted to `PhoenixConsole` so the
 panel and the page cannot drift. Commit `1904b54a3`.
 
+### Decisions taken 2026-11-08
+
+- **Logo:** trace the PNG to SVG, with the trace shown side-by-side at high
+  zoom for approval *before* any animation is written.
+- **Order:** useful first — 2 → 3 → 2.5 → 1 → 4 → 5.
+- **Telemetry:** yes, as Phase 2.5.
+
+### Phase 2 — Capability registry + discovery tools ✅ DONE, LIVE
+
+`capabilityRegistry.ts` describes **85 modules** (24% of 359 routes — the
+operational ones; padding it with aliases makes search worse, and the test
+reports coverage so the gap stays visible). `find_module` searches it *in the
+edge function*, so 85 descriptions never enter a prompt. `open_module` returns
+a directive.
+
+Two safety properties, both tested: the route is resolved from the registry by
+id and never taken from the model, and `open_module` re-checks visibility so
+it cannot reach past what `find_module` would have offered.
+
+A test fails the build if any capability names a route that is not in
+`pageMap`. Commit `47886d932`.
+
+### Phase 3 — The workspace ✅ DONE, LIVE
+
+`PhoenixWorkspace.tsx` mounts the **real page component** from `pageMap`,
+inside `PanelErrorBoundary` and `Suspense`, beside the conversation. Expand,
+close, and open-as-full-page. The slide-over has no workspace, so there it
+navigates instead — an honest fallback rather than a chip that does nothing.
+
+Still to do here as modules get exercised: some of the 188 page components
+assume a full screen and will need a width-constrained mode. Widening by use,
+not converting 188 blind.
+
+### Phase 2.5 — Telemetry (NEXT)
+
+Error tracking and usage events. Phase 5 is thin without them, and they are
+independently valuable: finding out a screen broke for a customer without
+being told.
+
 ### Phase 1 — The living logo
 
 The seven states from the brief, each **driven by a real signal, not a timer**:
