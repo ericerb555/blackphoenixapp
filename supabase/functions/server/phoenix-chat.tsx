@@ -636,6 +636,27 @@ const VOICES = new Set(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
 const DEFAULT_VOICE = 'onyx';
 
 /**
+ * Only the two models whose price is VERIFIED PER CHARACTER.
+ *
+ * gpt-4o-mini-tts is steerable — you can describe the delivery you want in
+ * plain words, which is the obvious thing to reach for when somebody asks
+ * for a deeper, more considered voice. It is excluded anyway: OpenAI's
+ * pricing table lists $12.00 against it with no unit, under a heading that
+ * says "per 1M tokens unless noted", and nobody has noted. Spending real
+ * money at a rate the ledger would have to guess at is worse than using
+ * the model one tier down whose rate is printed plainly.
+ */
+const SPEECH_MODELS = new Set(['tts-1', 'tts-1-hd']);
+const DEFAULT_SPEECH_MODEL = 'tts-1-hd';
+
+/** OpenAI accepts 0.25–4.0. This is the range that still sounds human. */
+function clampSpeed(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(1.3, Math.max(0.7, n));
+}
+
+/**
  * How much speech one request may buy.
  *
  * tts-1 bills $15 per million characters, so this cap is worth about a
@@ -664,7 +685,9 @@ phoenixChatRouter.post(SPEAK, async (c) => {
     // Same gate as every other model call. A stopped AI does not get to talk.
     await assertAiAllowed('phoenix-voice');
 
-    const model = 'tts-1';
+    const model = SPEECH_MODELS.has(String(body?.model))
+      ? String(body.model) : DEFAULT_SPEECH_MODEL;
+    const speed = clampSpeed(body?.speed);
     call = await beginAiCall({
       agent: 'phoenix-voice',
       operation: `speak ${text.length} characters as ${voice}`,
@@ -676,7 +699,7 @@ phoenixChatRouter.post(SPEAK, async (c) => {
     const res = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, voice, input: text, response_format: 'mp3' }),
+      body: JSON.stringify({ model, voice, input: text, speed, response_format: 'mp3' }),
     });
 
     if (!res.ok) {
@@ -696,7 +719,7 @@ phoenixChatRouter.post(SPEAK, async (c) => {
     const cost = estimateTtsCostCents(model, text.length);
     await call.ok({
       costCents: cost?.cents,
-      summary: `${text.length} chars as ${voice}, ${audio.byteLength} bytes${truncated ? ' (text was truncated)' : ''}`,
+      summary: `${text.length} chars as ${voice} on ${model} at ${speed}x, ${audio.byteLength} bytes${truncated ? ' (text was truncated)' : ''}`,
     });
 
     return new Response(audio, {
@@ -708,6 +731,7 @@ phoenixChatRouter.post(SPEAK, async (c) => {
         'X-Phoenix-Cost-Cents': String(cost?.cents ?? ''),
         'X-Phoenix-Truncated': truncated ? '1' : '0',
         'X-Phoenix-Voice': voice,
+        'X-Phoenix-Model': model,
       },
     });
   } catch (err: any) {

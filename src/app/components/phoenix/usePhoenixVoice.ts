@@ -40,14 +40,47 @@ export type PhoenixVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimm
 /** Deep and level. Phoenix is a chief of staff, not a games console. */
 export const DEFAULT_VOICE: PhoenixVoice = 'onyx';
 
-export const VOICES: { id: PhoenixVoice; note: string }[] = [
-  { id: 'onyx',    note: 'Deep, level, unhurried' },
-  { id: 'echo',    note: 'Measured and dry' },
+/**
+ * HOW THE DEPTH IS ACHIEVED, SINCE OPENAI HAS NO PITCH CONTROL.
+ *
+ * Three things stack:
+ *
+ *  1. onyx, which is the lowest of the six to begin with.
+ *  2. tts-1-hd rather than tts-1. Same voice, a richer rendering — the
+ *     chest and the low harmonics survive instead of being compressed out.
+ *     It costs $30 per million characters against $15, which is six tenths
+ *     of a cent for a typical answer rather than three.
+ *  3. preservesPitch = false with playbackRate below 1. Browsers default
+ *     to time-stretching, which keeps the pitch and only slows the words —
+ *     turning it off makes it behave like tape, so the voice drops as it
+ *     slows. That is the part that actually sounds deeper rather than
+ *     merely slower.
+ *
+ * Roughly a semitone down and seven percent slower reads as considered.
+ * Much past that and it becomes a parody of gravitas.
+ */
+export const DEEP = 0.93;
+
+export interface VoiceSpec {
+  id: PhoenixVoice;
+  note: string;
+  /** Playback rate; below 1 with preservesPitch off also lowers the pitch. */
+  depth?: number;
+  /** The richer, dearer rendering. */
+  hd?: boolean;
+}
+
+export const VOICES: VoiceSpec[] = [
+  { id: 'onyx',    note: 'Deep, considered — the house voice', depth: DEEP, hd: true },
+  { id: 'echo',    note: 'Measured and dry',                   depth: 0.96, hd: true },
   { id: 'fable',   note: 'Warmer, more inflected' },
   { id: 'alloy',   note: 'Neutral, quick' },
   { id: 'nova',    note: 'Bright and direct' },
   { id: 'shimmer', note: 'Soft, airy' },
 ];
+
+export const specFor = (id: PhoenixVoice): VoiceSpec =>
+  VOICES.find((v) => v.id === id) ?? VOICES[0];
 
 type Ctor = typeof AudioContext;
 const AudioCtx: Ctor | undefined =
@@ -71,6 +104,8 @@ export interface PhoenixVoiceApi {
   /** Cost of the last utterance in cents, as the server reported it. */
   lastCostCents: number | null;
   speak: (text: string, voice?: PhoenixVoice) => Promise<void>;
+  /** Which model the last utterance used, as the server reported it. */
+  lastModel: string | null;
   stopSpeaking: () => void;
 
   /** 'running' | 'suspended' | 'closed' | null. Diagnostic, shown in the UI. */
@@ -85,6 +120,7 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
   const [speaking, setSpeaking] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [lastCostCents, setLastCostCents] = useState<number | null>(null);
+  const [lastModel, setLastModel] = useState<string | null>(null);
   const [contextState, setContextState] = useState<string | null>(null);
 
   const ctxRef = useRef<AudioContext | null>(null);
@@ -225,10 +261,18 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
 
     try {
       const { API_BASE_URL } = await import('../../lib/apiConfig');
+      const spec = specFor(voice);
       const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/phoenix/speak`, {
         method: 'POST',
         headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: said, voice }),
+        body: JSON.stringify({
+          text: said,
+          voice,
+          model: spec.hd ? 'tts-1-hd' : 'tts-1',
+          // Delivery pace from the server; the pitch drop is done in the
+          // browser below, because the API has no pitch control at all.
+          speed: 1,
+        }),
       });
 
       if (!res.ok) {
@@ -242,11 +286,28 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
 
       const cents = Number(res.headers.get('X-Phoenix-Cost-Cents'));
       setLastCostCents(Number.isFinite(cents) ? cents : null);
+      setLastModel(res.headers.get('X-Phoenix-Model'));
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const el = new Audio(url);
       el.crossOrigin = 'anonymous';
+
+      /*
+       * The depth. preservesPitch defaults to TRUE, which time-stretches —
+       * the words slow down and the pitch stays exactly where it was, which
+       * sounds like a tired reading rather than a deeper voice. Turning it
+       * off makes playback behave like tape: slower AND lower.
+       *
+       * Three spellings because Safari and older Firefox each shipped their
+       * own before it was standardised, and the default is the wrong one.
+       */
+      if (spec.depth && spec.depth !== 1) {
+        (el as any).preservesPitch = false;
+        (el as any).mozPreservesPitch = false;
+        (el as any).webkitPreservesPitch = false;
+        el.playbackRate = spec.depth;
+      }
 
       const ctx = await context();
       const node = ctx.createMediaElementSource(el);
@@ -282,7 +343,7 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
   return {
     levelRef, meter,
     micOn, micError, startMic, stopMic,
-    speaking, speakError, lastCostCents, speak, stopSpeaking,
+    speaking, speakError, lastCostCents, lastModel, speak, stopSpeaking,
     contextState,
   };
 }

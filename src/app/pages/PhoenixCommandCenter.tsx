@@ -36,6 +36,7 @@ import PhoenixWorkspace from '../components/PhoenixWorkspace';
 import PhoenixParticleBrain, { type PhoenixState } from '../components/phoenix/PhoenixParticleBrain';
 import AgentRail from '../components/phoenix/AgentRail';
 import { HoloBackdrop, StatusDot } from '../components/phoenix/HoloFrame';
+import PanelErrorBoundary from '../components/PanelErrorBoundary';
 import { usePhoenixVoice } from '../components/phoenix/usePhoenixVoice';
 import type { OpenDirective } from '../lib/aiActivity';
 
@@ -167,16 +168,31 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                 : 'flex-1'
           }`}
         >
+          {/*
+            VIEWPORT UNITS, NOT A PERCENTAGE.
+            h-[46%] resolves against the parent's content height, and inside
+            a nested flex column that height is not always definite — so it
+            collapsed to nothing and the Phoenix was simply not there. vh is
+            definite everywhere, and min-h stops him disappearing on a short
+            laptop screen.
+
+            The boundary is the other half of the same lesson: a WebGL
+            failure must cost you the bird, not the conversation. Without
+            it a thrown shader takes the whole column down and the chat
+            stops answering, which is precisely what happened.
+          */}
           <div
-            className={`relative shrink-0 transition-all duration-700 ${
-              module ? 'h-40 opacity-40' : 'h-[46%] opacity-100'
+            className={`relative w-full shrink-0 transition-all duration-700 ${
+              module ? 'h-32 opacity-40' : 'h-[54vh] min-h-[300px] opacity-100'
             }`}
           >
-            <PhoenixParticleBrain
-              state={state}
-              audioLevelRef={voice.levelRef}
-              className="h-full w-full"
-            />
+            <PanelErrorBoundary name="Phoenix">
+              <PhoenixParticleBrain
+                state={state}
+                audioLevelRef={voice.levelRef}
+                className="h-full w-full"
+              />
+            </PanelErrorBoundary>
             {/* What he is doing, in words, under the mark. */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
               <span

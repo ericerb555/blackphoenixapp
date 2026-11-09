@@ -640,6 +640,24 @@ export default function PhoenixParticleBrain({
     );
   }
 
+  /*
+   * Say that it is forming.
+   *
+   * Until now a slow sample — or a WebGL context the browser refused —
+   * rendered an empty div, which is indistinguishable from the feature
+   * being broken. It took a round trip of "I do not see the Phoenix" to
+   * find that out, which is exactly the cost of a silent blank.
+   */
+  if (!field) {
+    return (
+      <div className={`flex items-center justify-center ${className || ''}`}>
+        <p className="animate-pulse font-mono text-[10px] uppercase tracking-[0.3em] text-orange-400/50">
+          forming
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className={className}>
       <Canvas
@@ -648,8 +666,17 @@ export default function PhoenixParticleBrain({
         // cost of an additive particle field for no visible gain.
         dpr={[1, 1.75]}
         gl={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          // Some machines hand back a context and then lose it — a driver
+          // reset, a GPU switch on a laptop lid close. Without this the
+          // canvas simply stops and nothing says why.
+          gl.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            setFailed('The graphics context was lost. Reload to bring him back.');
+          });
+        }}
       >
-        {field && (
+        {(
           <>
             <Swarm
               field={field}
