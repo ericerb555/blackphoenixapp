@@ -9,13 +9,24 @@
  */
 
 import { publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 import { API_BASE_URL } from '../apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const jobFinAuthHeaders = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${publicAnonKey}`,
-};
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * Was a module-level constant, so every call went out unauthenticated and
+ * the auth wall answered 401 for these routes. Nothing threw; the data just
+ * never arrived.
+ */
+async function jobFinAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+  };
+}
 
 export interface TimeEntry {
   id: string;
@@ -174,13 +185,17 @@ class JobFinancialService {
       console.error(`[jobFinancialService] localStorage write failed for ${key}:`, err);
     }
     // Fire-and-forget server persistence so the sync API is not blocked.
-    fetch(`${SERVER}/job-financials/kv`, {
-      method: 'POST',
-      headers: jobFinAuthHeaders,
-      body: JSON.stringify({ key, value }),
-    }).catch((err) =>
-      console.error(`[jobFinancialService] server sync failed for ${key}:`, err),
-    );
+    // The header is resolved in a `then` rather than awaited, because this
+    // caller is deliberately synchronous and must stay that way.
+    jobFinAuthHeaders()
+      .then((headers) => fetch(`${SERVER}/job-financials/kv`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ key, value }),
+      }))
+      .catch((err) =>
+        console.error(`[jobFinancialService] server sync failed for ${key}:`, err),
+      );
   }
 
   // Pull the full server snapshot into the localStorage cache. Call on app load
@@ -188,7 +203,7 @@ class JobFinancialService {
   async hydrateFromServer(): Promise<void> {
     try {
       const res = await fetch(`${SERVER}/job-financials/snapshot`, {
-        headers: jobFinAuthHeaders,
+        headers: await jobFinAuthHeaders(),
       });
       const json = await res.json();
       if (!json.success || !Array.isArray(json.entries)) {

@@ -10,10 +10,29 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from 'recharts';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 // Map an activity event type from the server to an icon + color.
 const ACTIVITY_ICON: Record<string, { icon: any; color: string }> = {
@@ -82,7 +101,7 @@ export default function AnalyticsDashboard() {
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${SERVER}/analytics/summary`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/analytics/summary`, { headers: await authHeaders() });
         const json = await res.json();
         if (json.success) {
           setSummary(json.kpis);

@@ -21,11 +21,30 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey } from '../../utils/supabase/info';
+import { supabase } from '../../lib/supabase';
 import { consumePendingAdProduct, type PendingAdProduct } from '../../lib/adStudioHandoff';
 import { API_BASE_URL } from '../../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const AUTH = { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function AUTH(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 // ─── Formats & themes (shared vocabulary with Ad Creator) ───────────────────────
 type AdFormat = 'social_square' | 'social_story' | 'email_banner' | 'promo_card' | 'wide_banner';
@@ -261,7 +280,7 @@ export default function AdStudio({
       let physical: any[] = [];
       for (const url of [`${SERVER}/product-ads/available-products`, `${SERVER}/products`]) {
         try {
-          const res = await fetch(url, { headers: AUTH });
+          const res = await fetch(url, { headers: await AUTH() });
           if (!res.ok) continue;
           const json = await res.json();
           const arr = Array.isArray(json) ? json : (json.products || json.data || json.items || []);
@@ -272,7 +291,7 @@ export default function AdStudio({
       // Always also load digital products so the ad maker can advertise them.
       let digital: AdProduct[] = [];
       try {
-        const res = await fetch(`${SERVER}/marketplace/products`, { headers: AUTH });
+        const res = await fetch(`${SERVER}/marketplace/products`, { headers: await AUTH() });
         if (res.ok) {
           const json = await res.json();
           const arr = Array.isArray(json.products) ? json.products : Array.isArray(json) ? json : [];
@@ -348,7 +367,7 @@ export default function AdStudio({
     try {
       const res = await fetch(`${SERVER}/marketing-assets/generate-description`, {
         method: 'POST',
-        headers: AUTH,
+        headers: await AUTH(),
         body: JSON.stringify({
           productName: name,
           productDescription: desc,
@@ -395,7 +414,7 @@ export default function AdStudio({
     try {
       const res = await fetch(`${SERVER}/marketing-assets/generate`, {
         method: 'POST',
-        headers: AUTH,
+        headers: await AUTH(),
         body: JSON.stringify({
           productId: selectedId || undefined,
           productName: draft.headline || selectedProduct?.title || 'Featured offer',

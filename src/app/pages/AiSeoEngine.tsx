@@ -13,10 +13,29 @@ import {
 } from 'lucide-react';
 import AIRankingEngine from './AIRankingEngine';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey, 'Content-Type': 'application/json' };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 interface Keyword {
   id: string; keyword: string; intent: string; volume: number;
@@ -89,12 +108,12 @@ export default function AiSeoEngine() {
     setLoading(true); setError('');
     try {
       const [ov, kw, art, vis, set, bk] = await Promise.all([
-        fetch(`${SERVER}/seo-engine/overview`, { headers: authHeaders }),
-        fetch(`${SERVER}/seo-engine/keywords`, { headers: authHeaders }),
-        fetch(`${SERVER}/seo-engine/articles`, { headers: authHeaders }),
-        fetch(`${SERVER}/seo-engine/visibility`, { headers: authHeaders }),
-        fetch(`${SERVER}/seo-engine/settings`, { headers: authHeaders }),
-        fetch(`${SERVER}/content-studio/brand-kit`, { headers: authHeaders }),
+        fetch(`${SERVER}/seo-engine/overview`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/seo-engine/keywords`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/seo-engine/articles`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/seo-engine/visibility`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/seo-engine/settings`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/content-studio/brand-kit`, { headers: await authHeaders() }),
       ]);
       if (ov.ok) setOverview((await ov.json()).overview);
       if (kw.ok) setKeywords((await kw.json()).keywords || []);
@@ -118,7 +137,7 @@ export default function AiSeoEngine() {
     setDiscovering(true); setError('');
     try {
       const res = await fetch(`${SERVER}/seo-engine/keywords/discover`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({
           business: settings.business, niche: settings.niche,
           website: settings.website, audience: settings.audience, count: 20,
@@ -139,7 +158,7 @@ export default function AiSeoEngine() {
     setWritingId(kwId || keyword); setError('');
     try {
       const res = await fetch(`${SERVER}/seo-engine/articles/generate`, {
-        method: 'POST', headers: authHeaders, body: JSON.stringify({ keyword, useBrandKit }),
+        method: 'POST', headers: await authHeaders(), body: JSON.stringify({ keyword, useBrandKit }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Generation failed');
@@ -157,7 +176,7 @@ export default function AiSeoEngine() {
     setBusyId(a.id);
     try {
       const res = await fetch(`${SERVER}/seo-engine/articles/${a.id}`, {
-        method: 'PUT', headers: authHeaders, body: JSON.stringify({ status, scheduledFor: scheduledFor ?? a.scheduledFor }),
+        method: 'PUT', headers: await authHeaders(), body: JSON.stringify({ status, scheduledFor: scheduledFor ?? a.scheduledFor }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Update failed');
       await loadAll();
@@ -171,14 +190,14 @@ export default function AiSeoEngine() {
   async function deleteArticle(id: string) {
     setBusyId(id);
     try {
-      await fetch(`${SERVER}/seo-engine/articles/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/seo-engine/articles/${id}`, { method: 'DELETE', headers: await authHeaders() });
       await loadAll();
     } finally { setBusyId(''); }
   }
   async function deleteKeyword(id: string) {
     setBusyId(id);
     try {
-      await fetch(`${SERVER}/seo-engine/keywords/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/seo-engine/keywords/${id}`, { method: 'DELETE', headers: await authHeaders() });
       await loadAll();
     } finally { setBusyId(''); }
   }
@@ -188,7 +207,7 @@ export default function AiSeoEngine() {
     setChecking(true); setError('');
     try {
       const res = await fetch(`${SERVER}/seo-engine/visibility/check`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ query: visQuery, brand: settings.brandName || settings.business }),
       });
       const data = await res.json();
@@ -206,7 +225,7 @@ export default function AiSeoEngine() {
     setSavingSettings(true); setError('');
     try {
       const res = await fetch(`${SERVER}/seo-engine/settings`, {
-        method: 'PUT', headers: authHeaders, body: JSON.stringify(settings),
+        method: 'PUT', headers: await authHeaders(), body: JSON.stringify(settings),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
       await loadAll();

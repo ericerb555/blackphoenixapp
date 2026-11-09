@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import {
   ENTITY_TYPES,
   SKILL_LEVELS,
@@ -42,10 +43,20 @@ export interface MaintenanceConfig {
 }
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${publicAnonKey}`,
-};
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * Was a module-level constant, so every call went out unauthenticated and
+ * the auth wall answered 401 for these routes. Nothing threw; the data just
+ * never arrived.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+  };
+}
 
 // Deep clone so callers can safely mutate a working copy without touching the
 // frozen code defaults.
@@ -145,7 +156,7 @@ export async function fetchMaintenanceConfig(): Promise<MaintenanceConfig> {
      * charged. The merge below still runs, because the server carries only the
      * fields that decide money and a label or an icon still comes from here.
      */
-    const res = await fetch(`${SERVER}/maintenance-catalogue`, { headers: authHeaders });
+    const res = await fetch(`${SERVER}/maintenance-catalogue`, { headers: await authHeaders() });
     const json = await res.json();
     if (!res.ok || !json?.success) {
       console.log('Failed to load maintenance config, using defaults:', json?.error);
@@ -163,7 +174,7 @@ export async function saveMaintenanceConfig(config: MaintenanceConfig): Promise<
   try {
     const res = await fetch(`${SERVER}/maintenance-config`, {
       method: 'POST',
-      headers: authHeaders,
+      headers: await authHeaders(),
       body: JSON.stringify({ config }),
     });
     const json = await res.json();

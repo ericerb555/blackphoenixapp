@@ -2,10 +2,29 @@ import { useState, useMemo, useEffect } from 'react';
 import { Search, TrendingUp, TrendingDown, Minus, Plus, Trash2, Download, Info, Star, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 interface Keyword {
   id: string;
@@ -23,7 +42,7 @@ interface Keyword {
 
 async function persist(k: Keyword[]) {
   try {
-    const res = await fetch(`${SERVER}/keywords`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ keywords: k }) });
+    const res = await fetch(`${SERVER}/keywords`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ keywords: k }) });
     const json = await res.json();
     if (!json.success) console.error('Failed to save keywords:', json.error);
   } catch (err) {
@@ -108,7 +127,7 @@ export default function KeywordTracker() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/keywords`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/keywords`, { headers: await authHeaders() });
         const json = await res.json();
         if (json.success && Array.isArray(json.keywords)) {
           setKeywords(json.keywords);

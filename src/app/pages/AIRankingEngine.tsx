@@ -17,10 +17,29 @@ import {
   Tooltip, ResponsiveContainer, RadialBarChart, RadialBar,
 } from 'recharts';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -295,7 +314,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/ranking/content`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/ranking/content`, { headers: await authHeaders() });
         const json = await res.json();
         if (json.success) {
           if (Array.isArray(json.content) && json.content.length) {
@@ -344,7 +363,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
     try {
       const res = await fetch(`${SERVER}/ranking/generate`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: await authHeaders(),
         body: JSON.stringify({ type, businessName, businessCity, targetServices }),
       });
       const json = await res.json();
@@ -381,7 +400,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
     setContentPieces(prev => prev.map(c => c.id === id ? { ...c, status: 'published' } : c));
     setOverallScore(s => Math.min(100, s + 2));
     try {
-      const res = await fetch(`${SERVER}/ranking/publish/${id}`, { method: 'POST', headers: authHeaders });
+      const res = await fetch(`${SERVER}/ranking/publish/${id}`, { method: 'POST', headers: await authHeaders() });
       const json = await res.json();
       if (json.success) {
         toast.success('Published — indexing will begin within 24 hours');
@@ -399,7 +418,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
     try {
       await fetch(`${SERVER}/ranking/auto`, {
         method: 'POST',
-        headers: authHeaders,
+        headers: await authHeaders(),
         body: JSON.stringify({ autoRunning: running }),
       });
     } catch (err) {

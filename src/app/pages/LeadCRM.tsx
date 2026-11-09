@@ -8,10 +8,29 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+/**
+ * The signed-in user's token, not the publishable key.
+ *
+ * This was a module-level constant built from `publicAnonKey`, so every
+ * request went out unauthenticated and the auth wall answered 401 for any
+ * route that is not explicitly public. Nothing threw — the calls simply
+ * returned nothing and the screen looked empty rather than broken.
+ *
+ * A function because the session does not exist at module load and can
+ * change while the page is open.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 export type LeadStage = 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost';
 export type LeadSource = 'booking' | 'chat' | 'email' | 'affiliate' | 'subscription' | 'review' | 'walk-in' | 'referral' | 'social';
@@ -110,19 +129,19 @@ export default function LeadCRM() {
   async function loadData() {
     try {
       const [lr, nr] = await Promise.all([
-        fetch(`${SERVER}/crm/leads`, { headers: authHeaders }),
-        fetch(`${SERVER}/crm/notes`, { headers: authHeaders }),
+        fetch(`${SERVER}/crm/leads`, { headers: await authHeaders() }),
+        fetch(`${SERVER}/crm/notes`, { headers: await authHeaders() }),
       ]);
       const lj = await lr.json();
       const nj = await nr.json();
       if (lj.success) {
         if (lj.leads.length === 0) {
           // First run: seed the CRM so the pipeline isn't empty, then reload.
-          await Promise.all(seed().map(s => fetch(`${SERVER}/crm/leads`, {
-            method: 'POST', headers: authHeaders,
+          await Promise.all(seed().map(async s => fetch(`${SERVER}/crm/leads`, {
+            method: 'POST', headers: await authHeaders(),
             body: JSON.stringify({ name: s.name, email: s.email, phone: s.phone, city: s.city, source: s.source, service: s.service, stage: s.stage, score: s.score, value: s.value, tags: s.tags, urgent: s.urgent }),
           })));
-          const rr = await fetch(`${SERVER}/crm/leads`, { headers: authHeaders });
+          const rr = await fetch(`${SERVER}/crm/leads`, { headers: await authHeaders() });
           const rj = await rr.json();
           if (rj.success) setLeads(rj.leads);
         } else {
@@ -144,7 +163,7 @@ export default function LeadCRM() {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, stage, lastContact: new Date().toISOString() } : l));
     if (selectedLead?.id === id) setSelectedLead(prev => prev ? { ...prev, stage } : null);
     try {
-      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ stage }) });
+      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: await authHeaders(), body: JSON.stringify({ stage }) });
     } catch (err) { console.error('Failed to update lead stage:', err); }
   }
 
@@ -153,7 +172,7 @@ export default function LeadCRM() {
     const body = newNote.trim();
     setNewNote('');
     try {
-      const res = await fetch(`${SERVER}/crm/notes`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ leadId: selectedLead.id, body }) });
+      const res = await fetch(`${SERVER}/crm/notes`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ leadId: selectedLead.id, body }) });
       const json = await res.json();
       if (json.success) { setNotes(prev => [json.note, ...prev]); toast.success('Note saved'); }
       else toast.error(json.error || 'Could not save note');
@@ -164,7 +183,7 @@ export default function LeadCRM() {
     if (!addForm.name.trim() || !addForm.email.trim()) { toast.error('Name and email required'); return; }
     try {
       const res = await fetch(`${SERVER}/crm/leads`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({
           name: addForm.name, email: addForm.email, phone: addForm.phone, city: addForm.city,
           source: addForm.source, service: addForm.service, stage: addForm.stage, value: Number(addForm.value) || 0,
@@ -186,7 +205,7 @@ export default function LeadCRM() {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, urgent: next } : l));
     if (selectedLead?.id === id) setSelectedLead(p => p ? { ...p, urgent: next } : null);
     try {
-      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ urgent: next }) });
+      await fetch(`${SERVER}/crm/leads/${id}`, { method: 'PUT', headers: await authHeaders(), body: JSON.stringify({ urgent: next }) });
     } catch (err) { console.error('Failed to toggle urgent:', err); }
   }
 
