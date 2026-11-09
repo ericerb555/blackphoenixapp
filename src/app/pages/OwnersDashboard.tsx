@@ -71,6 +71,7 @@ import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
 import { API_BASE_URL } from '../lib/apiConfig';
+import PhoenixAssistant from '../components/PhoenixAssistant';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
@@ -1442,6 +1443,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
           </div>
         </div>
       )}
+      {/* The assistant, reachable from the screen the owner actually sits
+          on. Self-contained: its own launcher, its own panel, and no layout
+          impact until it is opened. */}
+      <PhoenixAssistant />
     </div>
   );
 }
