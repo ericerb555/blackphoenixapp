@@ -116,22 +116,43 @@ test('every Anthropic rate is marked verified and dated', () => {
   }
 });
 
-test('the OpenAI rates are honestly flagged as unchecked', () => {
-  // They are in the table because most calls here are OpenAI and a cost
-  // report covering none of them is useless. They are flagged because
-  // presenting a recalled number as a verified one is how this dashboard
-  // got its reputation.
+test('the OpenAI text rates were checked and are marked so', () => {
+  // Read off OpenAI's published table on 2026-11-08. All three matched what
+  // had been here from recall — which validates those three and nothing else.
+  for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1-mini']) {
+    assert.equal(MODEL_PRICES[id].verified, true, `${id} should be verified`);
+    assert.match(MODEL_PRICES[id].source, /developers\.openai\.com/);
+  }
+  assert.equal(MODEL_PRICES['gpt-4o'].inputPerMTok, 2.5);
+  assert.equal(MODEL_PRICES['gpt-4o'].outputPerMTok, 10);
+  assert.equal(MODEL_PRICES['gpt-4o-mini'].inputPerMTok, 0.15);
+  assert.equal(MODEL_PRICES['gpt-4.1-mini'].outputPerMTok, 1.6);
+});
+
+test('the two models OpenAI no longer lists stay unverified', () => {
+  // gpt-image-1 and dall-e-3 are what this server actually asks for, and
+  // neither is on OpenAI's pricing page any more. Marking them verified
+  // would put a confident figure on a rate that no longer exists.
   const unverified = unverifiedModels();
-  assert.ok(unverified.includes('gpt-4o'));
-  assert.ok(unverified.includes('gpt-4o-mini'));
+  assert.deepEqual(unverified, ['dall-e-3', 'gpt-image-1']);
   for (const id of unverified) {
     assert.equal(MODEL_PRICES[id].verified, false);
+    assert.match(MODEL_PRICES[id].source, /NOT on OpenAI's pricing page/);
   }
+});
+
+test('the current image models are priced per token, not per image', () => {
+  // The structure changed. Anything still carrying perCall is a legacy rate.
+  const current = MODEL_PRICES['gpt-image-1-mini'];
+  assert.equal(current.verified, true);
+  assert.equal(current.perCall, undefined);
+  assert.ok(current.outputPerMTok > 0);
 });
 
 test('an estimate reports whether its rate was checked', () => {
   assert.equal(estimateCostCents('claude-opus-5', 100, 100)?.verified, true);
-  assert.equal(estimateCostCents('gpt-4o', 100, 100)?.verified, false);
+  assert.equal(estimateCostCents('gpt-4o', 100, 100)?.verified, true);
+  assert.equal(estimateCostCents('gpt-image-1', null, null)?.verified, false);
 });
 
 test('every price has a source that says where it came from', () => {

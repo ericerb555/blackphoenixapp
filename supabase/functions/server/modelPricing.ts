@@ -17,15 +17,19 @@
  * This whole screen spent its life showing invented figures, so a cost that
  * cannot say where it came from has no business replacing an honest blank.
  *
- * ANTHROPIC RATES ARE VERIFIED. OPENAI RATES ARE NOT.
+ * WHAT IS VERIFIED, AS OF 2026-11-08
  *
- * The Anthropic rates below come from Anthropic's own published table. The
- * OpenAI ones are from recall and are marked `verified: false`. They are
- * included because most calls on this platform are OpenAI and a cost report
- * covering none of them is useless — but anything priced from an unverified
- * rate is counted separately and labelled, so the figure is never presented
- * as more solid than it is. Check them against openai.com/pricing and flip
- * the flag; that is a two-minute job and this file is the only thing to edit.
+ * Anthropic's rates come from their published table. OpenAI's text rates were
+ * read off `developers.openai.com/api/docs/pricing` on 2026-11-08 and all
+ * three matched the values that had been sitting here from recall — which is
+ * reassuring about those three and says nothing about any other remembered
+ * number.
+ *
+ * TWO MODELS REMAIN UNVERIFIED, AND THAT IS NOW A FINDING RATHER THAN A GAP.
+ *
+ * `gpt-image-1` and `dall-e-3` are the two this server actually asks for, and
+ * neither appears on OpenAI's pricing page any more. See `RETIRED_IMAGE`
+ * below — the question it raises is operational, not arithmetic.
  *
  * AN UNKNOWN MODEL COSTS NULL, NOT ZERO
  *
@@ -68,21 +72,70 @@ const ANTHROPIC: Record<string, ModelPrice> = {
   "claude-fable-5":   { inputPerMTok: 10, outputPerMTok: 50, verified: true, source: ANTHROPIC_SOURCE, asOf: ANTHROPIC_AS_OF },
 };
 
-const OPENAI_SOURCE = "UNVERIFIED — from recall, not read off openai.com/pricing";
+const OPENAI_SOURCE = "developers.openai.com/api/docs/pricing, read 2026-11-08";
+const OPENAI_AS_OF = "2026-11-08";
 
 /**
- * OpenAI, per million tokens. NOT verified — see the header.
+ * The image models OpenAI currently publishes, which are NOT the ones this
+ * server asks for. See `RETIRED_IMAGE` below.
  *
- * The image models bill per image rather than per token, so they carry
- * `perCall` and zero token rates. `gpt-image-1` is the expensive one and is
- * the reason `aiSpend` has a separate `render` ceiling at all.
+ * They are billed per TOKEN, not per image — a structural change from the
+ * dall-e era. The rates here are the IMAGE token rates, which dominate; a
+ * request also carries text tokens at a different rate, and separating the
+ * two is not worth the complexity for a figure already labelled an estimate.
+ */
+const OPENAI_IMAGE: Record<string, ModelPrice> = {
+  "gpt-image-2.6-sunburst": { inputPerMTok: 8,   outputPerMTok: 30, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-2.6-flare":    { inputPerMTok: 8,   outputPerMTok: 30, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-2.5-sunburst": { inputPerMTok: 8,   outputPerMTok: 30, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-2.5-flare":    { inputPerMTok: 8,   outputPerMTok: 30, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-2":            { inputPerMTok: 8,   outputPerMTok: 30, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-1.5":          { inputPerMTok: 8,   outputPerMTok: 32, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-image-1-mini":       { inputPerMTok: 2.5, outputPerMTok: 8,  verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "chatgpt-image-latest":   { inputPerMTok: 8,   outputPerMTok: 32, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+};
+
+/**
+ * The two image models this server actually asks for, and OpenAI no longer
+ * lists.
+ *
+ * `OPENAI_IMAGE_MODEL` is unset in production, so `house-capture`,
+ * `creative-studio`, `marketing-assets`, `marketplace`, `video-studio`,
+ * `advertising` and `content-studio` all fall back to `gpt-image-1` and then
+ * `dall-e-3`. Neither appears anywhere on OpenAI's current pricing page,
+ * which lists `gpt-image-1-mini`, `1.5`, `2`, `2.5` and `2.6` instead.
+ *
+ * Two possibilities and this file cannot tell them apart: they are legacy
+ * models still served at unpublished rates, or they are gone and those
+ * routes are failing. The ledger will answer it the moment anybody generates
+ * an image — a `refused` row with an HTTP 404 means gone.
+ *
+ * So these keep `verified: false` and the numbers below are the old per-image
+ * prices, retained only so a cost appears at all rather than a blank. They
+ * are almost certainly wrong now: the current generation bills per token,
+ * not per image.
+ */
+const RETIRED_IMAGE_SOURCE =
+  "NOT on OpenAI's pricing page as of 2026-11-08 — old per-image rate, structure since changed to per-token";
+
+const RETIRED_IMAGE: Record<string, ModelPrice> = {
+  "gpt-image-1": { inputPerMTok: 0, outputPerMTok: 0, perCall: 0.19, verified: false, source: RETIRED_IMAGE_SOURCE, asOf: "unknown" },
+  "dall-e-3":    { inputPerMTok: 0, outputPerMTok: 0, perCall: 0.04, verified: false, source: RETIRED_IMAGE_SOURCE, asOf: "unknown" },
+};
+
+/**
+ * OpenAI text models, per million tokens. Verified.
+ *
+ * Read off OpenAI's published table on 2026-11-08. All three matched the
+ * values that were previously in this file from recall, which is reassuring
+ * about those three and says nothing about any other number anybody recalls.
  */
 const OPENAI: Record<string, ModelPrice> = {
-  "gpt-4o":        { inputPerMTok: 2.5,  outputPerMTok: 10,  verified: false, source: OPENAI_SOURCE, asOf: "unknown" },
-  "gpt-4o-mini":   { inputPerMTok: 0.15, outputPerMTok: 0.6, verified: false, source: OPENAI_SOURCE, asOf: "unknown" },
-  "gpt-4.1-mini":  { inputPerMTok: 0.4,  outputPerMTok: 1.6, verified: false, source: OPENAI_SOURCE, asOf: "unknown" },
-  "gpt-image-1":   { inputPerMTok: 0, outputPerMTok: 0, perCall: 0.19, verified: false, source: OPENAI_SOURCE, asOf: "unknown" },
-  "dall-e-3":      { inputPerMTok: 0, outputPerMTok: 0, perCall: 0.04, verified: false, source: OPENAI_SOURCE, asOf: "unknown" },
+  "gpt-4o":       { inputPerMTok: 2.5,  outputPerMTok: 10,  verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-4o-mini":  { inputPerMTok: 0.15, outputPerMTok: 0.6, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  "gpt-4.1-mini": { inputPerMTok: 0.4,  outputPerMTok: 1.6, verified: true, source: OPENAI_SOURCE, asOf: OPENAI_AS_OF },
+  ...OPENAI_IMAGE,
+  ...RETIRED_IMAGE,
 };
 
 export const MODEL_PRICES: Record<string, ModelPrice> = { ...ANTHROPIC, ...OPENAI };
