@@ -1,22 +1,24 @@
 /**
- * What the assistant is allowed to look at, and nothing it can change.
+ * What the assistant may look at, and the one thing it may ask for.
  *
- * WHY READ-ONLY, DELIBERATELY
+ * SUPERVISED AUTONOMY, WHICH IS NOT THE SAME AS AUTONOMY
  *
- * Section 10 of the specification defines three autonomy levels and says
- * Level 2 is the eventual production mode. This is Level 1 — observe,
- * analyse, recommend, change nothing — and it starts there on purpose.
+ * Section 10 of the specification defines three levels and names Level 2 —
+ * supervised — as the intended production mode. That is what this is.
  *
- * The audit's argument for the ledger applies doubly here: an agent you
- * cannot audit is one you cannot safely give authority to. The ledger has
- * existed for a few hours. In that time it surfaced two real defects nobody
- * had noticed. Giving this thing write access before that record has been
- * read for a while would be building the second storey first.
+ * Every tool here is a read EXCEPT `propose_action`, and that one still
+ * changes nothing: it writes a row into an approval queue and stops. The
+ * action runs when a person taps approve, from the parameters as stored,
+ * and `ai_action_request` refuses to let those parameters change after the
+ * proposal is written. So the thing reviewed is the thing executed.
  *
- * So every tool below is a SELECT. There is no tool that writes, sends,
- * publishes, charges or deletes, and adding one should be a deliberate
- * commit of its own with an approval gate in front of it — not a line
- * appended to this array.
+ * The practical consequence, and the reason it is built this way round: the
+ * worst a confused or manipulated model can do here is waste somebody's
+ * attention. It cannot act by being persuasive.
+ *
+ * What it may ask for is bounded by the registry in `aiActions.ts`, which
+ * is deliberately short and deliberately excludes money, credentials,
+ * deletion and anything published outside the company.
  *
  * WHY THE SCHEMA LIVES HERE
  *
@@ -142,6 +144,53 @@ export const PHOENIX_TOOLS = [
       required: [], additionalProperties: false,
     },
   },
+
+  /* ── proposing work, and spotting what should be automated ───────────── */
+
+  {
+    name: 'propose_action',
+    description:
+      'Propose something for the owner to approve. This does NOT do it — it '
+      + 'puts a one-line proposal in their approval queue, and nothing happens '
+      + 'until a person taps approve. Use when the answer to a question is an '
+      + 'action rather than a fact. Always say what you have proposed and that '
+      + 'it is waiting for them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'The action name, from the list in your brief.' },
+        params: { type: 'object', description: 'Arguments for that action.' },
+        summary: {
+          type: 'string',
+          description: 'One line the owner will read before deciding. Say what will happen and to whom.',
+        },
+      },
+      required: ['action', 'summary'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'pending_actions',
+    description:
+      'Proposals already waiting for a decision, and recently decided ones. '
+      + 'Use for "what is waiting on me" and to avoid proposing something twice.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: "pending, approved, executed, rejected, failed, expired or all. Defaults to pending." },
+      },
+      required: [], additionalProperties: false,
+    },
+  },
+  {
+    name: 'automation_opportunities',
+    description:
+      'What is piling up because nobody does it on a schedule, and what is '
+      + 'already automated. Returns backlog counts with the age of the oldest '
+      + 'item, plus the recurring jobs that already run. Use for "what should '
+      + 'we automate", "where would a sub-agent help", "what keeps slipping".',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  }
 ] as const;
 
 export type PhoenixToolName = typeof PHOENIX_TOOLS[number]['name'];
@@ -236,12 +285,41 @@ export const PHOENIX_SYSTEM = [
   'Be brief. The person asking is busy and usually wants one number or one',
   'sentence. Offer detail rather than leading with it.',
   '',
-  'WHAT YOU CANNOT DO',
+  'WHEN THE ANSWER IS AN ACTION',
   '',
-  'You can only read. You cannot send anything, change anything, stop anything or',
-  'spend anything. If asked to act, say plainly that you can only report, and',
-  'name where the control actually is — the emergency stop is on the AI',
-  'Diagnostics screen.',
+  'You cannot do anything yourself. You can PROPOSE, and a person decides.',
+  'propose_action puts a one-line proposal in the owner\'s queue and nothing',
+  'happens until they tap approve.',
+  '',
+  'The actions available are:',
+  '  mark_alerts_read      — clear alerts. params: alertTitles (array of titles)',
+  '  add_work_request_note — an internal note. params: workRequestId, note',
+  '  send_lead_email       — one templated email to one lead. params: leadEmail,',
+  '                          emailType (welcome, cart_abandon, hot_follow_up,',
+  '                          promo, review_request)',
+  '',
+  'Propose ONE thing at a time, and write the summary for the person deciding:',
+  'say what will happen and to whom. "Send the hot_follow_up email to',
+  'j.smith@example.com, a hot lead captured 9 days ago and never contacted" is',
+  'a summary. "Follow up leads" is not.',
+  '',
+  'After proposing, say what you proposed and that it is waiting on them. Never',
+  'imply it is done. Check pending_actions first so you do not propose the same',
+  'thing twice.',
+  '',
+  'WHAT YOU STILL CANNOT DO',
+  '',
+  'Anything outside that list — no money, no credentials, no deleting, nothing',
+  'published outside the company, and no bulk sends. If asked for one of those,',
+  'say so plainly and name where the control actually is. The emergency stop is',
+  'on the AI Diagnostics screen.',
+  '',
+  'ON AUTOMATING THINGS',
+  '',
+  'automation_opportunities shows what is piling up and what already runs on a',
+  'schedule. When you suggest automating something, ground it in the backlog and',
+  'its age, say which existing scheduled job it would sit beside, and be honest',
+  'that it is a build rather than something you can switch on.',
 ].join('\n');
 
 /* ── shaping business records for the model ──────────────────────────────── */

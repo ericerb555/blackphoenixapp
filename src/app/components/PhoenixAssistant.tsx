@@ -20,6 +20,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Sparkles, X, Send, Loader2, Bot, User, AlertTriangle, ShieldOff } from 'lucide-react';
 import {
   askPhoenix, AiIsStopped, NotPermitted, TOOL_LABELS, type ChatTurn,
+  fetchActionQueue, approveAction, rejectActionRequest, type ActionRequest,
 } from '../lib/aiActivity';
 
 /**
@@ -45,6 +46,48 @@ export default function PhoenixAssistant() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const [queue, setQueue] = useState<ActionRequest[]>([]);
+  const [canApprove, setCanApprove] = useState({ low: true, medium: true, high: false });
+  const [deciding, setDeciding] = useState<string | null>(null);
+
+  const canApproveRisk = (risk: 'low' | 'medium' | 'high') => canApprove[risk];
+
+  async function refreshQueue() {
+    try {
+      const q = await fetchActionQueue('pending');
+      setQueue(q.actions);
+      setCanApprove(q.youCanApprove);
+    } catch {
+      // A portal user gets a 403. The panel already reports that once on the
+      // first question; a second copy under the transcript is noise.
+    }
+  }
+
+  /**
+   * Approve runs it. The button says so, because the tap that approves is
+   * the tap that sends the email — there is no later confirmation.
+   */
+  async function decide(action: ActionRequest, approve: boolean) {
+    setDeciding(action.id);
+    try {
+      if (approve) {
+        const result = await approveAction(action.id);
+        setTurns((t) => [...t, { role: 'assistant', content: `Done — ${result}` }]);
+      } else {
+        await rejectActionRequest(action.id);
+        setTurns((t) => [...t, { role: 'assistant', content: `Declined: ${action.summary}` }]);
+      }
+    } catch (err: any) {
+      setTurns((t) => [...t, {
+        role: 'assistant', failed: true,
+        content: err?.message || 'That did not go through.',
+      }]);
+    } finally {
+      setDeciding(null);
+      await refreshQueue();
+    }
+  }
+
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [turns, thinking, open]);
@@ -52,6 +95,10 @@ export default function PhoenixAssistant() {
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
+
+  // The queue is re-read when the panel opens and after every exchange —
+  // a proposal made in the last answer should be visible without a reload.
+  useEffect(() => { if (open) refreshQueue(); }, [open]);
 
   async function send(text: string) {
     const question = text.trim();
@@ -71,6 +118,7 @@ export default function PhoenixAssistant() {
       setTurns((t) => [...t, {
         role: 'assistant', content: reply.answer, toolsUsed: reply.toolsUsed,
       }]);
+      await refreshQueue();
     } catch (err: any) {
       if (err instanceof NotPermitted) {
         setFatal('The assistant is for company accounts. Sign in with a staff account.');
@@ -118,7 +166,7 @@ export default function PhoenixAssistant() {
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Phoenix</p>
-              <p className="text-[11px] text-gray-500">Reads your operations. Cannot change anything.</p>
+              <p className="text-[11px] text-gray-500">Reads your operations. Proposes; you approve.</p>
             </div>
           </div>
           <button onClick={() => setOpen(false)} className="rounded-lg p-2 text-gray-500 hover:bg-[#1A1A1A] hover:text-white">
@@ -191,6 +239,56 @@ export default function PhoenixAssistant() {
             </div>
           ))}
 
+          {/*
+            Proposals sit in the transcript, under the answer that produced
+            them. Putting them on a separate screen would mean the decision
+            is made away from the reasoning that argued for it, which is
+            how somebody approves a thing they have not read.
+          */}
+          {queue.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                Waiting on you
+              </p>
+              {queue.map((a) => (
+                <div key={a.id} className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-3.5">
+                  <div className="flex items-start gap-2">
+                    <span className={`mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                      a.risk === 'high' ? 'bg-rose-500/20 text-rose-300'
+                        : a.risk === 'medium' ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-gray-500/20 text-gray-400'
+                    }`}>{a.risk}</span>
+                    <p className="flex-1 text-sm text-gray-200">{a.summary}</p>
+                  </div>
+                  <p className="mt-1.5 pl-1 text-[11px] text-gray-600">{a.action}</p>
+
+                  {!canApproveRisk(a.risk) ? (
+                    <p className="mt-2.5 text-xs text-amber-400/90">
+                      This one needs a platform owner to approve.
+                    </p>
+                  ) : (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => decide(a, true)}
+                        disabled={deciding === a.id}
+                        className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-40"
+                      >
+                        {deciding === a.id ? 'Running…' : 'Approve & run'}
+                      </button>
+                      <button
+                        onClick={() => decide(a, false)}
+                        disabled={deciding === a.id}
+                        className="rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs text-gray-400 hover:text-white disabled:opacity-40"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {thinking && (
             <div className="flex items-center gap-3 text-sm text-gray-500">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A]">
@@ -227,7 +325,7 @@ export default function PhoenixAssistant() {
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-gray-600">
-            Read-only. Phoenix reports; it does not send, change or spend.
+            Phoenix proposes, you approve. It never acts on its own.
           </p>
         </div>
       </div>

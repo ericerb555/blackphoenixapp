@@ -30,14 +30,38 @@ test('no tool is named for an action', () => {
   // Pinned by name. A new tool appearing here should be a deliberate
   // decision somebody made, not something that arrived with a feature.
   assert.deepEqual([...TOOL_NAMES].sort(), [
-    'ai_activity_summary', 'ai_stop_status', 'alerts', 'business_snapshot',
-    'leads', 'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
+    'ai_activity_summary', 'ai_stop_status', 'alerts', 'automation_opportunities',
+    'business_snapshot', 'leads', 'pending_actions', 'propose_action',
+    'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
   ]);
 });
 
-test('the brief says it cannot act, and where the control is', () => {
-  assert.match(PHOENIX_SYSTEM, /You can only read/);
+test('propose_action is the ONLY tool that is not a read', () => {
+  // The exception, named explicitly. If a second write tool ever appears
+  // this fails, which is the point — writes should arrive one deliberate
+  // commit at a time, not alongside a feature.
+  const writers = PHOENIX_TOOLS.filter((t) => /propose|action/.test(t.name) && t.name !== 'pending_actions');
+  assert.deepEqual(writers.map((t) => t.name), ['propose_action']);
+});
+
+test('propose_action states that it does not do the thing', () => {
+  // The model reads this description when deciding how to describe what it
+  // did. If it reads as "do it", it will tell the owner it is done.
+  const propose = PHOENIX_TOOLS.find((t) => t.name === 'propose_action')!;
+  assert.match(propose.description, /does NOT do it/);
+  assert.match(propose.description, /until a person taps approve/);
+});
+
+test('the brief says it cannot act alone, and where the control is', () => {
+  assert.match(PHOENIX_SYSTEM, /You cannot do anything yourself/);
+  assert.match(PHOENIX_SYSTEM, /nothing\s*\n?happens until they tap approve/);
+  assert.match(PHOENIX_SYSTEM, /Never\s*\n?imply it is done/);
   assert.match(PHOENIX_SYSTEM, /AI\s*\n?Diagnostics/);
+});
+
+test('the brief names the bounds it must not cross', () => {
+  assert.match(PHOENIX_SYSTEM, /no money, no credentials, no deleting/);
+  assert.match(PHOENIX_SYSTEM, /no bulk sends/);
 });
 
 test('the brief forbids inventing figures', () => {

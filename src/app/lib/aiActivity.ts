@@ -473,3 +473,71 @@ export const TOOL_LABELS: Record<string, string> = {
   recent_ai_calls: 'recent calls',
   ai_stop_status: 'stop status',
 };
+
+/* ── the approval queue ──────────────────────────────────────────────────── */
+
+export interface ActionRequest {
+  id: string;
+  agent: string;
+  requestedBy: string | null;
+  action: string;
+  params: Record<string, unknown>;
+  summary: string;
+  risk: 'low' | 'medium' | 'high';
+  status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+  decidedBy?: string | null;
+}
+
+export interface ActionQueue {
+  actions: ActionRequest[];
+  catalogue: { action: string; risk: string; what: string }[];
+  /** Per-risk, whether THIS person may approve. High needs an owner. */
+  youCanApprove: { low: boolean; medium: boolean; high: boolean };
+}
+
+const QUEUE_PATH = '/make-server-3eae23a6/phoenix/actions';
+
+export async function fetchActionQueue(status = 'pending'): Promise<ActionQueue> {
+  const { API_BASE_URL } = await import('./apiConfig');
+  const res = await fetch(`${API_BASE_URL}${QUEUE_PATH}?status=${encodeURIComponent(status)}`, {
+    headers: await authHeader(),
+  });
+  if (res.status === 403) throw new NotPermitted('The approval queue is for company accounts.');
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.success) throw new Error(body?.error || 'Could not read the queue.');
+  return {
+    actions: body.actions || [],
+    catalogue: body.catalogue || [],
+    youCanApprove: body.youCanApprove || { low: true, medium: true, high: false },
+  };
+}
+
+/**
+ * Approve runs the action. There is no separate "execute" step, so the tap
+ * that approves is the tap that does it — which is why the UI says what
+ * will happen rather than just "approve?".
+ */
+export async function approveAction(id: string, note?: string): Promise<string> {
+  const { API_BASE_URL } = await import('./apiConfig');
+  const res = await fetch(`${API_BASE_URL}${QUEUE_PATH}/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note || '' }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.success) throw new Error(body?.error || 'That did not run.');
+  return body.result || 'Done.';
+}
+
+export async function rejectActionRequest(id: string, note?: string): Promise<void> {
+  const { API_BASE_URL } = await import('./apiConfig');
+  const res = await fetch(`${API_BASE_URL}${QUEUE_PATH}/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note || '' }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.success) throw new Error(body?.error || 'Could not reject that.');
+}

@@ -212,7 +212,7 @@ interface SendOutcome {
  * a request we already authorised, and the false success. The caller is staff
  * by the time it gets here; that is settled once, by the middleware above.
  */
-async function sendLeadEmail(
+export async function sendLeadEmail(
   leadId: string, emailType: string, customMessage?: string,
 ): Promise<SendOutcome> {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';

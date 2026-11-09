@@ -7,15 +7,16 @@
  * `tasks/phoenix-ai-audit.md` gap 1: there was no way to ask the system what
  * it was doing. The ledger answered that for a dashboard; this answers it in
  * a sentence. It is the smallest honest version of the specification's §8
- * conversation surface — one endpoint, nine read-only tools, no task
- * object and no autonomy.
+ * conversation surface — one endpoint, twelve tools, and supervised
+ * autonomy rather than none.
  *
  * WHAT IT CAN DO, AND THE SHAPE OF THE LIMIT
  *
  * It reads the work requests, quotes, invoices, leads and alerts that run the
- * business, plus `ai_call_log` and the kill switch. Every tool is a read; see
- * `phoenixTools.ts` for why that is deliberate rather than a first increment
- * waiting to be widened.
+ * business, plus `ai_call_log` and the kill switch. Every tool is a read
+ * except `propose_action`, which writes a PENDING row into an approval queue
+ * and stops. Nothing it proposes happens until a person taps approve, and
+ * the parameters cannot change between the review and the act.
  *
  * Each business tool returns COUNTS plus a small trimmed sample rather than
  * the records themselves — cheaper per question, and it keeps customer
@@ -49,6 +50,9 @@ import {
   publicCallRow, CALL_FIELDS, statusOf, countByStatus, sumAmounts, isUnpaid,
   publicWorkRequest, publicQuote, publicInvoice, publicLead, publicAlert,
 } from "./phoenixTools.ts";
+import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
+import { actionCatalogue } from "./aiActions.ts";
+import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -80,7 +84,33 @@ const MAX_TURNS = 5;
 /** How much history the client may replay. Enough for a working exchange. */
 const MAX_HISTORY = 12;
 
-async function runTool(name: string, input: any): Promise<unknown> {
+async function runTool(name: string, input: any, asker: string): Promise<unknown> {
+  if (name === "propose_action") {
+    /**
+     * The one tool that is not a read, and it still does not act.
+     *
+     * It writes a pending row and returns its id. `requestedBy` is the
+     * authenticated caller from the route, never anything the model said —
+     * a proposal that could name its own requester would be a proposal that
+     * could name its own approver next.
+     */
+    const proposed = await proposeAction({
+      agent: "phoenix-chat",
+      requestedBy: asker || null,
+      action: String(input?.action || ""),
+      params: (input?.params && typeof input.params === "object") ? input.params : {},
+      summary: String(input?.summary || ""),
+    });
+    if (!proposed.ok) return { proposed: false, error: proposed.error };
+    return {
+      proposed: true,
+      id: proposed.request!.id,
+      risk: proposed.request!.risk,
+      expiresAt: proposed.request!.expiresAt,
+      note: "Nothing has happened. This is waiting for a person to approve it.",
+    };
+  }
+
   if (name === 'ai_stop_status') {
     const stops = await allStops();
     return stops.length
@@ -246,6 +276,84 @@ async function runTool(name: string, input: any): Promise<unknown> {
     };
   }
 
+  /* ── proposing, and spotting what should run on a schedule ─────────────── */
+
+  if (name === 'pending_actions') {
+    await expireStale();
+    const status = String(input?.status || 'pending');
+    const rows = await listActions(status as any, 25);
+    return {
+      status,
+      count: rows.length,
+      actions: rows.map((r) => ({
+        id: r.id, action: r.action, summary: r.summary, risk: r.risk,
+        status: r.status, createdAt: r.createdAt, expiresAt: r.expiresAt,
+      })),
+    };
+  }
+
+  if (name === 'automation_opportunities') {
+    /**
+     * Backlogs with an age, plus what already runs.
+     *
+     * The age is the point. Forty leads never contacted is a number; forty
+     * where the oldest arrived three weeks ago is an argument for putting
+     * something on a schedule. Without it the model has to guess whether a
+     * pile is a backlog or just today's work.
+     *
+     * The existing jobs are included so it does not propose building
+     * something that already exists — this platform has a scheduler and a
+     * job registry, and the honest suggestion is usually "add a job",
+     * not "build an agent".
+     */
+    const [wr, invoices, leadRows, alertRows] = await Promise.all([
+      workRequests(),
+      kv.getByPrefix('invoice:') as Promise<any[]>,
+      kv.get('leads:all') as Promise<any[]>,
+      kv.get('admin_alerts') as Promise<any[]>,
+    ]);
+
+    const ageDays = (iso: unknown): number | null => {
+      const t = Date.parse(String(iso || ''));
+      if (!Number.isFinite(t)) return null;
+      return Math.max(0, Math.round((Date.now() - t) / 86400_000));
+    };
+    const oldest = (rows: any[], field: string): number | null => {
+      const ages = rows.map((r) => ageDays(r?.[field])).filter((d): d is number => d !== null);
+      return ages.length ? Math.max(...ages) : null;
+    };
+
+    const leads = leadRows || [];
+    const uncontacted = leads.filter((l: any) => !Number(l?.emailsSent));
+    const unpaid = (invoices || []).filter(Boolean).filter(isUnpaid);
+    const pendingWr = wr.filter((r) => ['pending', 'pending_approval'].includes(statusOf(r)));
+    const unread = (alertRows || []).filter((a: any) => statusOf(a) === 'unread');
+
+    return {
+      backlogs: [
+        { what: 'leads never contacted', count: uncontacted.length, oldestDays: oldest(uncontacted, 'capturedAt') },
+        { what: 'invoices unpaid', count: unpaid.length, oldestDays: oldest(unpaid, 'created_at') },
+        { what: 'work requests awaiting a decision', count: pendingWr.length, oldestDays: oldest(pendingWr, 'created_at') },
+        { what: 'alerts unread', count: unread.length, oldestDays: oldest(unread, 'timestamp') },
+      ],
+      alreadyAutomated: [
+        'store-cron-tick — fulfilment retries, tracking and supplier catalogue, every 15 minutes',
+        'store-watchdog — hourly, reports a clock that has stopped',
+        'autopilot-tick — advances social campaigns every 15 minutes',
+        'exchange-upkeep — hourly',
+        'compliance-expiry-reminders, screening-expiry, on-call-escalation',
+      ],
+      howAutomationWorksHere:
+        'There is a scheduler (pg_cron) and a job registry in storeAutonomy.ts where a new '
+        + 'recurring job is registered rather than built from scratch: each job is small, '
+        + 'idempotent, individually switchable, and bounded by spend and order ceilings. '
+        + 'A proposal to automate something should normally be "add a job to that registry", '
+        + 'not "build a new service".',
+      note: 'Counts and ages only. A backlog with a large oldestDays is the case for a '
+        + 'schedule; a large count with a small age is just a busy day.',
+    };
+  }
+
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -282,7 +390,8 @@ phoenixChatRouter.post(BASE, async (c) => {
      * it costs nothing and means the one untrusted thing in the prompt is
      * marked as such.
      */
-    const asked = fence('The question', message);
+    const askerEmail = String((c.get?.("actor"))?.email || "").toLowerCase();
+    const asked = fence("The question", message);
 
     call = await beginAiCall({
       agent: 'phoenix-chat',
@@ -336,7 +445,7 @@ phoenixChatRouter.post(BASE, async (c) => {
         }
         toolsUsed.push(t.name);
         try {
-          const out = await runTool(t.name, t.input || {});
+          const out = await runTool(t.name, t.input || {}, askerEmail);
           results.push({ type: 'tool_result', tool_use_id: t.id, content: JSON.stringify(out) });
         } catch (e: any) {
           results.push({ type: 'tool_result', tool_use_id: t.id, is_error: true,
@@ -367,5 +476,84 @@ phoenixChatRouter.post(BASE, async (c) => {
     }
     await call?.failed?.(error);
     return c.json({ success: false, error: error?.message || 'The assistant could not answer.' }, 500);
+  }
+});
+
+/* ── the approval queue ──────────────────────────────────────────────────── */
+
+const QUEUE = '/make-server-3eae23a6/phoenix/actions';
+phoenixChatRouter.use('*', requireStaffOn([QUEUE]));
+
+/**
+ * Who is deciding.
+ *
+ * Read from the actor the auth wall established, never from the body. The
+ * whole value of the queue is that approval comes from an authenticated
+ * person, so the one thing that must not be caller-supplied is which person.
+ */
+function approverFrom(c: any) {
+  const user = c.get?.('actor');
+  const email = String(user?.email || '').toLowerCase();
+  return {
+    email,
+    isStaff: true,                       // requireStaffOn has already refused anybody else
+    isOwner: PLATFORM_OWNER_EMAILS.has(email),
+  };
+}
+
+/** What is waiting, and what was recently decided. */
+phoenixChatRouter.get(QUEUE, async (c) => {
+  try {
+    await expireStale();
+    const status = String(c.req.query('status') || 'pending');
+    const rows = await listActions(status as any, 50);
+    return c.json({
+      success: true,
+      status,
+      actions: rows,
+      catalogue: actionCatalogue(),
+      /**
+       * Said here so the UI can show it without hardcoding the rule: a
+       * high-risk action needs an owner, and the person looking may not be
+       * one.
+       */
+      youCanApprove: { low: true, medium: true, high: PLATFORM_OWNER_EMAILS.has(approverFrom(c).email) },
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/**
+ * Approve, and run it.
+ *
+ * One call, because the gap between "approved" and "done" is a state
+ * somebody would have to reason about and nobody would want. The row still
+ * records the decision and the execution separately.
+ */
+phoenixChatRouter.post(`${QUEUE}/:id/approve`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const approver = approverFrom(c);
+    const outcome = await approveAndRun(c.req.param('id'), approver, String(body?.note || ''));
+    if (!outcome.ok) {
+      console.warn(`[actionQueue] approve refused by=${approver.email}: ${outcome.error}`);
+      return c.json({ success: false, error: outcome.error }, 400);
+    }
+    console.warn(`[actionQueue] EXECUTED id=${c.req.param('id')} by=${approver.email}: ${outcome.result}`);
+    return c.json({ success: true, result: outcome.result });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+phoenixChatRouter.post(`${QUEUE}/:id/reject`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const outcome = await rejectAction(c.req.param('id'), approverFrom(c), String(body?.note || ''));
+    if (!outcome.ok) return c.json({ success: false, error: outcome.error }, 400);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
