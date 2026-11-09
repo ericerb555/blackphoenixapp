@@ -27,8 +27,12 @@ test('no tool is named for an action', () => {
     assert.doesNotMatch(t.description, /\b(sends?|creates?|deletes?|charges?|publishes?) /i,
       `${t.name} describes itself as acting`);
   }
-  assert.deepEqual([...TOOL_NAMES].sort(),
-    ['ai_activity_summary', 'ai_stop_status', 'recent_ai_calls']);
+  // Pinned by name. A new tool appearing here should be a deliberate
+  // decision somebody made, not something that arrived with a feature.
+  assert.deepEqual([...TOOL_NAMES].sort(), [
+    'ai_activity_summary', 'ai_stop_status', 'alerts', 'business_snapshot',
+    'leads', 'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
+  ]);
 });
 
 test('the brief says it cannot act, and where the control is', () => {
@@ -114,6 +118,9 @@ test('every tool says when to use it, not just what it is', () => {
   // A description that only names the tool gets called at the wrong moment.
   for (const t of PHOENIX_TOOLS) {
     assert.ok(t.description.length > 60, `${t.name} needs a fuller description`);
-    assert.match(t.description, /Use (this )?(for|when)/i, `${t.name} should say when to use it`);
+    // "Use this for…", and also "Use this FIRST for…" — the cue is the
+    // for/when, not the exact wording in between.
+    assert.match(t.description, /\bUse\b[^.]{0,24}\b(for|when)\b/i,
+      `${t.name} should say when to use it`);
   }
 });

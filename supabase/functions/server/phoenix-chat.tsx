@@ -7,14 +7,19 @@
  * `tasks/phoenix-ai-audit.md` gap 1: there was no way to ask the system what
  * it was doing. The ledger answered that for a dashboard; this answers it in
  * a sentence. It is the smallest honest version of the specification's §8
- * conversation surface — one endpoint, three read-only tools, no task
+ * conversation surface — one endpoint, nine read-only tools, no task
  * object and no autonomy.
  *
  * WHAT IT CAN DO, AND THE SHAPE OF THE LIMIT
  *
- * It reads `ai_call_log` and the kill switch, and nothing else. Every tool
- * is a SELECT; see `phoenixTools.ts` for why that is deliberate rather than
- * a first increment waiting to be widened.
+ * It reads the work requests, quotes, invoices, leads and alerts that run the
+ * business, plus `ai_call_log` and the kill switch. Every tool is a read; see
+ * `phoenixTools.ts` for why that is deliberate rather than a first increment
+ * waiting to be widened.
+ *
+ * Each business tool returns COUNTS plus a small trimmed sample rather than
+ * the records themselves — cheaper per question, and it keeps customer
+ * contact details out of a prompt that does not need them to answer.
  *
  * It is subject to the same two controls as every other model call on this
  * server: the emergency stop refuses it, and the ledger records it under the
@@ -26,12 +31,13 @@
  *
  * A tool-use loop is the one shape on this server that can spend without
  * limit: the model answers, asks for another tool, answers again. MAX_TURNS
- * stops that at five, which is more than any of these three tools needs and
+ * stops that at five, which is more than any of these tools needs and
  * far short of a runaway. `aiSpend` is also counted per turn, so a long
  * conversation draws down the same ceiling as everything else.
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import * as kv from "./kv_store.tsx";
 import { requireStaffOn } from "./requireStaff.ts";
 import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
 import { assertAiAllowed, AiStopped } from "./aiKillSwitch.ts";
@@ -40,7 +46,8 @@ import { summarise, byAgent, concerns, effectiveState, type LedgerRow } from "./
 import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
 import {
   PHOENIX_TOOLS, PHOENIX_SYSTEM, isKnownTool, clampHours, clampLimit,
-  publicCallRow, CALL_FIELDS,
+  publicCallRow, CALL_FIELDS, statusOf, countByStatus, sumAmounts, isUnpaid,
+  publicWorkRequest, publicQuote, publicInvoice, publicLead, publicAlert,
 } from "./phoenixTools.ts";
 
 export const phoenixChatRouter = new Hono();
@@ -123,6 +130,119 @@ async function runTool(name: string, input: any): Promise<unknown> {
         ...publicCallRow(row),
         state: effectiveState(row as LedgerRow, now),
       })),
+    };
+  }
+
+  /* ── the business ──────────────────────────────────────────────────────── */
+
+  /**
+   * Work requests live under two keys for historical reasons.
+   *
+   * `all_work_requests` is the legacy list and `wr:{id}` the per-record form
+   * that `persistWorkRequest` writes to both. Reading the legacy list is one
+   * round trip instead of N and carries the same records; `workRequestStore`
+   * makes the same choice for the same reason.
+   */
+  const workRequests = async (): Promise<any[]> =>
+    ((await kv.get('all_work_requests')) as any[]) || ((await kv.get('work_requests')) as any[]) || [];
+
+  if (name === 'work_requests') {
+    const all = await workRequests();
+    const wanted = input?.status ? String(input.status).toLowerCase() : null;
+    const rows = wanted ? all.filter((r) => statusOf(r) === wanted) : all;
+    return {
+      total: all.length,
+      byStatus: countByStatus(all),
+      showing: wanted || 'all',
+      recent: rows.slice(0, clampLimit(input?.limit, 10, 50)).map(publicWorkRequest),
+    };
+  }
+
+  if (name === 'quotes_and_invoices') {
+    const limit = clampLimit(input?.limit, 10, 50);
+    const [quotes, invoices] = await Promise.all([
+      kv.getByPrefix('quote:') as Promise<any[]>,
+      kv.getByPrefix('invoice:') as Promise<any[]>,
+    ]);
+    const q = (quotes || []).filter(Boolean);
+    const inv = (invoices || []).filter(Boolean);
+    const unpaid = inv.filter(isUnpaid);
+    return {
+      quotes: {
+        total: q.length,
+        byStatus: countByStatus(q),
+        totalValue: sumAmounts(q),
+        recent: q.slice(0, limit).map(publicQuote),
+      },
+      invoices: {
+        total: inv.length,
+        byStatus: countByStatus(inv),
+        outstandingCount: unpaid.length,
+        outstandingValue: sumAmounts(unpaid),
+        oldestOutstanding: unpaid.slice(0, limit).map(publicInvoice),
+      },
+    };
+  }
+
+  if (name === 'leads') {
+    const all = ((await kv.get('leads:all')) as any[]) || [];
+    const wanted = input?.intent ? String(input.intent).toLowerCase() : null;
+    const rows = wanted ? all.filter((l) => String(l?.intent || '').toLowerCase() === wanted) : all;
+    return {
+      total: all.length,
+      byIntent: {
+        hot: all.filter((l) => l?.intent === 'hot').length,
+        warm: all.filter((l) => l?.intent === 'warm').length,
+        cold: all.filter((l) => l?.intent === 'cold').length,
+      },
+      contacted: all.filter((l) => Number(l?.emailsSent) > 0).length,
+      neverContacted: all.filter((l) => !Number(l?.emailsSent)).length,
+      showing: wanted || 'all',
+      recent: rows.slice(0, clampLimit(input?.limit, 10, 50)).map(publicLead),
+    };
+  }
+
+  if (name === 'alerts') {
+    const all = ((await kv.get('admin_alerts')) as any[]) || [];
+    const unread = all.filter((a) => statusOf(a) === 'unread');
+    return {
+      total: all.length,
+      unreadCount: unread.length,
+      alerts: [...unread, ...all.filter((a) => statusOf(a) !== 'unread')]
+        .slice(0, clampLimit(input?.limit, 15, 50)).map(publicAlert),
+    };
+  }
+
+  if (name === 'business_snapshot') {
+    /**
+     * One call, because "how are we doing" otherwise costs four.
+     *
+     * Counts only — no samples. The model follows up with a specific tool
+     * when the answer needs detail, which keeps the common question cheap.
+     */
+    const [wr, quotes, invoices, leadRows, alertRows] = await Promise.all([
+      workRequests(),
+      kv.getByPrefix('quote:') as Promise<any[]>,
+      kv.getByPrefix('invoice:') as Promise<any[]>,
+      kv.get('leads:all') as Promise<any[]>,
+      kv.get('admin_alerts') as Promise<any[]>,
+    ]);
+    const q = (quotes || []).filter(Boolean);
+    const inv = (invoices || []).filter(Boolean);
+    const unpaid = inv.filter(isUnpaid);
+    const leads = leadRows || [];
+    const open = wr.filter((r) => !['completed', 'cancelled', 'closed'].includes(statusOf(r)));
+    return {
+      workRequests: { total: wr.length, open: open.length, byStatus: countByStatus(wr) },
+      quotes: { total: q.length, totalValue: sumAmounts(q), byStatus: countByStatus(q) },
+      invoices: { total: inv.length, outstandingCount: unpaid.length, outstandingValue: sumAmounts(unpaid) },
+      leads: {
+        total: leads.length,
+        hot: leads.filter((l: any) => l?.intent === 'hot').length,
+        neverContacted: leads.filter((l: any) => !Number(l?.emailsSent)).length,
+      },
+      alerts: { unread: (alertRows || []).filter((a: any) => statusOf(a) === 'unread').length },
+      note: 'Counts only. Ask a specific tool for the records behind any of these.',
     };
   }
 

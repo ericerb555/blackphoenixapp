@@ -27,6 +27,7 @@ import {
   fetchStops, engageStop, releaseStop, GLOBAL_SCOPE, type StopState,
   type ActivitySummary,
 } from '../lib/aiActivity';
+import PhoenixAssistant from './PhoenixAssistant';
 
 /**
  * Cosmetic only — which glyph an agent gets on the Systems tab.
@@ -1449,6 +1450,11 @@ export default function AIDiagnosticsCenter() {
           </div>
         </div>
       )}
+
+      {/* The assistant, as a launcher in the corner. Lives here for now;
+          it is self-contained and can be mounted in the app shell to be
+          reachable from every screen. */}
+      <PhoenixAssistant />
     </div>
   );
 }

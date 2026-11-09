@@ -419,3 +419,57 @@ export async function releaseStop(scope: string): Promise<string> {
   }
   return body.message || 'Released.';
 }
+
+/* ── the assistant ───────────────────────────────────────────────────────── */
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Which tools answered this turn. Shown so the answer can be checked. */
+  toolsUsed?: string[];
+  /** Set when the turn failed, so the transcript keeps the failure visible. */
+  failed?: boolean;
+}
+
+export interface ChatReply {
+  answer: string;
+  toolsUsed: string[];
+  turns: number;
+}
+
+/** Thrown when the emergency stop is engaged, so the UI can say which. */
+export class AiIsStopped extends Error {}
+
+/**
+ * Ask the assistant.
+ *
+ * `history` is replayed so it can follow a conversation; the server filters
+ * it to text turns and ignores anything else, so there is no point sending
+ * tool results back.
+ */
+export async function askPhoenix(message: string, history: ChatTurn[]): Promise<ChatReply> {
+  const { API_BASE_URL } = await import('./apiConfig');
+  const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/phoenix/chat`, {
+    method: 'POST',
+    headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      history: history.map((t) => ({ role: t.role, content: t.content })),
+    }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 403) throw new NotPermitted('The assistant is for company accounts.');
+  if (res.status === 503 && body?.stopped) throw new AiIsStopped(body.error);
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error || `The assistant could not answer (HTTP ${res.status}).`);
+  }
+  return { answer: body.answer, toolsUsed: body.toolsUsed || [], turns: body.turns || 1 };
+}
+
+/** Readable names for the tools, for the "checked:" line under an answer. */
+export const TOOL_LABELS: Record<string, string> = {
+  ai_activity_summary: 'activity summary',
+  recent_ai_calls: 'recent calls',
+  ai_stop_status: 'stop status',
+};

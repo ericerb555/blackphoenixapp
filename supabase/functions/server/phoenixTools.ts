@@ -75,6 +75,73 @@ export const PHOENIX_TOOLS = [
       + 'agent, who engaged it and why. Use for "is anything stopped".',
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
+
+  /* ── the business, not just the AI ─────────────────────────────────────── */
+
+  {
+    name: 'business_snapshot',
+    description:
+      'The headline numbers across the whole business in one call: open work '
+      + 'requests, quotes and their value, unpaid invoices and what is owed, '
+      + 'leads by intent, and unread alerts. Use this FIRST for broad questions '
+      + 'like "how are we doing", "what needs attention", "catch me up".',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    name: 'work_requests',
+    description:
+      'Incoming work: counts by status and the most recent requests with their '
+      + 'trade, location and when they arrived. Use for "what work is coming in", '
+      + '"what is unassigned", "what is pending approval".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: "Optional: pending, approved, assigned, in-progress, completed." },
+        limit: { type: 'number', description: 'How many to list. Defaults to 10, maximum 50.' },
+      },
+      required: [], additionalProperties: false,
+    },
+  },
+  {
+    name: 'quotes_and_invoices',
+    description:
+      'Money out and money in: quotes by status with their totals, and invoices '
+      + 'split into paid and outstanding with the amount owed. Use for "what have '
+      + 'we quoted", "what is owed", "who has not paid".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'How many of each to list. Defaults to 10, maximum 50.' },
+      },
+      required: [], additionalProperties: false,
+    },
+  },
+  {
+    name: 'leads',
+    description:
+      'Sales leads: how many, split by AI intent score (hot, warm, cold), how '
+      + 'many have been contacted, and the most recent. Use for "how are leads '
+      + 'looking", "who should we chase".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        intent: { type: 'string', description: "Optional: hot, warm or cold." },
+        limit: { type: 'number', description: 'Defaults to 10, maximum 50.' },
+      },
+      required: [], additionalProperties: false,
+    },
+  },
+  {
+    name: 'alerts',
+    description:
+      'Operational alerts raised for staff — unread first. Use for "what needs '
+      + 'attention", "anything wrong".',
+    input_schema: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'Defaults to 15, maximum 50.' } },
+      required: [], additionalProperties: false,
+    },
+  },
 ] as const;
 
 export type PhoenixToolName = typeof PHOENIX_TOOLS[number]['name'];
@@ -138,7 +205,19 @@ export function publicCallRow(row: Record<string, unknown>): Record<string, unkn
  */
 export const PHOENIX_SYSTEM = [
   'You are the operations assistant for Black Phoenix, a construction and property services company.',
-  'You are talking to the owner or a member of staff about how the business\'s AI is behaving.',
+  'You are talking to the owner or a member of staff about how the business is running.',
+  '',
+  'WHAT YOU CAN SEE',
+  '',
+  'Incoming work requests, quotes and their value, invoices and what is owed,',
+  'sales leads and their intent, operational alerts, and everything the AI on',
+  'this platform has done. Use business_snapshot first for a broad question —',
+  'it answers "how are we doing" in one call — then a specific tool when the',
+  'detail matters.',
+  '',
+  'Lead with the thing that needs a decision. "Four quotes out, $18k, and two',
+  'invoices overdue" is an answer; a list of every status is a report nobody',
+  'asked for.',
   '',
   'HOW YOU ANSWER',
   '',
@@ -164,3 +243,124 @@ export const PHOENIX_SYSTEM = [
   'name where the control actually is — the emergency stop is on the AI',
   'Diagnostics screen.',
 ].join('\n');
+
+/* ── shaping business records for the model ──────────────────────────────── */
+
+/**
+ * Why every business tool returns counts plus a SMALL sample.
+ *
+ * Two reasons, and the second is the one people forget.
+ *
+ * Tokens. Handing the model 400 work requests to answer "how many are open"
+ * costs real money per question and makes the assistant slower than reading
+ * the screen. The counting happens here, in code, and the model is given the
+ * answer plus enough examples to talk about.
+ *
+ * Exposure. These records carry customer names, emails, phone numbers and
+ * addresses. A staff member may see those on the screen; that is not the
+ * same as shipping them into a prompt on every question. So the samples are
+ * trimmed to what an answer actually needs, and anything identifying is
+ * dropped unless the question could not be answered without it.
+ */
+
+/** Money, as a number, from the several shapes these records use. */
+export function amountOf(record: any): number {
+  const raw = record?.total ?? record?.amount ?? record?.totalAmount
+    ?? record?.grandTotal ?? record?.estimatedValue ?? 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function statusOf(record: any): string {
+  return String(record?.status || 'unknown').toLowerCase();
+}
+
+/** Count records by status, newest-first order preserved by the caller. */
+export function countByStatus(rows: any[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const s = statusOf(r);
+    out[s] = (out[s] || 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * A work request, trimmed.
+ *
+ * The customer's name, email and phone are deliberately absent: "what work
+ * is coming in" is answerable without them, and a question that genuinely
+ * needs a customer's contact details is one a person should answer from the
+ * screen where the access is logged against them.
+ */
+export function publicWorkRequest(r: any): Record<string, unknown> {
+  return {
+    id: String(r?.id || ''),
+    title: String(r?.title || r?.project_name || r?.projectName || '').slice(0, 120),
+    trade: r?.serviceType || r?.service_type || r?.project_type || null,
+    status: statusOf(r),
+    // Town-level only. Enough to talk about coverage, not a doorstep.
+    area: String(r?.city || r?.town || '').slice(0, 60) || null,
+    createdAt: r?.created_at || r?.createdAt || null,
+    estimatedValue: amountOf(r) || null,
+  };
+}
+
+export function publicQuote(r: any): Record<string, unknown> {
+  return {
+    id: String(r?.id || ''),
+    title: String(r?.title || r?.projectName || '').slice(0, 120),
+    status: statusOf(r),
+    total: amountOf(r),
+    createdAt: r?.created_at || r?.createdAt || null,
+  };
+}
+
+export function publicInvoice(r: any): Record<string, unknown> {
+  return {
+    id: String(r?.id || r?.number || ''),
+    status: statusOf(r),
+    total: amountOf(r),
+    dueDate: r?.dueDate || r?.due_date || null,
+    createdAt: r?.created_at || r?.createdAt || null,
+  };
+}
+
+/**
+ * A lead, trimmed to the pipeline question.
+ *
+ * The email is the lead — there is no useful way to say "chase this one"
+ * without it — so it stays, and the assistant is staff-only. The phone,
+ * page history and cart value do not survive.
+ */
+export function publicLead(r: any): Record<string, unknown> {
+  return {
+    email: String(r?.email || '').slice(0, 120),
+    name: String(r?.name || '').slice(0, 80) || null,
+    intent: r?.intent || null,
+    score: Number(r?.score) || null,
+    status: statusOf(r),
+    emailsSent: Number(r?.emailsSent) || 0,
+    capturedAt: r?.capturedAt || null,
+  };
+}
+
+export function publicAlert(r: any): Record<string, unknown> {
+  return {
+    title: String(r?.title || '').slice(0, 140),
+    category: r?.category || null,
+    type: r?.type || null,
+    status: statusOf(r),
+    timestamp: r?.timestamp || null,
+  };
+}
+
+/** Outstanding money: everything not settled. */
+export function isUnpaid(invoice: any): boolean {
+  const s = statusOf(invoice);
+  return s !== 'paid' && s !== 'void' && s !== 'cancelled' && s !== 'refunded';
+}
+
+export function sumAmounts(rows: any[]): number {
+  return Math.round(rows.reduce((t, r) => t + amountOf(r), 0) * 100) / 100;
+}
