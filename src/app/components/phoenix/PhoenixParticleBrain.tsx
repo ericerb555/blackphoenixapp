@@ -40,6 +40,9 @@ import {
   type ParticleField,
 } from './phoenixParticleSource';
 
+/** Camera distance. Shared with the shader so depth shading agrees with it. */
+const CAM_DIST = 3.15;
+
 export type PhoenixState =
   | 'idle' | 'listening' | 'thinking' | 'speaking'
   | 'working' | 'success' | 'alert';
@@ -71,6 +74,7 @@ const MOODS: Record<PhoenixState, {
 
 const VERT = /* glsl */`
   attribute float aEdge;
+  attribute float aThick;   // 0 at a feather tip, 1 through the chest
   attribute vec3  aSeed;
 
   uniform float uTime;
@@ -83,11 +87,14 @@ const VERT = /* glsl */`
   uniform float uAudio;     // 0..1 live level, mic or speech
   uniform float uBreath;
   uniform float uSize;
+  uniform float uProj;      // viewportHeight / (2 tan(fov/2)) — see below
+  uniform float uCamDist;
   uniform float uStill;     // 1 = reduced motion: hold the formed shape
 
   varying float vEdge;
   varying float vSpeed;
   varying float vFade;
+  varying float vNear;      // 1 at the front of the volume, 0 at the back
 
   // A smooth vector potential. Sines rather than a noise texture: no upload,
   // no sampler, and at this scale the eye cannot tell the difference.
@@ -107,11 +114,18 @@ const VERT = /* glsl */`
     vec3 px0 = potential(p - dx, t), px1 = potential(p + dx, t);
     vec3 py0 = potential(p - dy, t), py1 = potential(p + dy, t);
     vec3 pz0 = potential(p - dz, t), pz1 = potential(p + dz, t);
-    return vec3(
+    vec3 c = vec3(
       (py1.z - py0.z) - (pz1.y - pz0.y),
       (pz1.x - pz0.x) - (px1.z - px0.z),
       (px1.y - px0.y) - (py1.x - py0.x)
     ) / (2.0 * e);
+    /*
+     * Soft-normalised, so uSpread is a distance rather than a coefficient.
+     * The raw curl of this potential runs to about 4, which meant every
+     * "spread" value in MOODS was secretly four times what it read as and
+     * the silhouette stayed loose at every state including idle.
+     */
+    return c / (1.0 + length(c) * 0.75);
   }
 
   void main() {
@@ -157,6 +171,21 @@ const VERT = /* glsl */`
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
 
+    /*
+     * Where this particle sits through the depth of the solid, AFTER the
+     * rotation has been applied. This is what makes it read as an object
+     * rather than a picture: the near face burns and the far face sinks
+     * away, and which face is which changes as the bird turns.
+     */
+    vNear = clamp((uCamDist + mv.z + 1.0) * 0.5, 0.0, 1.0);
+
+    /*
+     * Where this particle sits through the depth of the solid, AFTER the
+     * rotation has been applied. This is what makes it read as an object
+     * rather than a picture: the near face burns and the far face sinks
+     * away, and which face is which changes as the bird turns.
+     */
+
     float travelled = length(disp);
     vSpeed = clamp(travelled * 3.2, 0.0, 1.0);
     // Particles far from home dim — they read as sparks thrown off rather
@@ -164,8 +193,19 @@ const VERT = /* glsl */`
     vFade = 1.0 - smoothstep(0.10, 0.62, travelled);
     vEdge = aEdge;
 
-    float size = uSize * (0.55 + aSeed.z * 0.85) * (1.0 + aEdge * 0.35);
-    gl_PointSize = size * (300.0 / max(-mv.z, 0.1));
+    /*
+     * uSize is a WORLD size, and uProj converts world units to pixels for
+     * this viewport and field of view. The first version used a hardcoded
+     * 300, which made every particle about 200px across — 28,000 of those
+     * additively blended is three thousand times more light than the frame
+     * can hold, and the phoenix came out as a white blob.
+     */
+    // Thicker parts of the solid carry heavier particles, so the chest
+    // reads as mass and the feather tips as filigree. Also the reason
+    // aThick exists: an unused attribute is stripped by the compiler.
+    float size = uSize * (0.55 + aSeed.z * 0.85) * (1.0 + aEdge * 0.35)
+               * (0.8 + aThick * 0.5);
+    gl_PointSize = clamp(size * uProj / max(-mv.z, 0.1), 1.0, 14.0);
   }
 `;
 
@@ -181,6 +221,7 @@ const FRAG = /* glsl */`
   varying float vEdge;
   varying float vSpeed;
   varying float vFade;
+  varying float vNear;
 
   void main() {
     // Soft round sprite. Discarding the corners keeps the additive pile-up
@@ -197,7 +238,16 @@ const FRAG = /* glsl */`
     // Alert pushes the whole field red without touching the geometry.
     base = mix(base, vec3(1.0, 0.18, 0.12), uWarm * 0.75);
 
-    gl_FragColor = vec4(base * uGlow, a * uOpacity * (0.35 + 0.65 * vFade));
+    /*
+     * Depth. The far side of the solid is dimmer and deeper red; the near
+     * side is hot. Without this the volume is there geometrically and
+     * invisible to the eye, because every particle is the same brightness
+     * and the cloud flattens back into a silhouette.
+     */
+    float lum = mix(0.28, 1.35, vNear);
+    base = mix(base * vec3(0.75, 0.55, 0.6), base, vNear);
+
+    gl_FragColor = vec4(base * uGlow * lum, a * uOpacity * (0.3 + 0.7 * vFade));
   }
 `;
 
@@ -214,7 +264,20 @@ function Swarm({
 }) {
   const matRef = useRef<THREE.ShaderMaterial>(null);
   const groupRef = useRef<THREE.Group>(null);
-  const { invalidate } = useThree();
+  const { invalidate, size: viewport, camera } = useThree();
+
+  /**
+   * Brightness has to fall as the count rises.
+   *
+   * Additive blending means total light is proportional to the number of
+   * particles. Without this, doubling the particle slider doubles the
+   * exposure and the bird washes out — the denser setting would look
+   * strictly worse, which is the opposite of what a quality slider should do.
+   */
+  const densityOpacity = useMemo(
+    () => Math.min(0.85, Math.max(0.07, 0.85 * Math.sqrt(9000 / Math.max(field.count, 1)))),
+    [field.count],
+  );
 
   // Where the mood is now, as opposed to where it is heading. Lerped every
   // frame so a state change is a transition rather than a cut.
@@ -232,7 +295,9 @@ function Swarm({
     uBurst:   { value: 0 },
     uAudio:   { value: 0 },
     uBreath:  { value: 1 },
-    uSize:    { value: 2.1 },
+    uSize:    { value: 0.0065 },
+    uProj:    { value: 1000 },
+    uCamDist: { value: CAM_DIST },
     uStill:   { value: reducedMotion ? 1 : 0 },
     uGlow:    { value: 1 },
     uWarm:    { value: 0 },
@@ -270,6 +335,13 @@ function Swarm({
     const b = burst.current;
 
     const u = m.uniforms;
+
+    // World units to pixels, for THIS canvas. Recomputed rather than
+    // assumed, so the bird is the same density on a laptop and a 4K panel.
+    const fov = (camera as THREE.PerspectiveCamera).fov ?? 45;
+    u.uProj.value = viewport.height / (2 * Math.tan((fov * Math.PI) / 360));
+    u.uOpacity.value = densityOpacity;
+
     u.uTime.value   += dt * (reducedMotion ? 0 : 1);
     u.uFlow.value    = c.flow;
     u.uSpread.value  = c.spread;
@@ -283,9 +355,15 @@ function Swarm({
     u.uGlow.value    = c.glow * (1 + b * 0.8);
 
     if (groupRef.current && !reducedMotion) {
-      // A slow yaw. Enough to reveal the shell has depth, slow enough that
-      // the bird never stops facing you.
-      groupRef.current.rotation.y = Math.sin(u.uTime.value * 0.16) * 0.22;
+      /*
+       * A slow yaw with a little pitch. Wide enough that the solid reads as
+       * a solid — you have to see the far wing swing behind the body to
+       * believe there is a behind — and slow enough that the bird never
+       * stops facing you.
+       */
+      const t = u.uTime.value;
+      groupRef.current.rotation.y = Math.sin(t * 0.17) * 0.55;
+      groupRef.current.rotation.x = Math.sin(t * 0.11) * 0.09;
     }
 
     const f = frames.current;
@@ -299,6 +377,7 @@ function Swarm({
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(field.positions, 3));
     g.setAttribute('aEdge', new THREE.BufferAttribute(field.edge, 1));
+    g.setAttribute('aThick', new THREE.BufferAttribute(field.thickness, 1));
     g.setAttribute('aSeed', new THREE.BufferAttribute(field.seed, 3));
     // The swarm leaves its home pixels, so a bounding sphere computed from
     // the attributes would cull the bird the moment it spread. Set wide.
@@ -412,7 +491,7 @@ export default function PhoenixParticleBrain({
   return (
     <div className={className}>
       <Canvas
-        camera={{ position: [0, 0, 3.15], fov: 45 }}
+        camera={{ position: [0, 0, CAM_DIST], fov: 45 }}
         // Capped: a 3x retina display would otherwise quadruple the fill
         // cost of an additive particle field for no visible gain.
         dpr={[1, 1.75]}

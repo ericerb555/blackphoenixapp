@@ -35,6 +35,8 @@ export interface ParticleField {
   positions: Float32Array;
   /** 1 where the source pixel was the orange outline, 0 for the body. */
   edge: Float32Array;
+  /** 0 at the silhouette's edge, 1 at its thickest interior point. */
+  thickness: Float32Array;
   /** Stable per-particle randomness: phase, excursion, size. */
   seed: Float32Array;
   count: number;
@@ -54,10 +56,72 @@ export interface PickOptions {
    * shape stays identifiable, and this is the number that keeps it.
    */
   edgeShare?: number;
-  /** Depth of the shell the particles occupy, in normalised units. */
+  /**
+   * Thickness of the solid, as a multiple of the shape's own half-width.
+   * 1.0 would make the chest as deep as it is wide.
+   */
   depth?: number;
   /** Deterministic randomness, so tests and snapshots are reproducible. */
   random?: () => number;
+}
+
+/**
+ * How deep inside the shape each pixel sits, in pixels.
+ *
+ * WHY THIS IS WHAT MAKES IT LOOK THREE-DIMENSIONAL
+ *
+ * A silhouette filled with particles at random depths is a flat sheet with
+ * noise — it reads as a cutout however much you rotate it. A real object is
+ * THICK WHERE IT IS WIDE: the phoenix's chest is a solid mass, the wing
+ * feathers are blades. Measuring distance-to-edge recovers exactly that, so
+ * the particle cloud can be given a cross-section that bulges through the
+ * body and tapers to nothing at every feather tip.
+ *
+ * Two-pass chamfer, which is linear in pixels and accurate to a few percent
+ * — far cheaper than an exact Euclidean transform and indistinguishable once
+ * it is driving a particle depth.
+ */
+export function distanceToEdge(
+  data: Uint8ClampedArray | number[],
+  width: number,
+  height: number,
+  alphaCutoff: number,
+): Float32Array {
+  const D = new Float32Array(width * height);
+  const BIG = 1e9;
+  const d1 = 1, d2 = Math.SQRT2;
+
+  for (let i = 0; i < width * height; i++) {
+    D[i] = data[i * 4 + 3] < alphaCutoff ? 0 : BIG;
+  }
+
+  // Forward: up-left neighbours.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (D[i] === 0) continue;
+      let m = D[i];
+      if (y > 0)            m = Math.min(m, D[i - width] + d1);
+      if (y > 0 && x > 0)   m = Math.min(m, D[i - width - 1] + d2);
+      if (y > 0 && x < width - 1) m = Math.min(m, D[i - width + 1] + d2);
+      if (x > 0)            m = Math.min(m, D[i - 1] + d1);
+      D[i] = m;
+    }
+  }
+  // Backward: down-right neighbours.
+  for (let y = height - 1; y >= 0; y--) {
+    for (let x = width - 1; x >= 0; x--) {
+      const i = y * width + x;
+      if (D[i] === 0) continue;
+      let m = D[i];
+      if (y < height - 1)   m = Math.min(m, D[i + width] + d1);
+      if (y < height - 1 && x < width - 1) m = Math.min(m, D[i + width + 1] + d2);
+      if (y < height - 1 && x > 0)         m = Math.min(m, D[i + width - 1] + d2);
+      if (x < width - 1)    m = Math.min(m, D[i + 1] + d1);
+      D[i] = m;
+    }
+  }
+  return D;
 }
 
 /** Orange outline vs black body, judged from the pixel itself. */
@@ -83,11 +147,16 @@ export function pickParticles(
   opts: PickOptions,
 ): ParticleField {
   const {
-    count, alphaCutoff = 100, edgeShare = 0.35, depth = 0.22,
+    count, alphaCutoff = 100, edgeShare = 0.35, depth = 0.9,
     random = Math.random,
   } = opts;
 
   const wanted = Math.max(0, Math.floor(count));
+  const dist = distanceToEdge(data, width, height, alphaCutoff);
+  let maxDist = 0;
+  for (let i = 0; i < dist.length; i++) if (dist[i] > maxDist) maxDist = dist[i];
+  maxDist = Math.max(maxDist, 1);
+
   const edgeIdx: number[] = [];
   const bodyIdx: number[] = [];
 
@@ -108,6 +177,8 @@ export function pickParticles(
   const positions = new Float32Array(total * 3);
   const edge = new Float32Array(total);
   const seed = new Float32Array(total * 3);
+  /** 0 at a feather tip, 1 at the thickest point of the chest. */
+  const thickness = new Float32Array(total);
 
   const half = Math.max(width, height) / 2;
   let w = 0;
@@ -124,11 +195,22 @@ export function pickParticles(
       positions[w * 3] = (px - width / 2) / half;
       // Image rows run downward, GL's Y runs up.
       positions[w * 3 + 1] = (height / 2 - py) / half;
-      // A shell rather than a plane, so the thing has depth when it turns.
-      // Outline particles sit nearer the surface, which keeps the silhouette
-      // reading as an edge instead of a smeared band.
-      positions[w * 3 + 2] = (random() - 0.5) * depth * (isEdge ? 0.5 : 1);
 
+      /*
+       * The cross-section. sqrt() of the normalised depth gives an
+       * ellipsoidal profile — the body rounds off like a real torso rather
+       * than coming to a ridge down the middle, which is what a linear
+       * profile produces and which reads as a folded piece of card.
+       *
+       * cbrt of a uniform variate fills that section evenly instead of
+       * crowding the mid-plane, so the volume looks solid from any angle.
+       */
+      const t = dist[p] / maxDist;
+      const halfThick = Math.sqrt(Math.max(t, 0)) * depth * (isEdge ? 0.35 : 1);
+      const u = random() * 2 - 1;
+      positions[w * 3 + 2] = Math.cbrt(u) * halfThick;
+
+      thickness[w] = t;
       edge[w] = isEdge;
       seed[w * 3] = random();        // flow phase
       seed[w * 3 + 1] = random();    // excursion timing
@@ -140,7 +222,7 @@ export function pickParticles(
   emit(edgeIdx, nEdge, 1);
   emit(bodyIdx, nBody, 0);
 
-  return { positions, edge, seed, count: total };
+  return { positions, edge, seed, thickness, count: total };
 }
 
 /**

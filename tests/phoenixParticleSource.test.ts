@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  pickParticles, isOutlinePixel, budgetFor,
+  pickParticles, isOutlinePixel, budgetFor, distanceToEdge,
 } from '../src/app/components/phoenix/phoenixParticleSource.ts';
 
 /** Deterministic PRNG, so a failure is reproducible. */
@@ -127,11 +127,77 @@ test('asking for more particles than the image has pixels is capped', () => {
 
 test('positions are normalised into the unit box', () => {
   const { data, size } = disc(40);
-  const f = pickParticles(data, size, size, { count: 1500, random: rng(9) });
+  const f = pickParticles(data, size, size, { count: 1500, random: rng(9), depth: 0.9 });
   for (let i = 0; i < f.count * 3; i += 3) {
     assert.ok(Math.abs(f.positions[i]) <= 1.01, 'x out of range');
     assert.ok(Math.abs(f.positions[i + 1]) <= 1.01, 'y out of range');
-    assert.ok(Math.abs(f.positions[i + 2]) <= 0.2, 'z outside the shell');
+    assert.ok(Math.abs(f.positions[i + 2]) <= 0.91, 'z outside the solid');
+  }
+});
+
+/* ── the volume ──────────────────────────────────────────────────────── */
+
+test('distance-to-edge is zero outside and largest at the centre', () => {
+  const { data, size } = disc(32);
+  const d = distanceToEdge(data, size, size, 100);
+  assert.equal(d[0], 0, 'a corner is background');
+  const centre = d[(size / 2) * size + size / 2];
+  let max = 0;
+  for (let i = 0; i < d.length; i++) max = Math.max(max, d[i]);
+  assert.equal(centre, max, 'the deepest point of a disc is its centre');
+  assert.ok(max > size / 4, `only ${max} deep — the transform did not propagate`);
+});
+
+test('the chamfer transform is close to the true Euclidean distance', () => {
+  // A disc of radius r has a centre distance of r. Chamfer should be within
+  // a few percent, which is the whole reason it is worth using.
+  const { data, size } = disc(64);
+  const d = distanceToEdge(data, size, size, 100);
+  const centre = d[(size / 2) * size + size / 2];
+  const trueR = size / 2 - 1;
+  assert.ok(Math.abs(centre - trueR) / trueR < 0.08,
+    `chamfer said ${centre.toFixed(1)}, truth is about ${trueR}`);
+});
+
+test('the shape is thick where it is wide and flat at its edges', () => {
+  // The property that makes it read as a sculpted object rather than a
+  // cutout: a feather tip must not be as deep as the chest.
+  const { data, size } = disc(64);
+  const f = pickParticles(data, size, size, { count: 3000, random: rng(5), depth: 0.9 });
+
+  let deepZ = 0, edgeZ = 0, deepN = 0, edgeN = 0;
+  for (let i = 0; i < f.count; i++) {
+    const z = Math.abs(f.positions[i * 3 + 2]);
+    if (f.thickness[i] > 0.75) { deepZ += z; deepN++; }
+    if (f.thickness[i] < 0.12) { edgeZ += z; edgeN++; }
+  }
+  assert.ok(deepN > 20 && edgeN > 20, 'need samples at both depths');
+  assert.ok(deepZ / deepN > (edgeZ / edgeN) * 2,
+    'the interior must be substantially thicker than the rim');
+});
+
+test('thickness is reported for every particle and stays in range', () => {
+  const { data, size } = disc(48);
+  const f = pickParticles(data, size, size, { count: 900, random: rng(6) });
+  assert.equal(f.thickness.length, f.count);
+  for (let i = 0; i < f.count; i++) {
+    assert.ok(f.thickness[i] >= 0 && f.thickness[i] <= 1, `thickness ${f.thickness[i]}`);
+  }
+});
+
+test('a one-pixel-thin shape gets no spurious depth', () => {
+  // A line is flat. If the transform leaked, every thin feather would
+  // balloon into a tube and the wings would look like pipe cleaners.
+  const size = 24;
+  const d = new Uint8ClampedArray(size * size * 4);
+  for (let x = 0; x < size; x++) {
+    const i = ((size / 2) * size + x) * 4;
+    d[i] = 10; d[i + 1] = 10; d[i + 2] = 10; d[i + 3] = 255;
+  }
+  const f = pickParticles(d, size, size, { count: 100, random: rng(8), depth: 0.9 });
+  for (let i = 0; i < f.count; i++) {
+    assert.ok(Math.abs(f.positions[i * 3 + 2]) <= 0.9,
+      'a one-pixel line must stay essentially flat');
   }
 });
 
