@@ -63,13 +63,13 @@ const MOODS: Record<PhoenixState, {
   flow: number; spread: number; swirl: number;
   glow: number; jitter: number; warm: number; stream: number;
 }> = {
-  idle:      { flow: 0.30, spread: 0.055, swirl: 0.10, glow: 1.00, jitter: 0.00, warm: 0.0, stream: 0.0 },
-  listening: { flow: 0.45, spread: 0.075, swirl: 0.14, glow: 1.25, jitter: 0.03, warm: 0.0, stream: 0.0 },
+  idle:      { flow: 0.30, spread: 0.034, swirl: 0.10, glow: 1.00, jitter: 0.00, warm: 0.0, stream: 0.0 },
+  listening: { flow: 0.45, spread: 0.052, swirl: 0.14, glow: 1.25, jitter: 0.03, warm: 0.0, stream: 0.0 },
   thinking:  { flow: 1.70, spread: 0.165, swirl: 0.65, glow: 1.45, jitter: 0.06, warm: 0.0, stream: 0.0 },
-  speaking:  { flow: 0.75, spread: 0.095, swirl: 0.20, glow: 1.35, jitter: 0.02, warm: 0.0, stream: 0.0 },
-  working:   { flow: 1.15, spread: 0.130, swirl: 0.35, glow: 1.30, jitter: 0.03, warm: 0.0, stream: 0.5 },
+  speaking:  { flow: 0.75, spread: 0.066, swirl: 0.20, glow: 1.35, jitter: 0.02, warm: 0.0, stream: 0.0 },
+  working:   { flow: 1.15, spread: 0.105, swirl: 0.35, glow: 1.30, jitter: 0.03, warm: 0.0, stream: 0.5 },
   success:   { flow: 0.90, spread: 0.110, swirl: 0.45, glow: 1.90, jitter: 0.00, warm: 0.0, stream: 0.0 },
-  alert:     { flow: 0.95, spread: 0.100, swirl: 0.08, glow: 1.40, jitter: 0.22, warm: 1.0, stream: 0.0 },
+  alert:     { flow: 0.95, spread: 0.078, swirl: 0.08, glow: 1.40, jitter: 0.22, warm: 1.0, stream: 0.0 },
 };
 
 const VERT = /* glsl */`
@@ -138,8 +138,11 @@ const VERT = /* glsl */`
     float phase = fract(aSeed.x + t * rate);
     float out_  = smoothstep(0.00, 0.18, phase) * smoothstep(0.62, 0.24, phase);
     // Most particles stay home; the few that travel, travel properly.
-    float travels = step(0.72, aSeed.z);
-    float excursion = out_ * travels * 1.9;
+    // Raised from 0.72: at a quarter of the cloud adrift the silhouette
+    // was being eaten from the edge inward. A tenth reads as life; a
+    // quarter reads as the shape coming apart.
+    float travels = step(0.90, aSeed.z);
+    float excursion = out_ * travels * 1.7;
 
     vec3 flowVec = curl(home * 1.35 + vec3(0.0, 0.0, t * 0.09), t * uFlow);
 
@@ -229,11 +232,19 @@ const FRAG = /* glsl */`
     vec2 d = gl_PointCoord - 0.5;
     float r2 = dot(d, d);
     if (r2 > 0.25) discard;
-    float a = exp(-r2 * 11.0);
+    /*
+     * Tightened from 11. A wide gaussian makes every particle a little
+     * cloud, and forty thousand little clouds is fog — the silhouette goes
+     * soft even when the positions are exact. A hard core with a short
+     * falloff keeps the edge legible.
+     */
+    float a = exp(-r2 * 19.0) + 0.25 * exp(-r2 * 6.0);
 
     // Body glows ember, outline burns brand orange, and anything moving
     // fast heats toward white — so motion itself is visible as temperature.
-    vec3 base = mix(uEmber, uOrange, vEdge);
+    // The outline is the shape. Giving it a clear brightness lead over
+    // the body is what separates "a phoenix" from "a glowing mass".
+    vec3 base = mix(uEmber, uOrange * 1.25, vEdge);
     base = mix(base, vec3(1.0, 0.78, 0.52), vSpeed * 0.55);
     // Alert pushes the whole field red without touching the geometry.
     base = mix(base, vec3(1.0, 0.18, 0.12), uWarm * 0.75);
@@ -295,7 +306,7 @@ function Swarm({
     uBurst:   { value: 0 },
     uAudio:   { value: 0 },
     uBreath:  { value: 1 },
-    uSize:    { value: 0.0065 },
+    uSize:    { value: 0.0052 },
     uProj:    { value: 1000 },
     uCamDist: { value: CAM_DIST },
     uStill:   { value: reducedMotion ? 1 : 0 },

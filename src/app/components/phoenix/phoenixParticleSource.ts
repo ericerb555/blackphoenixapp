@@ -147,7 +147,7 @@ export function pickParticles(
   opts: PickOptions,
 ): ParticleField {
   const {
-    count, alphaCutoff = 100, edgeShare = 0.35, depth = 0.9,
+    count, alphaCutoff = 100, edgeShare = 0.44, depth = 0.9,
     random = Math.random,
   } = opts;
 
@@ -228,14 +228,16 @@ export function pickParticles(
 /**
  * Load the logo and sample it. Browser only.
  *
- * Downsamples before reading pixels: a 1080² image is 1.17M pixels and we
- * need a few tens of thousands of positions, so reading it at full size
- * costs ~4.6 MB of ImageData and a visible hitch for no extra fidelity.
+ * Downsamples before reading pixels, but not far. At 420 the fine gaps
+ * between adjacent wing feathers closed up before a single particle was
+ * placed, and no amount of tuning downstream can recover detail that was
+ * destroyed in the resample. 760 keeps the feather separations and still
+ * costs a quarter of what reading the full 1080² would.
  */
 export async function loadPhoenixParticles(
   src: string,
   count: number,
-  sampleSize = 420,
+  sampleSize = 760,
 ): Promise<ParticleField> {
   const img = new Image();
   img.crossOrigin = 'anonymous';
@@ -267,8 +269,8 @@ export function budgetFor(
   mobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
   memoryGb = (typeof navigator !== 'undefined' && (navigator as any).deviceMemory) || 8,
 ): number {
-  if (mobile) return 9000;
-  if (cores <= 4 || memoryGb <= 4) return 16000;
-  if (cores <= 8) return 28000;
-  return 42000;
+  if (mobile) return 14000;
+  if (cores <= 4 || memoryGb <= 4) return 26000;
+  if (cores <= 8) return 45000;
+  return 70000;
 }

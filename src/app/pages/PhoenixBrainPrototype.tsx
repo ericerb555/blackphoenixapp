@@ -222,7 +222,7 @@ export default function PhoenixBrainPrototype({
               Particles — {budget.toLocaleString()}
             </label>
             <input
-              type="range" min={2000} max={60000} step={2000} value={budget}
+              type="range" min={4000} max={110000} step={2000} value={budget}
               onChange={(e) => setBudget(Number(e.target.value))}
               className="w-full accent-orange-500"
             />

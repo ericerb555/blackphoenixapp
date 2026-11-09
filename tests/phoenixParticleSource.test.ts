@@ -90,7 +90,7 @@ test('the outline gets a real share of the budget, not its pixel share', () => {
   const { data, size } = disc(64);
   const f = pickParticles(data, size, size, { count: 800, random: rng(3) });
   const share = edgeShareOf(f);
-  assert.ok(share > 0.3 && share < 0.4, `edge share was ${share.toFixed(2)}`);
+  assert.ok(share > 0.39 && share < 0.49, `edge share was ${share.toFixed(2)}`);
 });
 
 test('when the budget exceeds the image, the share falls back to what exists', () => {
