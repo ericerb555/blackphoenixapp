@@ -40,6 +40,7 @@ const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
 const AdminAlerts = lazy(() => import("./pages/AdminAlerts"));
 const PhoenixCommandCenter = lazy(() => import("./pages/PhoenixCommandCenter"));
+const PhoenixBrainPrototype = lazy(() => import("./pages/PhoenixBrainPrototype"));
 const CustomersNew = lazy(() => import("./pages/CustomersNew"));
 const InvoicesNew = lazy(() => import("./pages/InvoicesNew"));
 const PaymentComplete = lazy(() => import("./pages/PaymentComplete"));
@@ -293,6 +294,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Phoenix. Two spellings because the thing has two names in conversation.
   "phoenix":                    PhoenixCommandCenter,
   "phoenix-ai":                 PhoenixCommandCenter,
+  // Prototype. Lazy, so three.js only loads for whoever opens it.
+  "phoenix-prototype":          PhoenixBrainPrototype,
   "notification-settings":      NotificationSettings,
 
   // Core Business
