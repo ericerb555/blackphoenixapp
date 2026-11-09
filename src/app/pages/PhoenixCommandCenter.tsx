@@ -5,16 +5,19 @@
  *
  * The panel is for the question you have while looking at something else.
  * This is for the other half: sitting down with it. That needs width the
- * panel does not have, and it is the frame the workspace grows into —
- * tables, charts and live module views around the mark in the corner.
+ * panel does not have, because the conversation shares the screen with
+ * whatever Phoenix has been asked to show.
  *
- * Today it is the same conversation at full size. The chrome is here so the
- * rest has somewhere to land without moving the conversation again.
+ * Ask to see something and the real module mounts on the right, live, with
+ * the transcript still on the left explaining it. See PhoenixWorkspace for
+ * why that is the same component the route would render and not a copy.
  */
 import { useState } from 'react';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import PhoenixConsole from '../components/PhoenixConsole';
+import PhoenixWorkspace from '../components/PhoenixWorkspace';
+import type { OpenDirective } from '../lib/aiActivity';
 
 interface PhoenixCommandCenterProps {
   onNavigate?: (page: string) => void;
@@ -22,6 +25,9 @@ interface PhoenixCommandCenterProps {
 
 export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCenterProps) {
   const [pending, setPending] = useState(0);
+  /** The module on screen beside the conversation, if Phoenix opened one. */
+  const [module, setModule] = useState<OpenDirective | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const back = () => {
     if (onNavigate) onNavigate('owners-dashboard');
@@ -73,10 +79,39 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
         </div>
       </div>
 
-      {/* The conversation, at full height. min-h-0 so the transcript scrolls
-          inside the page instead of pushing the composer off the bottom. */}
-      <div className="min-h-0 flex-1">
-        <PhoenixConsole centered autoFocus onQueueCount={setPending} />
+      {/*
+        Conversation and workspace side by side. min-h-0 on both so each
+        scrolls inside itself rather than pushing the composer off the page.
+
+        The conversation is never unmounted when a module opens — collapsing
+        it to zero width would drop the transcript, and the answer that
+        explains what you are looking at is in that transcript.
+      */}
+      <div className="flex min-h-0 flex-1">
+        <div
+          className={`min-h-0 ${
+            !module ? 'flex-1' : expanded ? 'hidden' : 'hidden w-[30rem] shrink-0 lg:block'
+          }`}
+        >
+          <PhoenixConsole
+            centered={!module}
+            autoFocus
+            onQueueCount={setPending}
+            onOpenModule={(d) => { setModule(d); setExpanded(false); }}
+          />
+        </div>
+
+        {module && (
+          <div className="min-h-0 flex-1">
+            <PhoenixWorkspace
+              module={module}
+              expanded={expanded}
+              onToggleExpand={() => setExpanded((v) => !v)}
+              onClose={() => { setModule(null); setExpanded(false); }}
+              onNavigate={onNavigate}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

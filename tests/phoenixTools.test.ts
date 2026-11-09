@@ -31,8 +31,8 @@ test('no tool is named for an action', () => {
   // decision somebody made, not something that arrived with a feature.
   assert.deepEqual([...TOOL_NAMES].sort(), [
     'ai_activity_summary', 'ai_stop_status', 'alerts', 'automation_opportunities',
-    'business_snapshot', 'leads', 'pending_actions', 'propose_action',
-    'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
+    'business_snapshot', 'find_module', 'leads', 'open_module', 'pending_actions',
+    'propose_action', 'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
   ]);
 });
 

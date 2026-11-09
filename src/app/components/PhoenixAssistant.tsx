@@ -17,9 +17,28 @@ import { X } from 'lucide-react';
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import PhoenixConsole from './PhoenixConsole';
 
-export default function PhoenixAssistant() {
+interface PhoenixAssistantProps {
+  /**
+   * Supplied by pages that have it. Without it the panel falls back to a
+   * location change, which still works — it is just a reload.
+   */
+  onNavigate?: (page: string) => void;
+}
+
+export default function PhoenixAssistant({ onNavigate }: PhoenixAssistantProps = {}) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(0);
+
+  /**
+   * The panel has no workspace to put a module in, so "show me X" leaves for
+   * X's own page. The alternative — a chip that does nothing here but works
+   * on the Phoenix page — is worse than a navigation.
+   */
+  const goTo = (route: string) => {
+    setOpen(false);
+    if (onNavigate) onNavigate(route);
+    else window.location.href = `/${route}`;
+  };
 
   if (!open) {
     return (
@@ -72,7 +91,11 @@ export default function PhoenixAssistant() {
         </div>
 
         <div className="min-h-0 flex-1">
-          <PhoenixConsole autoFocus onQueueCount={setPending} />
+          <PhoenixConsole
+            autoFocus
+            onQueueCount={setPending}
+            onOpenModule={(d) => goTo(d.route)}
+          />
         </div>
       </div>
     </div>

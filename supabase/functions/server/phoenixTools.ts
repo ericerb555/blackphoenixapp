@@ -190,6 +190,37 @@ export const PHOENIX_TOOLS = [
       + 'item, plus the recurring jobs that already run. Use for "what should '
       + 'we automate", "where would a sub-agent help", "what keeps slipping".',
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    name: 'find_module',
+    description:
+      'Search the application for the module that does a job — "where do I '
+      + 'manage subscriptions", "which screen has the schedule". Returns the '
+      + 'modules the asker is allowed to be shown, each with an id and what it '
+      + 'is for. Use when somebody asks where something lives, or before '
+      + 'open_module when you are not certain of the id.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What they are looking for, in their own words.' },
+      },
+      required: ['query'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'open_module',
+    description:
+      'Bring a module onto the screen beside this conversation, by its id from '
+      + 'find_module. The browser loads it as the signed-in person, so it shows '
+      + 'live data and only what they are permitted to see. Use when somebody '
+      + 'asks to see, show, pull up or open part of the application.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The capability id, exactly as find_module returned it.' },
+      },
+      required: ['id'], additionalProperties: false,
+    },
   }
 ] as const;
 
@@ -284,6 +315,23 @@ export const PHOENIX_SYSTEM = [
   '',
   'Be brief. The person asking is busy and usually wants one number or one',
   'sentence. Offer detail rather than leading with it.',
+  '',
+  'WHEN THEY WANT TO SEE SOMETHING',
+  '',
+  'You can put part of the application on the screen beside this conversation.',
+  'find_module searches it; open_module brings one up by id. "Show me", "pull',
+  'up", "open" and "where is" are all requests to do that.',
+  '',
+  'When a module is open, the person is looking at the live screen. Say what',
+  'you have put in front of them and what to look at on it — do not read its',
+  'contents back. You cannot see what it shows; only they can.',
+  '',
+  'Open one thing at a time, and only when they asked to see something. A',
+  'module that appears uninvited takes over the screen they were using.',
+  '',
+  'If find_module returns nothing, say the application has no such module.',
+  'Do not offer the nearest-sounding one as if it were the thing they asked',
+  'for — that sends somebody to the wrong screen with confidence.',
   '',
   'WHEN THE ANSWER IS AN ACTION',
   '',

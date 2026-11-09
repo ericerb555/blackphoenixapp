@@ -25,6 +25,7 @@ import { Send, Loader2, Bot, User, AlertTriangle, ShieldOff } from 'lucide-react
 import {
   askPhoenix, AiIsStopped, NotPermitted, TOOL_LABELS, type ChatTurn,
   fetchActionQueue, approveAction, rejectActionRequest, type ActionRequest,
+  type OpenDirective,
 } from '../lib/aiActivity';
 
 /**
@@ -39,6 +40,7 @@ const SUGGESTIONS = [
   "What's owed to us?",
   'What needs my attention?',
   'What has the AI done today, and what did it cost?',
+  'Show me the work requests.',
 ];
 
 export interface PhoenixConsoleProps {
@@ -54,9 +56,19 @@ export interface PhoenixConsoleProps {
   centered?: boolean;
   /** Focus the composer on mount. The panel does this when it opens. */
   autoFocus?: boolean;
+  /**
+   * What to do when Phoenix asks to show a module.
+   *
+   * The page mounts it in the workspace alongside. The slide-over has no
+   * workspace, so it navigates instead — which closes the panel, and is the
+   * honest behaviour there rather than a button that appears to do nothing.
+   */
+  onOpenModule?: (d: OpenDirective) => void;
 }
 
-export default function PhoenixConsole({ onQueueCount, centered, autoFocus }: PhoenixConsoleProps) {
+export default function PhoenixConsole({
+  onQueueCount, centered, autoFocus, onOpenModule,
+}: PhoenixConsoleProps) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -134,7 +146,13 @@ export default function PhoenixConsole({ onQueueCount, centered, autoFocus }: Ph
       const reply = await askPhoenix(question, history);
       setTurns((t) => [...t, {
         role: 'assistant', content: reply.answer, toolsUsed: reply.toolsUsed,
+        opened: reply.open,
       }]);
+      // One module. If the model asked for several, the last wins — the
+      // workspace shows one thing, and silently dropping the others would
+      // leave the answer describing a screen that is not there.
+      const last = reply.open[reply.open.length - 1];
+      if (last) onOpenModule?.(last);
       await refreshQueue();
     } catch (err: any) {
       if (err instanceof NotPermitted) {
@@ -217,6 +235,23 @@ export default function PhoenixConsole({ onQueueCount, centered, autoFocus }: Ph
                   <p className="mt-1.5 pl-1 text-[11px] text-gray-600">
                     checked: {t.toolsUsed.map((x) => TOOL_LABELS[x] || x).join(' · ')}
                   </p>
+                )}
+                {/*
+                  Named, and clickable again. The module is already on screen;
+                  this is for after you have clicked away from it.
+                */}
+                {t.opened && t.opened.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 pl-1">
+                    {t.opened.map((d) => (
+                      <button
+                        key={d.id}
+                        onClick={() => onOpenModule?.(d)}
+                        className="rounded-md border border-orange-500/30 bg-orange-500/5 px-2 py-0.5 text-[11px] text-orange-300 transition hover:border-orange-500/60 hover:text-orange-200"
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
               {t.role === 'user' && (

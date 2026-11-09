@@ -53,6 +53,9 @@ import {
 import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
 import { actionCatalogue } from "./aiActions.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
+import {
+  searchCapabilities, openDirective, publicCapability, visibleTo,
+} from "./capabilityRegistry.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -84,7 +87,51 @@ const MAX_TURNS = 5;
 /** How much history the client may replay. Enough for a working exchange. */
 const MAX_HISTORY = 12;
 
-async function runTool(name: string, input: any, asker: string): Promise<unknown> {
+async function runTool(name: string, input: any, asker: string, opened?: string[]): Promise<unknown> {
+  if (name === "find_module") {
+    /**
+     * Searched here, not by the model.
+     *
+     * Putting 85 module descriptions in the prompt on every turn would cost
+     * more than every other tool combined and would still rank them worse
+     * than a keyword match does. The model gets the handful that matched.
+     *
+     * Filtered by what this person may be *told about* — see the header of
+     * capabilityRegistry.ts. It is not the permission check; the route guard
+     * and the auth wall still are.
+     */
+    const role = { isStaff: true, isOwner: PLATFORM_OWNER_EMAILS.has(asker) };
+    const found = searchCapabilities(input?.query, role);
+    return found.length
+      ? { modules: found.map(publicCapability) }
+      : { modules: [], note: "Nothing in the application matches that. Say so rather than guessing at a module." };
+  }
+
+  if (name === "open_module") {
+    /**
+     * Returns a directive; opens nothing.
+     *
+     * The route is resolved from the registry by id, never taken from the
+     * model — a model that could name its own route could send somebody to
+     * any page in the application by inventing a string. And the browser is
+     * what loads it, as the signed-in person, so what appears is bounded by
+     * the same guard as typing the address by hand.
+     */
+    const role = { isStaff: true, isOwner: PLATFORM_OWNER_EMAILS.has(asker) };
+    const directive = openDirective(input?.id);
+    if (!directive) {
+      return { ok: false, error: "No module has that id. Use find_module first." };
+    }
+    // Permitted to be *shown* it? Same filter as search, so open_module
+    // cannot be used to reach past what find_module would have offered.
+    if (!visibleTo(role).some((cap) => cap.id === directive.id)) {
+      return { ok: false, error: "That module is not available to this account." };
+    }
+    opened?.push(directive.id);
+    return { ok: true, opened: directive.label, note: "It is on their screen now. Say what they are looking at; do not repeat its contents." };
+  }
+
+
   if (name === "propose_action") {
     /**
      * The one tool that is not a read, and it still does not act.
@@ -407,6 +454,13 @@ phoenixChatRouter.post(BASE, async (c) => {
     let answer = '';
     let turns = 0;
     const toolsUsed: string[] = [];
+    /**
+     * Modules the model asked to put on screen, in the order it asked.
+     *
+     * Collected here rather than returned through the transcript: the
+     * browser needs the route, and the model never sees one.
+     */
+    const opened: string[] = [];
 
     while (turns < MAX_TURNS) {
       turns += 1;
@@ -445,7 +499,7 @@ phoenixChatRouter.post(BASE, async (c) => {
         }
         toolsUsed.push(t.name);
         try {
-          const out = await runTool(t.name, t.input || {}, askerEmail);
+          const out = await runTool(t.name, t.input || {}, askerEmail, opened);
           results.push({ type: 'tool_result', tool_use_id: t.id, content: JSON.stringify(out) });
         } catch (e: any) {
           results.push({ type: 'tool_result', tool_use_id: t.id, is_error: true,
@@ -465,6 +519,12 @@ phoenixChatRouter.post(BASE, async (c) => {
       success: true,
       answer: answer || 'No answer came back — try asking again.',
       toolsUsed: [...new Set(toolsUsed)],
+      /**
+       * Resolved to routes HERE, at the edge of the response, from ids the
+       * registry recognised. Nothing the model emitted reaches the browser
+       * as a route.
+       */
+      open: [...new Set(opened)].map(openDirective).filter(Boolean),
       turns,
       /** True when the loop hit its cap, so the UI can say the answer is partial. */
       truncated: turns >= MAX_TURNS && !answer,

@@ -429,12 +429,28 @@ export interface ChatTurn {
   toolsUsed?: string[];
   /** Set when the turn failed, so the transcript keeps the failure visible. */
   failed?: boolean;
+  /** Modules this turn put on screen, so they stay reachable after scrolling. */
+  opened?: OpenDirective[];
+}
+
+/**
+ * A module Phoenix asked to put on screen.
+ *
+ * The route is resolved server-side from the capability registry, so this
+ * is always a real page key — the model never supplies one.
+ */
+export interface OpenDirective {
+  id: string;
+  route: string;
+  label: string;
 }
 
 export interface ChatReply {
   answer: string;
   toolsUsed: string[];
   turns: number;
+  /** Modules to show. Empty for an ordinary answer. */
+  open: OpenDirective[];
 }
 
 /** Thrown when the emergency stop is engaged, so the UI can say which. */
@@ -464,7 +480,15 @@ export async function askPhoenix(message: string, history: ChatTurn[]): Promise<
   if (!res.ok || !body?.success) {
     throw new Error(body?.error || `The assistant could not answer (HTTP ${res.status}).`);
   }
-  return { answer: body.answer, toolsUsed: body.toolsUsed || [], turns: body.turns || 1 };
+  return {
+    answer: body.answer,
+    toolsUsed: body.toolsUsed || [],
+    turns: body.turns || 1,
+    // Shape-checked rather than trusted: this drives what gets mounted.
+    open: (Array.isArray(body.open) ? body.open : []).filter(
+      (d: any) => d && typeof d.route === 'string' && typeof d.id === 'string',
+    ),
+  };
 }
 
 /** Readable names for the tools, for the "checked:" line under an answer. */
