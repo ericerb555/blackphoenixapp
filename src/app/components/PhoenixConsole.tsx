@@ -81,6 +81,19 @@ export interface PhoenixConsoleProps {
    * honest behaviour there rather than a button that appears to do nothing.
    */
   onOpenModule?: (d: OpenDirective) => void;
+  /**
+   * True while a question is in flight. The command centre uses this to put
+   * the Phoenix into THINKING — which is the point of that state being a
+   * real signal rather than a timer.
+   */
+  onThinkingChange?: (thinking: boolean) => void;
+  /**
+   * Lets something outside the transcript ask a question — an agent tile,
+   * a suggestion chip. Set it to a string to send; the console calls
+   * onAskHandled once the question is on its way.
+   */
+  pendingAsk?: string | null;
+  onAskHandled?: () => void;
 }
 
 /**
@@ -111,6 +124,7 @@ function savedVoice(): PhoenixVoice {
 
 export default function PhoenixConsole({
   onQueueCount, centered, autoFocus, onOpenModule, voice,
+  onThinkingChange, pendingAsk, onAskHandled,
 }: PhoenixConsoleProps) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState('');
@@ -208,6 +222,9 @@ export default function PhoenixConsole({
 
   useEffect(() => { refreshQueue(); }, []);
 
+  // Reported rather than inferred, so the animation follows the request.
+  useEffect(() => { onThinkingChange?.(thinking); }, [thinking]);
+
   async function send(text: string) {
     const question = text.trim();
     if (!question || thinking) return;
@@ -262,6 +279,20 @@ export default function PhoenixConsole({
       setThinking(false);
     }
   }
+
+  /*
+   * A question asked from outside the console.
+   *
+   * Guarded on "thinking" as well as on the value, because a tile tapped
+   * twice while the first answer is still coming would otherwise queue a
+   * second question the model has no context for yet.
+   */
+  useEffect(() => {
+    if (pendingAsk && !thinking) {
+      send(pendingAsk);
+      onAskHandled?.();
+    }
+  }, [pendingAsk, thinking]);
 
   const inner = centered ? 'mx-auto w-full max-w-3xl' : 'w-full';
 

@@ -482,32 +482,102 @@ function Swarm({
   );
 }
 
-/* ── holographic rings ───────────────────────────────────────────────── */
+/* ── the instrument ring ─────────────────────────────────────────────── */
 
-function Rings({ state }: { state: PhoenixState }) {
-  const a = useRef<THREE.Mesh>(null);
-  const b = useRef<THREE.Mesh>(null);
-  const fast = state === 'thinking' || state === 'working';
-
+/**
+ * The arcs around the Phoenix.
+ *
+ * WHAT MAKES THIS READ AS AN INSTRUMENT RATHER THAN A HALO
+ *
+ * Gaps. A complete circle is decoration; an arc with a gap in it looks like
+ * a gauge, because gauges are the only round things in life that are not
+ * closed. Four of them at different radii, counter-rotating at rates that
+ * do not divide into each other, so the pattern never visibly repeats.
+ *
+ * And tick marks. A ring of short radial strokes reads as graduation — a
+ * scale something could be measured against — which is most of the
+ * difference between a sci-fi interface and a glowing circle.
+ *
+ * Everything here is thin, dim and subordinate. The bird is the subject;
+ * if you find yourself looking at the rings, they are too bright.
+ */
+function Arc({
+  radius, gap, speed, opacity, tilt, colour,
+}: {
+  radius: number; gap: number; speed: number;
+  opacity: number; tilt: [number, number, number]; colour: string;
+}) {
+  const ref = useRef<THREE.Mesh>(null);
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.05);
-    const s = fast ? 2.6 : 1;
-    if (a.current) a.current.rotation.z += dt * 0.18 * s;
-    if (b.current) b.current.rotation.z -= dt * 0.11 * s;
+    if (ref.current) ref.current.rotation.z += Math.min(delta, 0.05) * speed;
+  });
+  return (
+    <mesh ref={ref} rotation={tilt}>
+      {/* thetaLength short of a full turn is the gap. */}
+      <ringGeometry args={[radius, radius + 0.006, 160, 1, 0, Math.PI * 2 * (1 - gap)]} />
+      <meshBasicMaterial color={colour} transparent opacity={opacity} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+/** Graduation marks. The thing that makes a circle look like a scale. */
+function Ticks({ radius, count, length, opacity, colour, speed }: {
+  radius: number; count: number; length: number;
+  opacity: number; colour: string; speed: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z += Math.min(delta, 0.05) * speed;
   });
 
+  const marks = useMemo(() => {
+    const out: { x: number; y: number; r: number; long: boolean }[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      out.push({
+        x: Math.cos(a) * radius,
+        y: Math.sin(a) * radius,
+        r: a,
+        // Every fifth is longer, the way a real scale marks its intervals.
+        long: i % 5 === 0,
+      });
+    }
+    return out;
+  }, [radius, count]);
+
+  return (
+    <group ref={ref} rotation={[1.28, 0, 0]}>
+      {marks.map((m, i) => (
+        <mesh key={i} position={[m.x, m.y, 0]} rotation={[0, 0, m.r]}>
+          <planeGeometry args={[m.long ? length * 2.1 : length, 0.005]} />
+          <meshBasicMaterial
+            color={colour}
+            transparent
+            opacity={m.long ? opacity * 1.8 : opacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Rings({ state }: { state: PhoenixState }) {
+  // Only two states change the instruments: thinking spins them up, alert
+  // turns them. Everything else leaves them alone, so when they DO move
+  // it means something.
+  const busy = state === 'thinking' || state === 'working';
+  const rate = busy ? 2.4 : 1;
   const colour = state === 'alert' ? '#f43f5e' : '#ea580c';
+  const dim = state === 'alert' ? 1.5 : 1;
 
   return (
     <group>
-      <mesh ref={a} rotation={[1.35, 0, 0]}>
-        <ringGeometry args={[1.45, 1.46, 128]} />
-        <meshBasicMaterial color={colour} transparent opacity={0.3} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh ref={b} rotation={[1.2, 0.35, 0]}>
-        <ringGeometry args={[1.72, 1.727, 128]} />
-        <meshBasicMaterial color={colour} transparent opacity={0.16} side={THREE.DoubleSide} />
-      </mesh>
+      <Arc radius={1.38} gap={0.22} speed={0.16 * rate}  opacity={0.30 * dim} tilt={[1.30, 0, 0]} colour={colour} />
+      <Arc radius={1.52} gap={0.55} speed={-0.11 * rate} opacity={0.22 * dim} tilt={[1.30, 0, 0]} colour={colour} />
+      <Arc radius={1.78} gap={0.08} speed={0.05 * rate}  opacity={0.11 * dim} tilt={[1.22, 0.30, 0]} colour={colour} />
+      <Arc radius={2.05} gap={0.70} speed={-0.07 * rate} opacity={0.16 * dim} tilt={[1.34, -0.22, 0]} colour={colour} />
+      <Ticks radius={1.64} count={60} length={0.045} opacity={0.14 * dim} colour={colour} speed={-0.03 * rate} />
     </group>
   );
 }
