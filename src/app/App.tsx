@@ -824,6 +824,8 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       'module-manager',
       'settings',
       'admin-alerts',
+      'phoenix',
+      'phoenix-ai',
     ];
 
     // Define allowed routes for each portal type (base access without subscriptions)

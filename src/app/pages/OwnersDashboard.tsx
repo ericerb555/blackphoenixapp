@@ -71,7 +71,7 @@ import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 import { NotificationRecipientsPanel } from '../components/owner/NotificationRecipientsPanel';
 import { API_BASE_URL } from '../lib/apiConfig';
-import PhoenixAssistant from '../components/PhoenixAssistant';
+import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
 interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
@@ -532,6 +532,24 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 <div className="p-4 bg-gradient-to-br from-[#ea580c] to-[#dc2626] rounded-xl shadow-lg shadow-[#ea580c]/20">
                   <Crown className="w-10 h-10 text-white" />
                 </div>
+                {/*
+                  Phoenix, beside the crown rather than floating over the
+                  corner. It sits next to the thing it speaks for, and it is
+                  a link to its own screen — the panel was fine for a quick
+                  question, but not for sitting down with it.
+                */}
+                <button
+                  onClick={() => handleNavigate('phoenix-ai')}
+                  title="Open Phoenix"
+                  aria-label="Open Phoenix, the AI command center"
+                  className="group relative p-2 rounded-xl border border-orange-500/30 bg-[#0A0A0A] transition hover:scale-105 hover:border-orange-500/70 hover:shadow-lg hover:shadow-orange-900/40"
+                >
+                  <img
+                    src={phoenixLogo}
+                    alt=""
+                    className="w-14 h-14 object-contain transition group-hover:brightness-110"
+                  />
+                </button>
                 <div>
                   <h1 className="text-4xl font-bold text-white">Owner's Control Center</h1>
                   <p className="text-gray-400 mt-1">Complete administrative control & business management</p>
@@ -1443,10 +1461,9 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
           </div>
         </div>
       )}
-      {/* The assistant, reachable from the screen the owner actually sits
-          on. Self-contained: its own launcher, its own panel, and no layout
-          impact until it is opened. */}
-      <PhoenixAssistant />
+      {/* No floating launcher here: on this screen Phoenix is the mark in
+          the header, next to the crown, and it opens its own page. Two
+          entry points to the same thing on one screen is just clutter. */}
     </div>
   );
 }

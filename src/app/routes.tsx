@@ -39,6 +39,7 @@ const AutopilotCampaigns = lazy(() => import("./pages/AutopilotCampaigns"));
 const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
 const AdminAlerts = lazy(() => import("./pages/AdminAlerts"));
+const PhoenixCommandCenter = lazy(() => import("./pages/PhoenixCommandCenter"));
 const CustomersNew = lazy(() => import("./pages/CustomersNew"));
 const InvoicesNew = lazy(() => import("./pages/InvoicesNew"));
 const PaymentComplete = lazy(() => import("./pages/PaymentComplete"));
@@ -289,6 +290,9 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "company-setup":              CompanySetup,
   "settings":                   OwnersDashboard,
   "admin-alerts":               AdminAlerts,
+  // Phoenix. Two spellings because the thing has two names in conversation.
+  "phoenix":                    PhoenixCommandCenter,
+  "phoenix-ai":                 PhoenixCommandCenter,
   "notification-settings":      NotificationSettings,
 
   // Core Business
