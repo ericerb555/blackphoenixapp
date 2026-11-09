@@ -21,7 +21,15 @@
  * is how a person checks that rather than taking it on faith.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, AlertTriangle, ShieldOff } from 'lucide-react';
+import {
+  Send, Loader2, Bot, User, AlertTriangle, ShieldOff,
+  Volume2, VolumeX, Square,
+} from 'lucide-react';
+import {
+  usePhoenixVoice, VOICES, DEFAULT_VOICE,
+  type PhoenixVoiceApi, type PhoenixVoice,
+} from './phoenix/usePhoenixVoice';
+import { speakableText, worthSpeaking } from './phoenix/speakableText';
 import {
   askPhoenix, AiIsStopped, NotPermitted, TOOL_LABELS, type ChatTurn,
   fetchActionQueue, approveAction, rejectActionRequest, type ActionRequest,
@@ -57,6 +65,15 @@ export interface PhoenixConsoleProps {
   /** Focus the composer on mount. The panel does this when it opens. */
   autoFocus?: boolean;
   /**
+   * Share a voice with the rest of the page.
+   *
+   * The command centre will want the same audio level that drives the
+   * speech to drive the particle Phoenix, and two AudioContexts analysing
+   * two copies of the same sound would be both wasteful and subtly out of
+   * step. Supply one here and it is used; otherwise this makes its own.
+   */
+  voice?: PhoenixVoiceApi;
+  /**
    * What to do when Phoenix asks to show a module.
    *
    * The page mounts it in the workspace alongside. The slide-over has no
@@ -66,8 +83,34 @@ export interface PhoenixConsoleProps {
   onOpenModule?: (d: OpenDirective) => void;
 }
 
+/**
+ * Whether Phoenix reads his answers aloud.
+ *
+ * Remembered, because this is a preference about the room you are in — an
+ * open-plan office or a van — not about the question you just asked. It
+ * defaults ON: the voice exists to be used, and one tap turns it off
+ * permanently.
+ */
+const VOICE_PREF = 'phoenix.speakAnswers';
+
+/**
+ * Which voice. Remembered separately from whether the voice is on, because
+ * turning him off for a meeting should not forget who he sounds like.
+ */
+const VOICE_NAME_PREF = 'phoenix.voice';
+
+function savedVoice(): PhoenixVoice {
+  try {
+    const v = localStorage.getItem(VOICE_NAME_PREF) as PhoenixVoice | null;
+    // Validated against the list rather than trusted: an old or hand-edited
+    // value would otherwise reach the API and come back a 400.
+    if (v && VOICES.some((x) => x.id === v)) return v;
+  } catch { /* private mode */ }
+  return DEFAULT_VOICE;
+}
+
 export default function PhoenixConsole({
-  onQueueCount, centered, autoFocus, onOpenModule,
+  onQueueCount, centered, autoFocus, onOpenModule, voice,
 }: PhoenixConsoleProps) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState('');
@@ -75,6 +118,42 @@ export default function PhoenixConsole({
   const [fatal, setFatal] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /*
+   * The hook runs unconditionally — hooks must — and its result is ignored
+   * when a parent supplied one. The cost of the spare is a few bytes of
+   * state; no AudioContext is created until something actually speaks.
+   */
+  const ownVoice = usePhoenixVoice();
+  const v = voice ?? ownVoice;
+
+  const [speakAnswers, setSpeakAnswers] = useState(() => {
+    try { return localStorage.getItem(VOICE_PREF) !== 'off'; } catch { return true; }
+  });
+  const [picked, setPicked] = useState<PhoenixVoice>(savedVoice);
+
+  const chooseVoice = (id: PhoenixVoice) => {
+    setPicked(id);
+    try { localStorage.setItem(VOICE_NAME_PREF, id); } catch { /* private mode */ }
+    // Say something in it immediately. Picking a voice from a list of six
+    // names is guesswork until you have heard one.
+    v.speak('This is how I sound.', id);
+  };
+
+  const toggleVoice = () => {
+    setSpeakAnswers((on) => {
+      const next = !on;
+      try { localStorage.setItem(VOICE_PREF, next ? 'on' : 'off'); } catch { /* private mode */ }
+      if (!next) v.stopSpeaking();
+      return next;
+    });
+  };
+
+  /** Read one answer aloud, now. Used by the replay button on each turn. */
+  const say = (text: string) => {
+    if (!worthSpeaking(text)) return;
+    v.speak(speakableText(text), picked);
+  };
 
   const [queue, setQueue] = useState<ActionRequest[]>([]);
   const [canApprove, setCanApprove] = useState({ low: true, medium: true, high: false });
@@ -148,6 +227,15 @@ export default function PhoenixConsole({
         role: 'assistant', content: reply.answer, toolsUsed: reply.toolsUsed,
         opened: reply.open,
       }]);
+      /*
+       * Spoken here rather than in an effect watching the transcript.
+       *
+       * An effect would also fire for the approve/decline confirmations and
+       * for every error, and it would re-fire on any unrelated re-render
+       * that happened to change the array identity. This speaks exactly
+       * the answers to questions, exactly once.
+       */
+      if (speakAnswers) say(reply.answer);
       // One module. If the model asked for several, the last wins — the
       // workspace shows one thing, and silently dropping the others would
       // leave the answer describing a screen that is not there.
@@ -235,6 +323,16 @@ export default function PhoenixConsole({
                   <p className="mt-1.5 pl-1 text-[11px] text-gray-600">
                     checked: {t.toolsUsed.map((x) => TOOL_LABELS[x] || x).join(' · ')}
                   </p>
+                )}
+                {/* Hear it again, whether or not auto-speak is on. */}
+                {t.role === 'assistant' && !t.failed && worthSpeaking(t.content) && (
+                  <button
+                    onClick={() => say(t.content)}
+                    className="mt-1 pl-1 text-[11px] text-gray-600 transition hover:text-orange-400"
+                    aria-label="Read this answer aloud"
+                  >
+                    <Volume2 className="inline h-3 w-3" /> hear it
+                  </button>
                 )}
                 {/*
                   Named, and clickable again. The module is already on screen;
@@ -349,9 +447,46 @@ export default function PhoenixConsole({
               <Send className="h-4 w-4" />
             </button>
           </div>
-          <p className="mt-2 text-center text-[11px] text-gray-600">
-            Phoenix proposes, you approve. It never acts on its own.
-          </p>
+          <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-gray-600">
+            <span>Phoenix proposes, you approve. He never acts on his own.</span>
+            <span className="text-gray-800">·</span>
+            <button
+              onClick={toggleVoice}
+              className={`flex items-center gap-1 transition ${
+                speakAnswers ? 'text-orange-400 hover:text-orange-300' : 'hover:text-gray-400'
+              }`}
+              title={speakAnswers ? 'Stop reading answers aloud' : 'Read answers aloud'}
+              aria-pressed={speakAnswers}
+            >
+              {speakAnswers ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
+              voice {speakAnswers ? 'on' : 'off'}
+            </button>
+            {speakAnswers && (
+              <select
+                value={picked}
+                onChange={(e) => chooseVoice(e.target.value as PhoenixVoice)}
+                aria-label="Which voice Phoenix speaks in"
+                className="cursor-pointer rounded border border-[#2A2A2A] bg-[#101010] px-1.5 py-0.5 text-[11px] capitalize text-gray-400 transition hover:border-orange-500/40 hover:text-white focus:border-orange-500/60 focus:outline-none"
+              >
+                {VOICES.map((x) => (
+                  <option key={x.id} value={x.id} className="capitalize">
+                    {x.id} — {x.note.toLowerCase()}
+                  </option>
+                ))}
+              </select>
+            )}
+            {v.speaking && (
+              <button
+                onClick={v.stopSpeaking}
+                className="flex items-center gap-1 text-orange-400 transition hover:text-orange-300"
+              >
+                <Square className="h-2.5 w-2.5" /> stop
+              </button>
+            )}
+          </div>
+          {v.speakError && (
+            <p className="mt-1 text-center text-[11px] text-rose-400">{v.speakError}</p>
+          )}
         </div>
       </div>
     </div>

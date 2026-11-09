@@ -55,21 +55,29 @@ export type PhoenixState =
  *  spread    how far a particle may stray from its home pixel
  *  swirl     rotation about the body's axis
  *  glow      overall emission
- *  jitter    high-frequency unrest; the tell for "something is wrong"
+ *  jitter    unrest; the tell for "something is wrong"
  *  warm      0 = brand orange, 1 = pushed toward alarm red
  *  stream    pulls particles sideways, toward the panel being worked on
+ *  audio     how far the live audio level moves the particles
+ *
+ * AUDIO IS ZERO EVERYWHERE EXCEPT SPEAKING, DELIBERATELY.
+ *
+ * Driving the shape from the microphone made Phoenix twitch while you
+ * talked, which reads as nervousness rather than attention — and it is the
+ * wrong idea anyway: the voice that should move him is his own. Listening
+ * is shown by a steady lift in brightness, not by motion.
  */
 const MOODS: Record<PhoenixState, {
   flow: number; spread: number; swirl: number;
-  glow: number; jitter: number; warm: number; stream: number;
+  glow: number; jitter: number; warm: number; stream: number; audio: number;
 }> = {
-  idle:      { flow: 0.30, spread: 0.034, swirl: 0.10, glow: 1.00, jitter: 0.00, warm: 0.0, stream: 0.0 },
-  listening: { flow: 0.45, spread: 0.052, swirl: 0.14, glow: 1.25, jitter: 0.03, warm: 0.0, stream: 0.0 },
-  thinking:  { flow: 1.70, spread: 0.165, swirl: 0.65, glow: 1.45, jitter: 0.06, warm: 0.0, stream: 0.0 },
-  speaking:  { flow: 0.75, spread: 0.066, swirl: 0.20, glow: 1.35, jitter: 0.02, warm: 0.0, stream: 0.0 },
-  working:   { flow: 1.15, spread: 0.105, swirl: 0.35, glow: 1.30, jitter: 0.03, warm: 0.0, stream: 0.5 },
-  success:   { flow: 0.90, spread: 0.110, swirl: 0.45, glow: 1.90, jitter: 0.00, warm: 0.0, stream: 0.0 },
-  alert:     { flow: 0.95, spread: 0.078, swirl: 0.08, glow: 1.40, jitter: 0.22, warm: 1.0, stream: 0.0 },
+  idle:      { flow: 0.10, spread: 0.030, swirl: 0.05, glow: 1.00, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 0.0 },
+  listening: { flow: 0.12, spread: 0.034, swirl: 0.06, glow: 1.30, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 0.0 },
+  thinking:  { flow: 0.55, spread: 0.110, swirl: 0.24, glow: 1.45, jitter: 0.010, warm: 0.0, stream: 0.0, audio: 0.0 },
+  speaking:  { flow: 0.26, spread: 0.055, swirl: 0.09, glow: 1.35, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 1.0 },
+  working:   { flow: 0.40, spread: 0.090, swirl: 0.16, glow: 1.30, jitter: 0.008, warm: 0.0, stream: 0.4, audio: 0.0 },
+  success:   { flow: 0.34, spread: 0.095, swirl: 0.20, glow: 1.90, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 0.0 },
+  alert:     { flow: 0.32, spread: 0.068, swirl: 0.04, glow: 1.40, jitter: 0.070, warm: 1.0, stream: 0.0, audio: 0.0 },
 };
 
 const VERT = /* glsl */`
@@ -95,6 +103,7 @@ const VERT = /* glsl */`
   varying float vSpeed;
   varying float vFade;
   varying float vNear;      // 1 at the front of the volume, 0 at the back
+  varying float vWave;      // on a crest of the speech wave
 
   // A smooth vector potential. Sines rather than a noise texture: no upload,
   // no sampler, and at this scale the eye cannot tell the difference.
@@ -134,7 +143,10 @@ const VERT = /* glsl */`
 
     // Excursion: this particle leaves the shape and is drawn back. Phases
     // are spread by seed, so only a slice of the bird is ever in flight.
-    float rate  = 0.045 + aSeed.y * 0.065;
+    // Roughly a third of the old rate: a particle now takes most of a
+    // minute to leave and return, which reads as circulation. Faster than
+    // that and it reads as agitation.
+    float rate  = 0.016 + aSeed.y * 0.024;
     float phase = fract(aSeed.x + t * rate);
     float out_  = smoothstep(0.00, 0.18, phase) * smoothstep(0.62, 0.24, phase);
     // Most particles stay home; the few that travel, travel properly.
@@ -151,7 +163,12 @@ const VERT = /* glsl */`
     vec3 axis = vec3(-home.y, home.x, 0.0);
     vec3 swirlVec = axis * uSwirl * (0.6 + 0.8 * aSeed.z);
 
-    float unrest = uJitter * sin(t * 23.0 + aSeed.x * 61.0);
+    /*
+     * 6.0, down from 23.0. Twenty-three radians a second is 3.7Hz, which
+     * the eye reads as a shake rather than as unease — and it was running
+     * during LISTENING, so Phoenix twitched whenever anybody spoke.
+     */
+    float unrest = uJitter * sin(t * 6.0 + aSeed.x * 61.0);
 
     vec3 disp = flowVec * (uSpread * (1.0 + excursion))
               + swirlVec * 0.13
@@ -162,13 +179,38 @@ const VERT = /* glsl */`
 
     // Audio widens the whole field. Edge particles lead the ripple, which
     // is what makes a voice look like it is moving through the outline.
-    disp *= 1.0 + uAudio * (0.55 + aEdge * 0.75);
+    // Halved. At the old gain a loud syllable threw the silhouette apart;
+    // now the voice swells the form rather than scattering it.
+    disp *= 1.0 + uAudio * (0.28 + aEdge * 0.34);
+
+    /*
+     * THE VOICE, AS A TRAVELLING WAVE.
+     *
+     * A uniform swell says "there is sound". A wave says where it came
+     * from: crests leave the body and run outward along the wings, so the
+     * speech visibly propagates through him rather than inflating him.
+     *
+     * Rings of CONSTANT RADIUS, because the bird is widest across the
+     * wings and the wave reaching both tips at once is what makes it look
+     * like one event rather than two.
+     *
+     * Only positive lobes are kept and then squared, which turns a sine
+     * into discrete bands with dark between them. A raw sine reads as a
+     * wobble; separated crests read as pulses.
+     */
+    float radius = length(home.xy);
+    float crest  = sin(radius * 6.5 - t * 2.4);
+    float band   = pow(max(crest, 0.0), 2.5);
+    float wave   = band * uAudio;
+
+    disp += outward * wave * 0.085;
+    vWave = wave;
 
     // Success: a brief outward bloom along each particle's own radius.
     vec3 outward = normalize(home + vec3(0.0001));
     disp += outward * uBurst * (0.35 + aSeed.z * 0.35);
 
-    float breathe = 1.0 + uBreath * 0.022 * sin(t * 0.9 + aSeed.z * 2.0);
+    float breathe = 1.0 + uBreath * 0.020 * sin(t * 0.42 + aSeed.z * 2.0);
     vec3 pos = (home * breathe + disp * (1.0 - uStill));
 
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
@@ -225,6 +267,7 @@ const FRAG = /* glsl */`
   varying float vSpeed;
   varying float vFade;
   varying float vNear;
+  varying float vWave;
 
   void main() {
     // Soft round sprite. Discarding the corners keeps the additive pile-up
@@ -257,6 +300,15 @@ const FRAG = /* glsl */`
      */
     float lum = mix(0.28, 1.35, vNear);
     base = mix(base * vec3(0.75, 0.55, 0.6), base, vNear);
+
+    /*
+     * The crest is lit, not just displaced. Moving particles a tenth of a
+     * unit is nearly invisible at this scale; a band of heat sweeping
+     * outward is the thing you actually see, and it is free — the wave was
+     * already computed in the vertex stage.
+     */
+    base = mix(base, vec3(1.0, 0.80, 0.46), clamp(vWave * 1.7, 0.0, 0.8));
+    lum *= 1.0 + vWave * 1.3;
 
     gl_FragColor = vec4(base * uGlow * lum, a * uOpacity * (0.3 + 0.7 * vFade));
   }
@@ -342,6 +394,7 @@ function Swarm({
     c.jitter += (target.jitter - c.jitter) * k;
     c.warm   += (target.warm   - c.warm)   * k;
     c.stream += (target.stream - c.stream) * k;
+    c.audio  += (target.audio  - c.audio)  * k;
 
     burst.current = Math.max(0, burst.current - dt * 1.3);
     const b = burst.current;
@@ -368,7 +421,11 @@ function Swarm({
      * main thread with the frame it is trying to animate.
      */
     const liveLevel = audioLevelRef ? audioLevelRef.current : audioLevel;
-    u.uAudio.value  += (liveLevel - u.uAudio.value) * (1 - Math.exp(-dt * 12));
+    // Scaled by the state's own audio gain, which is zero everywhere but
+    // SPEAKING. Smoothing eased from 12 to 7 so a consonant is a swell
+    // rather than a flinch.
+    const wanted = liveLevel * c.audio;
+    u.uAudio.value += (wanted - u.uAudio.value) * (1 - Math.exp(-dt * 7));
     // Easing out of a cubic so the bloom snaps and settles.
     u.uBurst.value   = b * b * (3 - 2 * b) * 0.55;
     u.uGlow.value    = c.glow * (1 + b * 0.8);
@@ -381,8 +438,8 @@ function Swarm({
        * stops facing you.
        */
       const t = u.uTime.value;
-      groupRef.current.rotation.y = Math.sin(t * 0.17) * 0.55;
-      groupRef.current.rotation.x = Math.sin(t * 0.11) * 0.09;
+      groupRef.current.rotation.y = Math.sin(t * 0.075) * 0.45;
+      groupRef.current.rotation.x = Math.sin(t * 0.048) * 0.07;
     }
 
     const f = frames.current;
