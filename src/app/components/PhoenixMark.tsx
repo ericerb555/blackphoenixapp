@@ -1,106 +1,72 @@
 /**
- * The company mark, on black, and visible.
+ * The company mark, unaltered, visible on black.
  *
- * THE PROBLEM THIS SOLVES
+ * THREE ATTEMPTS, AND WHY THIS IS THE ONE
  *
  * BPB_phoenix_full_color_logo.png is a BLACK phoenix with a hairline orange
- * outline, on transparency. Every surface in this application is near-black.
- * Dropped straight onto one the bird disappears and leaves a thread — which
- * is exactly what shipped on 2026-11-08 and got reported as "I do not see
- * the phoenix avatar". It was rendering perfectly; it was black on black.
+ * outline, on transparency. Every surface in this application is near-black,
+ * so the first version put it straight on one and the bird vanished.
  *
- * A white tile fixed the visibility and was wrong: a bright chip on a dark
- * command centre, and not the brand.
+ * The second put it on a white tile. Visible, and wrong — a bright chip on
+ * a dark command centre, and not the brand.
  *
- * SO THE MARK IS MASKED, NOT DRAWN
+ * The third used the PNG's alpha as a CSS mask with an orange fill. On
+ * Eric's browser the mask did not apply, and a mask-image that fails to
+ * load does not fail safe: the element renders UNMASKED, which is a solid
+ * orange block. Worse than either thing it replaced, and exactly the
+ * failure the comment in that version warned about without preventing.
  *
- * The PNG's alpha channel becomes a CSS mask and the fill behind it is brand
- * orange. Every pixel of the silhouette is the logo's own — the wing shapes,
- * the feather gaps, the flame tail, the proportions — nothing is redrawn or
- * approximated. What is lost is the two-tone: the black body and the orange
- * outline merge into one orange form, the way any brand mark does when it is
- * set in a single colour.
+ * SO: NO MASK, NO TILE, NO RECOLOURING. THE ARTWORK, AND A GLOW.
  *
- * WHY NOT A FILTER
+ * `drop-shadow` is computed from the alpha channel, so the halo traces the
+ * real silhouette — every feather, the flame tail, the gaps between the
+ * wing fingers. The black body then reads as a shape cut out of light
+ * rather than as a hole in the page, and not one pixel of the logo is
+ * altered to achieve it.
  *
- * `filter: invert()` would make the bird white AND turn its orange outline
- * cyan. Hue-rotate drifts the brand colour by a few degrees in every
- * browser. A mask is exact, and the colour is specified rather than derived.
+ * It also degrades honestly. If `filter` were unsupported the result is
+ * the original artwork with no glow — dim, but still the logo. A mask that
+ * fails gives you a rectangle.
  */
 import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 
-export type MarkTone = 'brand' | 'light' | 'mono';
-
 interface PhoenixMarkProps {
-  /** Tailwind size for the mark itself, e.g. "h-11 w-11". */
+  /** Tailwind size for the mark, e.g. "h-11 w-11". */
   className?: string;
-  /** Padding between the mark and the edge of its tile. */
-  pad?: string;
-  /** Circle for round buttons, rounded square to sit beside the crown tile. */
-  round?: boolean;
-  /**
-   * brand — orange on black, the default and the one that belongs here.
-   * light — the original full-colour artwork on a pale tile, for light grounds.
-   * mono  — white on black, for places that must not carry an accent colour.
-   */
-  tone?: MarkTone;
-  /** A ring around the tile. Off by default; buttons add their own. */
-  ring?: boolean;
+  /** How strongly the halo burns. 0 turns it off. */
+  glow?: number;
   alt?: string;
+  /**
+   * Kept for the call sites that pass them. Both are now no-ops: there is
+   * no tile to pad and no tile to round. Left in place rather than
+   * removed so this change is one file, not five.
+   */
+  pad?: string;
+  round?: boolean;
 }
-
-const FILL: Record<Exclude<MarkTone, 'light'>, string> = {
-  brand: 'linear-gradient(145deg, #fdba74 0%, #fb923c 28%, #ea580c 68%, #c2410c 100%)',
-  mono: 'linear-gradient(145deg, #ffffff 0%, #d4d4d4 100%)',
-};
 
 export default function PhoenixMark({
   className = 'h-11 w-11',
-  pad = 'p-1.5',
-  round = true,
-  tone = 'brand',
-  ring = false,
+  glow = 1,
   alt = '',
 }: PhoenixMarkProps) {
-  const shape = round ? 'rounded-full' : 'rounded-xl';
-  const ringCls = ring ? 'ring-1 ring-orange-500/40' : '';
-
-  // The original artwork, for the pale surfaces where it was designed to sit.
-  if (tone === 'light') {
-    return (
-      <span
-        className={`inline-flex items-center justify-center ${pad} ${shape} ${ringCls} bg-gradient-to-br from-white to-[#F3F4F6] shadow-inner shadow-black/10`}
-      >
-        <img src={phoenixLogo} alt={alt} className={`${className} object-contain`} />
-      </span>
-    );
-  }
+  /*
+   * Two shadows, not one. A tight bright ring separates the mark from the
+   * background; a wide soft one gives it the ember bloom. A single shadow
+   * has to choose between looking like a sticker and looking like fog.
+   */
+  const halo = glow > 0
+    ? `drop-shadow(0 0 2px rgba(234,88,12,${0.95 * glow})) `
+      + `drop-shadow(0 0 7px rgba(234,88,12,${0.62 * glow})) `
+      + `drop-shadow(0 0 18px rgba(234,88,12,${0.32 * glow}))`
+    : undefined;
 
   return (
-    <span
-      className={`relative inline-flex items-center justify-center ${pad} ${shape} ${ringCls} bg-[#0A0A0A]`}
-      role={alt ? 'img' : undefined}
-      aria-label={alt || undefined}
-    >
-      <span
-        aria-hidden="true"
-        className={`${className} block`}
-        style={{
-          background: FILL[tone],
-          // Both spellings: Safari still wants the prefix, and without it
-          // the element renders as a solid orange rectangle — a far worse
-          // failure than the one this replaced.
-          WebkitMaskImage: `url(${phoenixLogo})`,
-          maskImage: `url(${phoenixLogo})`,
-          WebkitMaskSize: 'contain',
-          maskSize: 'contain',
-          WebkitMaskRepeat: 'no-repeat',
-          maskRepeat: 'no-repeat',
-          WebkitMaskPosition: 'center',
-          maskPosition: 'center',
-          filter: tone === 'brand' ? 'drop-shadow(0 0 6px rgba(234,88,12,0.45))' : undefined,
-        }}
-      />
-    </span>
+    <img
+      src={phoenixLogo}
+      alt={alt}
+      className={`${className} object-contain`}
+      style={{ filter: halo }}
+    />
   );
 }

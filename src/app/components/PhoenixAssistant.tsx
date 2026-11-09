@@ -46,14 +46,14 @@ export default function PhoenixAssistant({ onNavigate }: PhoenixAssistantProps =
         onClick={() => setOpen(true)}
         title="Ask Phoenix"
         aria-label="Open the Phoenix assistant"
-        className="group fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full ring-1 ring-orange-500/40 shadow-lg shadow-black/60 transition hover:scale-105 hover:ring-2 hover:ring-orange-500/80 hover:shadow-orange-900/40"
+        className="group fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full transition hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
       >
         {/*
           The company's own mark, not a generic chat bubble. It is the
           button, so it carries an aria-label — an image alone tells a
           screen reader nothing about what pressing it does.
         */}
-        <PhoenixMark className="h-11 w-11" pad="p-1.5" />
+        <PhoenixMark className="h-12 w-12" />
         {/* A quiet pulse when something is waiting on a decision. */}
         {pending > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-orange-600 text-[10px] font-bold text-white ring-2 ring-[#0A0A0A]">
@@ -73,7 +73,7 @@ export default function PhoenixAssistant({ onNavigate }: PhoenixAssistantProps =
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#2A2A2A] px-5 py-4">
           <div className="flex items-center gap-3">
-            <PhoenixMark className="h-7 w-7" pad="p-1" round={false} />
+            <PhoenixMark className="h-8 w-8" />
             <div>
               <p className="text-sm font-semibold text-white">Phoenix</p>
               <p className="text-[11px] text-gray-500">Reads your operations. Proposes; you approve.</p>

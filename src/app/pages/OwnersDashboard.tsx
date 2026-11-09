@@ -542,12 +542,11 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                   onClick={() => handleNavigate('phoenix-ai')}
                   title="Open Phoenix"
                   aria-label="Open Phoenix, the AI command center"
-                  className="group relative rounded-xl p-0.5 transition hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  className="group rounded-xl p-1 transition hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                 >
-                  {/* Light tile: the mark is black on transparency, so a dark
-                      ground renders it invisible. See PhoenixMark. */}
-                  <PhoenixMark className="w-14 h-14" pad="p-2" round={false} />
-                  <span className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-orange-500/40 transition group-hover:ring-2 group-hover:ring-orange-500/80" />
+                  {/* No tile and no ring: the mark carries its own halo, and
+                      a frame around a glow only fights it. See PhoenixMark. */}
+                  <PhoenixMark className="w-16 h-16" alt="" />
                 </button>
                 <div>
                   <h1 className="text-4xl font-bold text-white">Owner's Control Center</h1>
