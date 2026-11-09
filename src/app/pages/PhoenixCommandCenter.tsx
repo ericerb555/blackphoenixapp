@@ -182,8 +182,25 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             stops answering, which is precisely what happened.
           */}
           <div
-            className={`relative w-full shrink-0 transition-all duration-700 ${
-              module ? 'h-32 opacity-40' : 'h-[54vh] min-h-[300px] opacity-100'
+            /*
+             * INLINE HEIGHT, NOT A TAILWIND CLASS.
+             *
+             * This element has now failed to have a height twice — first as
+             * h-[46%], which cannot resolve inside a nested flex column, and
+             * then as h-[54vh], which depends on Tailwind having generated
+             * that arbitrary class. An inline style depends on nothing: it
+             * is in the DOM whatever the build did.
+             *
+             * A canvas with no height draws nothing and reports no error,
+             * which is the worst failure mode there is, so this one is not
+             * worth being clever about.
+             */
+            style={{
+              height: module ? '8rem' : 'min(54vh, 620px)',
+              minHeight: module ? undefined : 300,
+            }}
+            className={`relative w-full shrink-0 transition-opacity duration-700 ${
+              module ? 'opacity-40' : 'opacity-100'
             }`}
           >
             <PanelErrorBoundary name="Phoenix">
