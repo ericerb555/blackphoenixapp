@@ -13,7 +13,7 @@
  * why that is the same component the route would render and not a copy.
  */
 import { useState } from 'react';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, Sparkles } from 'lucide-react';
 import PhoenixMark from '../components/PhoenixMark';
 import PhoenixConsole from '../components/PhoenixConsole';
 import PhoenixWorkspace from '../components/PhoenixWorkspace';
@@ -67,6 +67,19 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                 {pending} waiting on you
               </span>
             )}
+            {/*
+              The particle prototype. Here rather than in the owner's header
+              because it is a thing to go and look at deliberately, not a
+              second door to the assistant.
+            */}
+            <button
+              onClick={() => onNavigate?.('phoenix-prototype')}
+              className="flex items-center gap-1.5 rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 transition hover:border-orange-500/80 hover:text-orange-200"
+              title="Preview the particle Phoenix"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Particle preview
+            </button>
             {/*
               Said on the screen rather than in a tooltip, because the whole
               reason this is safe to leave open is that it cannot act alone.
