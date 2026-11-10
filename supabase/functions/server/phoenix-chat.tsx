@@ -224,6 +224,69 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
   const workRequests = async (): Promise<any[]> =>
     ((await kv.get('all_work_requests')) as any[]) || ((await kv.get('work_requests')) as any[]) || [];
 
+  if (name === 'feature_health') {
+    /**
+     * TWO SOURCES, ONE ANSWER.
+     *
+     * app_error_log holds failures anywhere in the application — a request a
+     * browser refused to send, a route that threw, a screen that crashed.
+     * ai_call_log holds the model calls that failed or were refused. Asked
+     * separately they give two half-answers, and the half that gets quoted is
+     * whichever tool was called first.
+     *
+     * Grouping happens in Postgres (app_error_groups) rather than here. The
+     * alternative is shipping every row into this isolate to count them, and
+     * paying the model to read the ones that were discarded.
+     */
+    const hours = Math.min(Math.max(Number(input?.hours) || 24, 1), 720);
+    const limit = Math.min(Math.max(Number(input?.limit) || 12, 1), 50);
+    const since = new Date(Date.now() - hours * 3600_000).toISOString();
+
+    const [groups, failedCalls] = await Promise.all([
+      admin().rpc('app_error_groups', { since_hours: hours, max_groups: limit }),
+      admin()
+        .from('ai_call_log')
+        .select('agent,operation,model,outcome,error,started_at')
+        .in('outcome', ['error', 'refused'])
+        .gte('started_at', since)
+        .order('started_at', { ascending: false })
+        .limit(20),
+    ]);
+
+    if (groups.error) throw new Error(groups.error.message);
+
+    const problems = (groups.data || []).map((g: any) => ({
+      feature: g.feature || 'unknown',
+      kind: g.kind,
+      // Named rather than left as a column value: "client" and "server" are
+      // the difference between a request that never arrived and one that did,
+      // and that distinction decides where to look next.
+      noticedBy: g.source === 'client' ? 'a browser' : 'this server',
+      occurrences: Number(g.occurrences) || 0,
+      people: Number(g.people) || 0,
+      firstSeen: g.first_seen,
+      lastSeen: g.last_seen,
+      example: g.example,
+      path: g.example_path,
+      status: g.last_status,
+      // More than one build means it survived a deploy; one means it may
+      // already be fixed or may have arrived with that build.
+      builds: Number(g.builds) || 0,
+    }));
+
+    return {
+      windowHours: hours,
+      problems,
+      failedModelCalls: (failedCalls.data || []).map((r: any) => ({
+        agent: r.agent, operation: r.operation, model: r.model,
+        outcome: r.outcome, error: r.error, at: r.started_at,
+      })),
+      note: problems.length || (failedCalls.data || []).length
+        ? 'These rows hold the shape of each failure and never the request behind it. Say what is certain and name what to check next.'
+        : 'Nothing has been recorded as failing in this window. That means no browser and no route reported one — it is not proof that every feature works.',
+    };
+  }
+
   if (name === 'work_requests') {
     const all = await workRequests();
     const wanted = input?.status ? String(input.status).toLowerCase() : null;

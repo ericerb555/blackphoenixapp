@@ -31,6 +31,45 @@
 /** The tools, in Anthropic's schema. Order is stable so caching holds. */
 export const PHOENIX_TOOLS = [
   {
+    /**
+     * WHAT IS ACTUALLY BROKEN, as opposed to what the model has been doing.
+     *
+     * ai_activity_summary knows about model calls. This knows about failures
+     * anywhere in the application: a request the browser refused to send, a
+     * route that threw, a screen that crashed. Those used to leave no trace at
+     * all — Phoenix's own microphone shipped broken and took three rounds and
+     * a hand-run curl to find, because nothing wrote a row when it failed.
+     *
+     * Grouped, never raw rows. Fourteen copies of one bug is one finding, and
+     * returning it fourteen times would bury the other three.
+     */
+    name: 'feature_health',
+    description:
+      'What is failing in the application right now: errors from browsers and '
+      + 'from this server, grouped into distinct problems, newest first, with '
+      + 'how often each has happened, how many people hit it, when it started '
+      + 'and which build. Includes failed and refused model calls. Use for '
+      + '"what is broken", "is anything failing", "why can nobody do X", "did '
+      + 'that fix work". Say what the evidence shows and no more: these rows '
+      + 'hold the shape of a failure, never the request that caused it, so the '
+      + 'cause is usually still a question rather than an answer.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        hours: {
+          type: 'number',
+          description: 'How many hours back to look. Defaults to 24, maximum 720 (the 30-day retention).',
+        },
+        limit: {
+          type: 'number',
+          description: 'How many distinct problems. Defaults to 12, maximum 50.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'ai_activity_summary',
     description:
       'Totals for AI model calls over a recent window: how many ran, how many '
@@ -361,6 +400,19 @@ export const PHOENIX_SYSTEM = [
   'published outside the company, and no bulk sends. If asked for one of those,',
   'say so plainly and name where the control actually is. The emergency stop is',
   'on the AI Diagnostics screen.',
+  '',
+  'WHEN SOMEBODY SAYS SOMETHING IS BROKEN',
+  '',
+  'Call feature_health before answering. "It errored" is not diagnosable from',
+  'a chair and guessing at a cause wastes the time of the person who already',
+  'knows it is broken. The rows hold the SHAPE of each failure and never the',
+  'request behind it, so lead with what is certain — which feature, how many',
+  'times, since when, which build, whether it is only them or everybody — and',
+  'name the next thing worth checking rather than asserting a cause. A',
+  'client-side failure with no server row beside it means the request never',
+  'arrived at all, which points at the browser, a route that was renamed, or',
+  'something never deployed. You cannot change code: hand the owner the',
+  'evidence and say plainly that fixing it is a build.',
   '',
   'ON AUTOMATING THINGS',
   '',

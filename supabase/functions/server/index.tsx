@@ -28,6 +28,7 @@ import investmentsRouter from "./investments-kv.tsx";
 import variancesRouter from "./variances-kv.tsx";
 import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
+import appErrorsRouter from "./app-errors.tsx";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
@@ -99,6 +100,7 @@ import rateLearningRouter from "./rateLearningRoutes.tsx";
 import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
 import quotesRouter from "./quotes.tsx";
+import quoteAttachmentsRouter from "./quoteAttachments.ts";
 import unavailabilityRouter from "./unavailability.tsx";
 import scheduleAssistantRouter from "./scheduleAssistant.tsx";
 import deliverablesRouter from "./deliverables.tsx";
@@ -1000,6 +1002,24 @@ const ADMIN_PREFIXES = [
  * swallowed by the caller.
  */
 const PUBLIC_POST_PATHS = [
+  /**
+   * A browser saying something broke.
+   *
+   * It has to be public, and the reason is the whole point of the route: the
+   * failures worth hearing about most are the ones happening to people who do
+   * not work here and are not signed in — a customer whose portal will not
+   * load, a visitor whose quote form posts into nothing. Behind the gate this
+   * would record only the breakages that happen to staff, which are the ones
+   * we would have found anyway.
+   *
+   * It meets the bar this list sets. The handler writes one capped, truncated
+   * row for staff to read and grants the caller nothing: it answers 204 to
+   * everything including rubbish, reflects no error text, computes the
+   * grouping fingerprint itself rather than trusting the body, strips the
+   * query string off the path, takes the actor from the request's own identity
+   * and drops anything past forty reports a minute. See app-errors.tsx.
+   */
+  '/app-errors',
   '/applications',            // the five application forms
   '/applications/submit',     // the older form endpoint, still linked
   '/signup/universal',        // portal card signups
@@ -1566,6 +1586,15 @@ app.route("/", pagePilotRouter);
 // rather than at /make-server-3eae23a6 like the bare-path routers do.
 app.route("/", mediaRouter);
 /**
+ * Where failures are written down. Full paths, so mounted at the root.
+ *
+ * Its ingest route is the only one here that accepts content from any caller
+ * the platform gate admits — deliberately, because the breakages worth knowing
+ * about happen to people who do not work here. See the header of app-errors.tsx
+ * for what that route refuses to store and what it refuses to say back.
+ */
+app.route("/", appErrorsRouter);
+/**
  * Phoenix Exchange.
  *
  * Mounted UNDER the API prefix, because these routers define bare paths
@@ -1665,6 +1694,13 @@ app.use('/make-server-3eae23a6/invoice-attachables', async (c, next) => {
 });
 app.route("/", invoiceAttachablesRouter);
 app.route("/", rateLearningRouter);
+/**
+ * Photos and videos attached to a quote. Mounted BEFORE `quotesRouter`, which
+ * owns `/quotes` and `/quotes/:id/...`, so the more specific
+ * `/quotes/:quoteId/attachments` cannot be shadowed by a handler registered
+ * further down — the exact failure `quotes.tsx` records against its own PUT.
+ */
+app.route("/", quoteAttachmentsRouter);
 app.route("/", quotesRouter);
 // Time off and call-outs. See unavailability.tsx — one record type, because the
 // scheduler asks it one question and two stores means two places to forget.
