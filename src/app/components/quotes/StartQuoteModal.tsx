@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner';
 import { generateDemoQuote } from '../../lib/demoQuoteGenerator';
 import { QuotePricingBasisBanner } from './QuotePricingBasisBanner';
+import { QuoteAttachmentsPanel } from './QuoteAttachmentsPanel';
 import { QuoteToContractEditor } from '../QuoteToContractEditor';
 import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
@@ -53,6 +54,18 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
   const [phase, setPhase] = useState<'form' | 'editor'>('form');
   const [generating, setGenerating] = useState(false);
   const [workRequest, setWorkRequest] = useState<any>(null);
+
+  /**
+   * The id this quote will have, minted when the modal opens rather than when
+   * Generate is pressed.
+   *
+   * It has to exist before generation because photos and video attach to it,
+   * and they are added while the form is still being filled in — a site photo
+   * should be off the phone and on the record before the estimator is even
+   * called. Lazy initialiser, so a re-render cannot mint a second id and orphan
+   * the files already uploaded against the first.
+   */
+  const [requestId] = useState(() => `wr-${Date.now()}`);
 
   const [form, setForm] = useState({
     customerName: '',
@@ -165,7 +178,6 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
     setGenerating(true);
     toast.loading('🤖 AI estimator is building a detailed, itemized quote...', { id: 'start-quote' });
 
-    const requestId = `wr-${Date.now()}`;
     try {
       // 1) Try the estimator-grade AI engine on the server (real takeoff, waste
       //    factors, trade-based labor, permits/disposal, overhead/profit/tax).
@@ -667,6 +679,18 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
               className="w-full rounded-lg border border-[#2A2A2A] bg-[#050505] px-3 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
             />
           </div>
+
+          {/*
+            Photos and video, attached here rather than only in the editor.
+            Whoever is quoting the job is standing in it, and the moment to get
+            the picture on the record is before the estimator runs — not after,
+            on a second screen they have to go and find.
+
+            These upload immediately against `requestId`, so they survive the
+            estimator failing, the form being re-filled, or the modal being
+            closed and the quote picked up later from the pipeline.
+          */}
+          <QuoteAttachmentsPanel quoteId={requestId} />
 
           {/*
             Everything below is optional and the estimator is told nothing about

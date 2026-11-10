@@ -84,6 +84,7 @@ import {
 } from '../lib/services/materialsHubService';
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
 import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
+import { QuoteAttachmentsPanel } from './quotes/QuoteAttachmentsPanel';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
 import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
@@ -4360,6 +4361,25 @@ export function QuoteToContractEditor({
                   })()}
                 </div>
               )}
+
+              {/*
+                Photos and video on this quote.
+
+                Not gated on `editMode` or on a tab, unlike the sections below
+                it. The pictures are what the price gets argued over, so they
+                have to be visible while reading the quote and not only while
+                editing one particular part of it. Adding is staff-only and
+                nothing here travels to the customer's copy — see
+                `quoteAttachments.ts`.
+
+                Keyed on `workRequest.id`, which is the same id the Start Quote
+                modal uploaded against, so anything attached while the estimate
+                was being written is already here.
+              */}
+              <QuoteAttachmentsPanel
+                quoteId={workRequest.id}
+                hint="Site photos, measurements, a walkthrough clip. Staff only — these are not sent to the customer with the estimate."
+              />
 
               {/* Materials Section */}
               {(!editMode || quoteEditTab === 'materials') && (
