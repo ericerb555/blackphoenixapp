@@ -92,8 +92,13 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
    * One voice for the page. The console speaks through it and the Phoenix
    * is animated from the same analyser, so the particles move to the exact
    * audio you are hearing rather than to a second measurement of it.
+   *
+   * onHeard is what makes the microphone an input rather than a
+   * visualiser. Before this it analysed your voice beautifully and did
+   * nothing with it — you could talk at him all day and nothing was ever
+   * asked.
    */
-  const voice = usePhoenixVoice();
+  const voice = usePhoenixVoice({ onHeard: (text) => setAsk(text) });
 
   /** Most specific truth first. See the header. */
   const state: PhoenixState = useMemo(() => {
@@ -157,11 +162,21 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                 ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
                 : 'border-[#262626] text-gray-500 hover:border-orange-500/40 hover:text-white'
             }`}
-            title={voice.micOn ? 'Close the microphone' : 'Open the microphone'}
+            title={
+              voice.micOn ? 'Stop listening'
+                : voice.canListen ? 'Talk to Phoenix'
+                  : 'This browser cannot transcribe speech'
+            }
           >
             {voice.micOn ? <Mic className="h-3 w-3" /> : <MicOff className="h-3 w-3" />}
-            {voice.micOn ? 'live' : 'mic'}
+            {voice.micOn ? 'listening' : 'talk'}
           </button>
+
+          {voice.micError && (
+            <span className="hidden max-w-xs truncate font-mono text-[9px] uppercase tracking-[0.12em] text-amber-400 lg:inline">
+              {voice.micError}
+            </span>
+          )}
 
           {pending > 0 && (
             <span className="flex items-center gap-1.5 rounded border border-orange-500/40 bg-orange-500/10 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-orange-300">
@@ -268,6 +283,26 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             {railOpen && !expanded && !module && (
               <div className="absolute bottom-[124px] left-0 top-0 z-20 hidden w-56 overflow-y-auto p-2 lg:block">
                 <AgentRail onAsk={setAsk} onRunningChange={setRunning} />
+              </div>
+            )}
+
+            {/*
+              What he is hearing, as you say it.
+
+              Interim results, so there is feedback before the sentence
+              lands. Without it the gap between speaking and the answer is
+              silent and you cannot tell whether anything is working — the
+              exact complaint that led here.
+            */}
+            {voice.micOn && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-[138px] z-20 flex justify-center px-6">
+                <span className="max-w-2xl text-center text-sm italic text-emerald-300/80">
+                  {voice.heard || (
+                    <span className="font-mono text-[10px] uppercase not-italic tracking-[0.2em] text-emerald-400/50">
+                      listening
+                    </span>
+                  )}
+                </span>
               </div>
             )}
 

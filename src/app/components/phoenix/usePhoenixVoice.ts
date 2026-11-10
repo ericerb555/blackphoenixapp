@@ -1,36 +1,37 @@
 /**
- * Phoenix's ears and voice, as one thing.
+ * Phoenix's ears, his voice, and his understanding of what you said.
  *
- * They are one hook because they share a problem: both produce an audio
- * level sixty times a second, and that level has to reach a WebGL shader
- * without going through React.
+ * THREE THINGS, ONE HOOK, BECAUSE THEY SHARE AN AUDIO CONTEXT
  *
- * WHY THE LEVEL IS A REF AND NOT STATE
+ *  - the microphone, analysed so the particles move while you talk
+ *  - speech recognition, so talking actually asks him something
+ *  - his own voice, analysed so the particles move while he answers
  *
- * The first version called setLevel() every animation frame. That re-renders
- * the page, the canvas component and everything under it sixty times a
- * second, to deliver one float — and it competes for the main thread with
- * the frame it is trying to animate. The particle loop reads `levelRef`
- * directly inside useFrame; React is told about the level ten times a
- * second, purely so the meter in the UI can move.
+ * WHY TWO ANALYSERS AND NOT ONE
  *
- * WHY THE MICROPHONE DID NOT WORK
+ * The first version shared a single analyser and connected it to the
+ * speakers so his voice could be heard. That connection is permanent —
+ * which meant that after he spoke once, THE MICROPHONE WAS WIRED TO THE
+ * OUTPUT. You heard yourself, and on a laptop speaker that is a feedback
+ * loop. The mic chain now ends at its analyser and goes nowhere else;
+ * only the speech chain reaches the destination.
  *
- * Two reasons, and the first is the one that made it dead rather than
- * merely bad:
+ * WHY THE LEVEL IS A REF
  *
- *  1. The AudioContext was never resumed. Browsers create it SUSPENDED
- *     unless construction happens inside a user gesture, and a suspended
- *     context's analyser returns a buffer of silence forever. No error, no
- *     warning — getByteFrequencyData just keeps writing zeros.
- *  2. It measured the frequency domain. getByteFrequencyData returns
- *     spectral magnitude in dB-ish bytes, which for speech sits low and
- *     moves little. The amplitude envelope — what you actually want when
- *     you are asking "how loud is this right now" — is the RMS of the TIME
- *     domain, and it swings across the full range as somebody talks.
+ * It changes sixty times a second and its only consumer is a WebGL
+ * uniform. Routing that through React state re-renders the page and the
+ * canvas on every frame to deliver one float, while competing for the main
+ * thread with the frame it is animating. React is told ten times a second,
+ * for the meter alone.
  *
- * Both are fixed below, and `contextState` is reported so a future failure
- * says which of the two it is instead of looking like a broken feature.
+ * WHAT THE MICROPHONE USED TO GET WRONG
+ *
+ *  1. The AudioContext was never resumed. Browsers construct it SUSPENDED
+ *     outside a user gesture, and a suspended analyser returns silence
+ *     forever — no error, no warning, just zeros.
+ *  2. It measured the frequency domain. Spectral magnitude sits low for
+ *     speech and barely moves; the amplitude envelope is the RMS of the
+ *     TIME domain and swings across the full range as somebody talks.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeader } from '../../lib/aiActivity';
@@ -43,30 +44,20 @@ export const DEFAULT_VOICE: PhoenixVoice = 'onyx';
 /**
  * HOW THE DEPTH IS ACHIEVED, SINCE OPENAI HAS NO PITCH CONTROL.
  *
- * Three things stack:
- *
- *  1. onyx, which is the lowest of the six to begin with.
- *  2. tts-1-hd rather than tts-1. Same voice, a richer rendering — the
- *     chest and the low harmonics survive instead of being compressed out.
- *     It costs $30 per million characters against $15, which is six tenths
- *     of a cent for a typical answer rather than three.
- *  3. preservesPitch = false with playbackRate below 1. Browsers default
- *     to time-stretching, which keeps the pitch and only slows the words —
- *     turning it off makes it behave like tape, so the voice drops as it
- *     slows. That is the part that actually sounds deeper rather than
- *     merely slower.
- *
- * Roughly a semitone down and seven percent slower reads as considered.
- * Much past that and it becomes a parody of gravitas.
+ *  1. onyx, the lowest of the six to begin with.
+ *  2. tts-1-hd rather than tts-1 — same voice, richer rendering, the low
+ *     harmonics survive. $30 per million characters against $15.
+ *  3. preservesPitch = false with playbackRate below 1. Browsers default to
+ *     time-stretching, which slows the words and keeps the pitch exactly
+ *     where it was. Turning it off makes playback behave like tape, so the
+ *     voice drops as it slows — the part that actually sounds deeper.
  */
 export const DEEP = 0.93;
 
 export interface VoiceSpec {
   id: PhoenixVoice;
   note: string;
-  /** Playback rate; below 1 with preservesPitch off also lowers the pitch. */
   depth?: number;
-  /** The richer, dearer rendering. */
   hd?: boolean;
 }
 
@@ -82,16 +73,27 @@ export const VOICES: VoiceSpec[] = [
 export const specFor = (id: PhoenixVoice): VoiceSpec =>
   VOICES.find((v) => v.id === id) ?? VOICES[0];
 
-type Ctor = typeof AudioContext;
-const AudioCtx: Ctor | undefined =
+const AudioCtx: typeof AudioContext | undefined =
   typeof window !== 'undefined'
     ? (window.AudioContext || (window as any).webkitAudioContext)
     : undefined;
 
+/** Chrome, Edge and Safari have this. Firefox does not, and is told so. */
+const SpeechRec: any =
+  typeof window !== 'undefined'
+    ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+    : undefined;
+
+export interface PhoenixVoiceOptions {
+  /**
+   * Called with a finished sentence when speech recognition is running.
+   * This is what turns the microphone from a visualiser into an input.
+   */
+  onHeard?: (text: string) => void;
+}
+
 export interface PhoenixVoiceApi {
-  /** Live 0..1 amplitude. Read this in a render loop, not in React. */
   levelRef: React.MutableRefObject<number>;
-  /** The same number, updated ~10×/s, for anything that must re-render. */
   meter: number;
 
   micOn: boolean;
@@ -99,24 +101,33 @@ export interface PhoenixVoiceApi {
   startMic: () => Promise<void>;
   stopMic: () => void;
 
+  /** What you are saying right now, before the sentence is finished. */
+  heard: string;
+  /** False in Firefox, which has no SpeechRecognition. Say so, do not fake it. */
+  canListen: boolean;
+
   speaking: boolean;
   speakError: string | null;
-  /** Cost of the last utterance in cents, as the server reported it. */
   lastCostCents: number | null;
-  speak: (text: string, voice?: PhoenixVoice) => Promise<void>;
-  /** Which model the last utterance used, as the server reported it. */
   lastModel: string | null;
+  speak: (text: string, voice?: PhoenixVoice) => Promise<void>;
   stopSpeaking: () => void;
 
-  /** 'running' | 'suspended' | 'closed' | null. Diagnostic, shown in the UI. */
   contextState: string | null;
 }
 
-export function usePhoenixVoice(): PhoenixVoiceApi {
+export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi {
+  const { onHeard } = opts;
+  // Held in a ref so the recognition handlers always call the current one
+  // without having to tear the recogniser down and rebuild it each render.
+  const heardCb = useRef(onHeard);
+  heardCb.current = onHeard;
+
   const levelRef = useRef(0);
   const [meter, setMeter] = useState(0);
   const [micOn, setMicOn] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [heard, setHeard] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [lastCostCents, setLastCostCents] = useState<number | null>(null);
@@ -124,27 +135,43 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
   const [contextState, setContextState] = useState<string | null>(null);
 
   const ctxRef = useRef<AudioContext | null>(null);
+  /** Mic chain. Ends here — deliberately never reaches the destination. */
+  const micAnalyser = useRef<AnalyserNode | null>(null);
+  /** Speech chain. This one does reach the speakers. */
+  const voiceAnalyser = useRef<AnalyserNode | null>(null);
+
   const micRef = useRef<{ stream: MediaStream; node: MediaStreamAudioSourceNode } | null>(null);
   const speechRef = useRef<{ el: HTMLAudioElement; node: MediaElementAudioSourceNode; url: string } | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  const recRef = useRef<any>(null);
+  const wantRec = useRef(false);
+
   const rafRef = useRef(0);
   const bufRef = useRef<Uint8Array | null>(null);
 
-  /** One context for everything. Creating one per utterance leaks them. */
+  const makeAnalyser = (ctx: AudioContext) => {
+    const a = ctx.createAnalyser();
+    a.fftSize = 1024;
+    // Low, because this drives motion. The browser default of 0.8 smears a
+    // consonant across a third of a second and the particles lag the voice.
+    a.smoothingTimeConstant = 0.45;
+    return a;
+  };
+
+  /** One context for everything; two analysers hanging off it. */
   const context = useCallback(async () => {
     if (!AudioCtx) throw new Error('This browser has no Web Audio support.');
     if (!ctxRef.current || ctxRef.current.state === 'closed') {
-      ctxRef.current = new AudioCtx();
-      const a = ctxRef.current.createAnalyser();
-      a.fftSize = 1024;
-      // Low, because this drives motion. The browser default of 0.8 smears
-      // a consonant across a third of a second and the particles lag the voice.
-      a.smoothingTimeConstant = 0.45;
-      analyserRef.current = a;
-      bufRef.current = new Uint8Array(a.fftSize);
+      const ctx = new AudioCtx();
+      ctxRef.current = ctx;
+      micAnalyser.current = makeAnalyser(ctx);
+      voiceAnalyser.current = makeAnalyser(ctx);
+      // Only the speech chain is audible. Connected once, here, rather than
+      // on every utterance — repeating it stacks duplicate edges.
+      voiceAnalyser.current.connect(ctx.destination);
+      bufRef.current = new Uint8Array(1024);
     }
-    // THE FIX. A context built outside a gesture starts suspended, and a
-    // suspended analyser reports silence indefinitely without erroring.
+    // A context built outside a gesture starts suspended, and a suspended
+    // analyser reports silence indefinitely without erroring.
     if (ctxRef.current.state === 'suspended') await ctxRef.current.resume();
     setContextState(ctxRef.current.state);
     return ctxRef.current;
@@ -157,17 +184,21 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
     setMeter(0);
   }, []);
 
-  /** One loop, whichever source is feeding the analyser. */
+  /**
+   * One loop. It reads whichever analyser is live, preferring his voice —
+   * if he is talking, that is what the particles should be moving to, even
+   * if the microphone happens to be open at the same time.
+   */
   const runLoop = useCallback(() => {
     if (rafRef.current) return;
     let lastPush = 0;
 
     const tick = (now: number) => {
-      const a = analyserRef.current;
+      const a = speechRef.current ? voiceAnalyser.current : micAnalyser.current;
       const buf = bufRef.current;
       if (a && buf) {
-        // Time domain, not frequency: this is an amplitude envelope.
-        // 128 is silence; the deviation from it is the waveform.
+        // Time domain: an amplitude envelope. 128 is silence; the deviation
+        // from it is the waveform.
         a.getByteTimeDomainData(buf);
         let sum = 0;
         for (let i = 0; i < buf.length; i++) {
@@ -178,12 +209,7 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
         // Speech RMS rarely exceeds ~0.25, so scale into a usable range and
         // clamp rather than letting a cough saturate everything.
         levelRef.current = Math.min(1, rms * 3.6);
-
-        // React hears about it ten times a second, for the meter only.
-        if (now - lastPush > 100) {
-          lastPush = now;
-          setMeter(levelRef.current);
-        }
+        if (now - lastPush > 100) { lastPush = now; setMeter(levelRef.current); }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -191,41 +217,110 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
+  /* ── understanding ─────────────────────────────────────────────────── */
+
+  const startRecognition = useCallback(() => {
+    if (!SpeechRec) return;
+    if (recRef.current) return;
+
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+
+    rec.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        const text = String(r[0]?.transcript || '').trim();
+        if (!text) continue;
+        if (r.isFinal) {
+          setHeard('');
+          // A finished sentence is a question. Two words is a cough or the
+          // tail of somebody else's conversation, and asking the model
+          // about it costs money and interrupts whatever is on screen.
+          if (text.split(/\s+/).length >= 2) heardCb.current?.(text);
+        } else {
+          interim += ` ${text}`;
+        }
+      }
+      if (interim.trim()) setHeard(interim.trim());
+    };
+
+    rec.onerror = (e: any) => {
+      // 'no-speech' and 'aborted' are ordinary. Anything else is worth
+      // surfacing, because silent failure here looks like a broken mic.
+      if (e?.error && e.error !== 'no-speech' && e.error !== 'aborted') {
+        setMicError(
+          e.error === 'not-allowed'
+            ? 'Speech recognition was refused. Allow the microphone in the padlock menu.'
+            : `Speech recognition stopped: ${e.error}`,
+        );
+      }
+    };
+
+    // Chrome ends the session on its own after a pause. Restart while the
+    // microphone is meant to be open, or it listens once and gives up.
+    rec.onend = () => {
+      recRef.current = null;
+      if (wantRec.current) {
+        try { startRecognition(); } catch { /* the mic is closing */ }
+      }
+    };
+
+    recRef.current = rec;
+    rec.start();
+  }, []);
+
+  const stopRecognition = useCallback(() => {
+    wantRec.current = false;
+    const rec = recRef.current;
+    recRef.current = null;
+    setHeard('');
+    try { rec?.stop(); } catch { /* already stopped */ }
+  }, []);
+
   /* ── ears ──────────────────────────────────────────────────────────── */
 
   const stopMic = useCallback(() => {
+    stopRecognition();
     const m = micRef.current;
     if (m) {
       m.node.disconnect();
-      // Tracks must be stopped explicitly or the browser keeps its recording
-      // indicator lit after you have navigated away, which is alarming.
+      // Tracks must be stopped explicitly or the browser keeps its
+      // recording indicator lit after you have navigated away.
       m.stream.getTracks().forEach((t) => t.stop());
       micRef.current = null;
     }
     setMicOn(false);
     if (!speechRef.current) stopLoop();
-  }, [stopLoop]);
+  }, [stopLoop, stopRecognition]);
 
   const startMic = useCallback(async () => {
     setMicError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          // Echo cancellation on, so Phoenix's own voice through the speakers
-          // does not come back in and make it appear to hear itself.
+          // On, so his own voice through the speakers does not come back in.
           echoCancellation: true,
-          // Noise suppression OFF: it gates quiet speech to digital silence,
-          // and quiet speech is exactly when you want to see it being heard.
+          // Off: it gates quiet speech to digital silence, and quiet speech
+          // is exactly when you want to see that you are being heard.
           noiseSuppression: false,
           autoGainControl: true,
         },
       });
       const ctx = await context();
       const node = ctx.createMediaStreamSource(stream);
-      node.connect(analyserRef.current!);
+      node.connect(micAnalyser.current!);   // and nowhere else
       micRef.current = { stream, node };
       setMicOn(true);
       runLoop();
+
+      wantRec.current = true;
+      startRecognition();
+      if (!SpeechRec) {
+        setMicError('This browser cannot transcribe speech — the mark will react to your voice, but you will have to type the question. Chrome, Edge or Safari can listen.');
+      }
     } catch (e: any) {
       const name = e?.name;
       setMicError(
@@ -236,18 +331,18 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
       );
       setMicOn(false);
     }
-  }, [context, runLoop]);
+  }, [context, runLoop, startRecognition]);
 
   /* ── voice ─────────────────────────────────────────────────────────── */
 
   const stopSpeaking = useCallback(() => {
     const s = speechRef.current;
+    speechRef.current = null;
     if (s) {
       s.el.pause();
       s.node.disconnect();
-      // Revoking matters: each utterance is a blob held in memory until it is.
+      // Each utterance is a blob held in memory until this is called.
       URL.revokeObjectURL(s.url);
-      speechRef.current = null;
     }
     setSpeaking(false);
     if (!micRef.current) stopLoop();
@@ -260,8 +355,8 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
     if (!said) return;
 
     try {
-      const { API_BASE_URL } = await import('../../lib/apiConfig');
       const spec = specFor(voice);
+      const { API_BASE_URL } = await import('../../lib/apiConfig');
       const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/phoenix/speak`, {
         method: 'POST',
         headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
@@ -269,14 +364,11 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
           text: said,
           voice,
           model: spec.hd ? 'tts-1-hd' : 'tts-1',
-          // Delivery pace from the server; the pitch drop is done in the
-          // browser below, because the API has no pitch control at all.
           speed: 1,
         }),
       });
 
       if (!res.ok) {
-        // The failure body is JSON even though success is audio.
         const body = await res.json().catch(() => ({}));
         throw new Error(
           body?.stopped ? `${body.error} (the emergency stop is engaged)`
@@ -295,12 +387,9 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
 
       /*
        * The depth. preservesPitch defaults to TRUE, which time-stretches —
-       * the words slow down and the pitch stays exactly where it was, which
-       * sounds like a tired reading rather than a deeper voice. Turning it
-       * off makes playback behave like tape: slower AND lower.
-       *
-       * Three spellings because Safari and older Firefox each shipped their
-       * own before it was standardised, and the default is the wrong one.
+       * slower words at the same pitch, which sounds tired rather than
+       * deep. Three spellings because Safari and older Firefox each
+       * shipped their own before it was standardised.
        */
       if (spec.depth && spec.depth !== 1) {
         (el as any).preservesPitch = false;
@@ -311,10 +400,8 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
 
       const ctx = await context();
       const node = ctx.createMediaElementSource(el);
-      node.connect(analyserRef.current!);
-      // Also to the speakers. An analyser is a sink: connect only to it and
-      // the audio is measured perfectly and heard by nobody.
-      analyserRef.current!.connect(ctx.destination);
+      // Into the speech analyser, which is the one wired to the speakers.
+      node.connect(voiceAnalyser.current!);
 
       speechRef.current = { el, node, url };
       setSpeaking(true);
@@ -324,7 +411,13 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
       el.onerror = () => { setSpeakError('The audio could not be played.'); stopSpeaking(); };
       await el.play();
     } catch (e: any) {
-      setSpeakError(e?.message || 'Phoenix could not speak.');
+      // NotAllowedError here is the autoplay policy, which is worth naming:
+      // "could not speak" sends somebody looking for a broken API key.
+      setSpeakError(
+        e?.name === 'NotAllowedError'
+          ? 'The browser blocked the audio. Click anywhere on the page and ask again.'
+          : e?.message || 'Phoenix could not speak.',
+      );
       setSpeaking(false);
     }
   }, [context, runLoop, stopSpeaking]);
@@ -332,6 +425,8 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
   /* Everything torn down on unmount, including the context itself. */
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    wantRec.current = false;
+    try { recRef.current?.stop(); } catch { /* already stopped */ }
     micRef.current?.stream.getTracks().forEach((t) => t.stop());
     if (speechRef.current) {
       speechRef.current.el.pause();
@@ -343,6 +438,7 @@ export function usePhoenixVoice(): PhoenixVoiceApi {
   return {
     levelRef, meter,
     micOn, micError, startMic, stopMic,
+    heard, canListen: !!SpeechRec,
     speaking, speakError, lastCostCents, lastModel, speak, stopSpeaking,
     contextState,
   };
