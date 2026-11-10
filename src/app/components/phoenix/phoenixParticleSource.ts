@@ -28,7 +28,7 @@
 /** Brand orange, as it appears in the asset and the rest of the app. */
 export const BRAND_ORANGE = [0.918, 0.345, 0.047] as const; // #ea580c
 /** The ember the black mass glows as. Hotter at the edges, deeper inside. */
-export const BRAND_EMBER = [0.49, 0.11, 0.02] as const;     // #7c1c05
+export const BRAND_EMBER = [0.72, 0.21, 0.04] as const;     // #b83609
 
 export interface ParticleField {
   /** xyz per particle, normalised so the mark fits in [-1, 1]. */

@@ -94,6 +94,15 @@ export interface PhoenixConsoleProps {
    */
   pendingAsk?: string | null;
   onAskHandled?: () => void;
+  /**
+   * Float over the Phoenix rather than sit below him.
+   *
+   * The transcript goes transparent and caps its own height; the composer
+   * becomes a bar across the bottom. That hands the whole stage to the
+   * bird, which is the only way he gets substantially bigger — moving the
+   * camera closer was the only other lever and it clips wingtips.
+   */
+  overlay?: boolean;
 }
 
 /**
@@ -124,7 +133,7 @@ function savedVoice(): PhoenixVoice {
 
 export default function PhoenixConsole({
   onQueueCount, centered, autoFocus, onOpenModule, voice,
-  onThinkingChange, pendingAsk, onAskHandled,
+  onThinkingChange, pendingAsk, onAskHandled, overlay,
 }: PhoenixConsoleProps) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState('');
@@ -297,33 +306,35 @@ export default function PhoenixConsole({
   const inner = centered ? 'mx-auto w-full max-w-3xl' : 'w-full';
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className={`flex h-full min-h-0 flex-col ${overlay ? 'justify-end' : ''}`}>
       {/* Transcript */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div
+        className={`overflow-y-auto px-5 ${overlay ? 'max-h-[52%] py-3' : 'flex-1 py-5'}`}
+        style={overlay ? {
+          // Fades in at the top rather than starting with a hard edge, so
+          // the text sits over him without a panel between you and him.
+          maskImage: 'linear-gradient(to bottom, transparent 0, black 38px)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 38px)',
+        } : undefined}
+      >
         <div className={`${inner} space-y-4`}>
           {turns.length === 0 && !fatal && (
-            <div className="pt-4">
-              <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-orange-400/60">
-                Ask
-              </p>
-              <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                Every figure comes from a live lookup. The tools that answered
-                are named under each reply.
-              </p>
-              <div className="mt-4 space-y-1.5">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => send(s)}
-                    className="group flex w-full items-center gap-2 border-l border-orange-500/20 bg-white/[0.015] px-3 py-2 text-left text-[13px] text-gray-400 transition hover:border-orange-500/70 hover:bg-orange-500/[0.05] hover:text-white"
-                  >
-                    <span className="font-mono text-[10px] text-orange-500/50 transition group-hover:text-orange-400">
-                      &rsaquo;
-                    </span>
-                    {s}
-                  </button>
-                ))}
-              </div>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+              {/*
+                Transparent, on one line. This was four filled tiles taking a
+                third of the screen before you had asked anything —
+                furniture standing in front of the thing you came to see.
+                They are hints now, not buttons.
+              */}
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="font-mono text-[10px] uppercase tracking-[0.1em] text-gray-600 transition hover:text-orange-300"
+                >
+                  {s.replace(/[?.]$/, '')}
+                </button>
+              ))}
             </div>
           )}
 
@@ -460,8 +471,13 @@ export default function PhoenixConsole({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-orange-500/10 p-4">
-        <div className={inner}>
+      <div
+        className={`border-t border-orange-500/15 px-4 py-3 ${
+          overlay ? 'bg-black/70 backdrop-blur-sm' : ''
+        }`}
+      >
+        {/* The bar spans the width; its contents are centred. */}
+        <div className={overlay ? 'mx-auto w-full max-w-4xl' : inner}>
           <div className="relative flex items-end gap-2 rounded-sm border border-[#1F1F1F] bg-black/60 px-3 py-2 transition focus-within:border-orange-500/50">
             {/* Corner brackets, the same language as the panels elsewhere. */}
             <span className="pointer-events-none absolute -left-px -top-px h-2 w-2 border-l border-t border-orange-500/50" />

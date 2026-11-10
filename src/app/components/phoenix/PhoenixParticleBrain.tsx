@@ -318,7 +318,9 @@ const FRAG = /* glsl */`
      * invisible to the eye, because every particle is the same brightness
      * and the cloud flattens back into a silhouette.
      */
-    float lum = mix(0.28, 1.35, vNear);
+    // The far side was near black, which read as half the bird missing
+    // rather than as depth.
+    float lum = mix(0.52, 1.70, vNear);
     base = mix(base * vec3(0.75, 0.55, 0.6), base, vNear);
 
     /*
@@ -359,7 +361,9 @@ function Swarm({
    * strictly worse, which is the opposite of what a quality slider should do.
    */
   const densityOpacity = useMemo(
-    () => Math.min(0.85, Math.max(0.07, 0.85 * Math.sqrt(9000 / Math.max(field.count, 1)))),
+    // Raised: this was tuned when arcs and a grid shared the frame.
+    // Alone on black he can carry far more light before blowing out.
+    () => Math.min(0.95, Math.max(0.12, 1.45 * Math.sqrt(9000 / Math.max(field.count, 1)))),
     [field.count],
   );
 
@@ -379,7 +383,7 @@ function Swarm({
     uBurst:   { value: 0 },
     uAudio:   { value: 0 },
     uBreath:  { value: 1 },
-    uSize:    { value: 0.0052 },
+    uSize:    { value: 0.0060 },
     uProj:    { value: 1000 },
     uCamDist: { value: CAM_DIST },
     uStill:   { value: reducedMotion ? 1 : 0 },

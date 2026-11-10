@@ -160,7 +160,34 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             </span>
           )}
 
-          <span className="hidden items-center gap-1.5 rounded border border-[#1C1C1C] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-gray-600 xl:flex">
+          {/*
+            The readout lives up here now the composer owns the bottom edge.
+            Particles and frames stay: they are the two numbers that
+            separate "not rendering" from "rendering invisibly", which took
+            three rounds to learn the hard way.
+          */}
+          <span className="hidden items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-gray-700 xl:flex">
+            <StatusDot tone={state === 'alert' ? 'warn' : state === 'idle' ? 'idle' : 'live'} />
+            {particles ? `${particles.toLocaleString()} px` : 'no particles'}
+            <span className="text-gray-800">│</span>
+            {fps ? `${fps} fps` : 'no frames'}
+            {running > 0 && (
+              <>
+                <span className="text-gray-800">│</span>
+                <span className="text-orange-400/70">{running} in flight</span>
+              </>
+            )}
+            <span className="text-gray-800">│</span>
+            <button
+              onClick={() => onNavigate?.('phoenix-prototype')}
+              className="uppercase tracking-[0.14em] transition hover:text-orange-400"
+              title="The particle brain on its own, with every state as a button"
+            >
+              lab
+            </button>
+          </span>
+
+          <span className="hidden items-center gap-1.5 rounded border border-[#1C1C1C] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-gray-600 2xl:flex">
             <ShieldCheck className="h-3 w-3 text-emerald-500/70" />
             read-only until approved
           </span>
@@ -186,73 +213,68 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
           }`}
         >
           {/*
-            VIEWPORT UNITS, NOT A PERCENTAGE.
-            h-[46%] resolves against the parent's content height, and inside
-            a nested flex column that height is not always definite — so it
-            collapsed to nothing and the Phoenix was simply not there. vh is
-            definite everywhere, and min-h stops him disappearing on a short
-            laptop screen.
+            THE BIRD GETS THE WHOLE STAGE.
 
-            The boundary is the other half of the same lesson: a WebGL
-            failure must cost you the bird, not the conversation. Without
-            it a thrown shader takes the whole column down and the chat
-            stops answering, which is precisely what happened.
+            He used to own a fixed slice at the top with the conversation
+            stacked below, which capped how large he could be. Pushing the
+            camera closer was the only lever left and it clips wingtips
+            during an excursion. Filling the stage and floating the chat
+            over him removes the cap: the same camera covers far more
+            pixels.
+
+            Absolute inset-0 rather than a measured height, because this
+            element has now failed to have one twice — as a percentage that
+            cannot resolve inside a nested flex column, and as an arbitrary
+            Tailwind class. A canvas with no height draws nothing and
+            reports no error, so it is not worth being clever about.
+
+            The boundary stays: a WebGL failure must cost you the bird and
+            not the conversation.
           */}
-          <div
-            /*
-             * INLINE HEIGHT, NOT A TAILWIND CLASS.
-             *
-             * This element has now failed to have a height twice — first as
-             * h-[46%], which cannot resolve inside a nested flex column, and
-             * then as h-[54vh], which depends on Tailwind having generated
-             * that arbitrary class. An inline style depends on nothing: it
-             * is in the DOM whatever the build did.
-             *
-             * A canvas with no height draws nothing and reports no error,
-             * which is the worst failure mode there is, so this one is not
-             * worth being clever about.
-             */
-            style={{
-              height: module ? '8rem' : 'min(62vh, 760px)',
-              minHeight: module ? undefined : 340,
-            }}
-            className={`relative w-full shrink-0 transition-opacity duration-700 ${
-              module ? 'opacity-40' : 'opacity-100'
-            }`}
-          >
-            <PanelErrorBoundary name="Phoenix">
-              <PhoenixParticleBrain
-                state={state}
-                audioLevelRef={voice.levelRef}
-                onReady={setParticles}
-                onFps={setFps}
-                className="h-full w-full"
-              />
-            </PanelErrorBoundary>
-            {/* What he is doing, in words, under the mark. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
+          <div className="relative min-h-0 flex-1">
+            <div
+              className={`absolute inset-0 transition-opacity duration-700 ${
+                module ? 'opacity-40' : 'opacity-100'
+              }`}
+            >
+              <PanelErrorBoundary name="Phoenix">
+                <PhoenixParticleBrain
+                  state={state}
+                  audioLevelRef={voice.levelRef}
+                  onReady={setParticles}
+                  onFps={setFps}
+                  className="h-full w-full"
+                />
+              </PanelErrorBoundary>
+            </div>
+
+            {/* What he is doing, in words, above him. */}
+            <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
               <span
                 className={`font-mono text-[9px] uppercase tracking-[0.3em] ${
-                  state === 'alert' ? 'text-rose-300/80' : 'text-orange-400/60'
+                  state === 'alert' ? 'text-rose-300/80' : 'text-orange-400/55'
                 }`}
               >
                 {SAYS[state]}
               </span>
             </div>
+
+            {/* The conversation, floating over him and hugging the bottom. */}
+            <div className="absolute inset-0 flex min-h-0 flex-col justify-end">
+              <PhoenixConsole
+                overlay
+                centered={!module}
+                autoFocus
+                voice={voice}
+                onQueueCount={setPending}
+                onThinkingChange={setThinking}
+                pendingAsk={ask}
+                onAskHandled={() => setAsk(null)}
+                onOpenModule={(d) => { setModule(d); setExpanded(false); }}
+              />
+            </div>
           </div>
 
-          <div className="min-h-0 flex-1 border-t border-orange-500/10">
-            <PhoenixConsole
-              centered={!module}
-              autoFocus
-              voice={voice}
-              onQueueCount={setPending}
-              onThinkingChange={setThinking}
-              pendingAsk={ask}
-              onAskHandled={() => setAsk(null)}
-              onOpenModule={(d) => { setModule(d); setExpanded(false); }}
-            />
-          </div>
         </div>
 
         {/* Workspace */}
@@ -269,35 +291,6 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
         )}
       </div>
 
-      {/* ── footer readout ─────────────────────────────────────────── */}
-      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-orange-500/10 px-4 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-gray-700">
-        <span className="flex items-center gap-2">
-          <StatusDot tone={state === 'alert' ? 'warn' : state === 'idle' ? 'idle' : 'live'} />
-          {SAYS[state]}
-          {running > 0 && (
-            <span className="text-orange-400/70">
-              · {running} call{running === 1 ? '' : 's'} in flight
-            </span>
-          )}
-        </span>
-        <span className="flex items-center gap-2">
-          <span title="Particles forming the mark. Zero means the field never built.">
-            {particles ? `${particles.toLocaleString()} particles` : 'no particles'}
-          </span>
-          <span className="text-gray-800">│</span>
-          <span title="Frames per second. Zero means the canvas is not drawing.">
-            {fps ? `${fps} fps` : 'no frames'}
-          </span>
-          <span className="text-gray-800">│</span>
-          <button
-            onClick={() => onNavigate?.('phoenix-prototype')}
-            className="transition hover:text-orange-400"
-            title="The particle brain on its own, with every state as a button"
-          >
-            particle lab
-          </button>
-        </span>
-      </div>
     </div>
   );
 }
