@@ -486,8 +486,16 @@ export default function PhoenixConsole({
           overlay ? 'bg-black/70 backdrop-blur-sm' : ''
         }`}
       >
-        {/* The bar spans the width; its contents sit on the same column. */}
-        <div className={inner}>
+        {/*
+           FULL BLEED, no centred column.
+
+           Two attempts at centring this both looked off — once because the
+           bar and the transcript were centred at different widths, and
+           again for a reason I could not see from here. A bar that runs
+           edge to edge cannot be off-centre, which is worth more than
+           being theoretically correct about the column.
+        */}
+        <div className={overlay ? 'w-full' : inner}>
           <div className="relative flex items-end gap-2 rounded-sm border border-[#1F1F1F] bg-black/60 px-3 py-2 transition focus-within:border-orange-500/50">
             {/* Corner brackets, the same language as the panels elsewhere. */}
             <span className="pointer-events-none absolute -left-px -top-px h-2 w-2 border-l border-t border-orange-500/50" />

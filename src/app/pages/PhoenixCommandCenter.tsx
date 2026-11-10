@@ -27,7 +27,7 @@
  * The conversation and the workspace are the same components the slide-over
  * uses. Nothing here is a second implementation of the chat.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowLeft, ShieldCheck, Mic, MicOff, PanelLeftClose, PanelLeft,
 } from 'lucide-react';
@@ -62,12 +62,19 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
   const [module, setModule] = useState<OpenDirective | null>(null);
   const [expanded, setExpanded] = useState(false);
   /*
-   * Closed by default, so the Phoenix is centred on the screen rather than
-   * pushed right by a 15rem column. The agents are one tap away on the
-   * header toggle, and they are a thing you go and look at rather than a
-   * thing you need in view while talking to him.
+   * Open by default, and floating rather than in the flow.
+   *
+   * It was briefly closed because a 15rem column in the layout pushes the
+   * Phoenix off-centre, and "bigger and centred" was the ask. Hiding a
+   * panel to solve a centring problem was the wrong trade — the right one
+   * is below: the rail is absolutely positioned over the stage, so the
+   * bird still centres on the full width while the agents stay in view.
+   *
+   * It works because he is height-limited. The mark is square and the
+   * stage is wide, so the left and right thirds are empty black whatever
+   * happens, and the rail costs nothing by sitting in one of them.
    */
-  const [railOpen, setRailOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
   const [ask, setAsk] = useState<string | null>(null);
   /*
    * Particle count and frame rate, on screen.
@@ -98,9 +105,12 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
     return 'idle';
   }, [voice.speaking, voice.micOn, thinking, running, pending]);
 
-  // A live data table and a glowing bird cannot both be the subject, so
-  // when a module opens the Phoenix steps back rather than competing.
-  useEffect(() => { if (module) setRailOpen(false); }, [module]);
+  /*
+   * A module takes the stage, and the rail is hidden while it does — not
+   * by changing the toggle, which would silently rewrite your preference,
+   * but by the render condition below. Close the module and the rail is
+   * where you left it.
+   */
 
   const back = () => {
     if (onNavigate) onNavigate('owners-dashboard');
@@ -197,13 +207,6 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
       {/* ── body ───────────────────────────────────────────────────── */}
       <div className="relative z-10 flex min-h-0 flex-1">
 
-        {/* Agents */}
-        {railOpen && !expanded && (
-          <div className="hidden w-60 shrink-0 overflow-y-auto border-r border-orange-500/10 p-2 lg:block">
-            <AgentRail onAsk={setAsk} onRunningChange={setRunning} />
-          </div>
-        )}
-
         {/* Phoenix and the conversation */}
         <div
           className={`flex min-h-0 min-w-0 flex-col ${
@@ -260,6 +263,13 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                 />
               </PanelErrorBoundary>
             </div>
+
+            {/* Agents, floating over the dead space on the left. */}
+            {railOpen && !expanded && !module && (
+              <div className="absolute bottom-[124px] left-0 top-0 z-20 hidden w-56 overflow-y-auto p-2 lg:block">
+                <AgentRail onAsk={setAsk} onRunningChange={setRunning} />
+              </div>
+            )}
 
             {/* What he is doing, in words, above him. */}
             <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
