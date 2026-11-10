@@ -103,8 +103,26 @@ export interface PhoenixVoiceApi {
 
   /** What you are saying right now, before the sentence is finished. */
   heard: string;
+  /**
+   * Spikes to 1 on every word the recogniser hears.
+   *
+   * The ambient field ripples from this rather than from an amplitude,
+   * because the microphone stream had to go — it was stopping the
+   * recogniser from acquiring the device. A word is a coarser impulse
+   * than a waveform, but it is a REAL one: it fires when you actually
+   * said something, not when a door closed near the laptop.
+   */
+  pulseRef: React.MutableRefObject<number>;
   /** False in Firefox, which has no SpeechRecognition. Say so, do not fake it. */
   canListen: boolean;
+  /**
+   * What the recogniser is doing, in one word, for the screen.
+   *
+   * Added because "it still cannot hear me" is unanswerable from here: a
+   * recogniser that never starts, one that starts and closes instantly,
+   * and one that is listening to a muted microphone all look identical.
+   */
+  recState: 'off' | 'starting' | 'listening' | 'restarting' | 'error';
 
   speaking: boolean;
   speakError: string | null;
@@ -124,10 +142,12 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   heardCb.current = onHeard;
 
   const levelRef = useRef(0);
+  const pulseRef = useRef(0);
   const [meter, setMeter] = useState(0);
   const [micOn, setMicOn] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [heard, setHeard] = useState('');
+  const [recState, setRecState] = useState<PhoenixVoiceApi['recState']>('off');
   const [speaking, setSpeaking] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [lastCostCents, setLastCostCents] = useState<number | null>(null);
@@ -144,6 +164,17 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   const speechRef = useRef<{ el: HTMLAudioElement; node: MediaElementAudioSourceNode; url: string } | null>(null);
   const recRef = useRef<any>(null);
   const wantRec = useRef(false);
+  /**
+   * Consecutive sessions that ended without producing a word.
+   *
+   * Chrome closes a recognition session after a pause, which is normal and
+   * is why onend restarts it. But a session that ends INSTANTLY, over and
+   * over, is a different thing — usually the microphone being held
+   * elsewhere — and restarting it forever is a silent infinite loop that
+   * looks exactly like a feature that does not work.
+   */
+  const emptyEnds = useRef(0);
+  const sessionHeard = useRef(false);
 
   const rafRef = useRef(0);
   const bufRef = useRef<Uint8Array | null>(null);
@@ -229,6 +260,11 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     rec.lang = 'en-US';
 
     rec.onresult = (e: any) => {
+      // Every word throws a ring outward through the dust.
+      pulseRef.current = 1;
+      sessionHeard.current = true;
+      emptyEnds.current = 0;
+      setRecState('listening');
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
@@ -248,36 +284,69 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     };
 
     rec.onerror = (e: any) => {
-      // 'no-speech' and 'aborted' are ordinary. Anything else is worth
-      // surfacing, because silent failure here looks like a broken mic.
-      if (e?.error && e.error !== 'no-speech' && e.error !== 'aborted') {
-        setMicError(
-          e.error === 'not-allowed'
-            ? 'Speech recognition was refused. Allow the microphone in the padlock menu.'
-            : `Speech recognition stopped: ${e.error}`,
-        );
-      }
+      // 'no-speech' is ordinary — a pause. Everything else gets named,
+      // including 'aborted', which used to be swallowed and is exactly
+      // what a microphone held by another process looks like.
+      if (!e?.error || e.error === 'no-speech') return;
+      setRecState('error');
+      setMicError(
+        e.error === 'not-allowed'
+          ? 'Microphone permission was refused. Allow it in the padlock menu, then press talk again.'
+          : e.error === 'audio-capture'
+            ? 'No microphone could be opened. Another application or tab may be holding it.'
+            : e.error === 'network'
+              ? 'Speech recognition needs a network connection and could not reach it.'
+              : `Speech recognition stopped: ${e.error}`,
+      );
     };
 
     // Chrome ends the session on its own after a pause. Restart while the
     // microphone is meant to be open, or it listens once and gives up.
     rec.onend = () => {
       recRef.current = null;
-      if (wantRec.current) {
-        try { startRecognition(); } catch { /* the mic is closing */ }
+      if (!wantRec.current) { setRecState('off'); return; }
+
+      // A session that produced nothing is suspicious; several in a row is
+      // a loop. Stop and say why rather than spin silently.
+      if (!sessionHeard.current) emptyEnds.current += 1; else emptyEnds.current = 0;
+      if (emptyEnds.current >= 6) {
+        wantRec.current = false;
+        setRecState('error');
+        setMicError('The recogniser keeps closing straight away. Another tab or application is probably holding the microphone.');
+        return;
       }
+
+      setRecState('restarting');
+      try { startRecognition(); } catch { setRecState('error'); }
     };
 
+    rec.onstart = () => { setRecState('listening'); };
+    rec.onaudiostart = () => { setRecState('listening'); };
+
+    sessionHeard.current = false;
     recRef.current = rec;
-    rec.start();
+    setRecState('starting');
+    try {
+      rec.start();
+    } catch (err: any) {
+      // InvalidStateError means one is already running; anything else is
+      // worth showing.
+      recRef.current = null;
+      if (err?.name !== 'InvalidStateError') {
+        setRecState('error');
+        setMicError(err?.message || 'Speech recognition would not start.');
+      }
+    }
   }, []);
 
   const stopRecognition = useCallback(() => {
     wantRec.current = false;
+    emptyEnds.current = 0;
     const rec = recRef.current;
     recRef.current = null;
     setHeard('');
-    try { rec?.stop(); } catch { /* already stopped */ }
+    setRecState('off');
+    try { rec?.abort?.(); rec?.stop(); } catch { /* already stopped */ }
   }, []);
 
   /* ── ears ──────────────────────────────────────────────────────────── */
@@ -296,42 +365,36 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     if (!speechRef.current) stopLoop();
   }, [stopLoop, stopRecognition]);
 
+  /**
+   * NO getUserMedia HERE, DELIBERATELY.
+   *
+   * The first version opened a microphone stream for the analyser and then
+   * started the recogniser on top of it. In Chrome the recogniser opens
+   * its OWN capture, and a page already holding the device frequently
+   * stops it acquiring one — it fires onend immediately, forever, and the
+   * old code restarted it silently. That is what "it still cannot hear me"
+   * was: a loop, running perfectly, producing nothing.
+   *
+   * Dropping the stream costs nothing real. The mic analyser drove the
+   * particles, and the particles are deliberately deaf while listening —
+   * audio gain is zero in every state but SPEAKING, because watching him
+   * twitch while you talk read as nervousness. So the stream was powering
+   * a meter and blocking the feature it was supposed to support.
+   *
+   * The live transcript under the mark is better feedback than a meter
+   * ever was: it shows the actual words, not that sound exists.
+   */
   const startMic = useCallback(async () => {
     setMicError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          // On, so his own voice through the speakers does not come back in.
-          echoCancellation: true,
-          // Off: it gates quiet speech to digital silence, and quiet speech
-          // is exactly when you want to see that you are being heard.
-          noiseSuppression: false,
-          autoGainControl: true,
-        },
-      });
-      const ctx = await context();
-      const node = ctx.createMediaStreamSource(stream);
-      node.connect(micAnalyser.current!);   // and nowhere else
-      micRef.current = { stream, node };
-      setMicOn(true);
-      runLoop();
-
-      wantRec.current = true;
-      startRecognition();
-      if (!SpeechRec) {
-        setMicError('This browser cannot transcribe speech — the mark will react to your voice, but you will have to type the question. Chrome, Edge or Safari can listen.');
-      }
-    } catch (e: any) {
-      const name = e?.name;
-      setMicError(
-        name === 'NotAllowedError' ? 'Microphone permission was refused. Allow it in the padlock menu.'
-          : name === 'NotFoundError' ? 'No microphone is attached.'
-            : name === 'NotReadableError' ? 'Another application is holding the microphone.'
-              : e?.message || 'The microphone could not be opened.',
-      );
-      setMicOn(false);
+    if (!SpeechRec) {
+      setMicError('This browser cannot transcribe speech. Chrome, Edge or Safari can; Firefox cannot. Type the question instead.');
+      return;
     }
-  }, [context, runLoop, startRecognition]);
+    setMicOn(true);
+    wantRec.current = true;
+    emptyEnds.current = 0;
+    startRecognition();
+  }, [startRecognition]);
 
   /* ── voice ─────────────────────────────────────────────────────────── */
 
@@ -438,7 +501,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   return {
     levelRef, meter,
     micOn, micError, startMic, stopMic,
-    heard, canListen: !!SpeechRec,
+    heard, canListen: !!SpeechRec, recState, pulseRef,
     speaking, speakError, lastCostCents, lastModel, speak, stopSpeaking,
     contextState,
   };

@@ -161,3 +161,78 @@ test('point size is projection-derived, never a magic constant', () => {
   assert.doesNotMatch(body, /gl_PointSize\s*=\s*[\w.]*\s*\*\s*\(\s*\d{3}/,
     'a three-digit constant in the point size is how the blob happened');
 });
+
+/* ── the ambient field, same rules ───────────────────────────────────── */
+
+const AMBIENT = readFileSync('src/app/components/phoenix/AmbientField.tsx', 'utf8');
+
+function ambientShader(name: 'VERT' | 'FRAG'): string {
+  const start = AMBIENT.indexOf(`const ${name} = /* glsl */\``);
+  assert.ok(start >= 0, `AmbientField ${name} not found`);
+  const from = AMBIENT.indexOf('`', start) + 1;
+  const to = AMBIENT.indexOf('`;', from);
+  return AMBIENT.slice(from, to).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+}
+
+for (const which of ['VERT', 'FRAG'] as const) {
+  test(`AmbientField ${which}: every local is declared before it is used`, () => {
+    // The same check that would have caught the "outward" bug in one
+    // second. A second shader is a second chance to make that mistake.
+    const body = mainBody(ambientShader(which));
+    for (const type of GLSL_TYPES) {
+      // Double-escaped: inside a template literal a single \b is a
+      // backspace character, not a word boundary, and the pattern then
+      // matches nothing — a test that passes because it asks nothing.
+      const decl = new RegExp(`\\b${type}\\s+([A-Za-z_]\\w*)\\s*=`, 'g');
+      let m: RegExpExecArray | null;
+      while ((m = decl.exec(body))) {
+        const first = body.search(new RegExp(`\\b${m[1]}\\b`));
+        assert.ok(first >= m.index,
+          `AmbientField ${which}: "${m[1]}" used at ${first}, declared at ${m.index}`);
+      }
+    }
+  });
+
+  test(`AmbientField ${which}: uniforms and varyings are declared`, () => {
+    const src = ambientShader(which);
+    const uni = new Set([...src.matchAll(/\buniform\s+\w+\s+(\w+)\s*;/g)].map((m) => m[1]));
+    const vary = new Set([...src.matchAll(/\bvarying\s+\w+\s+(\w+)\s*;/g)].map((m) => m[1]));
+    const body = mainBody(src);
+    for (const m of body.matchAll(/\bu[A-Z]\w*/g)) {
+      assert.ok(uni.has(m[0]), `AmbientField ${which}: ${m[0]} undeclared uniform`);
+    }
+    for (const m of body.matchAll(/\bv[A-Z]\w*/g)) {
+      assert.ok(vary.has(m[0]), `AmbientField ${which}: ${m[0]} undeclared varying`);
+    }
+  });
+}
+
+test('AmbientField: every uniform is given a value in JS', () => {
+  const declared = new Set<string>();
+  for (const which of ['VERT', 'FRAG'] as const) {
+    for (const m of ambientShader(which).matchAll(/\buniform\s+\w+\s+(\w+)\s*;/g)) declared.add(m[1]);
+  }
+  const block = AMBIENT.slice(AMBIENT.indexOf('const uniforms = useMemo'));
+  const supplied = new Set(
+    [...block.slice(0, block.indexOf('}), [')).matchAll(/\b(u[A-Z]\w*)\s*:/g)].map((m) => m[1]),
+  );
+  for (const n of declared) {
+    assert.ok(supplied.has(n), `${n} declared in GLSL but never given a value`);
+  }
+});
+
+test('AmbientField: every attribute is set on the geometry', () => {
+  for (const m of ambientShader('VERT').matchAll(/\battribute\s+\w+\s+(\w+)\s*;/g)) {
+    assert.match(AMBIENT, new RegExp(`setAttribute\\(\\s*'${m[1]}'`),
+      `${m[1]} declared in GLSL but never set on the geometry`);
+  }
+});
+
+test('the dust is never pure black', () => {
+  // A black mote on a black screen is nothing at all, and the ripple then
+  // appears to travel through a void and arrive from nowhere.
+  const frag = ambientShader('FRAG');
+  const dim = frag.match(/vec3 dim\s*=\s*vec3\(([\d.]+)/);
+  assert.ok(dim, 'the resting colour should be named "dim"');
+  assert.ok(Number(dim![1]) > 0.05, `resting colour ${dim![1]} is too close to black to see`);
+});

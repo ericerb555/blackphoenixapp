@@ -39,6 +39,7 @@ import {
   loadPhoenixParticles, budgetFor, BRAND_ORANGE, BRAND_EMBER,
   type ParticleField,
 } from './phoenixParticleSource';
+import AmbientField from './AmbientField';
 
 /**
  * Camera distance. Shared with the shader so depth shading agrees with it.
@@ -350,6 +351,14 @@ function Swarm({
   state: PhoenixState;
   audioLevel: number;
   audioLevelRef?: React.MutableRefObject<number>;
+  /**
+   * Spikes on each word heard. Drives the rings through the dust.
+   *
+   * Separate from the level because the two have different sources: his
+   * voice gives a continuous amplitude, yours gives discrete words. See
+   * AmbientField for why there is no waveform for your side.
+   */
+  pulseRef?: React.MutableRefObject<number>;
   reducedMotion: boolean;
   onFps?: (fps: number) => void;
 }) {
@@ -522,6 +531,14 @@ export interface PhoenixParticleBrainProps {
    * Preferred over the plain number — see the note inside Swarm.
    */
   audioLevelRef?: React.MutableRefObject<number>;
+  /**
+   * Spikes on each word heard. Drives the rings through the dust.
+   *
+   * Separate from the level because the two have different sources: his
+   * voice gives a continuous amplitude, yours gives discrete words. See
+   * AmbientField for why there is no waveform for your side.
+   */
+  pulseRef?: React.MutableRefObject<number>;
   /** Override the device budget. The prototype exposes this; the app will not. */
   particleCount?: number;
   className?: string;
@@ -533,6 +550,7 @@ export default function PhoenixParticleBrain({
   state = 'idle',
   audioLevel = 0,
   audioLevelRef,
+  pulseRef,
   particleCount,
   className,
   onFps,
@@ -665,6 +683,17 @@ export default function PhoenixParticleBrain({
               of something unnecessary is still something unnecessary, and
               git remembers the geometry if it is ever wanted back.
             */}
+            {/*
+              The dust first, and behind him. It is the room he is standing
+              in; drawn after the bird it would wash over his darker
+              feathers under additive blending.
+            */}
+            <AmbientField
+              audioLevelRef={audioLevelRef}
+              pulseRef={pulseRef}
+              reducedMotion={reducedMotion}
+              camDist={CAM_DIST}
+            />
             <Swarm
               field={field}
               state={state}

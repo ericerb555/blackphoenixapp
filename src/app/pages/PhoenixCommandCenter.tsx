@@ -272,6 +272,7 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                 <PhoenixParticleBrain
                   state={state}
                   audioLevelRef={voice.levelRef}
+                  pulseRef={voice.pulseRef}
                   onReady={setParticles}
                   onFps={setFps}
                   className="h-full w-full"

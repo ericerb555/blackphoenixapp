@@ -116,6 +116,7 @@ export default function PhoenixBrainPrototype({
           <PhoenixParticleBrain
             state={state}
             audioLevelRef={v.levelRef}
+            pulseRef={v.pulseRef}
             particleCount={budget}
             onFps={setFps}
             onReady={setCount}
