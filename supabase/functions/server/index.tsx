@@ -423,12 +423,35 @@ console.log("========================================");
 console.log("🚀 Black Phoenix Server v2.0.0");
 console.log("========================================");
 
-// CORS
+/*
+ * CORS
+ *
+ * BOTH LISTS ARE ALLOWLISTS, AND A MISSING NAME IS A SILENT FAILURE.
+ *
+ * allowHeaders decides which REQUEST headers the browser is permitted to
+ * send. A name missing from it does not produce a 4xx you can find in a
+ * log: the preflight succeeds, the browser compares the lists itself,
+ * refuses to send the real request, and the fetch rejects with the
+ * uninformative "Failed to fetch". Phoenix's ears shipped with
+ * X-Audio-Seconds absent from here and that is exactly what happened —
+ * every recording died in the browser, the server never saw one, and the
+ * ledger had nothing to show.
+ *
+ * exposeHeaders decides which RESPONSE headers scripts may read. Anything
+ * not listed reads back as null, so the speak route's cost and model
+ * headers were being set, sent, and then discarded by the browser — the
+ * console had been quietly reporting every utterance as costing zero.
+ */
 app.use("/*", cors({
   origin: "*",
-  allowHeaders: ["Content-Type", "Authorization", "apikey", "X-Payment-Confirmation-Secret", "X-Loyalty-Event-Secret", "X-Affiliate-Event-Secret"],
+  allowHeaders: [
+    "Content-Type", "Authorization", "apikey",
+    "X-Payment-Confirmation-Secret", "X-Loyalty-Event-Secret", "X-Affiliate-Event-Secret",
+    // How long the clip is, for the cost column. See phoenix/transcribe.
+    "X-Audio-Seconds",
+  ],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  exposeHeaders: ["Content-Length"],
+  exposeHeaders: ["Content-Length", "X-Phoenix-Cost-Cents", "X-Phoenix-Model"],
   maxAge: 600,
 }));
 
