@@ -44,7 +44,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { sniffImage } from "./imageSniff.ts";
+import { sniffPhoto } from "./photoSniff.ts";
 
 const quoteAttachmentsRouter = new Hono();
 
@@ -61,22 +61,32 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 const SIGNED_URL_TTL_SECONDS = 86400; // 24h, as media-library does
 
-const IMAGE_TYPES = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/bmp",
-  "image/tiff",
-]);
-
 /**
- * SVG is absent on purpose, unlike media-library's list.
+ * THE DECLARED IMAGE TYPE IS NOT CONSULTED. See `sniffPhoto` in `photoSniff.ts`.
  *
- * An SVG is a script-bearing document, and these are rendered back into the
- * staff editor and (later) a customer's browser from our own origin. A photo of
- * a job site is never an SVG, so excluding it costs nothing real.
+ * This set used to be the gate, and it was wrong twice over — Eric found both
+ * within the hour by pressing the button on his phone:
+ *
+ *  1. **It refused iPhone photographs.** A photo picked from an iOS library
+ *     arrives as `image/heic`, which was not on the list, so every upload from
+ *     the device the feature exists for was answered with 400.
+ *
+ *  2. **It advertised three formats that could never succeed.** `image/gif`,
+ *     `image/bmp` and `image/tiff` passed this check and were then handed to
+ *     `sniffImage`, which only knows JPEG, PNG and WebP — so they failed a
+ *     second check with "not a readable image", which was both a refusal and a
+ *     lie. An allowlist that disagrees with its own validator is worse than no
+ *     allowlist, because it reads as permission.
+ *
+ * The lesson kept rather than the list: for an image, the only thing that
+ * decides is the bytes. A declared type is used solely to route video, which
+ * cannot be sniffed here.
+ *
+ * SVG is absent on purpose, unlike media-library's list. An SVG is a
+ * script-bearing document and these are rendered back into a browser from our
+ * own origin; a photo of a job site is never an SVG, so excluding it costs
+ * nothing real. Nothing below can return one, so it cannot arrive by accident
+ * either.
  */
 const VIDEO_TYPES = new Set([
   "video/mp4",
@@ -270,38 +280,50 @@ quoteAttachmentsRouter.post(
       }
 
       const declared = String(file.type || "").toLowerCase();
-      const isImage = IMAGE_TYPES.has(declared);
-      const isVideo = VIDEO_TYPES.has(declared);
-      if (!isImage && !isVideo) {
-        return c.json({
-          success: false,
-          error: `${declared || "That file type"} cannot be attached. Photos: JPG, PNG, GIF, WebP, BMP, TIFF. Video: MP4, MOV, WebM, AVI, MKV.`,
-        }, 400);
-      }
-
       const bytes = new Uint8Array(await file.arrayBuffer());
 
       /**
-       * For an image, the BYTES decide, not the header.
+       * Video routes on its declared type; everything else is sniffed.
        *
-       * The content type is whatever the uploader claimed, and these files are
-       * rendered back into a browser from our own origin. A sniff is cheap and
-       * it is the only thing here that can tell an actual photograph from
-       * something merely labelled as one.
+       * This order matters and is the fix for the bug Eric found. The old code
+       * asked "is the declared type on my list of images?" FIRST, so a
+       * photograph whose type was not on the list — every iPhone HEIC — was
+       * refused before its bytes were ever looked at. Now a file that is not a
+       * recognised video is simply handed to the sniffer, and the sniffer
+       * decides. A declared type that is absent, wrong, or novel no longer
+       * matters for an image.
        *
-       * Video is not sniffed — `sniffImage` has no signatures for it — so a
-       * video is accepted on its declared type and extension. It is stored
-       * private, served from a signed URL, and only ever placed in a `<video>`
-       * element, which does not execute what it cannot decode.
+       * Video genuinely cannot be sniffed here, so it keeps the declared-type
+       * check. That is acceptable where it is not for an image: a video is
+       * stored private, served from a signed URL, and only ever placed in a
+       * `<video>` element, which does not execute what it cannot decode.
        */
-      let mimeType = declared;
-      let ext = safeExt(file.name, isVideo ? "mp4" : "bin");
-      if (isImage) {
-        const sniffed = sniffImage(bytes);
+      const isVideo = VIDEO_TYPES.has(declared);
+
+      let mimeType: string;
+      let ext: string;
+
+      if (isVideo) {
+        mimeType = declared;
+        ext = safeExt(file.name, "mp4");
+      } else {
+        const sniffed = sniffPhoto(bytes);
         if (!sniffed) {
+          /**
+           * Say which of the two things went wrong.
+           *
+           * The old message was "not a readable image" for both a corrupt JPEG
+           * and a PDF somebody meant to attach, and for the HEIC case it was
+           * simply false. Naming the declared type lets whoever hit it tell
+           * "you sent us a document" from "that photo is damaged" without
+           * reading the server log.
+           */
+          const looksLikeAFile = declared && !declared.startsWith("image/");
           return c.json({
             success: false,
-            error: `"${file.name}" is not a readable image. Please re-export it and try again.`,
+            error: looksLikeAFile
+              ? `"${file.name}" is a ${declared} — only photos and video can be attached to a quote.`
+              : `"${file.name}" could not be read as a photo or a video. Photos: JPG, PNG, HEIC, WebP, GIF. Video: MP4, MOV, WebM, AVI, MKV.`,
           }, 400);
         }
         mimeType = sniffed.mime;

@@ -68,6 +68,81 @@ function humanSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** The longest edge a stored job photo needs. A 4K screen is 3840 across. */
+const MAX_EDGE = 2560;
+
+/**
+ * Re-encode a photo to JPEG on the device before it is uploaded.
+ *
+ * WHY, AND IT IS NOT PRIMARILY ABOUT SIZE
+ *
+ * Every iPhone since 2017 writes **HEIC**. Safari can display it; Chrome,
+ * Firefox and Edge cannot. So a HEIC accepted and stored unchanged would attach
+ * fine from Eric's phone and then show as a broken thumbnail on the desktop
+ * where the quote actually gets priced — attached, and useless.
+ *
+ * The conversion has to happen on the device that took the photo, because that
+ * is the only machine guaranteed to have a HEIC decoder: iOS Safari will draw
+ * it into a canvas happily. An edge function cannot — there is no `sharp` in
+ * Deno Deploy — and a desktop browser cannot decode it to convert it either.
+ *
+ * The size win comes along for free and is worth having on its own: a 12MP
+ * phone photo is 3-5MB of HEIC or 8MB of JPEG, and these are uploaded over
+ * whatever signal a job site has. Capped at 2560px and quality 0.9 a job photo
+ * lands around 600KB and loses nothing anybody looks at it for.
+ *
+ * WHAT IT DOES NOT TOUCH
+ *
+ * Video, which cannot be re-encoded in a canvas and is left exactly as filmed.
+ * And anything it fails on: if the browser cannot decode the file, the ORIGINAL
+ * bytes are uploaded unchanged and the server's sniffer gets the final say.
+ * A conversion that cannot happen must never become a refusal — that is the
+ * bug this panel already had once.
+ */
+async function toUploadableImage(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') && !/\.(heic|heif)$/i.test(file.name)) return file;
+
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      // A decode that never settles would hang the upload queue behind it.
+      const timer = setTimeout(() => reject(new Error('decode timed out')), 20000);
+      el.onload = () => { clearTimeout(timer); resolve(el); };
+      el.onerror = () => { clearTimeout(timer); reject(new Error('cannot decode')); };
+      el.src = url;
+    });
+
+    const scale = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9),
+    );
+    if (!blob || blob.size === 0) return file;
+
+    // Already a modest JPEG and no resize needed? Keep the original rather than
+    // re-encoding it a second time and losing a generation for nothing.
+    if (scale === 1 && file.type === 'image/jpeg' && blob.size >= file.size) return file;
+
+    const base = file.name.replace(/\.[^.]+$/, '') || 'photo';
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    // Upload what we were given. The server decides from the bytes.
+    return file;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function QuoteAttachmentsPanel({
   quoteId,
   title = 'Photos & Video',
@@ -129,8 +204,12 @@ export function QuoteAttachmentsPanel({
     // connection a job site has, and firing six large uploads at once is how all
     // six fail.
     for (let i = 0; i < chosen.length; i++) {
-      const file = chosen[i];
+      const picked = chosen[i];
       setProgress({ done: i, total: chosen.length });
+
+      // HEIC becomes JPEG here, and a 12MP photo gets smaller, BEFORE the size
+      // check — so a phone photo over the limit is shrunk rather than refused.
+      const file = await toUploadableImage(picked);
 
       if (file.size > MAX_FILE_SIZE) {
         failures.push(`${file.name} is ${(file.size / 1024 / 1024).toFixed(0)}MB (limit 50MB)`);
