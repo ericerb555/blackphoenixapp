@@ -462,10 +462,53 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
       setMicError('This browser cannot transcribe speech. Chrome, Edge or Safari can; Firefox cannot. Type the question instead.');
       return;
     }
+
     setMicOn(true);
     wantRec.current = true;
     emptyEnds.current = 0;
+
+    /*
+     * ASK FOR PERMISSION, THEN LET GO OF THE DEVICE IMMEDIATELY.
+     *
+     * Removing getUserMedia fixed the recogniser being unable to acquire
+     * the microphone — but it also removed the only thing that reliably
+     * raised the permission prompt. SpeechRecognition is supposed to ask
+     * for itself and frequently does not, and without permission it ends
+     * instantly and silently, which is the same symptom by a different
+     * route. I traded one invisible failure for another.
+     *
+     * The conflict was never the REQUEST, it was HOLDING the stream. So:
+     * open it, stop every track in the same breath, and start the
+     * recogniser against a device nobody is holding.
+     *
+     * Started first and awaited after, so an already-granted microphone
+     * still begins recognition inside the click — some browsers refuse to
+     * start one from a promise continuation.
+     */
     startRecognition();
+
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((t) => t.stop());
+      // Granted. If the recogniser had already died for want of it, the
+      // onend restart will now succeed.
+      if (wantRec.current && !recRef.current) startRecognition();
+    } catch (e: any) {
+      const name = e?.name;
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        wantRec.current = false;
+        setMicOn(false);
+        setRecState('error');
+        setMicError('Microphone permission was refused. Click the padlock in the address bar, set Microphone to Allow, then press talk again.');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        wantRec.current = false;
+        setMicOn(false);
+        setRecState('error');
+        setMicError('No microphone could be found on this machine.');
+      }
+      // Anything else: the recogniser may still manage on its own, so
+      // leave it running rather than killing a working session.
+    }
   }, [startRecognition]);
 
   /* ── voice ─────────────────────────────────────────────────────────── */

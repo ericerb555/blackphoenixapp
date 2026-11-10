@@ -47,7 +47,17 @@ export default function PhoenixBrainPrototype({
     'Four quotes are out for eighteen thousand, and two invoices are overdue.',
   );
 
-  const v = usePhoenixVoice();
+  /*
+   * onHeard was never passed here, so this page's microphone button
+   * started a recogniser whose results went nowhere — it lit up, the
+   * meter sat at zero, and nothing happened. Which is exactly what "it
+   * cannot hear me" looks like if this is the page you are testing on.
+   *
+   * What it hears now lands in the line below, so you can watch the
+   * transcription work and then play it back in his voice. Both halves,
+   * proved in one action.
+   */
+  const v = usePhoenixVoice({ onHeard: (text) => setLine(text) });
 
   /*
    * The state follows the audio, not the other way round, so what you see is
@@ -148,20 +158,46 @@ export default function PhoenixBrainPrototype({
             <p className="mt-2 text-[11px] leading-relaxed text-gray-500">{current.note}</p>
           </div>
 
-          {/* One meter, whichever source is live. */}
+          {/*
+            The meter only moves for HIS voice now.
+
+            There is no microphone waveform any more: holding the device
+            with getUserMedia stopped the recogniser acquiring it, so the
+            stream had to go. Saying "Hearing you" over a bar that can
+            never move would be a lie, so while listening this shows the
+            words instead, which is better evidence anyway.
+          */}
           <div>
             <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500">
-              <span>{v.speaking ? 'Phoenix speaking' : v.micOn ? 'Hearing you' : 'No audio'}</span>
-              <span>{pct}%</span>
+              <span>{v.speaking ? 'Phoenix speaking' : v.micOn ? 'Listening' : 'No audio'}</span>
+              <span>{v.speaking ? `${pct}%` : v.micOn ? v.recState : ''}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded bg-[#1A1A1A]">
-              <div
-                className={`h-full transition-[width] duration-100 ${
-                  v.speaking ? 'bg-orange-400' : 'bg-emerald-400'
-                }`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
+            {v.speaking ? (
+              <div className="h-1.5 overflow-hidden rounded bg-[#1A1A1A]">
+                <div
+                  className="h-full bg-orange-400 transition-[width] duration-100"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            ) : (
+              <p className="min-h-[1.25rem] text-xs italic text-emerald-300/80">
+                {v.heard || (v.micOn ? 'say something…' : '')}
+              </p>
+            )}
+            {v.micPermission === 'denied' && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-amber-400">
+                This site is blocked from using the microphone. Padlock in the
+                address bar, Microphone, Allow, then reload.
+              </p>
+            )}
+            {!v.canListen && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-amber-400">
+                This browser cannot turn speech into text. Chrome, Edge or Safari can.
+              </p>
+            )}
+            {v.micError && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-amber-400">{v.micError}</p>
+            )}
           </div>
 
           <div>

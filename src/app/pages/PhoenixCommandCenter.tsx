@@ -317,6 +317,15 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                         : voice.recState === 'starting' ? 'opening the microphone'
                           : voice.recState === 'restarting' ? 'listening'
                             : voice.recState}
+                      {/*
+                        The raw state alongside the friendly one. A
+                        paraphrase is what somebody reads back to me, and
+                        "listening" covers both working and quietly
+                        failing. These two words do not.
+                      */}
+                      <span className="ml-2 text-gray-600">
+                        [{voice.recState} · {voice.micPermission}]
+                      </span>
                     </span>
                   )}
                 </div>
