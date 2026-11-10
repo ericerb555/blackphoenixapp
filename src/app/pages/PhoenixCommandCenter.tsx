@@ -63,6 +63,17 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
   const [expanded, setExpanded] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [ask, setAsk] = useState<string | null>(null);
+  /*
+   * Particle count and frame rate, on screen.
+   *
+   * Not telemetry — a discriminator. "Nothing is there" has at least three
+   * causes that look identical from the outside: the box has no size, the
+   * field never built, or it built and rendered too dim to see. These two
+   * numbers separate all three in one glance, and their absence is as
+   * informative as their value.
+   */
+  const [particles, setParticles] = useState(0);
+  const [fps, setFps] = useState(0);
 
   /*
    * One voice for the page. The console speaks through it and the Phoenix
@@ -207,6 +218,8 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
               <PhoenixParticleBrain
                 state={state}
                 audioLevelRef={voice.levelRef}
+                onReady={setParticles}
+                onFps={setFps}
                 className="h-full w-full"
               />
             </PanelErrorBoundary>
@@ -261,13 +274,23 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             </span>
           )}
         </span>
-        <button
-          onClick={() => onNavigate?.('phoenix-prototype')}
-          className="transition hover:text-orange-400"
-          title="The particle brain on its own, with every state as a button"
-        >
-          particle lab
-        </button>
+        <span className="flex items-center gap-2">
+          <span title="Particles forming the mark. Zero means the field never built.">
+            {particles ? `${particles.toLocaleString()} particles` : 'no particles'}
+          </span>
+          <span className="text-gray-800">│</span>
+          <span title="Frames per second. Zero means the canvas is not drawing.">
+            {fps ? `${fps} fps` : 'no frames'}
+          </span>
+          <span className="text-gray-800">│</span>
+          <button
+            onClick={() => onNavigate?.('phoenix-prototype')}
+            className="transition hover:text-orange-400"
+            title="The particle brain on its own, with every state as a button"
+          >
+            particle lab
+          </button>
+        </span>
       </div>
     </div>
   );

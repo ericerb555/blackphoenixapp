@@ -612,6 +612,36 @@ export default function PhoenixParticleBrain({
   const [field, setField] = useState<ParticleField | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
+  /**
+   * How big this component's own box is.
+   *
+   * WHY THIS IS MEASURED AND REPORTED
+   *
+   * A canvas in a zero-height box draws nothing, throws nothing, and logs
+   * nothing. It is indistinguishable from a broken shader, a failed image
+   * decode, or a component that never mounted — and this one has now had
+   * a collapsed box twice, for two unrelated CSS reasons, each costing a
+   * round trip of "I still cannot see it".
+   *
+   * So it measures itself and says so. A thing that cannot be drawn should
+   * never be silent about why.
+   */
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([entry]) => {
+      const r = entry.contentRect;
+      setBox({ w: Math.round(r.width), h: Math.round(r.height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const tooSmall = box !== null && (box.w < 40 || box.h < 40);
+
   const reducedMotion = useMemo(
     () => typeof matchMedia !== 'undefined'
       && matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -632,9 +662,27 @@ export default function PhoenixParticleBrain({
 
   if (failed) {
     return (
-      <div className={`flex items-center justify-center ${className || ''}`}>
+      <div ref={hostRef} className={`flex items-center justify-center ${className || ''}`}>
         <p className="max-w-xs text-center text-sm text-rose-300">
           The Phoenix could not be built from the logo: {failed}
+        </p>
+      </div>
+    );
+  }
+
+  /*
+   * Named, not blank. This is the state that has wasted the most time.
+   * It is styled to be unmissable because an invisible diagnostic is the
+   * same as no diagnostic.
+   */
+  if (tooSmall) {
+    return (
+      <div
+        ref={hostRef}
+        className={`flex items-center justify-center overflow-visible ${className || ''}`}
+      >
+        <p className="whitespace-nowrap rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-center font-mono text-[10px] text-amber-300">
+          Phoenix has no room to draw — {box!.w}×{box!.h}px
         </p>
       </div>
     );
@@ -650,7 +698,7 @@ export default function PhoenixParticleBrain({
    */
   if (!field) {
     return (
-      <div className={`flex items-center justify-center ${className || ''}`}>
+      <div ref={hostRef} className={`flex items-center justify-center ${className || ''}`}>
         <p className="animate-pulse font-mono text-[10px] uppercase tracking-[0.3em] text-orange-400/50">
           forming
         </p>
@@ -659,7 +707,7 @@ export default function PhoenixParticleBrain({
   }
 
   return (
-    <div className={className}>
+    <div ref={hostRef} className={className}>
       <Canvas
         camera={{ position: [0, 0, CAM_DIST], fov: 45 }}
         // Capped: a 3x retina display would otherwise quadruple the fill
