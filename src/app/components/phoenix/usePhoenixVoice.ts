@@ -147,6 +147,16 @@ export interface PhoenixVoiceApi {
    * and one that is listening to a muted microphone all look identical.
    */
   recState: 'off' | 'starting' | 'listening' | 'restarting' | 'error';
+  /**
+   * What the browser says about microphone permission for this origin.
+   *
+   * Worth asking directly. A site that was refused the microphone once
+   * keeps being refused silently — SpeechRecognition just ends instantly
+   * forever — and there is no way to tell that apart from a recogniser
+   * that is working and hearing nothing. 'denied' is a specific thing a
+   * person can fix in ten seconds if somebody tells them.
+   */
+  micPermission: 'granted' | 'denied' | 'prompt' | 'unknown';
 
   speaking: boolean;
   speakError: string | null;
@@ -172,6 +182,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   const [micError, setMicError] = useState<string | null>(null);
   const [heard, setHeard] = useState('');
   const [recState, setRecState] = useState<PhoenixVoiceApi['recState']>('off');
+  const [micPermission, setMicPermission] = useState<PhoenixVoiceApi['micPermission']>('unknown');
   const [speaking, setSpeaking] = useState(false);
   const [speakError, setSpeakError] = useState<string | null>(null);
   const [lastCostCents, setLastCostCents] = useState<number | null>(null);
@@ -559,6 +570,25 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     }
   }, [context, runLoop, stopSpeaking]);
 
+  /*
+   * Ask once on mount, and keep listening for changes — a person who
+   * fixes the permission in the padlock menu should see the screen agree
+   * with them without reloading.
+   *
+   * Firefox does not implement the 'microphone' permission name and
+   * throws; that is an 'unknown', not a failure.
+   */
+  useEffect(() => {
+    const perms = (navigator as any)?.permissions;
+    if (!perms?.query) return;
+    let status: any = null;
+    const onChange = () => setMicPermission(status?.state || 'unknown');
+    perms.query({ name: 'microphone' as PermissionName })
+      .then((s: any) => { status = s; onChange(); s.addEventListener?.('change', onChange); })
+      .catch(() => setMicPermission('unknown'));
+    return () => status?.removeEventListener?.('change', onChange);
+  }, []);
+
   /* Everything torn down on unmount, including the context itself. */
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -576,7 +606,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   return {
     levelRef, meter,
     micOn, micError, startMic, stopMic,
-    heard, canListen: !!SpeechRec, recState, pulseRef,
+    heard, canListen: !!SpeechRec, recState, pulseRef, micPermission,
     speaking, speakError, lastCostCents, lastModel, speak, stopSpeaking,
     contextState,
   };

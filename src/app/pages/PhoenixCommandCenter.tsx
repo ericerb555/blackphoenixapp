@@ -172,12 +172,6 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             {voice.micOn ? 'listening' : 'talk'}
           </button>
 
-          {voice.micError && (
-            <span className="hidden max-w-xs truncate font-mono text-[9px] uppercase tracking-[0.12em] text-amber-400 lg:inline">
-              {voice.micError}
-            </span>
-          )}
-
           {pending > 0 && (
             <span className="flex items-center gap-1.5 rounded border border-orange-500/40 bg-orange-500/10 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-orange-300">
               <StatusDot tone="warn" />
@@ -288,22 +282,44 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             )}
 
             {/*
-              What he is hearing, as you say it.
+              THE VOICE STATUS, WHERE YOU ARE ALREADY LOOKING.
 
-              Interim results, so there is feedback before the sentence
-              lands. Without it the gap between speaking and the answer is
-              silent and you cannot tell whether anything is working — the
-              exact complaint that led here.
+              Every previous version of this hid behind a lg: breakpoint
+              and a truncate, so the one message that explained the
+              failure was invisible on the screen that had the failure.
+              Centred, full text, no breakpoint, and it appears whenever
+              there is something to say rather than only while listening.
             */}
-            {voice.micOn && (
+            {(voice.micOn || voice.micError || voice.micPermission === 'denied') && (
               <div className="pointer-events-none absolute inset-x-0 bottom-[138px] z-20 flex justify-center px-6">
-                <span className="max-w-2xl text-center text-sm italic text-emerald-300/80">
-                  {voice.heard || (
-                    <span className="font-mono text-[10px] uppercase not-italic tracking-[0.2em] text-emerald-400/50">
-                      listening
+                <div className="max-w-2xl text-center">
+                  {voice.micPermission === 'denied' ? (
+                    <p className="rounded-sm border border-amber-500/50 bg-black/80 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                      This site is blocked from using the microphone. Click the
+                      padlock in the address bar, set Microphone to Allow, then
+                      reload. Nothing else here will make him hear you until that
+                      is changed.
+                    </p>
+                  ) : !voice.canListen ? (
+                    <p className="rounded-sm border border-amber-500/50 bg-black/80 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                      This browser cannot turn speech into text. Chrome, Edge and
+                      Safari can; Firefox cannot. Type the question instead.
+                    </p>
+                  ) : voice.micError ? (
+                    <p className="rounded-sm border border-amber-500/50 bg-black/80 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                      {voice.micError}
+                    </p>
+                  ) : voice.heard ? (
+                    <span className="text-base italic text-emerald-200/90">{voice.heard}</span>
+                  ) : (
+                    <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-emerald-400/60">
+                      {voice.recState === 'listening' ? 'listening — say something'
+                        : voice.recState === 'starting' ? 'opening the microphone'
+                          : voice.recState === 'restarting' ? 'listening'
+                            : voice.recState}
                     </span>
                   )}
-                </span>
+                </div>
               </div>
             )}
 
