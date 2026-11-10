@@ -35,6 +35,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeader } from '../../lib/aiActivity';
+import {
+  advance, decide, freshListen, worthAsking, pickAudioMimeType,
+} from './listen';
 
 export type PhoenixVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
 
@@ -102,11 +105,16 @@ const AudioCtx: typeof AudioContext | undefined =
     ? (window.AudioContext || (window as any).webkitAudioContext)
     : undefined;
 
-/** Chrome, Edge and Safari have this. Firefox does not, and is told so. */
-const SpeechRec: any =
-  typeof window !== 'undefined'
-    ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
-    : undefined;
+/**
+ * Can this browser listen at all?
+ *
+ * MediaRecorder rather than SpeechRecognition, because the recording is
+ * ours now and the transcription happens on the server. This is true in
+ * every browser that matters, including the ones SpeechRecognition
+ * silently refused to work in.
+ */
+const canListen =
+  typeof window !== 'undefined' && typeof (window as any).MediaRecorder !== 'undefined';
 
 export interface PhoenixVoiceOptions {
   /**
@@ -146,7 +154,7 @@ export interface PhoenixVoiceApi {
    * recogniser that never starts, one that starts and closes instantly,
    * and one that is listening to a muted microphone all look identical.
    */
-  recState: 'off' | 'starting' | 'listening' | 'restarting' | 'error';
+  recState: 'off' | 'starting' | 'listening' | 'thinking' | 'error';
   /**
    * What the browser says about microphone permission for this origin.
    *
@@ -199,6 +207,16 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   const speechRef = useRef<{ el: HTMLAudioElement; node: MediaElementAudioSourceNode; url: string } | null>(null);
   const recRef = useRef<any>(null);
   const wantRec = useRef(false);
+  const watchRef = useRef(0);
+  /**
+   * What to do with the clip the recorder is about to hand back.
+   *
+   * MediaRecorder.onstop carries no reason, so the decision has to be
+   * parked here by whoever called stop(). Defaulting to 'discard' means a
+   * stop from anywhere else — closing the microphone, a page unload —
+   * never silently posts a clip nobody asked for.
+   */
+  const pendingVerdict = useRef<'send' | 'discard'>('discard');
   /**
    * Consecutive sessions that ended without producing a word.
    *
@@ -225,6 +243,8 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
 
   const rafRef = useRef(0);
   const bufRef = useRef<Uint8Array | null>(null);
+  /** A second buffer, so the silence detector never fights the visualiser. */
+  const micBuf = useRef<Uint8Array | null>(null);
 
   /**
    * Which utterance is the current one.
@@ -259,6 +279,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
       // on every utterance — repeating it stacks duplicate edges.
       voiceAnalyser.current.connect(ctx.destination);
       bufRef.current = new Uint8Array(1024);
+      micBuf.current = new Uint8Array(1024);
     }
     // A context built outside a gesture starts suspended, and a suspended
     // analyser reports silence indefinitely without erroring.
@@ -307,209 +328,222 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  /* ── understanding ─────────────────────────────────────────────────── */
-
-  const startRecognition = useCallback(() => {
-    if (!SpeechRec) return;
-    if (recRef.current) return;
-
-    const rec = new SpeechRec();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = 'en-US';
-
-    rec.onresult = (e: any) => {
-      // Every word throws a ring outward through the dust.
-      pulseRef.current = 1;
-      sessionHeard.current = true;
-      emptyEnds.current = 0;
-      setRecState('listening');
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        const text = String(r[0]?.transcript || '').trim();
-        if (!text) continue;
-        if (r.isFinal) {
-          setHeard('');
-          pending.current.push(text);
-          if (settle.current) clearTimeout(settle.current);
-          /*
-           * Nine hundred milliseconds of quiet before it counts as
-           * finished. Long enough to cover the pause between clauses,
-           * short enough that it does not feel like waiting.
-           */
-          settle.current = setTimeout(() => {
-            const whole = pending.current.join(' ').replace(/\s+/g, ' ').trim();
-            pending.current = [];
-            // One word is a cough or the tail of somebody else's
-            // conversation; asking the model costs money and takes
-            // over the screen.
-            if (whole.split(' ').length >= 2) heardCb.current?.(whole);
-          }, 900);
-        } else {
-          interim += ` ${text}`;
-        }
-      }
-      if (interim.trim()) setHeard(interim.trim());
-    };
-
-    rec.onerror = (e: any) => {
-      // 'no-speech' is ordinary — a pause. Everything else gets named,
-      // including 'aborted', which used to be swallowed and is exactly
-      // what a microphone held by another process looks like.
-      if (!e?.error || e.error === 'no-speech') return;
-      setRecState('error');
-      setMicError(
-        e.error === 'not-allowed'
-          ? 'Microphone permission was refused. Allow it in the padlock menu, then press talk again.'
-          : e.error === 'audio-capture'
-            ? 'No microphone could be opened. Another application or tab may be holding it.'
-            : e.error === 'network'
-              ? 'Speech recognition needs a network connection and could not reach it.'
-              : `Speech recognition stopped: ${e.error}`,
-      );
-    };
-
-    // Chrome ends the session on its own after a pause. Restart while the
-    // microphone is meant to be open, or it listens once and gives up.
-    rec.onend = () => {
-      recRef.current = null;
-      if (!wantRec.current) { setRecState('off'); return; }
-
-      // A session that produced nothing is suspicious; several in a row is
-      // a loop. Stop and say why rather than spin silently.
-      if (!sessionHeard.current) emptyEnds.current += 1; else emptyEnds.current = 0;
-      if (emptyEnds.current >= 6) {
-        wantRec.current = false;
-        setRecState('error');
-        setMicError('The recogniser keeps closing straight away. Another tab or application is probably holding the microphone.');
-        return;
-      }
-
-      setRecState('restarting');
-      try { startRecognition(); } catch { setRecState('error'); }
-    };
-
-    rec.onstart = () => { setRecState('listening'); };
-    rec.onaudiostart = () => { setRecState('listening'); };
-
-    sessionHeard.current = false;
-    recRef.current = rec;
-    setRecState('starting');
-    try {
-      rec.start();
-    } catch (err: any) {
-      // InvalidStateError means one is already running; anything else is
-      // worth showing.
-      recRef.current = null;
-      if (err?.name !== 'InvalidStateError') {
-        setRecState('error');
-        setMicError(err?.message || 'Speech recognition would not start.');
-      }
+  /**
+   * The microphone's own level, read straight from its analyser.
+   *
+   * Deliberately NOT levelRef. That one prefers HIS voice whenever he is
+   * talking, because its job is to move the particles, and handing it to
+   * the silence detector made his speech look like yours: the recorder
+   * stopped at the end of his sentences and posted the clip, so he
+   * transcribed himself and answered his own answer, for money, in a loop.
+   * Echo cancellation runs before this analyser, so what is measured here
+   * is you and not the speakers.
+   */
+  const micRms = useCallback(() => {
+    const a = micAnalyser.current;
+    const buf = micBuf.current;
+    if (!a || !buf) return 0;
+    a.getByteTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = (buf[i] - 128) / 128;
+      sum += v * v;
     }
+    return Math.sqrt(sum / buf.length);
   }, []);
 
-  const stopRecognition = useCallback(() => {
-    wantRec.current = false;
-    emptyEnds.current = 0;
-    if (settle.current) { clearTimeout(settle.current); settle.current = null; }
-    pending.current = [];
-    const rec = recRef.current;
-    recRef.current = null;
-    setHeard('');
-    setRecState('off');
-    try { rec?.abort?.(); rec?.stop(); } catch { /* already stopped */ }
+  /* ── understanding ───────────────────────────────────────────────── */
+
+  /**
+   * TRANSCRIPTION HAPPENS ON OUR SERVER, NOT IN THE BROWSER.
+   *
+   * The browser's SpeechRecognition was tried first and abandoned. It is
+   * absent in Firefox, disabled in Brave, gated behind Google API keys in
+   * unbranded Chromium — and its failure mode in all of those is to end
+   * the session instantly and say nothing at all. Four rounds of "it
+   * cannot hear me" went past without the browser ever explaining itself,
+   * and I could not see which build was in front of it.
+   *
+   * MediaRecorder is everywhere, behaves the same everywhere, and errors
+   * out loud. The clip goes to gpt-4o-mini-transcribe at three tenths of a
+   * cent per minute — a five-second question costs a fortieth of a cent,
+   * which is a fair price for a feature that works in every browser.
+   *
+   * Holding the stream is fine now. The conflict was only ever with
+   * SpeechRecognition wanting the same device, and there is no
+   * SpeechRecognition any more. So the analyser is back, which means the
+   * ambient dust ripples to your actual waveform rather than to one ring
+   * per word.
+   */
+  const sendClip = useCallback(async (blob: Blob, seconds: number) => {
+    try {
+      setRecState('thinking');
+      const { API_BASE_URL } = await import('../../lib/apiConfig');
+      const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/phoenix/transcribe`, {
+        method: 'POST',
+        headers: {
+          ...(await authHeader()),
+          'Content-Type': blob.type || 'audio/webm',
+          'X-Audio-Seconds': String(Math.round(seconds)),
+        },
+        body: blob,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        throw new Error(body?.error || `Transcription failed (${res.status}).`);
+      }
+      const text = String(body.text || '').trim();
+      setHeard(text);
+      if (worthAsking(text)) heardCb.current?.(text);
+      // Clear the echo after a moment so the next clip starts clean.
+      setTimeout(() => setHeard((h) => (h === text ? '' : h)), 2500);
+    } catch (e: any) {
+      setMicError(e?.message || 'That could not be transcribed.');
+    } finally {
+      if (wantRec.current) setRecState('listening');
+    }
   }, []);
 
   /* ── ears ──────────────────────────────────────────────────────────── */
 
   const stopMic = useCallback(() => {
-    stopRecognition();
+    wantRec.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+
+    const rec = recRef.current;
+    recRef.current = null;
+    try { if (rec && rec.state !== 'inactive') rec.stop(); } catch { /* already stopped */ }
+
     const m = micRef.current;
     if (m) {
       m.node.disconnect();
-      // Tracks must be stopped explicitly or the browser keeps its
-      // recording indicator lit after you have navigated away.
+      // Stopped explicitly, or the browser keeps its recording indicator
+      // lit after you have navigated away.
       m.stream.getTracks().forEach((t) => t.stop());
       micRef.current = null;
     }
-    setMicOn(false);
-    if (!speechRef.current) stopLoop();
-  }, [stopLoop, stopRecognition]);
 
-  /**
-   * NO getUserMedia HERE, DELIBERATELY.
-   *
-   * The first version opened a microphone stream for the analyser and then
-   * started the recogniser on top of it. In Chrome the recogniser opens
-   * its OWN capture, and a page already holding the device frequently
-   * stops it acquiring one — it fires onend immediately, forever, and the
-   * old code restarted it silently. That is what "it still cannot hear me"
-   * was: a loop, running perfectly, producing nothing.
-   *
-   * Dropping the stream costs nothing real. The mic analyser drove the
-   * particles, and the particles are deliberately deaf while listening —
-   * audio gain is zero in every state but SPEAKING, because watching him
-   * twitch while you talk read as nervousness. So the stream was powering
-   * a meter and blocking the feature it was supposed to support.
-   *
-   * The live transcript under the mark is better feedback than a meter
-   * ever was: it shows the actual words, not that sound exists.
-   */
+    setMicOn(false);
+    setHeard('');
+    setRecState('off');
+    if (!speechRef.current) stopLoop();
+  }, [stopLoop]);
+
   const startMic = useCallback(async () => {
     setMicError(null);
-    if (!SpeechRec) {
-      setMicError('This browser cannot transcribe speech. Chrome, Edge or Safari can; Firefox cannot. Type the question instead.');
+
+    const RecorderCtor: any = (window as any).MediaRecorder;
+    if (!RecorderCtor) {
+      setMicError('This browser cannot record audio, so it cannot listen. Chrome, Edge, Safari and Firefox all can.');
+      return;
+    }
+    const mime = pickAudioMimeType((t) => RecorderCtor.isTypeSupported?.(t));
+    if (!mime) {
+      setMicError('This browser offers no audio format we can record.');
       return;
     }
 
-    setMicOn(true);
-    wantRec.current = true;
-    emptyEnds.current = 0;
-
-    /*
-     * ASK FOR PERMISSION, THEN LET GO OF THE DEVICE IMMEDIATELY.
-     *
-     * Removing getUserMedia fixed the recogniser being unable to acquire
-     * the microphone — but it also removed the only thing that reliably
-     * raised the permission prompt. SpeechRecognition is supposed to ask
-     * for itself and frequently does not, and without permission it ends
-     * instantly and silently, which is the same symptom by a different
-     * route. I traded one invisible failure for another.
-     *
-     * The conflict was never the REQUEST, it was HOLDING the stream. So:
-     * open it, stop every track in the same breath, and start the
-     * recogniser against a device nobody is holding.
-     *
-     * Started first and awaited after, so an already-granted microphone
-     * still begins recognition inside the click — some browsers refuse to
-     * start one from a promise continuation.
-     */
-    startRecognition();
-
+    setRecState('starting');
     try {
-      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-      probe.getTracks().forEach((t) => t.stop());
-      // Granted. If the recogniser had already died for want of it, the
-      // onend restart will now succeed.
-      if (wantRec.current && !recRef.current) startRecognition();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // On, so his own voice through the speakers does not come back.
+          echoCancellation: true,
+          // Off: it gates quiet speech to digital silence, and the
+          // silence detector below would then think you had stopped.
+          noiseSuppression: false,
+          autoGainControl: true,
+        },
+      });
+
+      const ctx = await context();
+      const node = ctx.createMediaStreamSource(stream);
+      node.connect(micAnalyser.current!);   // and nowhere near the speakers
+      micRef.current = { stream, node };
+
+      wantRec.current = true;
+      setMicOn(true);
+      setRecState('listening');
+      runLoop();
+
+      /*
+       * One recorder, restarted per utterance. Chunks accumulate until the
+       * silence detector says the sentence is over; then they are sent and
+       * the next clip begins. A single long recording would mean waiting
+       * until you pressed stop to hear anything back.
+       */
+      let chunks: BlobPart[] = [];
+      let started = Date.now();
+      let listen = freshListen();
+      let last = performance.now();
+
+      const recorder = new RecorderCtor(stream, { mimeType: mime });
+      recRef.current = recorder;
+
+      recorder.ondataavailable = (e: any) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const parts = chunks;
+        const seconds = (Date.now() - started) / 1000;
+        chunks = [];
+        const verdict = pendingVerdict.current;
+        pendingVerdict.current = 'discard';
+
+        if (verdict === 'send' && parts.length) {
+          sendClip(new Blob(parts, { type: mime }), seconds);
+        }
+
+        // Straight back to listening unless the microphone was closed.
+        if (wantRec.current && recRef.current === recorder) {
+          started = Date.now();
+          listen = freshListen();
+          try { recorder.start(250); } catch { /* closing */ }
+        }
+      };
+
+      recorder.onerror = (e: any) => {
+        setMicError(`The recorder failed: ${e?.error?.name || 'unknown'}`);
+        setRecState('error');
+      };
+
+      recorder.start(250);
+
+      /*
+       * The silence detector. Reads the same analyser that drives the
+       * particles, so there is exactly one measurement of your voice on
+       * this page and the visuals cannot disagree with the logic.
+       */
+      const watch = () => {
+        if (!wantRec.current) return;
+        const now = performance.now();
+        const dt = Math.min(200, now - last);
+        last = now;
+
+        listen = advance(listen, micRms(), dt);
+        const verdict = decide(listen);
+        if (verdict !== 'keep-waiting' && recorder.state === 'recording') {
+          pendingVerdict.current = verdict;
+          try { recorder.stop(); } catch { /* closing */ }
+        }
+        watchRef.current = requestAnimationFrame(watch);
+      };
+      watchRef.current = requestAnimationFrame(watch);
     } catch (e: any) {
       const name = e?.name;
-      if (name === 'NotAllowedError' || name === 'SecurityError') {
-        wantRec.current = false;
-        setMicOn(false);
-        setRecState('error');
-        setMicError('Microphone permission was refused. Click the padlock in the address bar, set Microphone to Allow, then press talk again.');
-      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        wantRec.current = false;
-        setMicOn(false);
-        setRecState('error');
-        setMicError('No microphone could be found on this machine.');
-      }
-      // Anything else: the recogniser may still manage on its own, so
-      // leave it running rather than killing a working session.
+      setRecState('error');
+      setMicOn(false);
+      wantRec.current = false;
+      setMicError(
+        name === 'NotAllowedError' || name === 'SecurityError'
+          ? 'Microphone permission was refused. Click the padlock in the address bar, set Microphone to Allow, then press talk again.'
+          : name === 'NotFoundError' ? 'No microphone could be found on this machine.'
+            : name === 'NotReadableError' ? 'Another application is holding the microphone.'
+              : e?.message || 'The microphone could not be opened.',
+      );
     }
-  }, [startRecognition]);
+  }, [context, runLoop, sendClip, micRms]);
 
   /* ── voice ─────────────────────────────────────────────────────────── */
 
@@ -636,6 +670,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (settle.current) clearTimeout(settle.current);
+    if (watchRef.current) cancelAnimationFrame(watchRef.current);
     wantRec.current = false;
     try { recRef.current?.stop(); } catch { /* already stopped */ }
     micRef.current?.stream.getTracks().forEach((t) => t.stop());
@@ -649,7 +684,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   return {
     levelRef, meter,
     micOn, micError, startMic, stopMic,
-    heard, canListen: !!SpeechRec, recState, pulseRef, micPermission,
+    heard, canListen, recState, pulseRef, micPermission,
     speaking, speakError, lastCostCents, lastModel, speak, stopSpeaking,
     contextState,
   };

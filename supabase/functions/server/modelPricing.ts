@@ -51,6 +51,14 @@ export interface ModelPrice {
    * price applied to a token count under-reports by roughly four times.
    */
   perMChar?: number;
+  /**
+   * US dollars per MINUTE of audio. Transcription bills this way.
+   *
+   * A third billable unit, and the third way to be quietly wrong: minutes
+   * through the token path would price a question at a fraction of a
+   * fraction of a cent and look entirely plausible doing it.
+   */
+  perMinute?: number;
   /** True only where the rate was read from the provider's published table. */
   verified: boolean;
   source: string;
@@ -160,7 +168,40 @@ const OPENAI_TTS: Record<string, ModelPrice> = {
   'tts-1-hd': { inputPerMTok: 0, outputPerMTok: 0, perMChar: 30, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-09' },
 };
 
-export const MODEL_PRICES: Record<string, ModelPrice> = { ...ANTHROPIC, ...OPENAI, ...OPENAI_TTS };
+/**
+ * Transcription. Billed per minute of audio.
+ *
+ * Read off developers.openai.com/api/docs/pricing on 2026-11-10. All three
+ * state their unit plainly, which is why all three are here and
+ * gpt-4o-mini-tts still is not.
+ */
+const OPENAI_STT: Record<string, ModelPrice> = {
+  'whisper-1':             { inputPerMTok: 0, outputPerMTok: 0, perMinute: 0.006, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-10' },
+  'gpt-4o-transcribe':     { inputPerMTok: 0, outputPerMTok: 0, perMinute: 0.006, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-10' },
+  'gpt-4o-mini-transcribe':{ inputPerMTok: 0, outputPerMTok: 0, perMinute: 0.003, verified: true, source: OPENAI_TTS_SOURCE, asOf: '2026-11-10' },
+};
+
+export const MODEL_PRICES: Record<string, ModelPrice> = {
+  ...ANTHROPIC, ...OPENAI, ...OPENAI_TTS, ...OPENAI_STT,
+};
+
+/**
+ * What a piece of transcription cost, in cents.
+ *
+ * Its own function for the same reason the speech one is: the billable
+ * unit differs, and a caller passing the wrong kind of number to a shared
+ * estimator produces a confident figure rather than an error.
+ */
+export function estimateSttCostCents(
+  model: unknown, seconds: number | null | undefined,
+): CostEstimate | null {
+  const price = priceFor(model);
+  if (!price?.perMinute) return null;
+  const n = Number(seconds);
+  if (seconds === null || seconds === undefined || !Number.isFinite(n) || n < 0) return null;
+  const dollars = (n / 60) * price.perMinute;
+  return { cents: Math.round(dollars * 100 * 10000) / 10000, verified: price.verified };
+}
 
 /**
  * What a piece of speech cost, in cents.

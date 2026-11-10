@@ -53,7 +53,7 @@ import {
 import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
 import { actionCatalogue } from "./aiActions.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
-import { estimateTtsCostCents } from "./modelPricing.ts";
+import { estimateTtsCostCents, estimateSttCostCents } from "./modelPricing.ts";
 import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
@@ -741,5 +741,103 @@ phoenixChatRouter.post(SPEAK, async (c) => {
     }
     await call?.failed?.({ summary: 'speak failed' }, String(err?.message || err));
     return c.json({ success: false, error: 'The voice could not be generated.' }, 500);
+  }
+});
+
+/* ── Phoenix's ears ──────────────────────────────────────────────────────── */
+
+const HEAR = '/make-server-3eae23a6/phoenix/transcribe';
+phoenixChatRouter.use('*', requireStaffOn([HEAR]));
+
+/**
+ * Transcription, server-side, deliberately.
+ *
+ * The browser's own SpeechRecognition was tried first and abandoned. It is
+ * absent in Firefox, disabled in Brave, gated behind Google API keys in
+ * unbranded Chromium, and — worst of all — its failure mode everywhere is
+ * to end the session instantly and silently. Four rounds of "it cannot
+ * hear me" went by without the browser ever saying why.
+ *
+ * This costs real money and is worth it: one implementation, one place to
+ * look when it breaks, and the same ledger, kill switch and staff gate as
+ * every other model call on this server.
+ */
+const TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
+
+/** Two megabytes of opus is about two minutes. Past that it is not a question. */
+const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
+
+phoenixChatRouter.post(HEAR, async (c) => {
+  let call: any = null;
+  try {
+    const key = Deno.env.get('OPENAI_API_KEY');
+    if (!key) return c.json({ success: false, error: 'Transcription is not configured.' }, 503);
+
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    if (!bytes.byteLength) return c.json({ success: false, error: 'No audio arrived.' }, 400);
+    if (bytes.byteLength > MAX_AUDIO_BYTES) {
+      return c.json({ success: false, error: 'That recording is too long.' }, 413);
+    }
+
+    /*
+     * The duration is the client's estimate and is used only for the cost
+     * column. It is not trusted for anything else, and it is clamped so a
+     * wrong or hostile value cannot write a fictional figure into the
+     * ledger.
+     */
+    const claimed = Number(c.req.header('X-Audio-Seconds'));
+    const seconds = Number.isFinite(claimed) ? Math.min(180, Math.max(0, claimed)) : null;
+
+    const type = c.req.header('Content-Type') || 'audio/webm';
+    const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
+
+    await assertAiAllowed('phoenix-ears');
+
+    call = await beginAiCall({
+      agent: 'phoenix-ears',
+      operation: `transcribe ${(bytes.byteLength / 1024).toFixed(0)}kB of ${ext}`,
+      model: TRANSCRIBE_MODEL, provider: 'openai', bucket: 'ai',
+      // The digest of the AUDIO, not of what was said. Same rule as
+      // everywhere else: the ledger records shape, never content.
+      input: `audio:${bytes.byteLength}:${ext}`,
+      ...ledgerContextFor(c),
+    });
+
+    const form = new FormData();
+    form.append('file', new File([bytes], `speech.${ext}`, { type }), `speech.${ext}`);
+    form.append('model', TRANSCRIBE_MODEL);
+    form.append('response_format', 'text');
+    // Steers the spelling of words it would otherwise mangle. Trade names
+    // and the company's own name come back wrong without it.
+    form.append('prompt', 'Black Phoenix, Phoenix, quote, invoice, work request, subcontractor, landlord, estimate.');
+
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300);
+      await call.failed({ summary: `openai ${res.status}` }, detail || `HTTP ${res.status}`);
+      return c.json({ success: false, error: `Transcription failed: ${res.status}` }, 502);
+    }
+
+    const text = (await res.text()).trim();
+    const cost = estimateSttCostCents(TRANSCRIBE_MODEL, seconds);
+
+    await call.ok({
+      costCents: cost?.cents,
+      summary: `${seconds ?? '?'}s of audio, ${text.length} characters back`,
+    });
+
+    return c.json({ success: true, text, costCents: cost?.cents ?? null });
+  } catch (err: any) {
+    if (err instanceof AiStopped) {
+      await call?.refused?.({ summary: 'stopped' }, err.message);
+      return c.json({ success: false, stopped: true, error: err.message }, 503);
+    }
+    await call?.failed?.({ summary: 'transcribe failed' }, String(err?.message || err));
+    return c.json({ success: false, error: 'The audio could not be transcribed.' }, 500);
   }
 });
