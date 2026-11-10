@@ -198,6 +198,18 @@ const VERT = /* glsl */`
      * into discrete bands with dark between them. A raw sine reads as a
      * wobble; separated crests read as pulses.
      */
+    /*
+     * DECLARED BEFORE EITHER USE, which it was not for one commit.
+     *
+     * The wave block below was inserted above this line and referenced
+     * "outward" before it existed. GLSL rejects that, the program fails to
+     * link, and a material with no program draws NOTHING — silently, to the
+     * console only. The canvas stayed alive at sixty frames a second with
+     * an empty scene, which looked exactly like a layout bug and cost three
+     * rounds of chasing CSS.
+     */
+    vec3 outward = normalize(home + vec3(0.0001));
+
     float radius = length(home.xy);
     float crest  = sin(radius * 6.5 - t * 2.4);
     float band   = pow(max(crest, 0.0), 2.5);
@@ -207,7 +219,6 @@ const VERT = /* glsl */`
     vWave = wave;
 
     // Success: a brief outward bloom along each particle's own radius.
-    vec3 outward = normalize(home + vec3(0.0001));
     disp += outward * uBurst * (0.35 + aSeed.z * 0.35);
 
     float breathe = 1.0 + uBreath * 0.020 * sin(t * 0.42 + aSeed.z * 2.0);
