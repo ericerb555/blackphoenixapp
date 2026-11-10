@@ -309,6 +309,29 @@ export default function PhoenixConsole({
   }, [pendingAsk, thinking]);
 
   /*
+   * PRESSING TALK TURNS HIS VOICE BACK ON.
+   *
+   * The microphone and the spoken answers were two independent switches,
+   * and the combination that falls out of that is the worst one of the
+   * four: you are talking to him and he is replying in text. From the
+   * chair it is indistinguishable from a microphone that does not work —
+   * you cannot tell a deaf assistant from a mute one by looking at a
+   * silent room. Anybody who presses talk is asking for a conversation.
+   *
+   * The rising edge only. Turning his voice off DURING a conversation is
+   * a deliberate act and has to stick, so this fires when the microphone
+   * opens and never again until it has been closed.
+   */
+  const micWas = useRef(false);
+  useEffect(() => {
+    if (v.micOn && !micWas.current && !speakAnswers) {
+      setSpeakAnswers(true);
+      try { localStorage.setItem(VOICE_PREF, 'on'); } catch { /* private mode */ }
+    }
+    micWas.current = v.micOn;
+  }, [v.micOn, speakAnswers]);
+
+  /*
     * ONE COLUMN, used by the transcript and the composer alike.
     *
     * They were centred independently at max-w-3xl and max-w-4xl. Both were
