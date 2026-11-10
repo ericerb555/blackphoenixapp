@@ -302,18 +302,24 @@ export default function PhoenixConsole({
       <div className="flex-1 overflow-y-auto px-5 py-5">
         <div className={`${inner} space-y-4`}>
           {turns.length === 0 && !fatal && (
-            <div className="pt-6">
-              <p className="text-sm text-gray-400">Ask about the business or about the AI.</p>
-              <p className="mt-1 text-xs text-gray-600">
-                Every number comes from a live lookup, and the tools used are shown under each answer.
+            <div className="pt-4">
+              <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-orange-400/60">
+                Ask
               </p>
-              <div className="mt-5 space-y-2">
+              <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                Every figure comes from a live lookup. The tools that answered
+                are named under each reply.
+              </p>
+              <div className="mt-4 space-y-1.5">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="block w-full rounded-lg border border-[#2A2A2A] bg-[#101010] px-4 py-2.5 text-left text-sm text-gray-300 transition hover:border-orange-500/40 hover:text-white"
+                    className="group flex w-full items-center gap-2 border-l border-orange-500/20 bg-white/[0.015] px-3 py-2 text-left text-[13px] text-gray-400 transition hover:border-orange-500/70 hover:bg-orange-500/[0.05] hover:text-white"
                   >
+                    <span className="font-mono text-[10px] text-orange-500/50 transition group-hover:text-orange-400">
+                      &rsaquo;
+                    </span>
                     {s}
                   </button>
                 ))}
@@ -331,8 +337,8 @@ export default function PhoenixConsole({
           {turns.map((t, i) => (
             <div key={i} className={`flex gap-3 ${t.role === 'user' ? 'justify-end' : ''}`}>
               {t.role === 'assistant' && (
-                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                  t.failed ? 'bg-rose-500/20' : 'bg-[#1A1A1A]'
+                <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border ${
+                  t.failed ? 'border-rose-500/40 bg-rose-500/10' : 'border-orange-500/25 bg-black/50'
                 }`}>
                   {t.failed
                     ? <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
@@ -340,26 +346,26 @@ export default function PhoenixConsole({
                 </div>
               )}
               <div className={`max-w-[85%] ${t.role === 'user' ? 'order-first' : ''}`}>
-                <div className={`whitespace-pre-wrap rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+                <div className={`whitespace-pre-wrap rounded-sm px-3.5 py-2.5 text-[13px] leading-relaxed ${
                   t.role === 'user'
-                    ? 'bg-orange-600 text-white'
+                    ? 'border-r-2 border-orange-500 bg-orange-500/10 text-orange-50'
                     : t.failed
-                      ? 'border border-rose-500/30 bg-rose-500/10 text-rose-100'
-                      : 'border border-[#2A2A2A] bg-[#101010] text-gray-200'
+                      ? 'border-l-2 border-rose-500/70 bg-rose-500/[0.07] text-rose-100'
+                      : 'border-l-2 border-orange-500/35 bg-white/[0.025] text-gray-200'
                 }`}>
                   {t.content}
                 </div>
                 {/* How the answer was arrived at, so it can be checked. */}
                 {t.toolsUsed && t.toolsUsed.length > 0 && (
-                  <p className="mt-1.5 pl-1 text-[11px] text-gray-600">
-                    checked: {t.toolsUsed.map((x) => TOOL_LABELS[x] || x).join(' · ')}
+                  <p className="mt-1.5 pl-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-600">
+                    checked · {t.toolsUsed.map((x) => TOOL_LABELS[x] || x).join(' · ')}
                   </p>
                 )}
                 {/* Hear it again, whether or not auto-speak is on. */}
                 {t.role === 'assistant' && !t.failed && worthSpeaking(t.content) && (
                   <button
                     onClick={() => say(t.content)}
-                    className="mt-1 pl-1 text-[11px] text-gray-600 transition hover:text-orange-400"
+                    className="mt-1 pl-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-600 transition hover:text-orange-400"
                     aria-label="Read this answer aloud"
                   >
                     <Volume2 className="inline h-3 w-3" /> hear it
@@ -375,7 +381,7 @@ export default function PhoenixConsole({
                       <button
                         key={d.id}
                         onClick={() => onOpenModule?.(d)}
-                        className="rounded-md border border-orange-500/30 bg-orange-500/5 px-2 py-0.5 text-[11px] text-orange-300 transition hover:border-orange-500/60 hover:text-orange-200"
+                        className="rounded-sm border border-orange-500/30 bg-orange-500/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-orange-300 transition hover:border-orange-500/60 hover:text-orange-200"
                       >
                         {d.label}
                       </button>
@@ -384,8 +390,8 @@ export default function PhoenixConsole({
                 )}
               </div>
               {t.role === 'user' && (
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#1A1A1A]">
-                  <User className="h-3.5 w-3.5 text-gray-400" />
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-[#262626] bg-black/50">
+                  <User className="h-3 w-3 text-gray-500" />
                 </div>
               )}
             </div>
@@ -399,20 +405,20 @@ export default function PhoenixConsole({
           */}
           {queue.length > 0 && (
             <div className="space-y-2 pt-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              <p className="font-mono text-[9px] uppercase tracking-[0.22em] text-orange-400/70">
                 Waiting on you
               </p>
               {queue.map((a) => (
-                <div key={a.id} className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-3.5">
+                <div key={a.id} className="rounded-sm border-l-2 border-orange-500 bg-orange-500/[0.06] p-3.5">
                   <div className="flex items-start gap-2">
-                    <span className={`mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
-                      a.risk === 'high' ? 'bg-rose-500/20 text-rose-300'
-                        : a.risk === 'medium' ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-gray-500/20 text-gray-400'
+                    <span className={`mt-0.5 rounded-sm border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${
+                      a.risk === 'high' ? 'border-rose-500/50 text-rose-300'
+                        : a.risk === 'medium' ? 'border-amber-500/50 text-amber-300'
+                          : 'border-gray-600 text-gray-400'
                     }`}>{a.risk}</span>
                     <p className="flex-1 text-sm text-gray-200">{a.summary}</p>
                   </div>
-                  <p className="mt-1.5 pl-1 text-[11px] text-gray-600">{a.action}</p>
+                  <p className="mt-1.5 pl-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-600">{a.action}</p>
 
                   {!canApproveRisk(a.risk) ? (
                     <p className="mt-2.5 text-xs text-amber-400/90">
@@ -423,14 +429,14 @@ export default function PhoenixConsole({
                       <button
                         onClick={() => decide(a, true)}
                         disabled={deciding === a.id}
-                        className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-40"
+                        className="rounded-sm bg-orange-600 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-white transition hover:bg-orange-500 disabled:opacity-40"
                       >
                         {deciding === a.id ? 'Running…' : 'Approve & run'}
                       </button>
                       <button
                         onClick={() => decide(a, false)}
                         disabled={deciding === a.id}
-                        className="rounded-lg border border-[#2A2A2A] px-3 py-1.5 text-xs text-gray-400 hover:text-white disabled:opacity-40"
+                        className="rounded-sm border border-[#2A2A2A] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-gray-400 transition hover:border-gray-500 hover:text-white disabled:opacity-40"
                       >
                         Decline
                       </button>
@@ -442,11 +448,11 @@ export default function PhoenixConsole({
           )}
 
           {thinking && (
-            <div className="flex items-center gap-3 text-sm text-gray-500">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-400" />
+            <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-orange-400/70">
+              <div className="flex h-6 w-6 items-center justify-center rounded-sm border border-orange-500/25 bg-black/50">
+                <Loader2 className="h-3 w-3 animate-spin text-orange-400" />
               </div>
-              Looking it up…
+              querying
             </div>
           )}
           <div ref={endRef} />
@@ -454,9 +460,12 @@ export default function PhoenixConsole({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-[#2A2A2A] p-4">
+      <div className="border-t border-orange-500/10 p-4">
         <div className={inner}>
-          <div className="flex items-end gap-2 rounded-xl border border-[#2A2A2A] bg-[#101010] px-3 py-2 focus-within:border-orange-500/50">
+          <div className="relative flex items-end gap-2 rounded-sm border border-[#1F1F1F] bg-black/60 px-3 py-2 transition focus-within:border-orange-500/50">
+            {/* Corner brackets, the same language as the panels elsewhere. */}
+            <span className="pointer-events-none absolute -left-px -top-px h-2 w-2 border-l border-t border-orange-500/50" />
+            <span className="pointer-events-none absolute -bottom-px -right-px h-2 w-2 border-b border-r border-orange-500/50" />
             <textarea
               ref={inputRef}
               rows={1}
@@ -468,22 +477,22 @@ export default function PhoenixConsole({
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft); }
               }}
               placeholder="Ask about work, money, leads or the AI…"
-              className="max-h-32 flex-1 resize-none bg-transparent py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none"
+              className="max-h-32 flex-1 resize-none bg-transparent py-1.5 text-[13px] text-white placeholder:font-mono placeholder:text-[11px] placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-gray-700 focus:outline-none"
             />
             <button
               onClick={() => send(draft)}
               disabled={thinking || !draft.trim()}
-              className="mb-0.5 rounded-lg bg-orange-600 p-2 text-white transition hover:bg-orange-500 disabled:opacity-40"
+              className="mb-0.5 rounded-sm bg-orange-600 p-2 text-white transition hover:bg-orange-500 disabled:opacity-40"
             >
               <Send className="h-4 w-4" />
             </button>
           </div>
-          <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-gray-600">
-            <span>Phoenix proposes, you approve. He never acts on his own.</span>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-700">
+            <span>Proposes · you approve · never acts alone</span>
             <span className="text-gray-800">·</span>
             <button
               onClick={toggleVoice}
-              className={`flex items-center gap-1 transition ${
+              className={`flex items-center gap-1 uppercase tracking-[0.12em] transition ${
                 speakAnswers ? 'text-orange-400 hover:text-orange-300' : 'hover:text-gray-400'
               }`}
               title={speakAnswers ? 'Stop reading answers aloud' : 'Read answers aloud'}
@@ -497,7 +506,7 @@ export default function PhoenixConsole({
                 value={picked}
                 onChange={(e) => chooseVoice(e.target.value as PhoenixVoice)}
                 aria-label="Which voice Phoenix speaks in"
-                className="cursor-pointer rounded border border-[#2A2A2A] bg-[#101010] px-1.5 py-0.5 text-[11px] capitalize text-gray-400 transition hover:border-orange-500/40 hover:text-white focus:border-orange-500/60 focus:outline-none"
+                className="cursor-pointer rounded-sm border border-[#1F1F1F] bg-black/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-gray-500 transition hover:border-orange-500/40 hover:text-white focus:border-orange-500/60 focus:outline-none"
               >
                 {VOICES.map((x) => (
                   <option key={x.id} value={x.id} className="capitalize">

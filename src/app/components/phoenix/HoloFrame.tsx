@@ -73,51 +73,41 @@ export default function HoloFrame({
 }
 
 /**
- * The background. A grid, a vignette and scanlines, all nearly invisible.
+ * The background: almost nothing.
  *
- * "Nearly" is the whole point. Each of these at a strength you would
- * actually notice looks like a cheap filter; at this strength they only
- * register as the screen having texture, which is what sells it as a
- * display rather than a web page.
+ * The first version had a grid, scanlines, a radial tint and a vignette.
+ * Four effects, each defensible on its own, which together produced
+ * texture competing with the one thing on the screen that is supposed to
+ * glow. Eric's verdict was the correct one — it did not look good.
  *
- * Scanlines are off under prefers-reduced-motion — they do not move, but
- * fine high-contrast striping is a migraine trigger and a known problem
- * for anyone with photosensitivity.
+ * What is left is a vertical falloff so the top of the frame is not the
+ * same flat black as the bottom, and nothing else. The Phoenix supplies
+ * its own light; a backdrop that also glows is two light sources fighting,
+ * and the bird loses because it is made of two-pixel dots.
+ *
+ * ALERT IS THE ONE EXCEPTION, and it is deliberately subtle: a faint
+ * rose wash at the edges, nowhere near the centre. Something is wrong
+ * should change the room's temperature, not put a warning sign on it.
  */
 export function HoloBackdrop({ alert }: { alert?: boolean }) {
-  const tint = alert ? 'rgba(244,63,94,0.07)' : 'rgba(234,88,12,0.07)';
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {/* Grid */}
-      <div
-        className="absolute inset-0 opacity-[0.6]"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(234,88,12,0.045) 1px, transparent 1px),' +
-            'linear-gradient(90deg, rgba(234,88,12,0.045) 1px, transparent 1px)',
-          backgroundSize: '56px 56px',
-          maskImage: 'radial-gradient(ellipse at 50% 45%, black 30%, transparent 78%)',
-          WebkitMaskImage: 'radial-gradient(ellipse at 50% 45%, black 30%, transparent 78%)',
-        }}
-      />
-      {/* The glow the bird sits in */}
       <div
         className="absolute inset-0"
-        style={{ background: `radial-gradient(ellipse at 50% 48%, ${tint}, transparent 62%)` }}
-      />
-      {/* Scanlines */}
-      <div
-        className="absolute inset-0 opacity-[0.35] motion-reduce:hidden"
         style={{
-          backgroundImage:
-            'repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 3px)',
+          background:
+            'linear-gradient(180deg, #070707 0%, #040404 45%, #000000 100%)',
         }}
       />
-      {/* Vignette, so the edges fall away instead of ending */}
-      <div
-        className="absolute inset-0"
-        style={{ background: 'radial-gradient(ellipse at 50% 50%, transparent 52%, rgba(0,0,0,0.72) 100%)' }}
-      />
+      {alert && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(244,63,94,0.10) 100%)',
+          }}
+        />
+      )}
     </div>
   );
 }
