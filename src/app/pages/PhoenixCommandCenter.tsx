@@ -61,7 +61,13 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
   const [running, setRunning] = useState(0);
   const [module, setModule] = useState<OpenDirective | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [railOpen, setRailOpen] = useState(true);
+  /*
+   * Closed by default, so the Phoenix is centred on the screen rather than
+   * pushed right by a 15rem column. The agents are one tap away on the
+   * header toggle, and they are a thing you go and look at rather than a
+   * thing you need in view while talking to him.
+   */
+  const [railOpen, setRailOpen] = useState(false);
   const [ask, setAsk] = useState<string | null>(null);
   /*
    * Particle count and frame rate, on screen.
@@ -207,8 +213,8 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
              * worth being clever about.
              */
             style={{
-              height: module ? '8rem' : 'min(54vh, 620px)',
-              minHeight: module ? undefined : 300,
+              height: module ? '8rem' : 'min(62vh, 760px)',
+              minHeight: module ? undefined : 340,
             }}
             className={`relative w-full shrink-0 transition-opacity duration-700 ${
               module ? 'opacity-40' : 'opacity-100'

@@ -40,8 +40,17 @@ import {
   type ParticleField,
 } from './phoenixParticleSource';
 
-/** Camera distance. Shared with the shader so depth shading agrees with it. */
-const CAM_DIST = 3.15;
+/**
+ * Camera distance. Shared with the shader so depth shading agrees with it.
+ *
+ * At 45 degrees of vertical field of view the visible half-height at the
+ * origin is CAM_DIST * tan(22.5deg), and the mark spans [-1, 1]. 3.15 put
+ * him at about three quarters of the frame with a wide empty margin —
+ * correct when arcs occupied that margin, wasteful now there is nothing
+ * out there. 2.45 fills roughly ninety-eight percent of the height, which
+ * is as close as he can come before an excursion clips a wingtip.
+ */
+const CAM_DIST = 2.45;
 
 export type PhoenixState =
   | 'idle' | 'listening' | 'thinking' | 'speaking'
@@ -493,106 +502,6 @@ function Swarm({
   );
 }
 
-/* ── the instrument ring ─────────────────────────────────────────────── */
-
-/**
- * The arcs around the Phoenix.
- *
- * WHAT MAKES THIS READ AS AN INSTRUMENT RATHER THAN A HALO
- *
- * Gaps. A complete circle is decoration; an arc with a gap in it looks like
- * a gauge, because gauges are the only round things in life that are not
- * closed. Four of them at different radii, counter-rotating at rates that
- * do not divide into each other, so the pattern never visibly repeats.
- *
- * And tick marks. A ring of short radial strokes reads as graduation — a
- * scale something could be measured against — which is most of the
- * difference between a sci-fi interface and a glowing circle.
- *
- * Everything here is thin, dim and subordinate. The bird is the subject;
- * if you find yourself looking at the rings, they are too bright.
- */
-function Arc({
-  radius, gap, speed, opacity, tilt, colour,
-}: {
-  radius: number; gap: number; speed: number;
-  opacity: number; tilt: [number, number, number]; colour: string;
-}) {
-  const ref = useRef<THREE.Mesh>(null);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += Math.min(delta, 0.05) * speed;
-  });
-  return (
-    <mesh ref={ref} rotation={tilt}>
-      {/* thetaLength short of a full turn is the gap. */}
-      <ringGeometry args={[radius, radius + 0.006, 160, 1, 0, Math.PI * 2 * (1 - gap)]} />
-      <meshBasicMaterial color={colour} transparent opacity={opacity} side={THREE.DoubleSide} />
-    </mesh>
-  );
-}
-
-/** Graduation marks. The thing that makes a circle look like a scale. */
-function Ticks({ radius, count, length, opacity, colour, speed }: {
-  radius: number; count: number; length: number;
-  opacity: number; colour: string; speed: number;
-}) {
-  const ref = useRef<THREE.Group>(null);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.z += Math.min(delta, 0.05) * speed;
-  });
-
-  const marks = useMemo(() => {
-    const out: { x: number; y: number; r: number; long: boolean }[] = [];
-    for (let i = 0; i < count; i++) {
-      const a = (i / count) * Math.PI * 2;
-      out.push({
-        x: Math.cos(a) * radius,
-        y: Math.sin(a) * radius,
-        r: a,
-        // Every fifth is longer, the way a real scale marks its intervals.
-        long: i % 5 === 0,
-      });
-    }
-    return out;
-  }, [radius, count]);
-
-  return (
-    <group ref={ref} rotation={[1.28, 0, 0]}>
-      {marks.map((m, i) => (
-        <mesh key={i} position={[m.x, m.y, 0]} rotation={[0, 0, m.r]}>
-          <planeGeometry args={[m.long ? length * 2.1 : length, 0.005]} />
-          <meshBasicMaterial
-            color={colour}
-            transparent
-            opacity={m.long ? opacity * 1.8 : opacity}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function Rings({ state }: { state: PhoenixState }) {
-  // Only two states change the instruments: thinking spins them up, alert
-  // turns them. Everything else leaves them alone, so when they DO move
-  // it means something.
-  const busy = state === 'thinking' || state === 'working';
-  const rate = busy ? 2.4 : 1;
-  const colour = state === 'alert' ? '#f43f5e' : '#ea580c';
-  const dim = state === 'alert' ? 1.5 : 1;
-
-  return (
-    <group>
-      <Arc radius={1.38} gap={0.22} speed={0.16 * rate}  opacity={0.30 * dim} tilt={[1.30, 0, 0]} colour={colour} />
-      <Arc radius={1.52} gap={0.55} speed={-0.11 * rate} opacity={0.22 * dim} tilt={[1.30, 0, 0]} colour={colour} />
-      <Arc radius={1.78} gap={0.08} speed={0.05 * rate}  opacity={0.11 * dim} tilt={[1.22, 0.30, 0]} colour={colour} />
-      <Arc radius={2.05} gap={0.70} speed={-0.07 * rate} opacity={0.16 * dim} tilt={[1.34, -0.22, 0]} colour={colour} />
-      <Ticks radius={1.64} count={60} length={0.045} opacity={0.14 * dim} colour={colour} speed={-0.03 * rate} />
-    </group>
-  );
-}
-
 /* ── the component ───────────────────────────────────────────────────── */
 
 export interface PhoenixParticleBrainProps {
@@ -737,6 +646,16 @@ export default function PhoenixParticleBrain({
       >
         {(
           <>
+            {/*
+              Nothing but the bird.
+
+              There were four gapped arcs and a ring of graduation ticks
+              here. They read as an instrument, which was the intent, and
+              they also drew the eye away from the only thing on this screen
+              worth looking at. Removed rather than dimmed: a faint version
+              of something unnecessary is still something unnecessary, and
+              git remembers the geometry if it is ever wanted back.
+            */}
             <Swarm
               field={field}
               state={state}
@@ -745,7 +664,6 @@ export default function PhoenixParticleBrain({
               reducedMotion={reducedMotion}
               onFps={onFps}
             />
-            <Rings state={state} />
           </>
         )}
       </Canvas>

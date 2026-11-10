@@ -110,7 +110,7 @@ export default function PhoenixBrainPrototype({
           <div
             className="pointer-events-none absolute inset-0"
             style={{
-              background: 'radial-gradient(ellipse at 50% 55%, rgba(234,88,12,0.10), transparent 62%)',
+              background: 'linear-gradient(180deg, #070707 0%, #000000 100%)',
             }}
           />
           <PhoenixParticleBrain
