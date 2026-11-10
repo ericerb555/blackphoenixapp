@@ -772,3 +772,204 @@ working tree — but the commits had to be rebuilt.
 The work is therefore anchored: branch `security/audit-remediation-2026-11-06`
 and tag `security-work-2026-11-06`, both pushed. **One session per
 repository** is the cheap fix.
+
+---
+
+## Pass 3 — 2026-11-10
+
+Four days after the last pass. The probe has reached its ceiling: `npm run
+security` reports the same **14 passed · 0 failed · 1 warning · 2 skipped** as
+on 6 November, and both skips are unrunnable with an anon key by design. So this
+pass went at them with database access instead, which is how `RLS-2` finally
+ran — for the first time since it was written.
+
+### RLS-2 — run at last, and it passes
+
+Never executed before: the probe skips it without a service-role key, and the
+6 November note said plainly "**Never run.** A skip is not a pass."
+
+Read out of `pg_class.relrowsecurity` rather than from the migrations: **all 39
+tables in `public` and all 4 in `command_center` have RLS enabled.** Not one
+exception.
+
+That also closes **M-7** ("one table has RLS switched off entirely"), which had
+been carried as open since 16 October.
+
+### Anon isolation, re-proved two ways
+
+The probe's `RLS-1` only ever asked PostgREST for rows. This pass asked
+Postgres directly, as the `anon` role, inside a rolled-back transaction —
+underneath the API rather than through it:
+
+    set local role anon;  -- 14 tables, count(*) each
+
+`app_error_log`, `ai_call_log`, `ai_kill_switch`, `ai_action_request`,
+`query_perf_snapshot`, `exchange_deal`, `kv_store_3eae23a6`,
+`kv_store_57095a78`, `work_requests`, `companies`, `investor_commitments`,
+`payout_distributions`, `organizations`, `feature_grants` — **0 rows every
+time**, including tables that are not empty.
+
+**Anon WRITES had never been probed at all.** Now they have:
+
+    POST /rest/v1/kv_store_3eae23a6   401  new row violates row-level security policy
+    POST /rest/v1/kv_store_57095a78   401  new row violates row-level security policy
+
+A note on method, because it nearly produced a false pass: the first attempt
+sent a `key` column to tables that do not have one and got `400 PGRST204` from
+the schema cache. PostgREST resolves columns *before* RLS, so those 400s proved
+nothing about authorisation. A 400 is not a refusal. Re-run with real columns.
+
+### M-3 re-probed — the anon-callable functions give nothing away
+
+Nine `SECURITY DEFINER` functions remain callable by `anon` over RPC. Asked as
+a stranger:
+
+    rpc/is_platform_operator  200  false
+    rpc/my_org_ids            200  []
+    rpc/my_admin_org_ids      200  []
+    rpc/my_visible_bid_ids    200  []
+
+They answer honestly about a caller who is nobody. The lint stands; the risk
+does not.
+
+### Policies read rather than assumed
+
+Every policy on the money and tenancy tables was read out of `pg_policies`.
+They are scoped the way they claim to be — `my_org_ids()`, `my_admin_org_ids()`,
+`auth.uid() = user_id`, or a lowercased `auth.jwt() ->> 'email'` match. The anon
+reads that do exist are confined to public directory data (`status = 'active'`,
+`status = 'open'`) or to join tables for it. **M-1 is fixed**: the
+`investment_documents` policy now reads `is_public OR (commitment_id IS NOT NULL
+AND ...)` rather than opening on a null column.
+
+### Closed since the last pass
+
+**The three anonymous `auth.users` rows from 16 October are gone.**
+`select count(*) from auth.users where is_anonymous = true` gives **0**, of 10
+users total. That item was waiting on a decision about a destructive delete; it
+no longer needs one.
+
+**Dependencies still clean.** `pnpm audit --audit-level=moderate` reports "No
+known vulnerabilities found".
+
+### SP-1 — the predicted regression arrived · **LOW**
+
+`20261016170000_pin_function_search_path.sql` pinned six functions and said why
+it mattered even though none was `SECURITY DEFINER`:
+
+> "the dangerous version of this is one `security definer` away: the day
+> somebody adds that keyword to a trigger guard, the hole opens silently and
+> nothing in review would catch it."
+
+The linter now reports two functions with a mutable `search_path`:
+
+| Function | Created | `SECURITY DEFINER` | Who may EXECUTE |
+|---|---|---|---|
+| `public.slow_queries` | by hand, undated | no | `service_role` |
+| `public.ai_action_request_freeze` | 2026-11-09 | no | `service_role` |
+
+`ai_action_request_freeze` is the instructive one. Its author remembered to
+`revoke all ... from public, anon, authenticated` **on the very next line** and
+did not pin the path. Careful work, same gap — because nothing checked.
+
+Severity is Low and should be stated as Low: both are `SECURITY INVOKER`, both
+are executable only by `service_role`, and that role already bypasses RLS. There
+is no path from an anonymous or signed-in caller to either one today.
+
+**Fixed, and the class fixed with it.**
+`20261110234500_pin_search_path_and_record_slow_queries.sql` pins both — with
+an empty path rather than `public`, because unlike the October six neither body
+has an unqualified object reference. More importantly,
+`tests/migrationSearchPath.test.ts` now fails the build when any migration
+creates a function without a pin, names the file and function, and keeps its own
+exemption list honest by failing if an entry goes stale. Proven by adding an
+unpinned function and watching it fail, not by watching it pass.
+
+### DRIFT-1 — closed: `slow_queries` is in version control
+
+The only live object in this database with no migration anywhere in the
+repository. Carried as open and blocked "waiting on its definition"; the
+definition was read back out of `pg_get_functiondef` and is now recorded
+verbatim in the migration above, apart from the added pin. Its grants are
+restated there too, because they had never been written down either.
+
+### GRANT-1 — RLS is the only thing between `anon` and ten tables · **LOW**
+
+Ten tables have RLS enabled, **zero policies**, and still carry `GRANT SELECT`
+and `GRANT INSERT` to `anon`:
+
+    kv_store_3eae23a6   kv_store_57095a78   kv_store_12c91054   kv_store_824f083c
+    ai_action_request   ai_call_log         ai_kill_switch      app_error_log
+    exchange_deal       query_perf_snapshot
+
+They are closed today and that is proved above, not assumed — RLS with no
+permissive policy denies everything, and the 401s confirm it. The finding is
+that **this project already does better elsewhere**: `exchange_claim`,
+`exchange_claim_challenge`, `exchange_demand_event`, `exchange_lead_event`,
+`kv_archive_20261003`, `private_cron_config` and all four `command_center`
+tables have the grant revoked, so `anon` cannot reach them even if a policy were
+added by mistake.
+
+The ten above are one accidental `TO authenticated USING (true)` away from
+exposure, and the four `kv_store_*` tables hold essentially all application
+data. This is the same argument H-1 made about anonymous sign-ins: the control
+that happens to be load-bearing should not be the only one. Revoking the grant
+costs nothing and is not a behaviour change — every one of these is read and
+written by the service role.
+
+**Not applied in this pass.** It is a production grant change on the tables that
+hold everything, and it wants its own migration and its own verification.
+
+### CSP — do not promote on this evidence yet
+
+The policy has been collecting for four of the seven days. The store is
+**empty**: `csp_violations` is absent from all four `kv_store_*` tables.
+
+The header is correctly wired — verified live, absolute, right function path:
+
+    Content-Security-Policy-Report-Only: default-src 'self'; ...
+      report-uri https://plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/make-server-3eae23a6/csp-report
+
+So "empty" probably does mean "no violations". But it is not *provable*, and
+that is the finding: **nothing counts reports received, only violations
+recorded.** An empty store is therefore indistinguishable from a pipe that
+never delivered — the identical trap the 6 November note identified one level
+down, where a full store that stops counting "looks exactly like a site with no
+violations, and 'clean, promote it' is the dangerous conclusion to draw from
+it."
+
+Count receipts before promoting. A received-counter that increments even when a
+report produces no new fingerprint turns an empty store from an absence of
+evidence into evidence of absence.
+
+### Still open, and what each one is waiting on
+
+| Item | Waiting on |
+|---|---|
+| `GRANT-1` — revoke `anon`/`authenticated` on the ten tables | A migration and a decision. Safe, but it touches everything. |
+| `ANON-2` — leaked-password protection | A dashboard toggle; not published to anonymous callers, so it cannot be probed. |
+| CSP goes enforcing | Three more days, and a receipts counter so the empty store means something. |
+| Origin lock goes enforcing | Cloudflare. Fails open while unset, by design. |
+| IP reputation goes enforcing | The `would-block` lines in the edge function logs. |
+| Phase 3 Stages 3-4 | A calendar and a budget, not a keyboard. |
+| Phase 4 items 12-14 | Subprocessor inventory, access review + MFA, a restore test. |
+
+Closed this pass: `RLS-2`, `M-7`, `M-1`, `DRIFT-1`, the anonymous `auth.users`
+rows, and `SP-1` (new, found and fixed).
+
+### A note on method
+
+One probe in this pass was refused by the agent's own tooling — a batch of
+anonymous `INSERT`, `PATCH` and `DELETE` attempts against production tables,
+including a `DELETE` on the AI kill switch. It was blocked as destructive, which
+is the correct call for an unattended agent even when the intent is an audit.
+The same questions were answered read-only instead: role-switched `SELECT`s
+inside a rolled-back transaction, and the grant and policy tables themselves.
+Two of the write probes had already completed and are reported above.
+
+Worth recording because it is a real limit on self-auditing: an agent that
+cannot safely attempt a destructive write cannot fully verify that destructive
+writes are refused. The remaining gap — anon `UPDATE` and `DELETE` on tables
+with RLS and no policies — is closed by the same structural argument as the
+`INSERT`s, and an external pen test (Phase 3 Stage 4) is where it gets proved
+properly.
