@@ -37,6 +37,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeader } from '../../lib/aiActivity';
 import {
   advance, decide, freshListen, worthAsking, pickAudioMimeType,
+  isRepeat, remember, type AskedBefore,
 } from './listen';
 
 export type PhoenixVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
@@ -218,6 +219,16 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
    */
   const pendingVerdict = useRef<'send' | 'discard'>('discard');
   /**
+   * The last thing we handed on as a question, and when.
+   *
+   * A transcriber given a quiet room returns a plausible sentence rather
+   * than nothing, the same one every time — four identical transcripts in
+   * one test session, each asked of the assistant as though somebody had
+   * said it, each costing a model call and an answer read aloud. See
+   * isRepeat in listen.ts.
+   */
+  const askedBefore = useRef<AskedBefore | null>(null);
+  /**
    * Consecutive sessions that ended without producing a word.
    *
    * Chrome closes a recognition session after a pause, which is normal and
@@ -394,7 +405,19 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
       }
       const text = String(body.text || '').trim();
       setHeard(text);
-      if (worthAsking(text)) heardCb.current?.(text);
+
+      /*
+       * Shown above whatever happens, asked only if it is new. Echoing it
+       * on screen is how somebody can see that he heard the room rather
+       * than them — silently dropping it would look like the microphone
+       * had stopped working again.
+       */
+      const now = Date.now();
+      if (worthAsking(text)) {
+        const again = isRepeat(text, askedBefore.current, now);
+        askedBefore.current = remember(text, now);
+        if (!again) heardCb.current?.(text);
+      }
       // Clear the echo after a moment so the next clip starts clean.
       setTimeout(() => setHeard((h) => (h === text ? '' : h)), 2500);
     } catch (e: any) {
