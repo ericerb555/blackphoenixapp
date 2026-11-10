@@ -303,7 +303,17 @@ export default function PhoenixConsole({
     }
   }, [pendingAsk, thinking]);
 
-  const inner = centered ? 'mx-auto w-full max-w-3xl' : 'w-full';
+  /*
+    * ONE COLUMN, used by the transcript and the composer alike.
+    *
+    * They were centred independently at max-w-3xl and max-w-4xl. Both were
+    * centred and neither lined up with the other, which is what "still not
+    * centred" actually looks like — a stack whose edges disagree reads as
+    * crooked even when every piece is symmetrical.
+    */
+   const inner = overlay
+     ? 'mx-auto w-full max-w-3xl'
+     : (centered ? 'mx-auto w-full max-w-3xl' : 'w-full');
 
   return (
     <div className={`flex h-full min-h-0 flex-col ${overlay ? 'justify-end' : ''}`}>
@@ -476,8 +486,8 @@ export default function PhoenixConsole({
           overlay ? 'bg-black/70 backdrop-blur-sm' : ''
         }`}
       >
-        {/* The bar spans the width; its contents are centred. */}
-        <div className={overlay ? 'mx-auto w-full max-w-4xl' : inner}>
+        {/* The bar spans the width; its contents sit on the same column. */}
+        <div className={inner}>
           <div className="relative flex items-end gap-2 rounded-sm border border-[#1F1F1F] bg-black/60 px-3 py-2 transition focus-within:border-orange-500/50">
             {/* Corner brackets, the same language as the panels elsewhere. */}
             <span className="pointer-events-none absolute -left-px -top-px h-2 w-2 border-l border-t border-orange-500/50" />

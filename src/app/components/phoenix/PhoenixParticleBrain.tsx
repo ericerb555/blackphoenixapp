@@ -47,10 +47,15 @@ import {
  * origin is CAM_DIST * tan(22.5deg), and the mark spans [-1, 1]. 3.15 put
  * him at about three quarters of the frame with a wide empty margin —
  * correct when arcs occupied that margin, wasteful now there is nothing
- * out there. 2.45 fills roughly ninety-eight percent of the height, which
- * is as close as he can come before an excursion clips a wingtip.
+ * out there.
+ *
+ * 2.45 filled ninety-nine percent of the frame and cut the tail off: the
+ * mark reaches y = -1 at its lowest feather, the breathing cycle adds two
+ * percent, and the excursions carry particles further still. 2.75 leaves
+ * about twelve percent of margin all round, which the tail needs and the
+ * wandering particles mostly stay inside.
  */
-const CAM_DIST = 2.45;
+const CAM_DIST = 2.75;
 
 export type PhoenixState =
   | 'idle' | 'listening' | 'thinking' | 'speaking'

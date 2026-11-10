@@ -232,8 +232,21 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
             not the conversation.
           */}
           <div className="relative min-h-0 flex-1">
+            {/*
+              STOPS ABOVE THE CHAT BAR, rather than running behind it.
+
+              The composer is an opaque blurred bar across the bottom, and
+              the bird is centred in whatever box he is given — so with
+              inset-0 his tail was rendering underneath it. Nothing was
+              clipped by the camera; it was covered. Reserving the bar's
+              height means he centres in the space you can actually see.
+
+              A generous 124px: the bar is an input, a padding ring and a
+              line of mono that wraps to two on a narrow window.
+            */}
             <div
-              className={`absolute inset-0 transition-opacity duration-700 ${
+              style={{ bottom: module ? 0 : 124 }}
+              className={`absolute left-0 right-0 top-0 transition-opacity duration-700 ${
                 module ? 'opacity-40' : 'opacity-100'
               }`}
             >
