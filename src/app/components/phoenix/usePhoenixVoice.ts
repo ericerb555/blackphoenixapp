@@ -38,8 +38,19 @@ import { authHeader } from '../../lib/aiActivity';
 
 export type PhoenixVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
 
-/** Deep and level. Phoenix is a chief of staff, not a games console. */
-export const DEFAULT_VOICE: PhoenixVoice = 'onyx';
+/**
+ * Deep, and soft rather than firm.
+ *
+ * onyx is the lowest of the six and it is also the hardest — a newsreader
+ * voice, all chest and no warmth. Pitching a WARMER voice down gets you
+ * depth without the edge, and dropping pitch is itself a softening: it
+ * moves energy out of the harsh 2-4kHz band where sibilance lives.
+ *
+ * fable at 0.90 lands lower than onyx does naturally, and keeps the
+ * roundness. onyx is still one tap away for anyone who wants the
+ * authority instead.
+ */
+export const DEFAULT_VOICE: PhoenixVoice = 'fable';
 
 /**
  * HOW THE DEPTH IS ACHIEVED, SINCE OPENAI HAS NO PITCH CONTROL.
@@ -57,17 +68,30 @@ export const DEEP = 0.93;
 export interface VoiceSpec {
   id: PhoenixVoice;
   note: string;
+  /** Browser playback rate. Below 1 with preservesPitch off lowers pitch. */
   depth?: number;
+  /**
+   * Server-side pace, which OpenAI applies WITHOUT changing pitch.
+   *
+   * This is the half that was missing. Dropping the playback rate to 0.93
+   * lowered the pitch — the point — and also made him seven percent slower,
+   * which came out as a drawl. Asking the API to speak faster by the same
+   * factor cancels the pace and leaves the pitch exactly where it was:
+   * 1.12 x 0.93 is 1.04, so he lands marginally brisker than normal and a
+   * semitone down.
+   */
+  speed?: number;
   hd?: boolean;
 }
 
 export const VOICES: VoiceSpec[] = [
-  { id: 'onyx',    note: 'Deep, considered — the house voice', depth: DEEP, hd: true },
-  { id: 'echo',    note: 'Measured and dry',                   depth: 0.96, hd: true },
-  { id: 'fable',   note: 'Warmer, more inflected' },
+  // Ordered by how much they sound like Phoenix, not alphabetically.
+  { id: 'fable',   note: 'Deep and soft — the house voice', depth: 0.90, speed: 1.14, hd: true },
+  { id: 'onyx',    note: 'Deep and firm',                   depth: DEEP, speed: 1.12, hd: true },
+  { id: 'echo',    note: 'Measured, dry',                   depth: 0.94, speed: 1.08, hd: true },
+  { id: 'shimmer', note: 'Soft and light',                  depth: 0.95, speed: 1.07 },
   { id: 'alloy',   note: 'Neutral, quick' },
   { id: 'nova',    note: 'Bright and direct' },
-  { id: 'shimmer', note: 'Soft, airy' },
 ];
 
 export const specFor = (id: PhoenixVoice): VoiceSpec =>
@@ -176,8 +200,32 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   const emptyEnds = useRef(0);
   const sessionHeard = useRef(false);
 
+  /**
+   * Phrases waiting to be sent as one question.
+   *
+   * With continuous recognition a single spoken sentence arrives as
+   * SEVERAL final results, one per pause — so "what needs my attention
+   * today" could fire two or three separate questions, each getting its
+   * own answer, all of them read aloud at once. They are collected here
+   * and sent together once you have actually stopped talking.
+   */
+  const pending = useRef<string[]>([]);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const rafRef = useRef(0);
   const bufRef = useRef<Uint8Array | null>(null);
+
+  /**
+   * Which utterance is the current one.
+   *
+   * speak() stops whatever is playing and then AWAITS a fetch. Two calls
+   * close together both get past the stop, both wait, and both start
+   * playing — the second overwrites speechRef so the first is never
+   * paused again and the two talk over each other. Bumping a token on
+   * entry and checking it after every await is what makes the last
+   * request win cleanly.
+   */
+  const utterance = useRef(0);
 
   const makeAnalyser = (ctx: AudioContext) => {
     const a = ctx.createAnalyser();
@@ -272,10 +320,21 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
         if (!text) continue;
         if (r.isFinal) {
           setHeard('');
-          // A finished sentence is a question. Two words is a cough or the
-          // tail of somebody else's conversation, and asking the model
-          // about it costs money and interrupts whatever is on screen.
-          if (text.split(/\s+/).length >= 2) heardCb.current?.(text);
+          pending.current.push(text);
+          if (settle.current) clearTimeout(settle.current);
+          /*
+           * Nine hundred milliseconds of quiet before it counts as
+           * finished. Long enough to cover the pause between clauses,
+           * short enough that it does not feel like waiting.
+           */
+          settle.current = setTimeout(() => {
+            const whole = pending.current.join(' ').replace(/\s+/g, ' ').trim();
+            pending.current = [];
+            // One word is a cough or the tail of somebody else's
+            // conversation; asking the model costs money and takes
+            // over the screen.
+            if (whole.split(' ').length >= 2) heardCb.current?.(whole);
+          }, 900);
         } else {
           interim += ` ${text}`;
         }
@@ -342,6 +401,8 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   const stopRecognition = useCallback(() => {
     wantRec.current = false;
     emptyEnds.current = 0;
+    if (settle.current) { clearTimeout(settle.current); settle.current = null; }
+    pending.current = [];
     const rec = recRef.current;
     recRef.current = null;
     setHeard('');
@@ -417,6 +478,9 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
     const said = String(text || '').trim();
     if (!said) return;
 
+    const mine = ++utterance.current;
+    const stale = () => utterance.current !== mine;
+
     try {
       const spec = specFor(voice);
       const { API_BASE_URL } = await import('../../lib/apiConfig');
@@ -427,7 +491,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
           text: said,
           voice,
           model: spec.hd ? 'tts-1-hd' : 'tts-1',
-          speed: 1,
+          speed: spec.speed ?? 1,
         }),
       });
 
@@ -443,7 +507,10 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
       setLastCostCents(Number.isFinite(cents) ? cents : null);
       setLastModel(res.headers.get('X-Phoenix-Model'));
 
+      if (stale()) return;
+
       const blob = await res.blob();
+      if (stale()) return;
       const url = URL.createObjectURL(blob);
       const el = new Audio(url);
       el.crossOrigin = 'anonymous';
@@ -465,6 +532,13 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
       const node = ctx.createMediaElementSource(el);
       // Into the speech analyser, which is the one wired to the speakers.
       node.connect(voiceAnalyser.current!);
+
+      if (stale()) {
+        // Superseded while the audio was being fetched. Release the blob
+        // rather than leaving it to the garbage collector's mercy.
+        URL.revokeObjectURL(url);
+        return;
+      }
 
       speechRef.current = { el, node, url };
       setSpeaking(true);
@@ -488,6 +562,7 @@ export function usePhoenixVoice(opts: PhoenixVoiceOptions = {}): PhoenixVoiceApi
   /* Everything torn down on unmount, including the context itself. */
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (settle.current) clearTimeout(settle.current);
     wantRec.current = false;
     try { recRef.current?.stop(); } catch { /* already stopped */ }
     micRef.current?.stream.getTracks().forEach((t) => t.stop());

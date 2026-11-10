@@ -118,8 +118,13 @@ const VOICE_PREF = 'phoenix.speakAnswers';
 /**
  * Which voice. Remembered separately from whether the voice is on, because
  * turning him off for a meeting should not forget who he sounds like.
+ *
+ * The key carries a version. The house voice changed from onyx to a
+ * pitched-down fable, and a preference saved under the old key would have
+ * silently pinned anybody who had ever touched the picker to the voice
+ * they were trying to get away from.
  */
-const VOICE_NAME_PREF = 'phoenix.voice';
+const VOICE_NAME_PREF = 'phoenix.voice.v2';
 
 function savedVoice(): PhoenixVoice {
   try {
