@@ -361,6 +361,22 @@ export function publicCallRow(row: Record<string, unknown>): Record<string, unkn
  * the ones about not inventing figures, because every number it can quote
  * comes from a tool and is checkable.
  */
+
+/**
+ * Where the list of actions goes.
+ *
+ * The actions themselves live in aiActions.ts, which imports the database
+ * client — and this file deliberately imports nothing, so that `node --test`
+ * can load it and assert what the assistant is allowed to see. Importing the
+ * catalogue here to generate the list broke exactly that, immediately.
+ *
+ * So the brief keeps a marker and the route splices the real list in at call
+ * time, through `phoenixSystem` below. One source of truth, no database
+ * import, and a test that fails if the marker is ever renamed out from under
+ * the splice.
+ */
+export const ACTION_LIST_MARKER = 'The actions available are:';
+
 export const PHOENIX_SYSTEM = [
   'You are the operations assistant for Black Phoenix, a construction and property services company.',
   'You are talking to the owner or a member of staff about how the business is running.',
@@ -417,12 +433,7 @@ export const PHOENIX_SYSTEM = [
   'propose_action puts a one-line proposal in the owner\'s queue and nothing',
   'happens until they tap approve.',
   '',
-  'The actions available are:',
-  '  mark_alerts_read      — clear alerts. params: alertTitles (array of titles)',
-  '  add_work_request_note — an internal note. params: workRequestId, note',
-  '  send_lead_email       — one templated email to one lead. params: leadEmail,',
-  '                          emailType (welcome, cart_abandon, hot_follow_up,',
-  '                          promo, review_request)',
+  ACTION_LIST_MARKER,
   '',
   'Propose ONE thing at a time, and write the summary for the person deciding:',
   'say what will happen and to whom. "Send the hot_follow_up email to',
@@ -632,4 +643,22 @@ export function isUnpaid(invoice: any): boolean {
 
 export function sumAmounts(rows: any[]): number {
   return Math.round(rows.reduce((t, r) => t + amountOf(r), 0) * 100) / 100;
+}
+
+/**
+ * The brief, with the live action list in it.
+ *
+ * Throws rather than returning the prompt unchanged if the marker has gone.
+ * Silently serving a brief with no actions in it would present as the
+ * assistant refusing to do things it is perfectly able to propose — a
+ * fortnight of "it says it cannot" with nothing wrong in any log.
+ */
+export function phoenixSystem(actionLines: string[]): string {
+  if (!PHOENIX_SYSTEM.includes(ACTION_LIST_MARKER)) {
+    throw new Error('The action list marker is missing from PHOENIX_SYSTEM.');
+  }
+  return PHOENIX_SYSTEM.replace(
+    ACTION_LIST_MARKER,
+    [ACTION_LIST_MARKER, ...actionLines].join('\n'),
+  );
 }

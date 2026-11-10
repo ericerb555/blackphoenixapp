@@ -46,7 +46,7 @@ import { allStops } from "./aiKillSwitch.ts";
 import { summarise, byAgent, concerns, effectiveState, type LedgerRow } from "./aiLedgerView.ts";
 import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
 import {
-  PHOENIX_TOOLS, PHOENIX_SYSTEM, isKnownTool, clampHours, clampLimit,
+  PHOENIX_TOOLS, phoenixSystem, isKnownTool, clampHours, clampLimit,
   publicCallRow, CALL_FIELDS, statusOf, countByStatus, sumAmounts, valueKnown, isUnpaid,
   publicWorkRequest, publicQuote, publicInvoice, publicLead, publicAlert,
 } from "./phoenixTools.ts";
@@ -691,7 +691,15 @@ phoenixChatRouter.post(BASE, async (c) => {
         model: 'claude-opus-5',
         max_tokens: 4000,
         thinking: { type: 'adaptive' },
-        system: `${PHOENIX_SYSTEM}\n\n${UNTRUSTED_PREAMBLE}`,
+        /*
+         * The action list is spliced in here, from the catalogue, so that
+         * an action added to aiActions.ts is usable the moment it exists —
+         * name, risk tier and parameters — without a second edit to the
+         * brief that somebody has to remember.
+         */
+        system: `${phoenixSystem(actionCatalogue().map(
+          (a) => `  ${a.action} (${a.risk}) — ${a.what} params: ${a.params}`,
+        ))}\n\n${UNTRUSTED_PREAMBLE}`,
         tools: PHOENIX_TOOLS as any,
         messages,
       });

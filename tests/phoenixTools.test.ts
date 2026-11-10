@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PHOENIX_TOOLS, PHOENIX_SYSTEM, TOOL_NAMES, isKnownTool,
+  PHOENIX_TOOLS, PHOENIX_SYSTEM, ACTION_LIST_MARKER, phoenixSystem, TOOL_NAMES, isKnownTool,
   clampHours, clampLimit, CALL_FIELDS, publicCallRow,
 } from '../supabase/functions/server/phoenixTools.ts';
 
@@ -31,7 +31,15 @@ test('no tool is named for an action', () => {
   // decision somebody made, not something that arrived with a feature.
   assert.deepEqual([...TOOL_NAMES].sort(), [
     'ai_activity_summary', 'ai_stop_status', 'alerts', 'automation_opportunities',
-    'business_snapshot', 'find_module', 'leads', 'open_module', 'pending_actions',
+    'business_snapshot',
+    // Added deliberately: what is failing anywhere in the application, which
+    // nothing could answer before because nothing wrote a failure down.
+    'feature_health',
+    'find_module',
+    // Added deliberately: the four stages of the funnel next to each other,
+    // so advice about marketing has a number under it.
+    'growth_signals',
+    'leads', 'open_module', 'pending_actions',
     'propose_action', 'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
   ]);
 });
@@ -147,4 +155,33 @@ test('every tool says when to use it, not just what it is', () => {
     assert.match(t.description, /\bUse\b[^.]{0,24}\b(for|when)\b/i,
       `${t.name} should say when to use it`);
   }
+});
+
+/* ── the action list is spliced, not typed ───────────────────────────── */
+
+/**
+ * The brief used to list the actions by hand, in this file's own prose,
+ * while the actions themselves live in aiActions.ts. An action added there
+ * and forgotten here was catalogued, approvable and unusable: the model
+ * either had no idea it existed or knew the name and guessed its
+ * parameters. The route now splices the live catalogue in, and these tests
+ * are what stop that splice rotting — aiActions.ts cannot be imported here,
+ * because it imports the database client and node --test cannot load it.
+ */
+test('the brief has somewhere to put the action list', () => {
+  assert.ok(PHOENIX_SYSTEM.includes(ACTION_LIST_MARKER));
+});
+
+test('the live action list is spliced in under the marker', () => {
+  const out = phoenixSystem(['  do_a_thing (low) — does a thing. params: id']);
+  const lines = out.split('\n');
+  const at = lines.findIndex((l) => l.includes(ACTION_LIST_MARKER));
+  assert.ok(at >= 0, 'the marker survived');
+  assert.equal(lines[at + 1], '  do_a_thing (low) — does a thing. params: id');
+});
+
+test('a brief with no actions is refused rather than served empty', () => {
+  // Serving it would look like an assistant declining work it can do,
+  // with nothing wrong in any log to explain why.
+  assert.equal(phoenixSystem([]).includes(ACTION_LIST_MARKER), true);
 });
