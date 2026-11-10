@@ -47,7 +47,7 @@ import { summarise, byAgent, concerns, effectiveState, type LedgerRow } from "./
 import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
 import {
   PHOENIX_TOOLS, PHOENIX_SYSTEM, isKnownTool, clampHours, clampLimit,
-  publicCallRow, CALL_FIELDS, statusOf, countByStatus, sumAmounts, isUnpaid,
+  publicCallRow, CALL_FIELDS, statusOf, countByStatus, sumAmounts, valueKnown, isUnpaid,
   publicWorkRequest, publicQuote, publicInvoice, publicLead, publicAlert,
 } from "./phoenixTools.ts";
 import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
@@ -224,6 +224,165 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
   const workRequests = async (): Promise<any[]> =>
     ((await kv.get('all_work_requests')) as any[]) || ((await kv.get('work_requests')) as any[]) || [];
 
+  if (name === 'growth_signals') {
+    /**
+     * COUNTS FIRST, RATES ONLY WHERE THEY MEAN SOMETHING.
+     *
+     * Two quotes out of three is not a 67% win rate, it is three quotes,
+     * and a model handed the percentage will say "strong conversion" about
+     * a number that one lost job would halve. So a rate is computed only
+     * where the denominator reaches RATE_FLOOR and is null otherwise, with
+     * the prompt telling him to say so rather than divide anyway.
+     *
+     * Everything here is already on this server. The point of the tool is
+     * not new data, it is putting the four stages of the funnel next to
+     * each other, which nothing did before.
+     */
+    const RATE_FLOOR = 10;
+    const weeks = Math.min(Math.max(Number(input?.weeks) || 8, 1), 52);
+    const since = Date.now() - weeks * 7 * 86400_000;
+
+    const [leadRows, quoteRows, invoiceRows, wr, referralRows, galleryRows, articleRows, keywordDoc, reelRows] =
+      await Promise.all([
+        kv.get('leads:all') as Promise<any[]>,
+        kv.getByPrefix('quote:') as Promise<any[]>,
+        kv.getByPrefix('invoice:') as Promise<any[]>,
+        workRequests(),
+        kv.get('referrals:all') as Promise<any[]>,
+        kv.getByPrefix('gallery:') as Promise<any[]>,
+        kv.getByPrefix('seo_engine:article:') as Promise<any[]>,
+        kv.get('keyword_tracker:default') as Promise<any>,
+        kv.get('public_reels') as Promise<any[]>,
+      ]);
+
+    const when = (r: any): number => {
+      const t = Date.parse(String(r?.created_at || r?.createdAt || r?.capturedAt || r?.timestamp || ''));
+      return Number.isFinite(t) ? t : 0;
+    };
+    // A record with no date is counted in the totals and left out of the
+    // window: guessing it into this week would invent a trend.
+    const inWindow = (r: any) => when(r) >= since;
+    const rate = (top: number, bottom: number): number | null =>
+      (bottom >= RATE_FLOOR ? Math.round((top / bottom) * 100) : null);
+    const ageDays = (iso: unknown): number | null => {
+      const t = Date.parse(String(iso || ''));
+      return Number.isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 86400_000)) : null;
+    };
+
+    const leads = (leadRows || []).filter(Boolean);
+    const quotes = (quoteRows || []).filter(Boolean);
+    const invoices = (invoiceRows || []).filter(Boolean);
+    const requests = wr || [];
+
+    const leadsIn = leads.filter(inWindow);
+    const quotesIn = quotes.filter(inWindow);
+    const invoicesIn = invoices.filter(inWindow);
+    const requestsIn = requests.filter(inWindow);
+
+    const won = quotesIn.filter((q) => ['accepted', 'approved', 'won', 'signed'].includes(statusOf(q)));
+    const paid = invoicesIn.filter((i) => statusOf(i) === 'paid');
+    const unpaid = invoices.filter(isUnpaid);
+    const uncontacted = leads.filter((l) => !Number(l?.emailsSent));
+
+    /* Enquiries per week, oldest first, so a trend is visible as a shape. */
+    const perWeek: { weekEnding: string; leads: number; quotes: number }[] = [];
+    for (let w = weeks - 1; w >= 0; w--) {
+      const end = Date.now() - w * 7 * 86400_000;
+      const start = end - 7 * 86400_000;
+      const within = (r: any) => when(r) > start && when(r) <= end;
+      perWeek.push({
+        weekEnding: new Date(end).toISOString().slice(0, 10),
+        leads: leads.filter(within).length,
+        quotes: quotes.filter(within).length,
+      });
+    }
+
+    const tally = (rows: any[], pick: (r: any) => string) => {
+      const out: Record<string, number> = {};
+      for (const r of rows) {
+        const k = (pick(r) || '').trim().toLowerCase().slice(0, 60);
+        if (k) out[k] = (out[k] || 0) + 1;
+      }
+      return Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([what, count]) => ({ what, count }));
+    };
+
+    const keywords = Array.isArray(keywordDoc?.keywords) ? keywordDoc.keywords
+      : Array.isArray(keywordDoc) ? keywordDoc : [];
+
+    return {
+      windowWeeks: weeks,
+      /*
+       * The four stages, in order, with the count that survived each one.
+       * Read down the list: the stage where the number collapses is the
+       * answer to "where should we improve".
+       */
+      funnel: {
+        leadsCaptured: leadsIn.length,
+        workRequestsRaised: requestsIn.length,
+        quotesRaised: quotesIn.length,
+        quotesWon: won.length,
+        invoicesPaid: paid.length,
+        quoteWinRatePercent: rate(won.length, quotesIn.length),
+        leadToQuotePercent: rate(quotesIn.length, leadsIn.length),
+        rateFloor: RATE_FLOOR,
+      },
+      /*
+       * Every figure here is followed by how many records it could not see.
+       * Quotes on this platform carry no total — the line items beneath them
+       * are supplier costs, not prices — so a value summed from the ones
+       * that DO have a total, with no mention of the ones that do not, would
+       * read as the whole pipeline while describing a fraction of it.
+       */
+      money: {
+        quotedValue: sumAmounts(quotesIn.filter(valueKnown)),
+        quotesWithNoValueRecorded: quotesIn.filter((q) => !valueKnown(q)).length,
+        wonValue: sumAmounts(won.filter(valueKnown)),
+        paidValue: sumAmounts(paid.filter(valueKnown)),
+        outstandingValue: sumAmounts(unpaid.filter(valueKnown)),
+        outstandingCount: unpaid.length,
+        invoicesWithNoValueRecorded: invoicesIn.filter((i) => !valueKnown(i)).length,
+        averageQuote: (() => {
+          const priced = quotesIn.filter(valueKnown);
+          return priced.length ? Math.round(sumAmounts(priced) / priced.length) : null;
+        })(),
+      },
+      /*
+       * The clearest marketing finding on the platform, when it is not
+       * zero: enquiries that arrived and were never answered. Spending to
+       * generate more of them while these sit is the one recommendation
+       * that is always wrong.
+       */
+      leadsNeverContacted: {
+        count: uncontacted.length,
+        oldestDays: uncontacted.length
+          ? Math.max(...uncontacted.map((l) => ageDays(l?.capturedAt) ?? 0))
+          : null,
+      },
+      perWeek,
+      leadsByIntent: tally(leadsIn, (l) => String(l?.intent || '')),
+      // Town level, as everywhere else here. Enough to decide where to
+      // advertise, not enough to identify a household.
+      demandByArea: tally(requestsIn, (r) => String(r?.city || r?.town || '')),
+      quotesByStatus: countByStatus(quotesIn),
+      marketingAssets: {
+        galleryItems: (galleryRows || []).length,
+        seoArticles: (articleRows || []).length,
+        trackedKeywords: keywords.length,
+        publishedReels: (reelRows || []).length,
+        referrals: (referralRows || []).length,
+      },
+      note:
+        'Counts are records on this platform, not impressions or spend — there is no '
+        + 'advertising data here, so anything about channel performance is a question '
+        + 'to ask rather than an answer to give. A rate of null means the denominator '
+        + 'was under ' + RATE_FLOOR + ' and dividing it would mislead. Where '
+        + 'quotesWithNoValueRecorded is not zero, those quotes hold no customer total '
+        + 'anywhere — their line items are supplier costs — so the quoted value above '
+        + 'covers only the quotes that were priced, and the missing ones are a gap in '
+        + 'the system rather than work worth nothing.',
+    };
+  }
   if (name === 'feature_health') {
     /**
      * TWO SOURCES, ONE ANSWER.

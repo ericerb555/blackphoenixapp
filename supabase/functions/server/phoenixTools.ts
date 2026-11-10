@@ -32,6 +32,45 @@
 export const PHOENIX_TOOLS = [
   {
     /**
+     * THE FUNNEL, WHICH NOTHING ELSE HERE COULD SEE.
+     *
+     * Asked where to improve or how to market, the honest answer comes from
+     * four numbers nobody had put next to each other: how many enquiries
+     * arrive, how many become quotes, how many of those are won, and how
+     * much of the won work has actually been paid for. Each of those gaps
+     * is a different problem with a different fix, and advice that cannot
+     * tell them apart is horoscope.
+     *
+     * It also counts what marketing material EXISTS, because the second
+     * question after "how do we market" is always "with what", and a
+     * gallery with four photographs in it answers that differently from one
+     * with four hundred.
+     */
+    name: 'growth_signals',
+    description:
+      'The sales funnel and the marketing material behind it: enquiries per '
+      + 'week and where they came from, leads nobody has contacted and how '
+      + 'old the oldest is, quotes raised and won, invoices paid and '
+      + 'outstanding, the towns the work comes from, and how much published '
+      + 'content, tracked keywords and referral activity exist. Use for '
+      + '"how do we get more work", "where are we losing deals", "how should '
+      + 'we market", "where should we improve". Rates are only returned '
+      + 'where the denominator is large enough to mean anything; where it is '
+      + 'null, say so rather than dividing two small numbers in your head.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        weeks: {
+          type: 'number',
+          description: 'How many weeks of history. Defaults to 8, maximum 52.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    /**
      * WHAT IS ACTUALLY BROKEN, as opposed to what the model has been doing.
      *
      * ai_activity_summary knows about model calls. This knows about failures
@@ -414,6 +453,24 @@ export const PHOENIX_SYSTEM = [
   'something never deployed. You cannot change code: hand the owner the',
   'evidence and say plainly that fixing it is a build.',
   '',
+  'ON BEING ASKED WHERE TO IMPROVE, OR HOW TO MARKET',
+  '',
+  'Three tools hold the evidence and they answer different questions:',
+  'feature_health is what is BROKEN, automation_opportunities is what is',
+  'PILING UP, growth_signals is where the funnel LEAKS and what material',
+  'exists to market with. A useful answer usually needs more than one of',
+  'them, and an answer that needs none of them is a horoscope.',
+  '',
+  'Name the number you are reasoning from, every time. "Thirty-one enquiries',
+  'became four quotes" is worth hearing; "improve your conversion" is not.',
+  'Where a rate came back null the denominator was too small to divide — say',
+  'that instead of doing the division anyway. Rank what you suggest by the',
+  'size of the gap it closes, say plainly which suggestions are a build',
+  'rather than a setting, and prefer one thing that would move a number this',
+  'week over five that sound comprehensive. If the evidence does not support',
+  'a recommendation, the answer is that the data is too thin, which is itself',
+  'a finding worth stating.',
+  '',
   'ON AUTOMATING THINGS',
   '',
   'automation_opportunities shows what is piling up and what already runs on a',
@@ -442,11 +499,45 @@ export const PHOENIX_SYSTEM = [
  */
 
 /** Money, as a number, from the several shapes these records use. */
+/**
+ * The money on a record, in whichever field this platform wrote it.
+ *
+ * `total_amount` was missing from this list and the invoices in production
+ * use exactly that spelling, so every figure this file produced about them
+ * was zero — silently, because a missing field and a free job are the same
+ * number. Anything reading a total has to know both spellings.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO is add up line items. A quote here
+ * carries no total at all: the items beneath it are COSTS — unitCost,
+ * totalCost, a supplier and a waste factor — and summing those gives what
+ * the job costs us, not what the customer was asked to pay. Presenting
+ * that as a quoted value would put a confident wrong number in front of
+ * somebody making a pricing decision. Unknown is reported as unknown; see
+ * `valueKnown`.
+ */
 export function amountOf(record: any): number {
   const raw = record?.total ?? record?.amount ?? record?.totalAmount
-    ?? record?.grandTotal ?? record?.estimatedValue ?? 0;
+    ?? record?.total_amount ?? record?.grandTotal ?? record?.grand_total
+    ?? record?.estimatedValue ?? 0;
   const n = Number(raw);
   return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Does this record carry a figure worth quoting back?
+ *
+ * Without it, eight quotes with no total average out to zero dollars and
+ * read as a catastrophe rather than as a gap in the data — and the gap is
+ * itself the finding worth reporting.
+ *
+ * It cannot tell a genuinely free job from a price nobody wrote down: both
+ * are zero, and nothing in these records distinguishes them. That is the
+ * right trade here, where a free job is vanishingly rare and a missing
+ * total is the norm, but it is a judgement and not a measurement — so what
+ * the callers report is "no value recorded", which is true either way.
+ */
+export function valueKnown(record: any): boolean {
+  return amountOf(record) > 0;
 }
 
 export function statusOf(record: any): string {
