@@ -36,6 +36,7 @@
  * so the money survives the hiding. See `customerInvoiceView`.
  */
 import type { Draw } from './paymentSchedule.ts';
+import { customerPricingOf } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -101,10 +102,29 @@ function phaseLines(quote: any, phase: string): DrawInvoiceLine[] {
    */
   const onQuote = (line: any) => line?.included !== false;
 
+  /**
+   * AT THE PRICE, NOT AT THE COST.
+   *
+   * The draw is a share of the contract total, which carries overhead,
+   * profit and contingency. These lines carried none of it, so the
+   * server’s sum landed about a fifth under the draw it was supposed to
+   * equal, `wanted` went several hundred dollars negative, the discount
+   * clamped to zero at the band below, and the invoice billed the phase at
+   * what it COSTS US plus tax. `matchesDraw` came back false and the panel
+   * said the schedule had drifted — the one reading it could not give is
+   * the true one, which was that nothing had drifted and every invoice
+   * raised this way undercharged.
+   *
+   * `quoteCustomerPrice` is the same apportionment the quote, the PDF and
+   * the portal use, so the invoice bills the figures the customer agreed to
+   * rather than a fourth opinion about them.
+   */
+  const pricing = customerPricingOf(quote);
+
   for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
     if (!match(m?.phase) || !onQuote(m)) continue;
     const quantity = Number(m?.quantity) || 0;
-    const unit_price = Number(m?.unitCost) || 0;
+    const unit_price = round2((Number(m?.unitCost) || 0) * pricing.factor);
     out.push({
       line_number: out.length + 1,
       description: [m?.name, m?.description].filter(Boolean).join(' — ') || 'Material',
@@ -119,7 +139,8 @@ function phaseLines(quote: any, phase: string): DrawInvoiceLine[] {
   for (const l of Array.isArray(quote?.labor) ? quote.labor : []) {
     if (!match(l?.phase) || !onQuote(l)) continue;
     const quantity = Number(l?.hours) || 0;
-    const unit_price = Number(l?.hourlyRate) || 0;
+    /* The charge-out rate. See the note above the materials loop. */
+    const unit_price = round2((Number(l?.hourlyRate) || 0) * pricing.factor);
     out.push({
       line_number: out.length + 1,
       description: [l?.role, l?.description].filter(Boolean).join(' — ') || 'Labour',

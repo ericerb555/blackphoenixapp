@@ -59,6 +59,8 @@ export interface QuoteLike {
   taxRate?: number;
   totalCost?: number;
   total?: number;
+  /** Stamped at signature: totalCost less the labour discount agreed. */
+  agreedTotal?: number;
 }
 
 export interface InvoiceLine {
@@ -69,6 +71,8 @@ export interface InvoiceLine {
   unit_price: number;
   is_taxable: boolean;
 }
+
+import { customerPricingOf } from "../../../supabase/functions/server/quoteCustomerPrice.ts";
 
 const num = (v: unknown, fallback = 0) => {
   const n = Number(v);
@@ -83,10 +87,25 @@ const num = (v: unknown, fallback = 0) => {
  * the page.
  */
 export function invoiceLinesFromQuote(quote: QuoteLike | null | undefined): InvoiceLine[] {
+  /**
+   * AT THE PRICE, NOT AT THE COST.
+   *
+   * `unitCost` and `hourlyRate` are what the job costs US. Overhead, profit
+   * and contingency go on the whole quote and reach only `totalCost`, so an
+   * invoice built from these lines billed the customer our cost — about a
+   * fifth under the figure they approved — and the server derives the invoice
+   * total FROM the lines, so the amount passed beside them could not save it.
+   *
+   * The same apportionment the quote, the PDF and the portal use, so the
+   * invoice bills what the customer agreed to rather than a fourth opinion.
+   */
+  const pricing = customerPricingOf(quote as any);
+  const priced = (n: number) => Math.round(n * pricing.factor * 100) / 100;
+
   const materials = (quote?.materials || []).map((m) => ({
     description: `${m.name || m.description || 'Material'}${m.unit ? ` (${m.unit})` : ''}`,
     quantity: num(m.quantity, 1) || 1,
-    unit_price: num(m.unitCost ?? m.unitPrice),
+    unit_price: priced(num(m.unitCost ?? m.unitPrice)),
     // Materials carry sales tax.
     is_taxable: true,
   }));
@@ -94,7 +113,7 @@ export function invoiceLinesFromQuote(quote: QuoteLike | null | undefined): Invo
   const labour = (quote?.labor || quote?.laborItems || []).map((l) => ({
     description: `Labor — ${l.role || l.description || 'work'}`,
     quantity: num(l.hours, 1) || 1,
-    unit_price: num(l.hourlyRate ?? l.unitPrice),
+    unit_price: priced(num(l.hourlyRate ?? l.unitPrice)),
     /**
      * Labour is a service and is not taxed here.
      *
@@ -132,6 +151,16 @@ export function invoiceAmountFromQuote(
   quote: QuoteLike | null | undefined,
   estimatedValue = 0,
 ): number {
+  /**
+   * What was AGREED, when a signature says so.
+   *
+   * `agreedTotal` is stamped when the customer approves and is `totalCost`
+   * less the labour discount they were shown. Billing `totalCost` takes the
+   * discount back off them at invoice time, which is the one place nobody
+   * is looking for it.
+   */
+  const agreed = Number((quote as any)?.agreedTotal);
+  if (Number.isFinite(agreed) && agreed > 0) return agreed;
   const quoted = Number(quote?.totalCost ?? quote?.total);
   return Number.isFinite(quoted) && quoted > 0 ? quoted : num(estimatedValue);
 }

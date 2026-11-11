@@ -31,6 +31,10 @@ import assert from 'node:assert/strict';
 import { applyMargins } from '../supabase/functions/server/quoteMargins.ts';
 import { customerQuoteView } from '../supabase/functions/server/customerQuoteView.ts';
 import { labourDiscountAmount } from '../supabase/functions/server/discounts.ts';
+import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../src/app/lib/quoteToInvoice.ts';
+import { drawToInvoice } from '../src/app/lib/drawToInvoice.ts';
+import { buildPaymentSchedule } from '../src/app/lib/paymentSchedule.ts';
+import { schedulePhasesOf, contractTotalOf } from '../src/app/lib/quoteToSchedule.ts';
 import {
   asFraction, customerPricingOf, atCustomerPrice,
   spreadCustomerPrices, allocate, preTaxTotalOf,
@@ -288,4 +292,92 @@ test('the percentage divides into the labour figure the customer is shown', () =
   const out = customerQuoteView(pricedQuote);
   const taken = labourDiscountAmount(out.laborSubtotal, 15);
   assert.equal(round2(taken / out.laborSubtotal * 100), 15);
+});
+
+/* ── invoicing: what is billed is what was agreed ─────────────────────────── */
+
+/**
+ * A quote with real margins on it, phased, of the shape the estimator emits.
+ *
+ * The existing `drawToInvoice` fixture deliberately carries NO margin, so its
+ * lines and its total agree at cost and every assertion in that file passed
+ * while every real invoice undercharged. This is the shape that was broken.
+ */
+const phasedMargins = applyMargins({
+  materialsSubtotal: 4000,
+  laborSubtotal: 6000,
+  additionalCostsSubtotal: 0,
+  creditsSubtotal: 0,
+  overheadPercent: 0.1,
+  profitPercent: 0.1,
+  contingencyPercent: 0.05,
+  taxRatePercent: 0,
+});
+
+const jobQuote = {
+  id: 'q-job',
+  taxRate: 0,
+  materials: [
+    { name: 'Lumber', quantity: 100, unitCost: 25, totalCost: 2500, phase: 'Framing' },
+    { name: 'Fixings', quantity: 30, unitCost: 50, totalCost: 1500, phase: 'Strip out' },
+  ],
+  labor: [
+    { role: 'Carpenter', hours: 60, hourlyRate: 70, totalCost: 4200, phase: 'Framing' },
+    { role: 'Labourer', hours: 36, hourlyRate: 50, totalCost: 1800, phase: 'Strip out' },
+  ],
+  processSteps: [{ title: 'Strip out' }, { title: 'Framing' }],
+  ...phasedMargins,
+  materialsSubtotal: 4000,
+  laborSubtotal: 6000,
+};
+
+test('invoice lines are billed at the price, not at what the job costs us', () => {
+  const lines = invoiceLinesFromQuote(jobQuote as any);
+  const summed = round2(lines.reduce((s, l) => s + l.quantity * l.unit_price, 0));
+  // 10,000 of direct cost at 1.25 — the figure the customer approved, not the
+  // 10,000 the lines used to come to.
+  assert.equal(summed, 12500);
+});
+
+test('the invoice is for the agreed total once a signature says what that is', () => {
+  assert.equal(invoiceAmountFromQuote(jobQuote as any), phasedMargins.totalCost);
+  const signed = { ...jobQuote, agreedTotal: 11750 };
+  assert.equal(invoiceAmountFromQuote(signed as any), 11750);
+});
+
+test('a schedule apportions the agreed total, not the list price', () => {
+  assert.equal(contractTotalOf(jobQuote), phasedMargins.totalCost);
+  assert.equal(contractTotalOf({ ...jobQuote, agreedTotal: 11750 }), 11750);
+});
+
+test('every draw on a quote with margins is invoiced to the cent', () => {
+  const schedule = buildPaymentSchedule({
+    phases: schedulePhasesOf(jobQuote),
+    total: contractTotalOf(jobQuote),
+    depositRate: 0.3,
+  });
+  for (const draw of schedule) {
+    const payload = drawToInvoice({ quote: jobQuote, draw });
+    const serverTotal = round2(
+      round2(payload.line_items.reduce((s: number, l: any) => s + l.amount, 0))
+      * (1 + payload.tax_rate / 100) - payload.discount_amount,
+    );
+    assert.equal(serverTotal, draw.amount, `${draw.label}: server ${serverTotal} vs draw ${draw.amount}`);
+    assert.ok(payload.matchesDraw, `${draw.label} must reconcile`);
+  }
+});
+
+test('the discount a customer agreed reaches the invoices for the job', () => {
+  // 10% off the priced labour of 7,500 is 750, and the schedule apportions
+  // what is left rather than the list price.
+  const agreedTotal = round2(phasedMargins.totalCost - labourDiscountAmount(7500, 10));
+  const signed = { ...jobQuote, agreedTotal };
+  const schedule = buildPaymentSchedule({
+    phases: schedulePhasesOf(signed),
+    total: contractTotalOf(signed),
+    depositRate: 0.3,
+  });
+  const billed = round2(schedule.reduce((s, d) => s + d.amount, 0));
+  assert.equal(billed, agreedTotal);
+  assert.equal(round2(phasedMargins.totalCost - billed), 750);
 });

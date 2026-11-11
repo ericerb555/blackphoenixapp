@@ -294,6 +294,7 @@ import { vendorCatalogRouter } from "./vendor-catalog.tsx";
 import { planCatalogRouter } from "./plan-catalog.tsx";
 import { jobsRouter, ensureJobId } from "./jobs.tsx";
 import { discountGrantsRouter, resolveDiscountFor } from "./discount-grants.tsx";
+import { labourDiscountAmount } from "./discounts.ts";
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import propertyReportsRouter from "./property-reports.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
@@ -563,7 +564,13 @@ app.use('*', async (c, next) => {
   if (ORIGIN_LOCK_EXEMPT.some((entry) => p === entry || p.startsWith(entry))) return next();
 
   const presented = String(c.req.header('X-Edge-Auth') || '');
-  if (presented && secretsMatch(presented, expected)) return next();
+  if (presented && secretsMatch(presented, expected)) {
+    // The one place that knows the request genuinely came through the Worker.
+    // The reputation middleware below reads this to decide whether the
+    // forwarded `x-client-ip` may be believed — see clientIp().
+    c.set('viaEdgeProxy', true);
+    return next();
+  }
 
   console.log(`[originlock] ${ORIGIN_LOCK_ENFORCE ? 'BLOCK' : 'would-block'} ${c.req.method} ${path} header=${presented ? 'wrong' : 'absent'}`);
   if (!ORIGIN_LOCK_ENFORCE) return next();
@@ -658,7 +665,7 @@ function signalFor(path: string, status: number): Signal | null {
 app.use('*', async (c, next) => {
   if (c.req.method === 'OPTIONS') return next();
 
-  const ip = clientIp(c.req.raw.headers);
+  const ip = clientIp(c.req.raw.headers, c.get('viaEdgeProxy') === true);
   // No usable address: skip entirely rather than pooling every anonymous
   // caller into one bucket, which would ban all of them the first time any
   // one of them probed.
@@ -16068,7 +16075,63 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
      * nothing and makes the two agree, which previously they need not have.
      * The page may go on sending its own value; it is simply not read.
      */
-    const updated = { ...quote, status: decision, signature: { signerName: body.signerName || quote.customerName || 'Customer', signatureData: body.signatureData || null, signedAt: now, decision }, updatedAt: now };
+    /**
+     * WHAT THE CUSTOMER AGREED TO PAY, STAMPED AT THE MOMENT THEY AGREE.
+     *
+     * The discount was resolved for the page that showed the quote and then
+     * existed nowhere else. The approval page deducted it on screen, the
+     * deposit split used the discounted figure, and every record written
+     * after this point — the alert the office reads, the payment schedule,
+     * the invoices raised off it — went back to `totalCost` and billed the
+     * discount straight back. A customer was shown one price and invoiced
+     * another, with nothing in between to say which was right.
+     *
+     * RESOLVED ONCE, HERE, AND NOT AGAIN. A plan can lapse and a grant can
+     * expire; neither may reprice a job somebody has already signed for.
+     * So this is a stored fact about an agreement, not a figure to be
+     * recomputed whenever it is needed — which is also why the percentage,
+     * the base it came off and the reasons travel with it. In six months
+     * the question will be why this invoice is $750 less than the quote,
+     * and the answer has to be on the record rather than reconstructable
+     * only by someone who still has the grant list.
+     *
+     * A failure here must not refuse the signature. Losing an approval
+     * because a discount lookup timed out is far worse than an approval
+     * recorded at list price, which a human can see and correct.
+     */
+    let agreed: Record<string, unknown> = {};
+    if (decision === 'approved') {
+      try {
+        const resolved = await resolveDiscountFor({
+          customerEmail: quote.customerEmail || quote.clientEmail || record.clientEmail,
+          jobId: quote.jobId,
+          quoteId: quote.id,
+          context: 'quote',
+        });
+        /* The labour figure the customer was actually shown, markup spread
+           in — the same projection the approval page renders from, so the
+           deduction here is the one they watched come off. */
+        const shown = customerQuoteView(quote);
+        const percent = Number(resolved?.percent) || 0;
+        const amount = labourDiscountAmount(shown.laborSubtotal, percent);
+        const total = Math.round((Number(shown.totalCost) - amount) * 100) / 100;
+        agreed = {
+          agreedTotal: total > 0 ? total : Number(shown.totalCost) || 0,
+          agreedAt: now,
+          agreedDiscount: amount > 0 ? {
+            percent,
+            amount,
+            appliesTo: 'labour',
+            labourShown: shown.laborSubtotal,
+            components: resolved?.components || [],
+          } : null,
+        };
+      } catch (err: any) {
+        console.error('[Discounts] could not stamp the agreed total for', quote.id, err?.message || err);
+      }
+    }
+
+    const updated = { ...quote, ...agreed, status: decision, signature: { signerName: body.signerName || quote.customerName || 'Customer', signatureData: body.signatureData || null, signedAt: now, decision }, updatedAt: now };
     await kv.set(`quote:${quote.id}`, updated);
     if (decision === 'approved' && quote.landlordEmail) {
       notifyRecipient(String(quote.landlordEmail), 'lease_signed', {
@@ -16094,7 +16157,9 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
     if (decision === 'approved') {
       try {
         const alerts = (await kv.get('admin_alerts') as any[]) || [];
-        const value = Number(quote.total || quote.totalCost || 0);
+        /* What they signed for. Reporting `totalCost` on a discounted job
+           tells the office a number that will never be invoiced. */
+        const value = Number((updated as any).agreedTotal || quote.total || quote.totalCost || 0);
         alerts.unshift({
           id: `quote_approved_${crypto.randomUUID()}`,
           type: 'success',

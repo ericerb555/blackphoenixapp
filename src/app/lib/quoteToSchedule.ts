@@ -95,6 +95,20 @@ export function schedulePhasesOf(quote: any): SchedulePhase[] {
  */
 export const contractTotalOf = (quote: any): number => {
   const candidates = [
+    /**
+     * THE AGREED TOTAL FIRST, when the customer has signed one.
+     *
+     * A quote with a discount on it is approved at less than `totalCost` —
+     * the approval page shows the discounted figure and the customer signs
+     * for that. Apportioning `totalCost` instead built a schedule of draws
+     * adding up to the UNDISCOUNTED price, so every invoice raised off it
+     * billed back the discount the customer had just been given.
+     *
+     * It is stamped at signature rather than resolved here on purpose: a
+     * grant that expires next month must not change the price of a job
+     * somebody already agreed to. See the sign route.
+     */
+    quote?.agreedTotal,
     quote?.totalCost,
     quote?.total,
     quote?.grandTotal,
