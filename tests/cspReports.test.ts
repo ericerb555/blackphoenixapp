@@ -209,7 +209,19 @@ test('the summary is loudest first, because the top of it is the work', () => {
 });
 
 test('an empty or missing store summarises without throwing', () => {
-  assert.deepEqual(summarise(null), { updatedAt: null, dropped: 0, distinct: 0, total: 0, entries: [] });
+  // The receipt fields were added on 2026-11-11; `verdict` says which of the
+  // two silences this is. See the note in `summarise`.
+  assert.deepEqual(summarise(null), {
+    updatedAt: null,
+    dropped: 0,
+    requests: 0,
+    rejected: 0,
+    lastRequestAt: null,
+    distinct: 0,
+    total: 0,
+    verdict: 'nothing-received',
+    entries: [],
+  });
   assert.equal(summarise(emptyStore(NOW)).total, 0);
 });
 
@@ -295,4 +307,103 @@ test('flushing an empty buffer changes nothing', () => {
 
   assert.equal(JSON.stringify(store.entries), before);
   assert.equal(store.dropped, 0);
+});
+
+/* ── receipts: telling "no violations" from "nothing arrived" ─────────────── */
+
+test('a new store starts with no receipts', () => {
+  const s = emptyStore(NOW);
+  assert.equal(s.requests, 0);
+  assert.equal(s.rejected, 0);
+  assert.equal(s.lastRequestAt, null);
+});
+
+test('the summary distinguishes nothing-received from violations-recorded', () => {
+  // This is the distinction the whole counter exists for. On 2026-11-10 the
+  // store was empty after four days and there was no way to tell a policy that
+  // fits from a pipe that never delivered.
+  assert.equal(summarise(emptyStore(NOW)).verdict, 'nothing-received');
+
+  const seen = emptyStore(NOW);
+  seen.requests = 12;
+  seen.rejected = 12;
+  assert.equal(summarise(seen).verdict, 'received-but-nothing-readable');
+
+  const real = emptyStore(NOW);
+  real.requests = 3;
+  mergeViolation(real, { directive: 'script-src', blockedUri: 'https://evil.test', documentUri: '/' }, NOW, 'https://evil.test');
+  assert.equal(summarise(real).verdict, 'violations-recorded');
+});
+
+test('the summary does not claim the policy is safe to promote', () => {
+  /**
+   * An earlier draft of `summarise` returned `safeToPromote: requests > 0 &&
+   * total === 0`. It is unsatisfiable in principle and dangerous in practice: a
+   * browser posts to a CSP endpoint ONLY when the policy blocks something, so
+   * for a policy that fits, the correct traffic is none. Requiring traffic
+   * before promotion inverts the signal.
+   *
+   * Asserted as an absence so the field cannot come back without somebody
+   * reading the reasoning first.
+   */
+  const s = summarise(emptyStore(NOW));
+  assert.ok(!('safeToPromote' in s), 'no field may claim promotion is safe from these counts');
+});
+
+test('receipts survive a flush', () => {
+  const store = emptyStore(NOW);
+  const buffer = emptyStore(NOW);
+  buffer.requests = 5;
+  buffer.rejected = 2;
+  buffer.lastRequestAt = '2026-11-11T10:00:00.000Z';
+
+  mergeStore(store, buffer);
+  assert.equal(store.requests, 5);
+  assert.equal(store.rejected, 2);
+  assert.equal(store.lastRequestAt, '2026-11-11T10:00:00.000Z');
+
+  const more = emptyStore(NOW);
+  more.requests = 3;
+  more.lastRequestAt = '2026-11-11T11:00:00.000Z';
+  mergeStore(store, more);
+  assert.equal(store.requests, 8, 'counts accumulate across flushes');
+  assert.equal(store.lastRequestAt, '2026-11-11T11:00:00.000Z', 'the later timestamp wins');
+});
+
+test('an earlier timestamp does not move lastRequestAt backwards', () => {
+  const store = emptyStore(NOW);
+  store.lastRequestAt = '2026-11-11T12:00:00.000Z';
+  const old = emptyStore(NOW);
+  old.requests = 1;
+  old.lastRequestAt = '2026-11-01T00:00:00.000Z';
+  mergeStore(store, old);
+  assert.equal(store.lastRequestAt, '2026-11-11T12:00:00.000Z');
+});
+
+test('a store written before these fields existed does not become NaN', () => {
+  /**
+   * The trap this guards. `undefined + 1` is NaN, NaN serialises to null, and
+   * the first flush after deploying would have wiped the count — turning a
+   * working counter into a permanently empty one, which is the exact failure
+   * mode the counter was added to detect.
+   */
+  const legacy = { updatedAt: NOW, dropped: 0, entries: {} } as any;
+  const buffer = emptyStore(NOW);
+  buffer.requests = 4;
+  buffer.rejected = 1;
+
+  mergeStore(legacy, buffer);
+  assert.equal(legacy.requests, 4);
+  assert.equal(legacy.rejected, 1);
+  assert.ok(Number.isFinite(legacy.requests));
+  assert.equal(summarise(legacy).verdict, 'received-but-nothing-readable');
+});
+
+test('summarise tolerates a legacy store with no receipt fields at all', () => {
+  const legacy = { updatedAt: NOW, dropped: 0, entries: {} } as any;
+  const s = summarise(legacy);
+  assert.equal(s.requests, 0);
+  assert.equal(s.rejected, 0);
+  assert.equal(s.lastRequestAt, null);
+  assert.equal(s.verdict, 'nothing-received');
 });

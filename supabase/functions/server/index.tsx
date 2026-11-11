@@ -2112,7 +2112,28 @@ app.post('/make-server-3eae23a6/csp-report', async (c) => {
    */
   try {
     const raw = await c.req.text();
-    if (raw.length > BODY_MAX) return c.body(null, 204);
+
+    /**
+     * An oversized or unparseable body still ARRIVED, and that is the fact
+     * being counted.
+     *
+     * Both of these paths used to answer 204 and leave no trace, so a browser
+     * posting something we refused looked identical to no browser posting at
+     * all — the whole ambiguity this counter exists to remove. Counted here,
+     * before any judgement about the contents, and counted as rejected because
+     * nothing usable came out of it.
+     */
+    const countArrival = (nowIso: string) => {
+      if (!cspBuffer) cspBuffer = emptyStore(nowIso);
+      cspBuffer.requests += 1;
+      cspBuffer.rejected += 1;
+      cspBuffer.lastRequestAt = nowIso;
+    };
+
+    if (raw.length > BODY_MAX) {
+      countArrival(new Date().toISOString());
+      return c.body(null, 204);
+    }
 
     const parsed = JSON.parse(raw);
     // `report-to` batches; `report-uri` sends one. Cap the batch so a single
@@ -2120,10 +2141,40 @@ app.post('/make-server-3eae23a6/csp-report', async (c) => {
     const items = (Array.isArray(parsed) ? parsed : [parsed]).slice(0, 20);
     const now = new Date().toISOString();
 
+    /**
+     * The buffer exists the moment a report arrives, not when a USABLE one
+     * does — and that is the whole fix.
+     *
+     * Before this, a request whose every item was implausible never created
+     * the buffer, so nothing recorded that it had happened and the flush had
+     * nothing to write. A browser posting reports we could not parse was
+     * therefore indistinguishable from no browser posting at all, and both
+     * looked like a site with a perfectly fitting policy.
+     *
+     * Still no storage work per request: this is in-isolate, and the flush is
+     * time-gated exactly as before. A flood of junk now costs one write every
+     * 30 seconds instead of none, which is the price of being able to tell
+     * the difference.
+     */
+    if (!cspBuffer) cspBuffer = emptyStore(now);
+    cspBuffer.requests += 1;
+    cspBuffer.lastRequestAt = now;
+
+    /**
+     * `rejected` counts REQUESTS, not items, so it can be compared with
+     * `requests`.
+     *
+     * Counting per item would have made the two numbers incommensurable — one
+     * batched `report-to` POST carrying twenty unreadable items would read as
+     * "1 request, 20 rejected", which invites exactly the wrong conclusion
+     * about how much traffic is arriving.
+     */
+    let usable = 0;
+
     for (const item of items) {
       const violation = readReport(item);
       if (!plausible(violation)) continue;
-      if (!cspBuffer) cspBuffer = emptyStore(now);
+      usable += 1;
       if (Object.keys(cspBuffer.entries).length >= CSP_BUFFER_MAX) {
         cspBuffer.dropped += 1;
         continue;
@@ -2132,10 +2183,24 @@ app.post('/make-server-3eae23a6/csp-report', async (c) => {
       mergeViolation(cspBuffer, violation, now, String(body?.['blocked-uri'] ?? body?.blockedURL ?? ''));
     }
 
+    if (usable === 0) cspBuffer.rejected += 1;
+
     if (cspBuffer && Date.now() - cspFlushedAt > CSP_FLUSH_MS) await flushCspBuffer();
   } catch {
     // A report we cannot parse is not an error worth a log line; it is the
     // internet. Logging it would turn a junk POST into a write.
+    //
+    // It is still counted, for the same reason the oversized path is: the
+    // question `requests` answers is "did anything reach us", and a body that
+    // failed JSON.parse reached us. Wrapped because this runs inside the
+    // handler's own catch and must not be the thing that throws.
+    try {
+      const now = new Date().toISOString();
+      if (!cspBuffer) cspBuffer = emptyStore(now);
+      cspBuffer.requests += 1;
+      cspBuffer.rejected += 1;
+      cspBuffer.lastRequestAt = now;
+    } catch { /* nothing left to do about it */ }
   }
   return c.body(null, 204);
 });

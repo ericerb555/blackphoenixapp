@@ -70,6 +70,30 @@ export interface CspStore {
   updatedAt: string;
   /** Reports discarded because the fingerprint cap was reached. */
   dropped: number;
+  /**
+   * POSTs that reached the endpoint at all, whatever they contained.
+   *
+   * WHY THIS IS THE FIELD THAT DECIDES PROMOTION
+   *
+   * Without it an empty store is unfalsifiable. On 2026-11-10 the store had
+   * been collecting for four days and held nothing, and there was no way to
+   * tell "the policy fits the site" from "no report has ever arrived" — a
+   * wrong `report-uri`, a browser that stopped sending, a route returning
+   * 204 to something it could not read. All of those look exactly like a
+   * clean site, and "clean, promote it" is the dangerous conclusion.
+   *
+   * `requests` makes the difference visible: hundreds received and nothing
+   * recorded is evidence the policy fits. Zero received is evidence of
+   * nothing at all, and means fixing the pipe before trusting the silence.
+   *
+   * It is the same reasoning as `dropped`, one level up: a counter that
+   * stops counting looks identical to a site with no violations.
+   */
+  requests: number;
+  /** Requests that arrived carrying nothing usable — malformed, empty, not a report. */
+  rejected: number;
+  /** When a report last arrived, usable or not. Null until one does. */
+  lastRequestAt: string | null;
   entries: Record<string, CspEntry>;
 }
 
@@ -81,7 +105,7 @@ export const SAMPLE_MAX = 300;
 export const BODY_MAX = 8 * 1024;
 
 export function emptyStore(nowIso: string): CspStore {
-  return { updatedAt: nowIso, dropped: 0, entries: {} };
+  return { updatedAt: nowIso, dropped: 0, requests: 0, rejected: 0, lastRequestAt: null, entries: {} };
 }
 
 /**
@@ -206,11 +230,45 @@ export function plausible(v: CspViolation | null): v is CspViolation {
  */
 export function summarise(store: CspStore | null | undefined) {
   const entries = Object.values(store?.entries || {});
+  const requests = store?.requests || 0;
+  const total = entries.reduce((sum, e) => sum + e.count, 0);
   return {
     updatedAt: store?.updatedAt || null,
     dropped: store?.dropped || 0,
+    requests,
+    rejected: store?.rejected || 0,
+    lastRequestAt: store?.lastRequestAt || null,
     distinct: entries.length,
-    total: entries.reduce((sum, e) => sum + e.count, 0),
+    total,
+    /**
+     * WHAT THESE NUMBERS CAN AND CANNOT SETTLE.
+     *
+     * They cannot settle whether the policy is safe to enforce, and an earlier
+     * draft of this function claimed they could — a `safeToPromote` of
+     * `requests > 0 && total === 0`. That is wrong, and wrong in the direction
+     * that breaks a site.
+     *
+     * A browser posts to a CSP endpoint ONLY when the policy blocks something.
+     * So for a policy that fits perfectly, the correct and expected traffic is
+     * none. `requests > 0` therefore cannot be a precondition for promotion —
+     * it is very nearly the opposite — and `total === 0` alongside
+     * `requests > 0` is close to a contradiction, since a readable report IS a
+     * violation.
+     *
+     * What these DO settle is narrower and still worth having: whether anything
+     * reaches the endpoint, and whether what reaches it can be read. A store
+     * with `rejected` climbing and `total` at zero is a parsing bug, which
+     * previously looked exactly like a clean site.
+     *
+     * Telling "no violations" from "nothing is reporting" needs a CANARY: a
+     * deliberate violation the page always triggers, so a working pipe always
+     * has something in it. That is not built — see docs/security/headers.md —
+     * and until it is, an empty store stays unproven rather than reassuring.
+     */
+    verdict: requests === 0
+      ? 'nothing-received'
+      : total === 0 ? 'received-but-nothing-readable'
+      : 'violations-recorded',
     entries: entries.sort((a, b) => b.count - a.count),
   };
 }
@@ -259,5 +317,17 @@ export function mergeStore(
 ): CspStore {
   for (const entry of Object.values(buffer.entries)) mergeEntry(store, entry, cap);
   store.dropped += buffer.dropped;
+  /*
+   * `|| 0` on both sides, not just the buffer.
+   *
+   * A store written before these fields existed has them undefined, and
+   * `undefined + 1` is NaN — which would serialise as null and quietly wipe
+   * the count on the first flush after deploying this.
+   */
+  store.requests = (store.requests || 0) + (buffer.requests || 0);
+  store.rejected = (store.rejected || 0) + (buffer.rejected || 0);
+  if (buffer.lastRequestAt && buffer.lastRequestAt > (store.lastRequestAt || '')) {
+    store.lastRequestAt = buffer.lastRequestAt;
+  }
   return store;
 }
