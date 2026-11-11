@@ -46,6 +46,16 @@
  *     No DNS record is needed: the proxied wildcard `*` already resolves that
  *     name through Cloudflare, and a Worker route intercepts before the
  *     request reaches the wildcard's Vercel origin.
+ *
+ *     ⚠ ON THE SAME SCREEN, DISABLE THE workers.dev ROUTE.
+ *
+ *     Cloudflare publishes every Worker at `<name>.<account>.workers.dev`
+ *     unless told not to. For this Worker that hostname is a second public
+ *     entrance which ADDS the origin-lock header — so it passes the lock
+ *     that is the entire point of this file, while sitting outside the zone
+ *     where the WAF rules, the rate limits and the managed rulesets live.
+ *     Leaving it on is building the firewall and a door beside it, and the
+ *     door is the one with no cameras.
  *  4. Set the SAME secret on the server:
  *     `supabase secrets set EDGE_ORIGIN_SECRET=<it> --project-ref plzsvzwwcdopnawtiwzm`
  *     It is cached for 60 seconds. Until `ORIGIN_LOCK_ENFORCE=true` the server
