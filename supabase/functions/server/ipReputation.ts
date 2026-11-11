@@ -194,8 +194,29 @@ export function record(
  * Returns null when nothing usable is present, and the caller then skips
  * reputation entirely rather than lumping every anonymous request under one
  * shared bucket — which would ban everybody the first time one person probed.
+ *
+ * `viaTrustedProxy` exists because of a measurement, not a theory. The
+ * Cloudflare Worker forwards the visitor's address in `x-client-ip`, and
+ * MEASURED 2026-11-11: Supabase's own Cloudflare overwrites `cf-connecting-ip`
+ * with the Worker's address before this function ever sees it. One probe from
+ * 70.109.187.2 through the Worker was recorded against `2a06:98c0:3600::103`.
+ * Left alone, every visitor arriving through the firewall would share a single
+ * reputation record, and one person's probing would ban all of them at once.
+ *
+ * `x-client-ip` is client-settable, so it is read ONLY when the caller has
+ * already proved the request came through the Worker by presenting a matching
+ * X-Edge-Auth. Trusting it without that proof would hand every caller a free
+ * way to choose their own identity and shed a bad score at will — strictly
+ * worse than the pooling it fixes.
  */
-export function clientIp(headers: { get(name: string): string | null }): string | null {
+export function clientIp(
+  headers: { get(name: string): string | null },
+  viaTrustedProxy = false,
+): string | null {
+  if (viaTrustedProxy) {
+    const forwarded = headers.get('x-client-ip')?.trim();
+    if (forwarded) return forwarded;
+  }
   const cf = headers.get('cf-connecting-ip')?.trim();
   if (cf) return cf;
   const xff = headers.get('x-forwarded-for');

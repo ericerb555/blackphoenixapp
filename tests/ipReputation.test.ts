@@ -164,3 +164,32 @@ test('no usable header yields null, so everyone is not pooled into one bucket', 
   assert.equal(clientIp(hdr({})), null);
   assert.equal(clientIp(hdr({ 'x-forwarded-for': '   ' })), null);
 });
+
+/* ── the forwarded address, which is only believable with proof ──────────── */
+
+test('x-client-ip is IGNORED without proof the request came through the Worker', () => {
+  // The whole forgery risk in one assertion. The header is client-settable, so
+  // believing it unconditionally would let anybody pick their own identity and
+  // shed a bad score on demand — worse than the pooling it exists to fix.
+  assert.equal(
+    clientIp(hdr({ 'x-client-ip': '6.6.6.6', 'cf-connecting-ip': '1.2.3.4' })),
+    '1.2.3.4',
+  );
+});
+
+test('x-client-ip wins once X-Edge-Auth has proved the Worker forwarded it', () => {
+  // MEASURED 2026-11-11: Supabase's own Cloudflare rewrites cf-connecting-ip to
+  // the Worker's address, so without this every visitor behind the firewall
+  // shares one reputation record and one prober bans them all.
+  assert.equal(
+    clientIp(hdr({ 'x-client-ip': '70.109.187.2', 'cf-connecting-ip': '2a06:98c0:3600::103' }), true),
+    '70.109.187.2',
+  );
+});
+
+test('proof alone does not invent an address when the Worker forwarded none', () => {
+  // Falls back rather than returning null: a request that reached us through
+  // the Worker is still a request, and cf-connecting-ip is the best left.
+  assert.equal(clientIp(hdr({ 'cf-connecting-ip': '1.2.3.4' }), true), '1.2.3.4');
+  assert.equal(clientIp(hdr({ 'x-client-ip': '  ' }), true), null);
+});
