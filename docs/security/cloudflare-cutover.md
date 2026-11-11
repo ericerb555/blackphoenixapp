@@ -15,19 +15,65 @@ check; do not start the next until the check passes.
 
 ## Where things stand before step 1
 
-Verified 2026-10-22:
+Re-verified 2026-11-11 by resolving each record and reading the live headers,
+because the apex addresses had already moved since October — Vercel rotates
+them, which is one more reason the apex goes behind a CNAME-flattened proxy
+rather than being pinned by hand.
 
 | | |
 |---|---|
 | Registrar | Vercel (reselling through Name.com — manage it in **Vercel**) |
-| Nameservers | `ns1.vercel-dns.com`, `ns2.vercel-dns.com` |
-| Apex A records | `216.150.1.65`, `216.150.1.193` (Vercel) |
-| `www` | Vercel. No `cf-ray` header — Cloudflare is not in the path |
-| `api.theblackphoenixcompany.com` | resolves to Vercel, answers `404 DEPLOYMENT_NOT_FOUND` — a stale record |
-| Cloudflare | account exists, site added, DNS scanned |
+| Nameservers | `ns1.vercel-dns.com`, `ns2.vercel-dns.com` — **still Vercel's** |
+| Apex A records | `216.150.16.1`, `216.150.1.193` (Vercel; was `.1.65` in October) |
+| `www` | A records `216.150.1.193`, `216.150.1.65`. `Server: Vercel`, no `cf-ray` |
+| `api.theblackphoenixcompany.com` | A → `216.150.16.1`, `216.150.16.193`; answers 404. The stale record of step 2.1 |
+| Cloudflare | account exists |
 | Supabase org | **Pro** (`tier_payg`) — custom domains add-on is available |
-| `EDGE_ORIGIN_SECRET` | not set → origin lock inert, failing open by design |
+| `EDGE_ORIGIN_SECRET` / `private_cron_config.edge_origin_secret` | neither set → origin lock inert, failing open by design |
 | `ORIGIN_LOCK_ENFORCE` | not set → report-only |
+
+### Every record that has to survive the move
+
+This is the list to tick off against Cloudflare's import in 1.2. **Anything
+missing here stops working the moment the nameservers change**, and the two
+things that break silently are both email: a DKIM record that is gone does not
+bounce anything, it just starts failing authentication at the far end.
+
+| Type | Name | Value | What breaks without it |
+|---|---|---|---|
+| A | `@` | `216.150.16.1`, `216.150.1.193` | the site |
+| A | `www` | `216.150.1.193`, `216.150.1.65` | the site on `www` |
+| CAA | `@` | `0 issue "letsencrypt.org"`, `0 issue "pki.goog"`, `0 issue "sectigo.com"` | nothing — and see the note below |
+| TXT | `resend._domainkey` | `p=MIGfMA0GCSqGSIb3DQEB…` (DKIM, 1024-bit) | **every email Resend sends starts failing DKIM** |
+| TXT | `send` | `v=spf1 include:amazonses.com ~all` | SPF for the same mail |
+| MX | `send` | `10 feedback-smtp.us-east-1.amazonses.com` | bounce and complaint handling |
+
+`A`/`AAAA` for the apex and `www` go **orange-cloud (proxied)** — that is the
+whole point of the exercise. The mail records go **grey-cloud (DNS only)**;
+Cloudflare cannot proxy MX and must not try.
+
+**The CAA records already permit Cloudflare.** Universal SSL issues through
+Let's Encrypt and Google Trust Services, and `letsencrypt.org` and `pki.goog`
+are both on the list, so certificate issuance will work. Worth knowing because
+a CAA record that excludes the new CA fails as a certificate error on the
+whole site, which looks like the cutover broke rather than like one DNS row.
+
+### Two gaps found while taking the inventory
+
+Neither is caused by the cutover and both are cheapest to fix during it,
+while you are already in the DNS editor.
+
+1. **No SPF record on the apex, and no DMARC anywhere.** `send.` has SPF for
+   the mail Resend sends, and the apex has nothing — so anybody can send mail
+   claiming to be `@theblackphoenixcompany.com` and no receiving server has
+   been told not to believe them. For a company that emails customers quotes
+   and invoices, that is the domain somebody would spoof. A DMARC record at
+   `_dmarc` starting at `p=none` costs nothing and begins collecting reports
+   about who is already sending as you.
+2. **The DKIM key is 1024-bit.** Resend will issue a 2048-bit key on request.
+   Not urgent, and not something to change in the same hour as a nameserver
+   move — one mail change at a time, so a deliverability problem has one
+   possible cause.
 
 ---
 
