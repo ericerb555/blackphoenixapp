@@ -64,6 +64,47 @@ export interface ActionHandler {
 
 const str = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max);
 
+/**
+ * IS THIS SOMEBODY WE ALREADY DEAL WITH?
+ *
+ * The gate on every outward message. An assistant that can email a typed
+ * address can email anybody — a competitor, a journalist, a hallucinated
+ * address at a real company — in the company's name, from the company's
+ * domain, and the first anybody knows of it is the reply. So the recipient
+ * has to already exist in the records: a lead, an invoice, a work request.
+ *
+ * It is not a permission check on the person approving; it is a limit on
+ * where the assistant is able to point them. Somebody who needs to write to
+ * a new address does it from the email screen, where a person types the
+ * address themselves and owns having done so.
+ */
+async function knownContact(email: string): Promise<{ known: boolean; where?: string }> {
+  const wanted = email.trim().toLowerCase();
+  if (!wanted) return { known: false };
+
+  const leads = ((await kv.get('leads:all')) as any[]) || [];
+  if (leads.some((l: any) => str(l?.email, 160).toLowerCase() === wanted)) {
+    return { known: true, where: 'a lead' };
+  }
+
+  const invoices = ((await kv.getByPrefix('invoice:')) as any[]) || [];
+  if (invoices.some((i: any) => [i?.customerEmail, i?.customer_email, i?.clientEmail, i?.client_email]
+    .some((e) => str(e, 160).toLowerCase() === wanted))) {
+    return { known: true, where: 'an invoice' };
+  }
+
+  const wr = ((await kv.get('all_work_requests')) as any[])
+    || ((await kv.get('work_requests')) as any[]) || [];
+  if (wr.some((r: any) => [r?.email, r?.customerEmail, r?.customer_email, r?.clientEmail]
+    .some((e) => str(e, 160).toLowerCase() === wanted))) {
+    return { known: true, where: 'a work request' };
+  }
+
+  return { known: false };
+}
+
+const EMAIL_SHAPE = /^\S+@\S+\.\S+$/;
+
 export const ACTIONS: Record<string, ActionHandler> = {
   /**
    * Mark alerts as read.
@@ -260,50 +301,239 @@ export const ACTIONS: Record<string, ActionHandler> = {
   },
 
   /**
-   * Write the customer total onto a quote that has none.
+   * Write to a customer, in the company's name.
    *
-   * Quotes on this platform record no total. The line items beneath them
-   * are supplier costs — unitCost, totalCost, a waste factor — so every
-   * figure the assistant can give about quoted work is currently "not
-   * recorded", and so is every average and win value derived from it.
+   * HIGH, and the risk tier is the smallest part of why.
    *
-   * MEDIUM, not low, and not because it is hard to undo. It is a PRICE: the
-   * number a customer is asked to pay, and the one every later report will
-   * treat as fact. A model should never set one without a person reading it
-   * first, which is exactly what the approval queue is for. It also refuses
-   * to overwrite a total that already exists — correcting a price is a
-   * different decision from recording a missing one, and it belongs on the
-   * quote screen where the line items are visible.
+   * This is the first action here whose content is composed by the model
+   * rather than chosen from templates, and it leaves the building. A wrong
+   * price in a sentence is a quoted price; a wrong date is a commitment; an
+   * apology nobody authorised is an admission. None of that can be recalled
+   * once it is in somebody's inbox, which is why it needs an owner and why
+   * the approval queue now renders the body as text — approving a message
+   * you cannot read is not consent to send it.
+   *
+   * Three limits, none of them removable by the model:
+   *
+   *   - the recipient must already be a lead, an invoice or a work request
+   *     contact. See knownContact.
+   *   - one recipient. A list is a campaign and belongs on the email screen
+   *     where somebody sees the number before they send it.
+   *   - it goes through sendCompanyEmail, so it lands in the same sent log
+   *     as everything else. An email nobody can find afterwards is worse
+   *     than an email nobody sent.
    */
-  record_quote_total: {
-    risk: 'medium',
-    what: 'Records the customer total on a quote that has none. Will not overwrite an existing total.',
-    params: 'quoteId, total (a positive number, the price the customer is asked to pay)',
+  send_customer_email: {
+    risk: 'high',
+    what: 'Sends one email you have read, in the company name, to one existing contact.',
+    params: 'to (an existing lead, invoice or work request contact), subject, html (the body)',
     validate(p) {
-      if (!str(p?.quoteId, 100)) return { ok: false, error: 'Which quote?' };
-      const n = Number(p?.total);
-      if (!Number.isFinite(n) || n <= 0) return { ok: false, error: 'The total must be a positive number.' };
-      if (n > 10_000_000) return { ok: false, error: 'That total is implausible — check it by hand.' };
+      const to = str(p?.to, 160).toLowerCase();
+      if (!EMAIL_SHAPE.test(to)) return { ok: false, error: 'A single valid recipient address is required.' };
+      if (Array.isArray(p?.to)) return { ok: false, error: 'One recipient at a time. A list is a campaign.' };
+      const subject = str(p?.subject, 200);
+      if (!subject) return { ok: false, error: 'The subject is empty.' };
+      if (subject.length > 150) return { ok: false, error: 'Keep the subject under 150 characters.' };
+      const html = str(p?.html ?? p?.body, 20_000);
+      if (!html) return { ok: false, error: 'The body is empty.' };
+      if (html.length > 15_000) return { ok: false, error: 'That body is too long to review properly — under 15,000 characters.' };
       return { ok: true };
     },
     async run(p, ctx) {
-      const id = str(p.quoteId, 100);
-      const key = id.startsWith('quote:') ? id : `quote:${id}`;
-      const quote = (await kv.get(key)) as any;
-      if (!quote) throw new Error(`No quote ${id}.`);
-      const already = Number(quote?.total ?? quote?.total_amount ?? quote?.totalAmount);
-      if (Number.isFinite(already) && already > 0) {
-        throw new Error(`Quote ${id} already has a total of ${already}. Change it on the quote screen.`);
+      const to = str(p.to, 160).toLowerCase();
+
+      // Checked at RUN time as well as at propose time. A proposal can sit in
+      // the queue for hours, and a contact can be deleted in between.
+      const contact = await knownContact(to);
+      if (!contact.known) {
+        throw new Error(`${to} is not a lead, invoice or work request contact on this platform. Send it from the email screen instead.`);
       }
-      const total = Math.round(Number(p.total) * 100) / 100;
-      await kv.set(key, {
-        ...quote,
-        total,
-        totalRecordedBy: ctx.approvedBy,
-        totalRecordedVia: 'assistant',
-        updatedAt: new Date().toISOString(),
+
+      const { sendCompanyEmail } = await import('./email-center.tsx');
+      const result = await sendCompanyEmail({
+        to,
+        subject: str(p.subject, 150),
+        html: str(p.html ?? p.body, 15_000),
+        // Stamped so the sent log can separate what the assistant proposed
+        // from what somebody wrote by hand.
+        templateKey: 'assistant',
       });
-      return `Quote ${id} recorded at ${total}.`;
+      if (!result.ok) throw new Error(result.error || 'The email did not send.');
+      return `Sent to ${to} (${contact.where}), approved by ${ctx.approvedBy}.`;
+    },
+  },
+
+  /**
+   * Raise a DRAFT invoice.
+   *
+   * A draft, always, and that is the design rather than a limitation. An
+   * issued invoice is a demand for money with a number on it that appears in
+   * the customer's portal and in the chase-the-customer pile; a draft is a
+   * document somebody opens, checks against the work, and issues from the
+   * invoice screen. The assistant does the typing, a person does the issuing.
+   *
+   * The arithmetic is `invoiceDraft.ts` — the same module the invoice route
+   * now uses, with tests over it. The line items decide the total; a total
+   * supplied in the parameters is ignored, because the alternative is an
+   * invoice reading one number and showing another.
+   */
+  create_invoice: {
+    risk: 'high',
+    what: 'Creates a DRAFT invoice. Nothing is sent and no number is issued until a person issues it.',
+    params: 'customerEmail, customerName, lineItems (each: description, quantity, unitPrice), taxRate (optional, percent), quoteId or workRequestId (optional, to link it)',
+    validate(p) {
+      const email = str(p?.customerEmail, 160).toLowerCase();
+      if (!EMAIL_SHAPE.test(email)) return { ok: false, error: 'A valid customer email is required.' };
+      const items = Array.isArray(p?.lineItems) ? p.lineItems : null;
+      if (!items || !items.length) return { ok: false, error: 'An invoice needs at least one line.' };
+      if (items.length > 50) return { ok: false, error: 'Fifty lines is the limit.' };
+      for (const item of items) {
+        if (!str(item?.description, 200)) return { ok: false, error: 'Every line needs a description.' };
+        const q = Number(item?.quantity);
+        const price = Number(item?.unitPrice ?? item?.unit_price);
+        if (!Number.isFinite(q) || q <= 0) return { ok: false, error: `The quantity on "${str(item?.description, 40)}" is not a positive number.` };
+        if (!Number.isFinite(price) || price < 0) return { ok: false, error: `The unit price on "${str(item?.description, 40)}" is not a number.` };
+        if (q * price > 1_000_000) return { ok: false, error: 'A single line over a million dollars needs doing by hand.' };
+      }
+      const taxRate = p?.taxRate === undefined ? 0 : Number(p.taxRate);
+      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 25) {
+        return { ok: false, error: 'The tax rate must be a percentage between 0 and 25.' };
+      }
+      return { ok: true };
+    },
+    async run(p, ctx) {
+      const { buildInvoiceRecord } = await import('./invoiceDraft.ts');
+      const email = str(p.customerEmail, 160).toLowerCase();
+
+      const lineItems = (p.lineItems as any[]).map((item) => ({
+        description: str(item?.description, 200),
+        quantity: Number(item?.quantity),
+        unit_price: Number(item?.unitPrice ?? item?.unit_price),
+      }));
+
+      /*
+       * The job, copied from whatever this bills for.
+       *
+       * The invoice route opens a job for an orphan document; that machinery
+       * lives in index.tsx and is not reachable from here, so this links to
+       * an existing job when the parent has one and leaves it null when it
+       * does not — null being honest, where a fabricated id would quietly
+       * attach the money to the wrong piece of work.
+       */
+      const parentId = str(p?.quoteId, 100) || str(p?.workRequestId, 100);
+      let jobId: string | null = null;
+      if (parentId) {
+        const parent = (await kv.get(`quote:${parentId}`)) as any
+          || (await kv.get(`wr:${parentId}`)) as any;
+        jobId = parent?.jobId ? String(parent.jobId) : null;
+      }
+
+      const built = buildInvoiceRecord({
+        customerEmail: email,
+        customerName: str(p?.customerName, 120),
+        line_items: lineItems,
+        tax_rate: Number(p?.taxRate || 0),
+        is_draft: true,
+        status: 'draft',
+        quoteId: str(p?.quoteId, 100) || undefined,
+        workRequestId: str(p?.workRequestId, 100) || undefined,
+        jobId: jobId || undefined,
+        notes: str(p?.notes, 1000) || undefined,
+        createdVia: 'assistant',
+      }, {
+        recipient: {
+          customerEmail: email,
+          customerName: str(p?.customerName, 120),
+          recipientPortal: null,
+          paymentRail: 'services',
+        },
+        // The approver owns it, the same as every other write here.
+        createdBy: ctx.approvedBy,
+      });
+
+      await kv.set(`invoice:${built.record.id}`, built.record);
+      return `Draft invoice ${built.record.invoice_number} for ${email}, ${lineItems.length} line(s), total ${built.record.total_amount}. Nothing has been sent — issue it from the invoice screen.`;
+    },
+  },
+
+  /**
+   * Turn the estimate a work request already has into a draft quote.
+   *
+   * WHY IT DOES NOT RUN THE ESTIMATOR.
+   *
+   * Opening a work request already generates a full takeoff and caches it
+   * under `quote_draft:{id}` precisely so that looking twice does not cost
+   * twice. Estimating again from here would spend a second gpt-4o takeoff to
+   * produce a slightly different set of numbers for the same job — and then
+   * two documents would disagree about one piece of work. So this PROMOTES
+   * the cached estimate and refuses when there is none, which is also the
+   * honest answer: the estimate is a thing somebody asked for by opening the
+   * request.
+   *
+   * The total comes from that estimate, which got it from applyMargins — the
+   * company's own overhead, profit and tax. It is not a number this action
+   * invents, and a quote carrying one is the whole point: every quote on the
+   * platform today has no total at all, so nothing can say what has been
+   * quoted this month.
+   */
+  draft_quote_for_work_request: {
+    risk: 'medium',
+    what: 'Creates a draft quote from the estimate a work request already has.',
+    params: 'workRequestId',
+    validate(p) {
+      if (!str(p?.workRequestId, 100)) return { ok: false, error: 'Which work request?' };
+      return { ok: true };
+    },
+    async run(p, ctx) {
+      const wrId = str(p.workRequestId, 100);
+      const cached = (await kv.get(`quote_draft:${wrId}`)) as any;
+      if (!cached?.quote) {
+        throw new Error(`Work request ${wrId} has no estimate yet. Open it once so the estimator runs, then approve this again.`);
+      }
+
+      const all = ((await kv.get('all_work_requests')) as any[])
+        || ((await kv.get('work_requests')) as any[]) || [];
+      const wr = all.find((r: any) => str(r?.id, 100) === wrId);
+      if (!wr) throw new Error(`No work request ${wrId}.`);
+
+      const existing = ((await kv.getByPrefix('quote:')) as any[]) || [];
+      const already = existing.find((q: any) => str(q?.workRequestId, 100) === wrId);
+      if (already) {
+        throw new Error(`Work request ${wrId} already has quote ${str(already?.id, 100)}. Edit that one rather than raising a second.`);
+      }
+
+      const now = new Date().toISOString();
+      const id = `qt-${Date.now()}`;
+      const total = Number(cached.quote.total);
+      const quote = {
+        id,
+        number: `QT-${String(Date.now()).slice(-8)}`,
+        status: 'draft',
+        workRequestId: wrId,
+        jobId: wr?.jobId || null,
+        clientName: str(wr?.customerName || wr?.name || wr?.clientName, 120),
+        clientEmail: str(wr?.email || wr?.customerEmail || wr?.clientEmail, 160).toLowerCase(),
+        clientPhone: str(wr?.phone || wr?.customerPhone, 40),
+        clientAddress: str(wr?.address || wr?.location, 250),
+        title: str(wr?.title, 160),
+        serviceType: str(wr?.serviceType, 80),
+        // The customer total, from the company's margins. See the note above.
+        total: Number.isFinite(total) ? Math.round(total * 100) / 100 : 0,
+        subtotals: cached.quote.subtotals || null,
+        materialItems: cached.quote.materialItems || [],
+        laborItems: cached.quote.laborItems || [],
+        processSteps: cached.quote.processSteps || [],
+        confidence: cached.confidence ?? null,
+        assumptions: cached.assumptions ?? null,
+        estimatedAt: cached.generatedAt || null,
+        usedAI: Boolean(cached.usedAI),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: ctx.approvedBy,
+        createdVia: 'assistant',
+      };
+      await kv.set(`quote:${id}`, quote);
+      return `Draft quote ${quote.number} for ${quote.clientName || wrId} at ${quote.total}, from the estimate generated ${cached.generatedAt || 'earlier'}. It is a draft — review and send it from the quote screen.`;
     },
   },
 };

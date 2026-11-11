@@ -161,6 +161,96 @@ emailCenterRouter.get('/log', async (c) => {
   }
 });
 
+/**
+ * SENDING, AS A FUNCTION RATHER THAN A ROUTE.
+ *
+ * This was the body of `POST /send` and nothing else could reach it. The
+ * assistant now proposes customer emails, and the alternative to exporting
+ * this was a second copy of the Resend call — which would also have been a
+ * second place to remember the sent log, so half the company's email would
+ * have stopped appearing in the one screen that claims to show all of it.
+ *
+ * It returns rather than throws, because both callers want to RECORD a
+ * failure: the route turns it into a 502, the action turns it into a failed
+ * row in the approval queue, and in both cases the attempt is already in the
+ * log before anybody is told.
+ */
+export async function sendCompanyEmail(input: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  templateKey?: string;
+  attachments?: { filename: string; content: string }[];
+}): Promise<{ ok: boolean; logEntry?: any; error?: string }> {
+  const recipients = Array.isArray(input.to) ? input.to : [input.to];
+  const { subject, html, templateKey } = input;
+
+  /*
+   * Resend requires PURE base64 for attachment content. Any
+   * "data:...;base64," prefix is stripped defensively, because a delivered
+   * PDF with the prefix still on it is one the recipient cannot open.
+   */
+  const stripDataUri = (content: string): string => {
+    const marker = 'base64,';
+    const idx = content.indexOf(marker);
+    return idx >= 0 ? content.slice(idx + marker.length) : content;
+  };
+  const normalizedAttachments = Array.isArray(input.attachments)
+    ? input.attachments
+      .filter((a: any) => a && a.filename && a.content)
+      .map((a: any) => ({ filename: String(a.filename), content: stripDataUri(String(a.content)) }))
+    : undefined;
+
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+  if (!RESEND_API_KEY) {
+    // No provider configured — still record the attempt so it is visible.
+    const rec = await logSentEmail({
+      to: recipients, subject, html, templateKey,
+      status: 'failed',
+      error: 'RESEND_API_KEY is not configured on the server.',
+    });
+    return { ok: false, logEntry: rec, error: 'Email provider not configured (RESEND_API_KEY missing).' };
+  }
+
+  let status: 'sent' | 'failed' = 'sent';
+  let errorMsg: string | undefined;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `${COMPANY_NAME} <${FROM_EMAIL}>`,
+        reply_to: REPLY_TO_EMAIL,
+        to: recipients,
+        subject,
+        html,
+        ...(normalizedAttachments && normalizedAttachments.length
+          ? { attachments: normalizedAttachments }
+          : {}),
+      }),
+    });
+    if (!res.ok) {
+      status = 'failed';
+      const e = await res.text();
+      errorMsg = `Resend responded ${res.status}: ${e}`;
+      console.error('[EmailCenter] Resend error:', errorMsg);
+    }
+  } catch (e) {
+    status = 'failed';
+    errorMsg = `Resend request failed: ${e}`;
+    console.error('[EmailCenter] Resend exception:', errorMsg);
+  }
+
+  const logEntry = await logSentEmail({
+    to: recipients, subject, html, templateKey, status, error: errorMsg,
+  });
+
+  return status === 'sent' ? { ok: true, logEntry } : { ok: false, logEntry, error: errorMsg };
+}
+
 // ── Send + record ────────────────────────────────────────────────────────
 emailCenterRouter.post('/send', async (c) => {
   try {
@@ -169,85 +259,10 @@ emailCenterRouter.post('/send', async (c) => {
     if (!to || !subject || !html) {
       return c.json({ error: 'to, subject, and html are required' }, 400);
     }
-    // Optional attachments: [{ filename, content }] where content is base64.
-    // Resend requires PURE base64 for attachment content. Defensively strip any
-    // "data:...;base64," data-URI prefix a caller may send so the delivered PDF
-    // isn't corrupted (which would leave the recipient unable to open/download it).
-    const stripDataUri = (content: string): string => {
-      const marker = 'base64,';
-      const idx = content.indexOf(marker);
-      return idx >= 0 ? content.slice(idx + marker.length) : content;
-    };
-    const normalizedAttachments = Array.isArray(attachments)
-      ? attachments
-          .filter((a: any) => a && a.filename && a.content)
-          .map((a: any) => ({ filename: String(a.filename), content: stripDataUri(String(a.content)) }))
-      : undefined;
 
-    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-    const recipients = Array.isArray(to) ? to : [to];
-
-    if (!RESEND_API_KEY) {
-      // No provider configured — still record the attempt so it's visible.
-      const rec = await logSentEmail({
-        to: recipients,
-        subject,
-        html,
-        templateKey,
-        status: 'failed',
-        error: 'RESEND_API_KEY is not configured on the server.',
-      });
-      return c.json(
-        { error: 'Email provider not configured (RESEND_API_KEY missing).', logEntry: rec },
-        502,
-      );
-    }
-
-    let status: 'sent' | 'failed' = 'sent';
-    let errorMsg: string | undefined;
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: `${COMPANY_NAME} <${FROM_EMAIL}>`,
-          reply_to: REPLY_TO_EMAIL,
-          to: recipients,
-          subject,
-          html,
-          ...(normalizedAttachments && normalizedAttachments.length
-            ? { attachments: normalizedAttachments }
-            : {}),
-        }),
-      });
-      if (!res.ok) {
-        status = 'failed';
-        const e = await res.text();
-        errorMsg = `Resend responded ${res.status}: ${e}`;
-        console.error('[EmailCenter] Resend error:', errorMsg);
-      }
-    } catch (e) {
-      status = 'failed';
-      errorMsg = `Resend request failed: ${e}`;
-      console.error('[EmailCenter] Resend exception:', errorMsg);
-    }
-
-    const rec = await logSentEmail({
-      to: recipients,
-      subject,
-      html,
-      templateKey,
-      status,
-      error: errorMsg,
-    });
-
-    if (status === 'failed') {
-      return c.json({ error: errorMsg, logEntry: rec }, 502);
-    }
-    return c.json({ success: true, logEntry: rec });
+    const result = await sendCompanyEmail({ to, subject, html, templateKey, attachments });
+    if (!result.ok) return c.json({ error: result.error, logEntry: result.logEntry }, 502);
+    return c.json({ success: true, logEntry: result.logEntry });
   } catch (error) {
     console.error('[EmailCenter] Send failed:', error);
     return c.json({ error: `Failed to send email: ${error}` }, 500);

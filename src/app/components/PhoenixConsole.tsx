@@ -29,6 +29,7 @@ import {
   usePhoenixVoice, VOICES, DEFAULT_VOICE,
   type PhoenixVoiceApi, type PhoenixVoice,
 } from './phoenix/usePhoenixVoice';
+import { detailLines } from '../lib/actionDetails';
 import { speakableText, worthSpeaking } from './phoenix/speakableText';
 import {
   askPhoenix, AiIsStopped, NotPermitted, TOOL_LABELS, type ChatTurn,
@@ -468,6 +469,39 @@ export default function PhoenixConsole({
                     <p className="flex-1 text-sm text-gray-200">{a.summary}</p>
                   </div>
                   <p className="mt-1.5 pl-1 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-600">{a.action}</p>
+
+                  {/*
+                    * WHAT IS ACTUALLY BEING APPROVED.
+                    *
+                    * The summary above is written by the model about its own
+                    * proposal. That was the only thing shown here, which was
+                    * survivable while the queue held "mark three alerts as
+                    * read" and stops being survivable now it can hold an
+                    * email to a customer or an invoice for real money:
+                    * approving a message you cannot read is not consent to
+                    * send it.
+                    *
+                    * Rendered as TEXT. The body of an email here is
+                    * model-authored HTML, and injecting it to make the
+                    * preview pretty would run whatever it contains inside
+                    * the console of the person approving it.
+                    */}
+                  {detailLines(a.params).length > 0 && (
+                    <dl className="mt-2.5 space-y-1.5 border-t border-orange-500/15 pt-2.5">
+                      {detailLines(a.params).map((d) => (
+                        <div key={d.label} className={d.block ? '' : 'flex gap-2'}>
+                          <dt className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-gray-500">
+                            {d.label}
+                          </dt>
+                          <dd className={d.block
+                            ? 'mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-sm bg-black/30 p-2 text-xs leading-relaxed text-gray-300'
+                            : 'min-w-0 break-words text-xs text-gray-300'}>
+                            {d.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
 
                   {!canApproveRisk(a.risk) ? (
                     <p className="mt-2.5 text-xs text-amber-400/90">
