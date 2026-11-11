@@ -200,6 +200,23 @@ interface FormData {
   timeline: string;
   priorityLevel: string;
   additionalNotes: string;
+  /**
+   * The measurements and conditions an estimator needs, which this form has no
+   * fields for.
+   *
+   * `quoteBrief.ts` wants square footage, linear footage, rooms, units,
+   * storeys, access, occupancy, parking, stairs, working hours, urgency,
+   * deadline, work nature and exclusions. Not one of them existed here —
+   * checked 2026-11-10 — so a submitted request carried a perfect postal
+   * address and nothing anybody could price from.
+   *
+   * Collected by the intake guide rather than by a screen of new inputs: the
+   * conversation is a better instrument for these than boxes are, because
+   * `quoteBrief` treats a blank and an "unknown" differently and a box invites
+   * the second. Keys match `intakeFields.ts`, which is also what the server
+   * allowlists against.
+   */
+  estimatorBrief: Record<string, string | number>;
   videos: VideoFile[];
   photos: File[];
   blueprints: File[]; // AI-analyzable blueprints/floor plans
@@ -564,6 +581,7 @@ const initialFormData: FormData = {
   avoidDays: [],
   priorityLevel: 'standard',
   additionalNotes: '',
+  estimatorBrief: {},
   videos: [],
   photos: [],
   blueprints: [],
@@ -626,6 +644,45 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
   const [aiIsThinking, setAiIsThinking] = useState(false);
   const [aiMissingFields, setAiMissingFields] = useState<string[]>([]);
   const [aiComplete, setAiComplete] = useState(false);
+  /** What is still missing before the office could actually price this. */
+  const [aiMissingForQuote, setAiMissingForQuote] = useState<string[]>([]);
+  /** Counted, rather than assumed to be thirteen. */
+  const [aiFilledFields, setAiFilledFields] = useState<string[]>([]);
+  /**
+   * Whether the guide is usable at all.
+   *
+   * `null` while we are still finding out, so the panel does not flash a
+   * "sign in" notice at somebody who is signed in.
+   *
+   * WHY THIS HAS TO BE CHECKED AT ALL
+   *
+   * `/ai-guide-chat` is not in the server's `PUBLIC_POST_PATHS`, so an
+   * anonymous POST is refused by the auth gate, and `authedHeaders()` is
+   * documented to THROW rather than fall back to the anon key. This form is on
+   * `request-service`, a PUBLIC route. So for every signed-out visitor the
+   * guide threw before it sent anything, landed in its own catch, and said "I'm
+   * having trouble connecting right now" — which reads as a broken AI service
+   * and was a missing session.
+   *
+   * The same bug, on the same route, for the same reason, was already found
+   * and removed once in this file — see the note on the dead materials
+   * fetches. The guide was not part of that sweep.
+   *
+   * Eric's call on 2026-11-10 was signed-in only for now, so this says so
+   * honestly instead of pretending the service is down. Opening it to
+   * anonymous visitors needs the per-conversation, per-IP and global spend
+   * caps in `tasks/intake-agent-for-work-requests.md` built first, because the
+   * AI metering skips callers with no account.
+   */
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession()
+      .then(({ data }) => { if (alive) setAiAvailable(!!data?.session?.access_token); })
+      .catch(() => { if (alive) setAiAvailable(false); });
+    return () => { alive = false; };
+  }, []);
   const aiChatEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll chat to latest message
@@ -1231,6 +1288,26 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           email: formData.clientEmail,
           phone: formData.clientPhone,
         },
+        /**
+         * The measurements and conditions the estimator needs, under the names
+         * `quoteBrief.ts` reads them by.
+         *
+         * A block of its own, like `budget_range` and `client_info` beside it.
+         * The work-request handler spreads the body (`...stripBase64(body)`),
+         * so this reaches storage without a server change and whoever opens the
+         * request later can see what the guide managed to establish — and, from
+         * `estimator_brief_missing`, what it could not.
+         */
+        estimator_brief: formData.estimatorBrief || {},
+        /**
+         * What is still unknown, carried across on purpose.
+         *
+         * `quoteBrief.ts` is emphatic that "a field nobody filled in is absent,
+         * not 'unknown'" — so these are NOT sent as empty values that would
+         * tell the estimator something false. They are sent as a list of what
+         * to ask about on site, which is the honest form of the same fact.
+         */
+        estimator_brief_missing: aiMissingForQuote,
         design_requirements: {
           specialFeatures: formData.specialFeatures,
           accessibilityNeeds: formData.accessibilityNeeds,
@@ -1841,6 +1918,19 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
     const newConversation = [...aiConversation, { role: 'user' as const, message }];
     setAiConversation(newConversation);
     setUserInput('');
+
+    // Signed out: say so, rather than throwing on authedHeaders() and reporting
+    // it as a connection problem. The form itself works perfectly without this.
+    if (aiAvailable === false) {
+      setAiConversation(prev => [...prev, {
+        role: 'ai',
+        message: "I can only help once you're signed in — the assistant is tied to your account. "
+          + "Sign in and I'll walk you through it, or just fill the form in yourself and click Continue; "
+          + "everything still works.",
+      }]);
+      return;
+    }
+
     setAiIsThinking(true);
 
     try {
@@ -1852,26 +1942,67 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           body: JSON.stringify({
             messages: newConversation,
             formData,
+            /**
+             * The measurements and conditions, which the FORM HAS NO FIELDS FOR.
+             * Checked 2026-11-10: no squareFootage, linearFootage, roomCount,
+             * unitCount, storeys, accessNotes, occupancy, parking, stairsOrLift,
+             * workNature, exclusions or urgency anywhere on this form. They are
+             * exactly what `quoteBrief.ts` feeds the estimator, so the guide is
+             * not a nicer wrapper around the form — it is the only thing that
+             * collects them. See `intakeFields.ts`.
+             */
+            estimatorBrief: formData.estimatorBrief,
+            /**
+             * `File[]` does not survive JSON, so the server is told how many
+             * are attached rather than being asked to trust a claim about it.
+             */
+            mediaCounts: {
+              photos: formData.photos?.length || 0,
+              videos: formData.videos?.length || 0,
+            },
             projectCategory: formData.projectCategory,
+            surface: 'customer',
           }),
         }
       );
 
+      if (res.status === 401 || res.status === 403) {
+        setAiAvailable(false);
+        throw new Error('signed out');
+      }
       if (!res.ok) throw new Error('AI service unavailable');
       const data = await res.json();
 
-      // Apply extracted field updates directly to the form
+      // Apply extracted field updates directly to the form. The server has
+      // already allowlisted these by key and coerced them, so a model cannot
+      // write a field nobody asked it about — `coerceUpdates` in intakeFields.ts.
       if (data.fieldUpdates && Object.keys(data.fieldUpdates).length > 0) {
         setFormData((prev: any) => ({ ...prev, ...data.fieldUpdates }));
       }
+      if (data.briefUpdates && Object.keys(data.briefUpdates).length > 0) {
+        setFormData((prev: any) => ({
+          ...prev,
+          estimatorBrief: { ...(prev.estimatorBrief || {}), ...data.briefUpdates },
+        }));
+      }
 
       setAiMissingFields(data.missingFields || []);
+      setAiMissingForQuote(data.missingForQuote || []);
+      setAiFilledFields(data.filledFields || []);
+      // `complete` now means QUOTABLE — the office could put a number on it —
+      // not merely "every contact box has text in it".
       setAiComplete(data.complete || false);
       setAiConversation(prev => [...prev, { role: 'ai', message: data.message }]);
     } catch (err) {
       setAiConversation(prev => [...prev, {
         role: 'ai',
-        message: "Sorry, I'm having trouble connecting right now. You can fill in the form fields manually and click Continue when ready."
+        // Two different causes, two different messages. Reporting a signed-out
+        // session as a connection problem is what made this look like a flaky
+        // AI service for however long it has been broken.
+        message: (err as Error)?.message === 'signed out'
+          ? "Your session has expired, so I can't help until you sign in again. The form still works — "
+            + "fill it in and click Continue whenever you're ready."
+          : "Sorry, I'm having trouble connecting right now. You can fill in the form fields manually and click Continue when ready."
       }]);
     } finally {
       setAiIsThinking(false);
@@ -1882,20 +2013,42 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
   const getQuickReplies = (): string[] => {
     if (aiComplete) return [];
     const missing = aiMissingFields;
-    if (missing.includes('Timeline')) return ['As soon as possible', 'Within 1 month', 'Within 2-3 months', 'Flexible timing'];
-    if (missing.includes('Budget range')) return ['Under $5,000', '$5,000–$15,000', '$15,000–$50,000', 'Over $50,000'];
+    /**
+     * Keyed to the labels in `intakeFields.ts`.
+     *
+     * These used to match 'Timeline', 'Budget range', 'Priority level' and
+     * 'Kitchen layout type' — labels from the old hand-written checklist, none
+     * of which the server sends any more, so every one of them was dead. They
+     * now answer the questions that actually block a price rather than the ones
+     * about contact details, and there is no budget prompt: the agent does not
+     * discuss money.
+     */
+    if (missing.includes('Occupied or empty')) return ['Someone will be living there', 'It will be empty', 'Empty during the day'];
+    if (missing.includes('New work or a replacement')) return ['Replacing what is there', 'Brand new work', 'Some of both'];
+    if (missing.includes('Access')) return ['Straight in off the street', 'Round the back', 'Through the house', 'Access is tight'];
+    if (missing.includes('Stairs or lift')) return ['Ground floor, no stairs', 'Stairs only', 'There is a lift'];
+    if (missing.includes('Parking and staging')) return ['Driveway available', 'Street parking only', 'No parking nearby'];
+    if (missing.includes('Ceiling height')) return ['Standard 8 foot', '9 foot', '10 foot or more', 'Not sure'];
     if (missing.includes('Property type')) return ['Single family home', 'Condo / apartment', 'Multi-family', 'Commercial'];
-    if (missing.includes('Priority level')) return ['Urgent', 'High priority', 'Normal', 'Low – no rush'];
-    if (missing.includes('Kitchen layout type')) return ['L-shaped', 'U-shaped', 'Galley / straight', 'Island kitchen'];
+    if (missing.includes('How soon')) return ['As soon as possible', 'Within a month', 'Within 2-3 months', 'No rush'];
     return [];
   };
 
   // AI Guide Assistant Step
   const renderAIGuideStep = () => {
     const quickReplies = getQuickReplies();
-    const totalFields = aiMissingFields.length + (13 - aiMissingFields.length); // approx 13 key fields
-    const filledCount = 13 - aiMissingFields.length;
-    const progress = Math.min(100, Math.round((filledCount / 13) * 100));
+    /**
+     * Progress against the REAL number of applicable questions.
+     *
+     * It used to be `13 - aiMissingFields.length` over 13, where 13 was the
+     * length of a hand-written checklist that no longer exists — and the
+     * `totalFields` line beside it computed `missing + (13 - missing)`, which
+     * is 13 however many fields there are. The server now sends both halves and
+     * the number of questions genuinely varies by job type, so it is counted.
+     */
+    const totalFields = aiFilledFields.length + aiMissingFields.length;
+    const filledCount = aiFilledFields.length;
+    const progress = totalFields > 0 ? Math.min(100, Math.round((filledCount / totalFields) * 100)) : 0;
 
     return (
       <div className="space-y-4">
@@ -1903,6 +2056,51 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
           <h2 className="text-2xl font-bold text-white mb-1">AI Project Assistant</h2>
           <p className="text-gray-400 text-sm">I'll ask you a few questions to fill out your request automatically.</p>
         </div>
+
+        {/*
+          Signed out, said plainly.
+
+          Before this the guide threw inside `authedHeaders()` and reported it
+          as "I'm having trouble connecting right now", so a signed-out visitor
+          was told the AI was broken when the truth was that it needs an
+          account. Saying so up front also stops them typing a paragraph into a
+          box that was never going to answer.
+        */}
+        {aiAvailable === false && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+            <p className="text-sm font-semibold text-amber-200">The assistant needs you signed in.</p>
+            <p className="mt-1 text-xs text-amber-200/80">
+              Sign in and I'll ask you everything we need. Otherwise just fill the form in
+              yourself — every field is available and nothing here is required to send a request.
+            </p>
+          </div>
+        )}
+
+        {/*
+          What still stops the office putting a number on it.
+
+          Separate from "still needed" above on purpose: that list is everything
+          outstanding, including the nice-to-haves. This one is the short list
+          that decides whether the request arrives quotable or has to go back to
+          the customer with questions.
+        */}
+        {aiMissingForQuote.length > 0 && aiFilledFields.length > 0 && (
+          <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">
+              Needed before we can price it
+            </p>
+            <p className="mt-1 text-sm text-gray-300">{aiMissingForQuote.join(' · ')}</p>
+          </div>
+        )}
+
+        {aiComplete && (
+          <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-3">
+            <p className="text-sm font-semibold text-green-300">We have enough to price this.</p>
+            <p className="mt-1 text-xs text-green-200/80">
+              Anything else you add helps, but you can click Continue whenever you like.
+            </p>
+          </div>
+        )}
 
         {/* Progress bar */}
         {aiMissingFields.length > 0 || aiComplete ? (

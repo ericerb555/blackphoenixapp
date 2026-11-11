@@ -341,6 +341,11 @@ import {
   INTAKE_ADMIN_ROLES, PLATFORM_OWNER_EMAILS, STAFF_VIEW_ROLES,
 } from "./identity.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
+import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
+import {
+  statusOf, nextQuestion, fieldsFor, isFilled, coerceUpdates,
+  type IntakeCategory, type IntakeSurface,
+} from "./intakeFields.ts";
 import { recordedOpenAIFetch, ledgerContextFor, type LedgerContext } from "./aiLedger.ts";
 import { propertyManagementRouter } from "./property-management.tsx";
 import { rentalRouter, landlordActor, propertyManagerActor, TENANT_SUBPORTAL_QUOTA } from "./rental-portals.tsx";
@@ -4068,94 +4073,119 @@ app.delete('/make-server-3eae23a6/kv/delete', async (c) => {
 // Uses OpenAI to ask targeted questions and extract form field values from answers
 app.post('/make-server-3eae23a6/ai-guide-chat', async (c) => {
   try {
-    const { messages, formData, projectCategory } = await c.req.json();
+    const body = await c.req.json();
+    const { messages, formData, projectCategory } = body;
 
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     if (!OPENAI_API_KEY) {
       return c.json({ error: 'OpenAI API key not configured' }, 500);
     }
 
-    // Build a summary of what's already filled vs missing
-    const filled: string[] = [];
-    const missing: string[] = [];
+    /**
+     * WHAT THIS INTERVIEW IS FOR, AND WHAT IT USED TO BE FOR
+     *
+     * The checklist was thirteen `check(...)` calls written out here: name,
+     * email, phone, address, city, state, ZIP, description, timeline, budget,
+     * property type, priority. All contact details. Meanwhile `quoteBrief.ts`
+     * — the module that turns intake into estimator context — wants square
+     * footage, linear footage, ceiling height, storeys, access, occupancy,
+     * parking, stairs, working hours and exclusions, and NOT ONE of those was
+     * asked for. An interview could finish, report `complete: true`, and leave
+     * the office a perfect postal address and no idea how big the room is.
+     *
+     * One of those thirteen was a phantom: `formData.projectDescription` is not
+     * a field on `ClientWorkRequestForm` at all, so it counted as missing on
+     * every turn and the agent asked for it forever, while anything the model
+     * returned under that name landed in form state where nothing rendered it.
+     *
+     * The list now lives in `intakeFields.ts`, shared with the form and the
+     * brief, with a test that fails if a `quoteBrief` input has no question.
+     */
+    const brief = (body?.estimatorBrief && typeof body.estimatorBrief === 'object') ? body.estimatorBrief : {};
+    const counts = (body?.mediaCounts && typeof body.mediaCounts === 'object') ? body.mediaCounts : {};
+    const surface: IntakeSurface = body?.surface === 'staff' ? 'staff' : 'customer';
+    const category: IntakeCategory = String(projectCategory || '') as IntakeCategory;
 
-    const check = (label: string, value: any) => {
-      if (value && String(value).trim()) filled.push(label);
-      else missing.push(label);
+    /**
+     * Attachments are counted from what was actually uploaded.
+     *
+     * `File[]` does not survive JSON, so the browser sends counts. They are
+     * turned back into arrays of the right LENGTH purely so `isFilled` can read
+     * them the same way it reads the form's own arrays — the contents are never
+     * used and a count is never something the model may assert.
+     */
+    const photoCount = Math.max(0, Math.min(99, Number(counts.photos) || 0));
+    const videoCount = Math.max(0, Math.min(99, Number(counts.videos) || 0));
+
+    const values: Record<string, unknown> = {
+      ...(formData && typeof formData === 'object' ? formData : {}),
+      ...brief,
+      photos: new Array(photoCount).fill(1),
+      videos: new Array(videoCount).fill(1),
     };
 
-    check('Project name', formData?.projectName);
-    check('Client name', formData?.clientName);
-    check('Client email', formData?.clientEmail);
-    check('Client phone', formData?.clientPhone);
-    check('Site address', formData?.siteAddress);
-    check('City', formData?.city);
-    check('State', formData?.state);
-    check('ZIP code', formData?.zipCode);
-    check('Project description', formData?.projectDescription);
-    check('Timeline', formData?.timeline);
-    check('Budget range', formData?.budgetMin || formData?.budgetMax);
-    check('Property type', formData?.propertyType);
-    check('Priority level', formData?.priorityLevel);
+    const status = statusOf(values, category, surface);
+    const next = nextQuestion(values, category, surface);
+    const applicable = fieldsFor(category, surface);
+    const writable = applicable.filter((f) => f.target !== 'media');
 
-    if (projectCategory === 'kitchen_bath') {
-      check('Kitchen layout type', formData?.kitchenLayoutType);
-      check('Cabinet style', formData?.cabinetStyle);
-      check('Countertop material', formData?.countertopMaterial);
-    }
-    if (projectCategory === 'full_renovation' || projectCategory === 'new_construction') {
-      check('Architectural style', formData?.architecturalStyle);
-      check('Number of rooms', formData?.rooms?.length);
-    }
+    /**
+     * The customer's own words are fenced, next door to a `phoenix-chat` that
+     * fences input "even though it came from staff". Here it genuinely is
+     * untrusted: anyone on the internet can type into this form, and whatever
+     * they type was previously interpolated straight into the system prompt.
+     */
+    const answered = writable
+      .filter((f) => isFilled(f, values[f.name]) && f.kind !== 'measure')
+      .map((f) => `${f.label}: ${String(values[f.name]).slice(0, 500)}`)
+      .join('\n');
+    const fencedAnswers = fence("What the customer has told us so far", answered || '(nothing yet)');
 
-    const systemPrompt = `You are a friendly, professional project intake assistant for The Black Phoenix Company — a construction and renovation firm. Your job is to guide customers through their work request by asking about the specific fields that still need to be filled in.
+    const measured = writable
+      .filter((f) => f.kind === 'measure' && isFilled(f, values[f.name]))
+      .map((f) => `${f.label}: ${values[f.name]}`)
+      .join(', ');
 
-CURRENT FORM STATUS:
-- Project type: ${projectCategory || 'not selected yet'}
-- Filled fields (${filled.length}): ${filled.join(', ') || 'none yet'}
-- Missing fields (${missing.length}): ${missing.join(', ') || 'all done!'}
+    const systemPrompt = `You are a friendly, professional project intake assistant for The Black Phoenix Company — a construction and renovation firm. You are interviewing a customer so the office can price their job accurately.
 
-YOUR BEHAVIOR:
-1. Be warm, conversational, and helpful — not robotic.
-2. Focus on the MOST IMPORTANT missing field next. Don't ask about everything at once.
-3. When the customer gives you information, extract it and include field updates in your response.
-4. Ask one focused question at a time.
-5. If all fields are filled, congratulate them and tell them to click "Continue" to proceed.
-6. Tailor your questions to the project type (${projectCategory || 'general'}).
+${UNTRUSTED_PREAMBLE}
+
+WHERE THIS REQUEST STANDS:
+- Project type: ${category || 'not selected yet'}
+- Photos attached: ${photoCount} · Video attached: ${videoCount}
+- Measurements captured: ${measured || 'none yet'}
+- Still missing (${status.missing.length}): ${status.missing.join(', ') || 'nothing'}
+- Still missing BEFORE WE CAN PRICE IT (${status.missingForQuote.length}): ${status.missingForQuote.join(', ') || 'nothing — this job is quotable'}
+
+${fencedAnswers.text}
+
+THE NEXT THING TO ASK ABOUT: ${next ? `${next.label} — ${next.question}` : 'nothing is missing; thank them and tell them to click Continue'}
+
+YOUR BEHAVIOUR:
+1. Be warm and conversational, never robotic, and never more than 2-3 sentences.
+2. Ask about ONE thing at a time — the one named above. Do not run through a list.
+3. Accept rough answers gratefully. "About twelve by fourteen" is worth far more than a blank, and a customer who feels interrogated stops answering.
+4. Never ask for, discuss, estimate or imply a PRICE. You collect; the office prices. If they ask what it will cost, say the team will send an estimate once they have the details.
+5. Photographs matter more than any other answer. When photos are missing, ask for specific ones — the whole area from a distance, the way in, and anything unusual close up.
+6. If the job is already quotable, say so plainly and tell them they can click Continue — do not keep asking for the optional extras.
 
 FIELD EXTRACTION:
-After every user message, you MUST include a JSON block at the very end of your response (after your message) in this exact format to update the form:
+After every user message you MUST end your reply with a JSON block in exactly this form:
 <FIELDS>
-{
-  "projectName": "...",
-  "clientName": "...",
-  "clientEmail": "...",
-  "clientPhone": "...",
-  "siteAddress": "...",
-  "city": "...",
-  "state": "...",
-  "zipCode": "...",
-  "projectDescription": "...",
-  "timeline": "...",
-  "budgetMin": 0,
-  "budgetMax": 0,
-  "propertyType": "...",
-  "priorityLevel": "...",
-  "kitchenLayoutType": "...",
-  "cabinetStyle": "...",
-  "countertopMaterial": "..."
-}
+{ "fieldName": "value" }
 </FIELDS>
 
-Only include fields you extracted from this message. Omit fields you didn't get new info for. Use empty string "" to omit a field. For budgetMin/budgetMax use numbers only.
+Include ONLY fields you learned something new about from this message. Omit everything else — do not echo back what was already known, and do not invent a value to fill a gap.
 
-Valid values:
-- timeline: "asap", "1_week", "2_weeks", "1_month", "2_3_months", "flexible"
-- priorityLevel: "low", "medium", "high", "urgent"
+The ONLY field names you may use:
+${writable.map((f) => `- ${f.name}${f.kind === 'measure' ? ' (a number only)' : ''} — ${f.label}`).join('\n')}
+
+Never write a field name that is not on that list. Never claim a photo or video was attached.
+
+Valid values where they are fixed:
 - propertyType: "single_family", "multi_family", "condo", "commercial", "industrial", "land"
-- kitchenLayoutType: "l_shaped", "u_shaped", "galley", "island", "peninsula", "single_wall"
 
-IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIELDS> block must always be last.`;
+IMPORTANT: the conversational message comes first and stays SHORT. The <FIELDS> block is always last.`;
 
     const response = await recordedOpenAIFetch({ agent: 'ai-guide', operation: 'answer an in-app guide question', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -4188,26 +4218,63 @@ IMPORTANT: Keep your conversational message SHORT (2-3 sentences max). The <FIEL
     const message = fullText.replace(/<FIELDS>[\s\S]*?<\/FIELDS>/, '').trim();
     let fieldUpdates: Record<string, any> = {};
 
+    let briefUpdates: Record<string, string | number> = {};
+
     if (fieldsMatch) {
       try {
-        const parsed = JSON.parse(fieldsMatch[1].trim());
-        // Only include non-empty values
-        for (const [k, v] of Object.entries(parsed)) {
-          if (v !== '' && v !== null && v !== undefined && v !== 0) {
-            fieldUpdates[k] = v;
-          }
+        /**
+         * Allowlisted BY KEY, and coerced. The previous version filtered on the
+         * VALUE only —
+         *
+         *     if (v !== '' && v !== null && v !== undefined && v !== 0)
+         *       fieldUpdates[k] = v;
+         *
+         * — so every key the model emitted was passed through, and the browser
+         * spread it over form state. The model could therefore write fields
+         * nobody asked it about, and one of them is `photos`, a `File[]`: a
+         * `"photos": "none"` replaced the array with a string and the submit
+         * loop `for (const photo of formData.photos)` went on to iterate the
+         * characters of the word "none". A conversation could reach a crash in
+         * the submit path. `coerceUpdates` refuses unknown names outright and
+         * never lets a model write an attachment.
+         */
+        const coerced = coerceUpdates(JSON.parse(fieldsMatch[1].trim()), category, surface);
+        fieldUpdates = coerced.form;
+        briefUpdates = coerced.brief;
+        if (coerced.rejected.length) {
+          // Worth a line in the log: it is either a model drifting off the
+          // allowlist or somebody steering it, and both are worth seeing.
+          console.warn('[AI Guide] refused field writes:', coerced.rejected.join(', '));
         }
       } catch (e) {
         console.warn('[AI Guide] Failed to parse field updates:', e);
       }
     }
 
+    if (fencedAnswers.suspicion) {
+      console.warn('[AI Guide] intake text looks like an injection attempt:', fencedAnswers.suspicion);
+    }
+
+    /**
+     * `complete` now means QUOTABLE, not "every box has text in it".
+     *
+     * It used to be `missing.length === 0`, which congratulated the customer
+     * once their contact details were in and sent the office a request nobody
+     * could price. `submittable` is the separate, lower bar — a customer who
+     * will not answer another question must still be able to send the request,
+     * because the agent's job is to raise the average and not to gate the door.
+     */
     return c.json({
       message,
       fieldUpdates,
-      missingFields: missing,
-      filledFields: filled,
-      complete: missing.length === 0,
+      briefUpdates,
+      missingFields: status.missing,
+      missingForQuote: status.missingForQuote,
+      filledFields: status.filled,
+      quotable: status.quotable,
+      submittable: status.submittable,
+      complete: status.quotable,
+      nextField: next ? { name: next.name, label: next.label } : null,
     });
   } catch (error: any) {
     console.error('[AI Guide] Error:', error);
