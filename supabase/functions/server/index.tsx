@@ -14607,7 +14607,7 @@ function orderAwaitsFulfillment(order: any): boolean {
  * Shared by the instant path, the daily sweep and the manual retry route so all
  * three write exactly the same fields.
  */
-async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string; manualRequired?: string[]; status?: string }> {
+async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Promise<{ success: boolean; forwarded: number; skipped: string[]; error?: string; status?: string }> {
   const forwardItems = (Array.isArray(order.items) ? order.items : [])
     .map((it: any) => ({
       sku: String(it.sku || it.SKU || it.id || it.productId || ''),
@@ -14629,20 +14629,27 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
   // 'forwarded_to_doba' is the legacy name for "sent to the supplier" and is the
   // value OrderManager, ShopperAccountPortal and the manual status route already
   // recognise, so reuse it rather than inventing a status the UI can't label.
-  // A manual-only outcome (supplier can't accept orders via API) is neither a
-  // success nor a retryable failure — mark it distinctly so the UI can prompt
-  // the operator to fulfill in the supplier dashboard instead of showing a red
-  // error and re-attempting something that can never succeed remotely.
-  const manualOnly = !result.success && Array.isArray(result.manualRequired) && result.manualRequired.length > 0 && (result.skipped || []).length === 0;
-  order.fulfillment_status = result.success ? 'forwarded_to_doba' : (manualOnly ? 'manual_required' : 'pending');
+  /**
+   * `manual_required` is no longer reachable, and that is deliberate.
+   *
+   * It existed for a supplier that could be bought from but not ordered from
+   * by API — only ever Zendrop, removed on 2026-11-10 — so with it gone every
+   * forwarding failure is a retryable one again and the distinction had no
+   * case left to describe. Eric asked for the whole thing out on 2026-11-11.
+   *
+   * ONE ORDER STILL CARRIES THE STATUS: `BP-F42D79D34D`, paid on 2026-08-07
+   * and never shipped, confirmed in production. `storeWatchRules.ts` still
+   * recognises `manual_required` for exactly that reason and keeps flagging
+   * it as urgent — the rule is deliberately NOT removed with this write path.
+   * Nothing can set the status again; something still has to answer for the
+   * order that has it.
+   */
+  order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
   order.fulfillment_forwarded_at = new Date().toISOString();
   order.fulfillment_forwarded_count = result.forwarded ?? 0;
   order.fulfillment_attempts = Number(order.fulfillment_attempts || 0) + 1;
   order.fulfillment_skipped = Array.isArray(result.skipped) && result.skipped.length > 0 ? result.skipped : undefined;
-  order.fulfillment_manual_required = manualOnly ? result.manualRequired : undefined;
-  // Not an error when manual fulfillment is simply the only path available.
-  order.fulfillment_error = (result.success || manualOnly) ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
-  order.fulfillment_notice = manualOnly ? result.manualRequired.join('; ') : undefined;
+  order.fulfillment_error = result.success ? undefined : (result.error || 'Forwarding failed for an unstated reason.');
   // Persist back to whichever prefix the order was loaded from. Marketplace/
   // digital orders live under `store_order:` while main-store orders use
   // `store:order:`; defaulting to the latter would fork a duplicate and leave
@@ -14668,13 +14675,11 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
    * can never be what stops an order being saved.
    */
   if (!result.success) {
-    const reason = manualOnly
-      ? (result.manualRequired || []).join('; ')
-      : (result.error || (result.skipped || []).join('; ') || 'no reason given');
+    const reason = result.error || (result.skipped || []).join('; ') || 'no reason given';
     console.log(`[Fulfillment][UNSHIPPED] paid order ${order.id}: ${order.fulfillment_status} — ${reason}`);
     notifyStaffInBackground('payment', {
       subject: `Paid order not shipped: ${order.id}`,
-      heading: manualOnly ? '📦 Paid order needs fulfilling by hand' : '⚠️ Paid order could not be sent to the supplier',
+      heading: '⚠️ Paid order could not be sent to the supplier',
       rows: [
         ['Order', order.id],
         ['Paid', `${Number(order.amount_total ?? order.total ?? 0).toFixed(2)}`],
@@ -14683,16 +14688,14 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
         ['Why', reason],
         ['Attempts', String(order.fulfillment_attempts || 1)],
       ],
-      note: manualOnly
-        ? 'This will not resolve on its own. Fulfil it in the supplier dashboard.'
-        : 'The sweep will try again, but the customer is waiting now.',
+      note: 'The sweep will try again, but the customer is waiting now.',
       ctaLabel: 'Open the order',
       ctaPath: `/order-manager`,
       dedupeKey: `unshipped:${order.id}`,
     });
   }
 
-  return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: manualOnly ? undefined : result.error, manualRequired: manualOnly ? result.manualRequired : undefined, status: order.fulfillment_status };
+  return { success: Boolean(result.success), forwarded: result.forwarded ?? 0, skipped: result.skipped || [], error: result.error, status: order.fulfillment_status };
 }
 
 /**

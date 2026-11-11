@@ -143,7 +143,22 @@ export function findStuck(input: {
       }
     }
 
-    // A state that never clears itself.
+    /**
+     * A state that never clears itself — and that nothing can set any more.
+     *
+     * `manual_required` was written for a supplier that could be bought from but
+     * not ordered from by API. That was only ever Zendrop, removed on
+     * 2026-11-10, and the write path went with `manualRequired` on 2026-11-11.
+     *
+     * THIS RULE STAYS ANYWAY, and it is not dead code. Order `BP-F42D79D34D` —
+     * paid 2026-08-07, never shipped — still carries the status, confirmed in
+     * production. It is the only order in the store, and this rule is the only
+     * thing reporting it. Deleting the rule because nothing can produce the
+     * status would silently retire the alarm on a real unshipped order, which is
+     * the exact failure this whole file exists to prevent.
+     *
+     * Remove it when that order is resolved, and not before.
+     */
     if (status === "manual_required" && age !== null && age >= t.manualRequiredHours) {
       findings.push({
         kind: "manual-required",

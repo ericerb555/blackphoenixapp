@@ -280,7 +280,7 @@ export async function forwardOrder(order: {
   orderId: string;
   items: { sku: string; quantity: number; price: number }[];
   shippingAddress: any;
-}): Promise<{ success: boolean; error?: string; forwarded?: number; skipped?: string[]; manualRequired?: string[] }> {
+}): Promise<{ success: boolean; error?: string; forwarded?: number; skipped?: string[] }> {
   const enabled = await config.isEnabled();
   if (!enabled) {
     return { success: false, error: 'Dropshipper module is disabled' };
@@ -296,7 +296,6 @@ export async function forwardOrder(order: {
     let forwarded = 0;
     const skipped: string[] = [];
     // Providers that can never accept this order via API (manual fulfillment).
-    const manualRequired: string[] = [];
 
     // Match on the ORIGINAL order-line SKU (grouping rewrites `sku` to the
     // supplier's SKU but preserves `originalSku`), so store-prefixed ids that
@@ -338,46 +337,24 @@ export async function forwardOrder(order: {
         console.log(`[Dropshipper] Order ${order.orderId} forwarded to ${provider.name} as ${providerOrderId}`);
       } catch (error) {
         const message = (error as any)?.message || String(error);
-        // A provider that CANNOT accept orders via API has a permanent
-        // limitation, not a failure worth retrying. Classified as "needs manual
-        // fulfillment" and recorded as info, so it does not surface as a
-        // repeating red [Dropshipper Error].
-        //
-        // NOTHING THROWS THIS TODAY. The only provider that ever did was
-        // Zendrop, removed on 2026-11-10. The branch is kept because the
-        // outcome it produces is part of `forwardOrders`' return shape and its
-        // callers read `manualRequired`; it is the seam for the next supplier
-        // that can be bought from but not ordered from by API. If no such
-        // supplier is ever added, this and `manualRequired` can go together.
-        if ((error as any)?.code === 'MANUAL_FULFILMENT_REQUIRED') {
-          manualRequired.push(`${provider.name}: ${message}`);
-          console.log(`[Dropshipper] ${provider.name} order ${order.orderId} needs manual fulfillment: ${message}`);
-        } else {
-          const errorMsg = `Failed to forward order to ${provider.name}: ${error}`;
-          // Carry the real reason. The old opaque placeholder told the operator
-          // nothing, which is how a broken supplier endpoint went unnoticed for
-          // weeks.
-          skipped.push(`${provider.name}: ${message}`);
-          await logError('ORDER_FORWARD', errorMsg, providerId, order.orderId);
-          console.error(`[Dropshipper Error] ${errorMsg}`);
-        }
+        const errorMsg = `Failed to forward order to ${provider.name}: ${error}`;
+        // Carry the real reason. The old opaque placeholder told the operator
+        // nothing, which is how a broken supplier endpoint went unnoticed for
+        // weeks.
+        skipped.push(`${provider.name}: ${message}`);
+        await logError('ORDER_FORWARD', errorMsg, providerId, order.orderId);
+        console.error(`[Dropshipper Error] ${errorMsg}`);
       }
     }
 
     if (forwarded === 0) {
-      // Manual-only outcome: a permanent provider limitation rather than a
-      // failure to retry — reported distinctly, with no hard error logged.
-      if (manualRequired.length > 0 && skipped.length === 0) {
-        const reason = manualRequired.join('; ');
-        return { success: false, error: reason, forwarded, skipped, manualRequired };
-      }
       const reason = skipped.length > 0
         ? `No items were forwarded: ${skipped.join('; ')}`
         : 'No items matched a dropshipper provider.';
       await logError('ORDER_FORWARD', reason, undefined, order.orderId);
-      return { success: false, error: reason, forwarded, skipped, manualRequired };
+      return { success: false, error: reason, forwarded, skipped };
     }
-    return { success: true, forwarded, skipped, manualRequired };
+    return { success: true, forwarded, skipped };
   } catch (error) {
     const errorMsg = `Order forwarding failed: ${error}`;
     await logError('ORDER_FORWARD', errorMsg, undefined, order.orderId);
