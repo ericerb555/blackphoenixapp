@@ -8,7 +8,7 @@
  * ready to plug into the store's import flow.
  *
  * Pipeline modules:
- *   trend research  → this file (Zendrop + CJ scans)
+ *   trend research  → this file (CJ scans)
  *   scoring         → ./product-scoring.tsx
  *   exporter        → ./product-exporter.tsx
  *   supplier match  → SOURCING_CHANNELS + buildSourcingMap (below)
@@ -26,7 +26,6 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { zendropFetch, extractProducts, normalize, loadServerConfig, resolveKey, num } from "./zendrop.tsx";
 import {
   resolveKey as cjResolveKey,
   scanCatalog as cjScanCatalog,
@@ -42,6 +41,12 @@ import {
 } from "./product-scoring.tsx";
 import { toExportRows, toCSV } from "./product-exporter.tsx";
 import { trustedRole } from "./trustedRole.ts";
+
+/** A finite number, or the fallback. Was imported from the Zendrop module. */
+function num(v: any, fallback = 0): number {
+  const n = typeof v === "string" ? parseFloat(v) : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 const hotProductsRouter = new Hono();
 
@@ -63,7 +68,6 @@ interface SourcingChannel {
 }
 
 const SOURCING_CHANNELS: SourcingChannel[] = [
-  { key: "zendrop", label: "Zendrop", type: "dropshipping", envKey: "ZENDROP_API_KEY", search: (q) => `https://app.zendrop.com/product-sourcing?search=${q}` },
   { key: "cj", label: "CJdropshipping", type: "dropshipping", envKey: "CJ_API_KEY", search: (q) => `https://cjdropshipping.com/list/search?searchText=${q}` },
   { key: "spocket", label: "Spocket", type: "dropshipping", search: (q) => `https://app.spocket.co/search?query=${q}` },
   { key: "autods", label: "AutoDS", type: "dropshipping", search: (q) => `https://platform.autods.com/marketplace?search=${q}` },
@@ -179,7 +183,6 @@ function buildRanked(args: {
 
 // ── Scan step: gather + score candidates from every connected supplier ──────
 async function scanAllSuppliers(opts: {
-  zendropKey: string | null;
   cjKey: string | null;
   scanLimit: number;
   keyword: string;
@@ -187,55 +190,6 @@ async function scanAllSuppliers(opts: {
 }): Promise<{ ranked: RankedProduct[]; errors: string[]; trendingCount: number }> {
   const ranked: RankedProduct[] = [];
   const errors: string[] = [];
-  let trendingCount = 0;
-
-  // ── Zendrop ───────────────────────────────────────────────────────────────
-  if (opts.zendropKey) {
-    try {
-      const trendingRes = await zendropFetch(opts.zendropKey, "get_catalog_trending_products", { filters: {} });
-      const trendingRaw = trendingRes.ok ? extractProducts(trendingRes.data) : [];
-      const trendingIds = new Set(trendingRaw.map((r: any) => String(r?.id)));
-      trendingCount = trendingRaw.length;
-
-      const catalogRaw: any[] = [];
-      for (let page = 1; catalogRaw.length < opts.scanLimit && page <= 20; page++) {
-        const res = await zendropFetch(opts.zendropKey, "get_catalog_products", { limit: 50, page });
-        if (!res.ok) break;
-        const pageProducts = extractProducts(res.data);
-        if (pageProducts.length === 0) break;
-        catalogRaw.push(...pageProducts);
-      }
-      if (!trendingRes.ok && catalogRaw.length === 0) errors.push(`Zendrop scan failed: ${trendingRes.error || "no products"}`);
-
-      const merged = new Map<string, any>();
-      for (const r of [...trendingRaw, ...catalogRaw]) {
-        const id = String(r?.id ?? "");
-        if (id && !merged.has(id) && !isAdultProduct(r)) merged.set(id, r);
-      }
-      for (const raw of merged.values()) {
-        const id = String(raw.id);
-        const isTrending = trendingIds.has(id);
-        const createdAt = raw.created_at || raw.createdAt || raw.published_at;
-        const ageDays = createdAt ? Math.max(0, (Date.now() - new Date(createdAt).getTime()) / 86400000) : 999;
-        const signals = {
-          rating: num(raw.rating ?? raw.average_rating), reviews: num(raw.review_count ?? raw.reviews ?? raw.ratings_count),
-          sales: num(raw.sales ?? raw.orders ?? raw.sold_count ?? raw.order_count),
-          price: num(raw.price ?? raw.cost ?? raw.wholesale_price), ageDays, isTrending,
-        };
-        const images: string[] = [];
-        if (Array.isArray(raw.images)) for (const im of raw.images) images.push(typeof im === "string" ? im : (im?.url || im?.src || ""));
-        if (raw.image) images.push(typeof raw.image === "string" ? raw.image : (raw.image?.url || ""));
-        ranked.push(buildRanked({
-          id: `zendrop_${id}`, sku: String(raw.sku ?? `ZD-${id}`), name: String(raw.name ?? raw.title ?? "Untitled Product"),
-          image: images.filter(Boolean)[0] || "", category: String(raw.category ?? raw.product_type ?? "General"),
-          cost: num(raw.cost ?? raw.price ?? raw.wholesale_price), source: "zendrop", sourceLabel: "Zendrop",
-          providerProductId: id, signals, isTrending, isNew: isNewByCreatedAt(raw), targetMarginPct: opts.targetMarginPct,
-        }));
-      }
-    } catch (e) {
-      errors.push(`Zendrop scan error: ${e}`);
-    }
-  }
 
   // ── CJ Dropshipping ─────────────────────────────────────────────────────────
   if (opts.cjKey) {
@@ -267,6 +221,9 @@ async function scanAllSuppliers(opts: {
   }
 
   ranked.sort((a, b) => b.finalScore - a.finalScore);
+  // Counted from the results rather than accumulated: see the note on
+  // `isTrending` below. Zero until a supplier that marks trending exists.
+  const trendingCount = ranked.filter((r) => r.isTrending).length;
   return { ranked, errors, trendingCount };
 }
 
@@ -276,10 +233,9 @@ hotProductsRouter.get("/make-server-3eae23a6/hot-products/discover", async (c) =
     const admin = await requireAdmin(c);
     if (!admin.ok) return c.json({ success: false, error: admin.error }, admin.status);
 
-    const zendropKey = resolveKey(c.req.query("apiKey") || undefined);
     const cjKey = cjResolveKey(c.req.query("cjApiKey") || undefined);
-    if (!zendropKey && !cjKey) {
-      return c.json({ success: false, error: "No supplier connected. Add a Zendrop or CJ API key first." }, 400);
+    if (!cjKey) {
+      return c.json({ success: false, error: "No supplier connected. Add a CJ API key first." }, 400);
     }
 
     const scanLimit = Math.min(300, Math.max(20, Number(c.req.query("scan")) || 150));
@@ -287,7 +243,7 @@ hotProductsRouter.get("/make-server-3eae23a6/hot-products/discover", async (c) =
     const filters: ProductFilters = parseFilterQuery((k) => c.req.query(k) ?? undefined);
     const targetMarginPct = filters.minMarginPct != null ? filters.minMarginPct : 60;
 
-    const { ranked, errors, trendingCount } = await scanAllSuppliers({ zendropKey, cjKey, scanLimit, keyword, targetMarginPct });
+    const { ranked, errors, trendingCount } = await scanAllSuppliers({ cjKey, scanLimit, keyword, targetMarginPct });
     if (ranked.length === 0) {
       return c.json({ success: false, error: `No products found. ${errors.join(" ") || ""}`.trim() }, 502);
     }
@@ -358,52 +314,6 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/import", async (c) =>
       }
     }
 
-    // ── Zendrop candidates: re-pull detail then write store records ────────────
-    const zdChosen = chosen.filter((p) => p.source === "zendrop");
-    if (zdChosen.length) {
-      const apiKey = resolveKey(body?.apiKey);
-      if (!apiKey) errors.push("Skipped Zendrop products: no Zendrop API key configured.");
-      else {
-        const { markupType, markupValue } = await loadServerConfig();
-        const wantIds = new Set(zdChosen.map((p) => String(p.providerProductId)));
-        const detailMap = new Map<string, any>();
-        const trendingRes = await zendropFetch(apiKey, "get_catalog_trending_products", { filters: {} });
-        for (const r of (trendingRes.ok ? extractProducts(trendingRes.data) : [])) detailMap.set(String(r?.id), r);
-        for (let page = 1; page <= 20; page++) {
-          if ([...wantIds].every((id) => detailMap.has(id))) break;
-          const res = await zendropFetch(apiKey, "get_catalog_products", { limit: 50, page });
-          if (!res.ok) break;
-          const pageProducts = extractProducts(res.data);
-          if (pageProducts.length === 0) break;
-          for (const r of pageProducts) detailMap.set(String(r?.id), r);
-        }
-        const writes: Promise<void>[] = [];
-        for (const cand of zdChosen) {
-          const raw = detailMap.get(String(cand.providerProductId)) || cand;
-          const p = normalize(raw, markupType, markupValue);
-          if (!p.name) continue;
-          if (isAdultProduct(raw) || isAdultProduct(p)) continue;
-          const storeId = `zendrop_${p.sku}`;
-          const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || storeId;
-          writes.push(kv.set(`product_${storeId}`, {
-            id: storeId, vendorId: "zendrop", vendorName: "Zendrop",
-            name: p.name, description: p.description, category: p.category, price: p.price,
-            compare_at_price: p.price ? +(p.price * 1.3).toFixed(2) : undefined,
-            cost_price: p.cost, inventoryQuantity: p.stock, trackInventory: true,
-            images: p.images, primaryImage: p.images[0] || cand.image || "",
-            isActive: true, isFeatured: cand.isTrending, isNew: cand.isNew,
-            trendingScore: cand.finalScore, hotAddedAt: nowIso,
-            badge: cand.isTrending ? "🔥 HOT" : cand.isNew ? "NEW" : undefined,
-            slug, sku: p.sku, rating: p.rating, viewCount: 0, orderCount: 0,
-            source: "zendrop", providerProductId: p.providerProductId, createdAt: nowIso, updatedAt: nowIso,
-          }));
-          writes.push(kv.set(`dropshipper_inventory:${p.sku}`, JSON.stringify(p)));
-          imported++;
-        }
-        await Promise.all(writes);
-      }
-    }
-
     return c.json({ success: true, imported, requested: chosen.length, errors });
   } catch (err) {
     console.log(`Error importing hot products: ${err}`);
@@ -466,14 +376,13 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/daily-top10", async (
     if (!admin.ok) return c.json({ success: false, error: admin.error }, admin.status);
 
     const body = await c.req.json().catch(() => ({}));
-    const zendropKey = resolveKey(body?.apiKey);
     const cjKey = cjResolveKey(body?.cjApiKey);
-    if (!zendropKey && !cjKey) return c.json({ success: false, error: "No supplier connected." }, 400);
+    if (!cjKey) return c.json({ success: false, error: "No supplier connected." }, 400);
 
     const filters: ProductFilters = body?.filters || {};
     const targetMarginPct = filters.minMarginPct != null ? filters.minMarginPct : 60;
     const { ranked, errors } = await scanAllSuppliers({
-      zendropKey, cjKey, scanLimit: 200, keyword: String(body?.keyword || ""), targetMarginPct,
+      cjKey, scanLimit: 200, keyword: String(body?.keyword || ""), targetMarginPct,
     });
 
     const top10 = applyFilters(ranked, filters).slice(0, 10);
@@ -528,7 +437,7 @@ hotProductsRouter.post("/make-server-3eae23a6/hot-products/source-analysis", asy
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: "You are an elite product-sourcing analyst for an ecommerce brand. Given a product, determine the best way to source it and where. Respond ONLY with JSON." },
-        { role: "user", content: `Analyze sourcing for this product.\nName: ${name}\nCategory: ${category || "unknown"}\nKnown cost: ${cost || "unknown"}\n\nReturn JSON with keys: productType (one of physical, digital, print-on-demand, wholesale, handmade, service), bestChannel (short phrase), recommendation (1-2 sentences), dropshippersLikely (array of supplier names likely to carry it, e.g. Zendrop, CJdropshipping, Spocket, AliExpress), retailLikely (array of retailers), estUnitCostRange (e.g. "$4-$9"), estRetailRange (e.g. "$19-$29"), marginNote (short), logisticsNote (short), risks (array of short strings).` },
+        { role: "user", content: `Analyze sourcing for this product.\nName: ${name}\nCategory: ${category || "unknown"}\nKnown cost: ${cost || "unknown"}\n\nReturn JSON with keys: productType (one of physical, digital, print-on-demand, wholesale, handmade, service), bestChannel (short phrase), recommendation (1-2 sentences), dropshippersLikely (array of supplier names likely to carry it, e.g. CJdropshipping, Spocket, AliExpress), retailLikely (array of retailers), estUnitCostRange (e.g. "$4-$9"), estRetailRange (e.g. "$19-$29"), marginNote (short), logisticsNote (short), risks (array of short strings).` },
       ],
     });
     let analysis: any = null;

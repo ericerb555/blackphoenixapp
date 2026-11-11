@@ -6,21 +6,16 @@
 import * as kv from './kv_store.tsx';
 import * as config from './dropshipper-config.tsx';
 import { isAdultProduct } from './content-filter.tsx';
-// Zendrop is deliberately not imported here any more. Its API cannot create an
-// order, so neither forwarding nor catalogue import had any value — see the
-// notes in `syncInventory` and `sendOrderToProvider`. Dropping the import is
-// what stops a future edit reaching for it by habit.
 import { submitCJOrder, resolveKey as resolveCJKey, storedOrSecretKey as cjKey, importProducts as importCJProducts } from './cjdropshipping.tsx';
 
 /**
  * Identify a provider so the generic sync can dispatch to the real,
- * provider-specific importer (Zendrop MCP / CJ REST) instead of the generic
+ * provider-specific importer (CJ REST) instead of the generic
  * `{apiUrl}/products` shape, which neither provider actually serves.
  */
-function providerKind(provider: config.DropshipperProvider): 'zendrop' | 'cj' | 'generic' {
+function providerKind(provider: config.DropshipperProvider): 'cj' | 'generic' {
   const id = String(provider.id || '').toLowerCase();
   const name = String(provider.name || '').toLowerCase();
-  if (id === 'zendrop' || /zendrop/.test(name)) return 'zendrop';
   if (id === 'cjdropshipping' || /cj\s*dropshipping/.test(name)) return 'cj';
   return 'generic';
 }
@@ -121,15 +116,12 @@ export async function syncInventory(): Promise<{ success: boolean; synced: numbe
       // `{apiUrl}/products` shape, which CJ does not serve (that path only fits
       // a plain REST vendor).
       //
-      // The Zendrop branch that used to sit here is gone — see the note in
-      // `sendOrderToProvider`. Importing a catalogue we can never place an order
-      // against only produces listings that cannot be fulfilled, which is how
-      // the store came to be selling something it could not ship.
-      if (kind === 'zendrop') {
-        throw new Error(
-          'Zendrop is no longer a supported supplier: its API cannot place an order, so its products could never be shipped. Remove the provider record.',
-        );
-      } else if (kind === 'cj') {
+      // A supplier whose catalogue can be imported but whose orders cannot be
+      // placed is worse than no supplier at all: it produces listings that
+      // cannot be fulfilled, which is how the store came to be selling
+      // something it could not ship. That is why an importer is written per
+      // provider, against its real API, rather than assumed.
+      if (kind === 'cj') {
         // Secret first — see storedOrSecretKey. The provider record holds the
         // key in plain text and should stop being the source of it.
         const apiKey = cjKey(provider.apiKey);
@@ -346,17 +338,25 @@ export async function forwardOrder(order: {
         console.log(`[Dropshipper] Order ${order.orderId} forwarded to ${provider.name} as ${providerOrderId}`);
       } catch (error) {
         const message = (error as any)?.message || String(error);
-        // A provider that CANNOT accept orders via API (e.g. Zendrop has no
-        // create-order tool) is a permanent limitation, not a failure to retry.
-        // Classify it as "needs manual fulfillment" and record it as info, so
-        // it stops surfacing as a repeating red [Dropshipper Error].
-        if ((error as any)?.code === 'ZENDROP_MANUAL_REQUIRED') {
+        // A provider that CANNOT accept orders via API has a permanent
+        // limitation, not a failure worth retrying. Classified as "needs manual
+        // fulfillment" and recorded as info, so it does not surface as a
+        // repeating red [Dropshipper Error].
+        //
+        // NOTHING THROWS THIS TODAY. The only provider that ever did was
+        // Zendrop, removed on 2026-11-10. The branch is kept because the
+        // outcome it produces is part of `forwardOrders`' return shape and its
+        // callers read `manualRequired`; it is the seam for the next supplier
+        // that can be bought from but not ordered from by API. If no such
+        // supplier is ever added, this and `manualRequired` can go together.
+        if ((error as any)?.code === 'MANUAL_FULFILMENT_REQUIRED') {
           manualRequired.push(`${provider.name}: ${message}`);
           console.log(`[Dropshipper] ${provider.name} order ${order.orderId} needs manual fulfillment: ${message}`);
         } else {
           const errorMsg = `Failed to forward order to ${provider.name}: ${error}`;
           // Carry the real reason. The old opaque placeholder told the operator
-          // nothing, which is how a broken Zendrop endpoint went unnoticed.
+          // nothing, which is how a broken supplier endpoint went unnoticed for
+          // weeks.
           skipped.push(`${provider.name}: ${message}`);
           await logError('ORDER_FORWARD', errorMsg, providerId, order.orderId);
           console.error(`[Dropshipper Error] ${errorMsg}`);
@@ -365,8 +365,8 @@ export async function forwardOrder(order: {
     }
 
     if (forwarded === 0) {
-      // Manual-only outcome (e.g. Zendrop can't accept orders via API): not a
-      // failure to retry — report it distinctly and don't log a hard error.
+      // Manual-only outcome: a permanent provider limitation rather than a
+      // failure to retry — reported distinctly, with no hard error logged.
       if (manualRequired.length > 0 && skipped.length === 0) {
         const reason = manualRequired.join('; ');
         return { success: false, error: reason, forwarded, skipped, manualRequired };
@@ -415,8 +415,9 @@ async function sendOrderToProvider(
   orderData: { orderId?: string; items: any[]; shippingAddress: any; customerName?: string; customerPhone?: string }
 ): Promise<string> {
   // CJdropshipping IS a plain REST API with a real create-order endpoint
-  // (createOrderV2), so — unlike Zendrop — a paid order can be forwarded
-  // directly and get back a trackable supplier order id.
+  // (createOrderV2), so a paid order can be forwarded directly and get back a
+  // trackable supplier order id. That is the bar a supplier has to meet here —
+  // see the note below for what happens when one does not.
   if (String(provider.id) === 'cjdropshipping' || /cj\s*dropshipping/i.test(String(provider.name || ''))) {
     const { providerOrderId } = await submitCJOrder(cjKey(provider.apiKey) || undefined, {
       orderId: orderData.orderId || 'unknown',
@@ -429,24 +430,24 @@ async function sendOrderToProvider(
   }
 
   /**
-   * Zendrop is gone. Eric, 2026-10-03: *"zendrop is not apart of this anymore
-   * only cj for now until we add more in"* and *"remove zendrop paths will not
-   * work with this app"*.
+   * WHY THIS STORE HAS ONE SUPPLIER, AND WHAT A NEW ONE MUST PROVE.
    *
-   * The reason is a capability limit rather than a preference: Zendrop's API
-   * exposes no order-creation call at all. It can only fulfil orders that
-   * already exist inside a connected Zendrop store, so an order taken by this
-   * storefront could never be placed with them by machine, whatever key or
-   * scope was used. That is what left a paid order sitting unshipped for eight
-   * weeks, and no amount of retrying was ever going to clear it.
+   * Eric, 2026-10-03: *"zendrop is not apart of this anymore only cj for now
+   * until we add more in"* and *"remove zendrop paths will not work with this
+   * app"*. The integration was deleted outright on 2026-11-10.
    *
-   * The branch that used to be here imported each product into the Zendrop
-   * account and then posted the order over MCP, and it never completed. It is
-   * removed rather than left behind a flag, so a future session cannot revive a
-   * path that cannot work. `sellableProviders.ts` already refuses to price a
-   * Zendrop item, so nothing can reach this function carrying one; if a
-   * provider record for Zendrop is ever recreated by hand, the generic REST
-   * post below will reject it honestly instead of pretending.
+   * The reason was a capability limit, not a preference, and it is the test to
+   * apply to the next supplier somebody proposes: Zendrop's API exposed no
+   * order-creation call at all. It could only fulfil orders that already
+   * existed inside a connected Zendrop store, so an order taken by this
+   * storefront could never be placed by machine, whatever key or scope was
+   * used. A paid order sat unshipped for eight weeks and no amount of retrying
+   * was ever going to clear it.
+   *
+   * So: a supplier that cannot accept an order over its API cannot be sold
+   * here, however good its catalogue is. `sellableProviders.ts` enforces that
+   * as an allowlist, and the generic REST post below will reject an
+   * unsupported provider honestly rather than pretending it worked.
    */
 
   const response = await fetch(`${provider.apiUrl}/orders`, {

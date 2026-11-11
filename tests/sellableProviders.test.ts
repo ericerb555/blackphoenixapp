@@ -61,7 +61,10 @@ test('a supplier nobody has vouched for cannot be sold', () => {
 });
 
 test('adding a provider is configuration, not a deploy', () => {
-  assert.ok(providerIsSellable({ provider: 'zendrop' }, ['cjdropshipping', 'zendrop']));
+  // Deliberately a hypothetical supplier rather than Zendrop. Zendrop was
+  // deleted on 2026-11-10 and is never coming back — a test that reads as
+  // 'and here is how you re-enable it' would invite exactly that.
+  assert.ok(providerIsSellable({ provider: 'spocket' }, ['cjdropshipping', 'spocket']));
 });
 
 test('the comparison survives spelling and spacing', () => {

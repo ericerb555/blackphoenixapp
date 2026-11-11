@@ -23,7 +23,6 @@ import aiFloorplanRouter from "../server/ai-floorplan.tsx";
 import maintenanceConfigRouter from "../server/maintenance-config.tsx";
 import contentManagementRouter from "../server/content-management.tsx";
 import storeAnalyticsRouter from "../server/store-analytics.tsx";
-import zendropRouter from "../server/zendrop.tsx";
 import { productsRouter } from "../server/ecommerce-products.tsx";
 import { cartRouter } from "../server/ecommerce-cart.tsx";
 import { ordersRouter } from "../server/ecommerce-orders.tsx";
@@ -132,7 +131,6 @@ app.route("/", projectVisionRouter);
 app.route("/make-server-57095a78/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-57095a78/cms", contentManagementRouter);
 app.route("/make-server-57095a78/analytics", storeAnalyticsRouter);
-app.route("/", zendropRouter);
 app.route("/", maintenanceConfigRouter);
 // Existing commerce, CRM, and growth routers are mounted under the API paths their clients already call.
 app.route("/make-server-57095a78", productsRouter);

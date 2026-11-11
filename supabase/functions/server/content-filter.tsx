@@ -1,7 +1,7 @@
 /**
  * content-filter.tsx — shared "safe catalog" guard.
  *
- * Dropshipper feeds (Zendrop, generic providers, hot-products radar, catalog
+ * Dropshipper feeds (generic providers, hot-products radar, catalog
  * staging) occasionally surface adult / sexual-wellness products. We never want
  * those to be imported or updated into our store, so every product write path
  * runs candidates through `isAdultProduct` and drops the matches.

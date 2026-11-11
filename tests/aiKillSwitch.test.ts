@@ -91,10 +91,10 @@ test('nothing engaged means nothing is refused', () => {
 
 test('global sorts first so it cannot be missed in a list', () => {
   const sorted = sortStops([
-    stop({ scope: 'zendrop' }), stop({ scope: 'design-assistant' }), stop(),
+    stop({ scope: 'cjdropshipping' }), stop({ scope: 'design-assistant' }), stop(),
   ]);
   assert.deepEqual(sorted.map((s) => s.scope),
-    [GLOBAL_SCOPE, 'design-assistant', 'zendrop']);
+    [GLOBAL_SCOPE, 'cjdropshipping', 'design-assistant']);
 });
 
 /* ── the failure mode, which is the whole design ─────────────────────────── */

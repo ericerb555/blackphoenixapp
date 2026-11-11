@@ -120,7 +120,6 @@ import { registerStoreWatchJob } from "./storeWatchJob.ts";
 import { registerPriceWatchJob } from "./priceWatchJob.ts";
 import contentManagementRouter from "./content-management.tsx";
 import storeAnalyticsRouter from "./store-analytics.tsx";
-import zendropRouter from "./zendrop.tsx";
 import cjRouter from "./cjdropshipping.tsx";
 import seoEngineRouter from "./seo-engine.tsx";
 import { productsRouter } from "./ecommerce-products.tsx";
@@ -134,7 +133,6 @@ import invoiceLinkingRouter, { linkInvoicesByEmail } from "./invoice-linking.tsx
 import fulfillmentRouter from "./fulfillment.tsx";
 import hotProductsRouter from "./hot-products.tsx";
 import tierFeaturesRouter from "./tier-features.tsx";
-import shippingRatesRouter from "./shipping-rates.tsx";
 import storeAiPricingRouter from "./store-ai-pricing.tsx";
 import contentFilterRouter from "./content-filter-admin.tsx";
 // ── Authoritative store pricing helpers (inlined so the function always bundles) ──
@@ -1739,16 +1737,20 @@ app.route("/make-server-3eae23a6/cms", contentManagementRouter);
 app.route("/make-server-3eae23a6/analytics", storeAnalyticsRouter);
 // ── Supplier routes are administrator-only ───────────────────────────────────
 //
-// The /cj/* and /zendrop/* routers resolve their supplier API key from a server
-// secret and then act on it, but carried no authorization of their own — the
+// The /cj/* router resolves its supplier API key from a server secret and then
+// acts on it, but carried no authorization of its own — the
 // neighbouring /dropshipper/* routes are all gated by dropshipAdmin() and these
 // were simply missed. Because the function only requires *a* valid JWT, the
 // public anon key that ships inside the frontend bundle was enough to call them:
 // anyone could trigger catalog imports against the CJ account, and /cj/debug
 // forces a token refresh that CJ rate-limits, so it doubles as an abuse vector.
 //
-// Mounted as middleware ahead of the routers so every current and future route
-// in those families inherits the check, rather than each one remembering it.
+// Mounted as middleware ahead of the router so every current and future route
+// in that family inherits the check, rather than each one remembering it.
+//
+// A matching `/zendrop/*` guard sat here until Zendrop was removed on
+// 2026-11-10. If another supplier is ever added, it needs a line here too —
+// the guard is per-family, not global.
 const supplierAdminGuard = async (c: any, next: any) => {
   const actor = await intakeActor(c);
   if (!actor || !(await intakeIsAdmin(actor))) {
@@ -1757,9 +1759,7 @@ const supplierAdminGuard = async (c: any, next: any) => {
   await next();
 };
 app.use('/make-server-3eae23a6/cj/*', supplierAdminGuard);
-app.use('/make-server-3eae23a6/zendrop/*', supplierAdminGuard);
 
-app.route("/", zendropRouter);
 app.route("/", cjRouter);
 app.route("/", seoEngineRouter);
 app.route("/", contentFilterRouter);
@@ -1802,7 +1802,6 @@ app.route("/", invoiceLinkingRouter);
 app.route("/", fulfillmentRouter);
 app.route("/", hotProductsRouter);
 app.route("/", tierFeaturesRouter);
-app.route("/", shippingRatesRouter);
 app.route("/", storeAiPricingRouter);
 app.route("/make-server-3eae23a6", cartRouter);
 app.route("/make-server-3eae23a6", ordersRouter);
@@ -13784,7 +13783,7 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
   await kv.set(storeOrderKey(order.id), order);
   await kv.set(storeCheckoutKey(checkout.id), { ...checkout, status: 'paid', orderId: order.id, paidAt: now, updatedAt: now, rewards });
 
-  // Auto-forward dropshipper items (e.g. Zendrop) for fulfillment. This runs
+  // Auto-forward dropshipper items for fulfillment. This runs
   // AFTER the order is safely persisted and is fully guarded — a fulfillment
   // failure must never fail the customer's already-paid checkout. Items that
   // aren't dropshipper-sourced are simply skipped by groupItemsByProvider.
@@ -14988,7 +14987,7 @@ app.post('/make-server-3eae23a6/dropshipper/orders/:orderId/retry', async (c) =>
     const orderId = c.req.param('orderId');
     // An order id can belong to either store: the main store (`store:order:`)
     // or the marketplace/digital store (`store_order:`). Check both so paid
-    // marketplace orders (e.g. Zendrop) can be re-sent to their supplier.
+    // marketplace orders can be re-sent to their supplier.
     let storageKey = storeOrderKey(orderId);
     let order = (await kv.get(storageKey)) as any;
     if (!order) {

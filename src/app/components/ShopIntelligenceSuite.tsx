@@ -15,7 +15,6 @@ import {
   Bell, AlertTriangle, ShoppingCart, Plus, Globe, TrendingUp as TrendUp,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import ZendropTopProducts from './ZendropTopProducts';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -359,9 +358,9 @@ interface Supplier {
 }
 
 const SUPPLIERS: Supplier[] = [
-  { name: 'Zendrop', factor: 0.40, ship: '5–8 days (US)', note: 'Fastest US shipping · auto-fulfill', accent: 'text-orange-400', best: true,
-    url: n => `https://app.zendrop.com/search?query=${encodeURIComponent(n)}` },
-  { name: 'CJ Dropshipping', factor: 0.36, ship: '7–12 days', note: 'US warehouses · custom branding', accent: 'text-blue-400',
+  // The only supplier whose orders this store can place — see
+  // `sellableProviders.ts`. That is why it is the recommendation.
+  { name: 'CJ Dropshipping', factor: 0.36, ship: '7–12 days', note: 'US warehouses · custom branding', accent: 'text-blue-400', best: true,
     url: n => `https://cjdropshipping.com/list/search?searchText=${encodeURIComponent(n)}` },
   { name: 'AliExpress', factor: 0.30, ship: '10–20 days', note: 'Lowest per-unit cost · huge selection', accent: 'text-red-400',
     url: n => `https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(n)}` },
@@ -411,7 +410,7 @@ function SourcingPanel({ name, price, compact }: { name: string; price: number; 
         ))}
       </div>
       <p className="px-4 py-2 text-xs text-gray-600 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-        💡 Costs are estimates. Zendrop syncs directly to your store — import it, then set your price in the <span className="text-orange-400">Dropshippers → Pricing</span> tab.
+        💡 Costs are estimates. Import a product, then set your price in the <span className="text-orange-400">Dropshippers → Pricing</span> tab.
       </p>
     </div>
   );
@@ -446,7 +445,7 @@ const US_REGIONS = [
   { name: 'West Coast', products: ['Ice Roller', 'LED Strips', 'Earbuds'], hot: 'Ice Roller +198%' },
 ];
 
-type Tab = 'overview' | 'products' | 'zendrop' | 'alerts' | 'creators' | 'competitors' | 'video-insights' | 'ai-assistant';
+type Tab = 'overview' | 'products' | 'alerts' | 'creators' | 'competitors' | 'video-insights' | 'ai-assistant';
 
 interface Props {
   onSendToCreatorStudio?: (product: TrendingProduct) => void;
@@ -609,7 +608,6 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
     { id: 'overview', label: 'Overview', icon: Zap },
     { id: 'alerts', label: 'Market Alerts', icon: Bell, badge: criticalAlerts.length },
     { id: 'products', label: 'Trending Products', icon: Flame, badge: TRENDING_PRODUCTS.filter(p => p.trend === 'rising').length },
-    { id: 'zendrop', label: 'Top Zendrop → Store', icon: ShoppingBag },
     { id: 'creators', label: 'Creator Discovery', icon: Users },
     { id: 'competitors', label: 'Competitors', icon: Target },
     { id: 'video-insights', label: 'Video Analytics', icon: BarChart3 },
@@ -1218,9 +1216,6 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
       )}
 
       {/* ── CREATOR DISCOVERY ─────────────────────────────────────────────────── */}
-      {activeTab === 'zendrop' && (
-        <ZendropTopProducts />
-      )}
 
       {activeTab === 'creators' && (
         <div className="space-y-4">

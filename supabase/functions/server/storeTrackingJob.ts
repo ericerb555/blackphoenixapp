@@ -15,7 +15,8 @@
  *    in dropshipper.tsx does `GET {apiUrl}/orders/{id}/tracking` with a Bearer
  *    token; CJ wants `CJ-Access-Token` and a different path entirely. Had it
  *    been put on a schedule it would have failed silently every fifteen
- *    minutes — the same shape of fault as posting Zendrop orders to an
+ *    minutes — the same shape of fault as the removed Zendrop integration
+ *    posting orders to an
  *    endpoint that does not create them.
  *
  * So this job pulls from CJ properly, writes the result onto the STORE order,

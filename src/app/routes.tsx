@@ -168,7 +168,6 @@ const UploadMyLogo = lazy(() => import("./pages/UploadMyLogo"));
 const CheckMyCompanies = lazy(() => import("./pages/CheckMyCompanies"));
 const FixMyLogo = lazy(() => import("./pages/FixMyLogo"));
 const SpocketIntegration = lazy(() => import("./pages/SpocketIntegration"));
-const ZendropIntegration = lazy(() => import("./pages/ZendropIntegration"));
 const PropertyRevenueHub = lazy(() => import("./pages/PropertyRevenueHub"));
 const PropertyAIEnterprise = lazy(() => import("./pages/PropertyAIEnterprise"));
 const OrderSuccess = lazy(() => import("./pages/OrderSuccess"));
@@ -238,7 +237,6 @@ const SubscriptionMaintenancePlans = lazy(() => import("./pages/SubscriptionMain
 const MaintenancePlanAdmin = lazy(() => import("./pages/MaintenancePlanAdmin"));
 const HREmployeeHub = lazy(() => import("./pages/HREmployeeHub"));
 const BlueprintAnalysisPage = lazy(() => import("./pages/BlueprintAnalysisPage"));
-const DobaIntegration = lazy(() => import("./pages/DobaIntegration"));
 const ExitIntentManager = lazy(() => import("./pages/ExitIntentManager"));
 const EmergencyServicesLandingPage = lazy(() => import("./pages/EmergencyServicesLandingPage"));
 const DIYRepairEncyclopedia = lazy(() => import("./pages/documents/DIYRepairEncyclopedia"));
@@ -577,11 +575,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "upload-my-logo":        UploadMyLogo,
   "check-my-companies":    CheckMyCompanies,
   "fix-my-logo":           FixMyLogo,
-  "doba-integration":      DobaIntegration,
   "spocket":               SpocketIntegration,
   "spocket-integration":   SpocketIntegration,
-  "zendrop":               ZendropIntegration,
-  "zendrop-integration":   ZendropIntegration,
   "property-revenue":      PropertyRevenueHub,
   "property-revenue-intel": PropertyRevenueHub,
   "revenue-intel":         PropertyRevenueHub,

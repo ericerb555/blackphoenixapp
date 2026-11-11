@@ -46,7 +46,7 @@ curl -s https://theblackphoenixcompany.com/ | grep -o 'assets/main-[^"]*\.js'
 ## The server (`make-server-3eae23a6`)
 
 Nearly everything the app asks a server for — the Exchange, the store, portal
-invites, quotes, Zendrop — is this one Edge Function. Until it is deployed, the
+invites, quotes, the store — is this one Edge Function. Until it is deployed, the
 frontend is talking to whatever version was last pushed, which can be weeks
 older than the code in front of you.
 
@@ -209,7 +209,18 @@ missing logo.
 
 ## Still outstanding
 
-**The Zendrop API key was pasted into a chat and is exposed.** Unless it has
-been rotated since, regenerate it in Zendrop → Settings → API Access and update
-the `ZENDROP_API_KEY` secret. This note predates the current document and has
-not been verified as done.
+**The exposed Zendrop API key still needs revoking at Zendrop, and its secret
+deleting.** The integration itself was removed from this repository on
+2026-11-10, so nothing here reads the key any more — but removing the code does
+not revoke the credential. Two things remain, and neither can be done from the
+repository:
+
+1. **Revoke it at the source:** Zendrop → Settings → API Access. The key was
+   pasted into a chat, so it should be treated as public regardless of what it
+   can still reach.
+2. **Delete the `ZENDROP_API_KEY` secret** from the Supabase function
+   configuration, so a future deploy cannot pick it up and no inventory of
+   secrets lists a credential nobody owns.
+
+A secret that no code reads is still a live credential. Until step 1 is done,
+anyone holding it can act on the Zendrop account.

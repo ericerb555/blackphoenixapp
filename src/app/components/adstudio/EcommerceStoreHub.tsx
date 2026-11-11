@@ -12,7 +12,7 @@
  * orders, error logs) is all served by DropshipperAdminPanel in `embedded` mode
  * with a different `initialTab`, so those all render in-place too.
  *
- * A handful of genuinely standalone full pages (Spocket, Zendrop, Auto-Product
+ * A handful of genuinely standalone full pages (Spocket, Auto-Product
  * Pilot, the public storefront, the Content Center, etc.) can still be opened in
  * full via `onNavigate`, surfaced under "Open full pages" at the bottom of the rail.
  */
@@ -116,7 +116,6 @@ const GROUPS: Group[] = [
 const FULL_PAGES: { name: string; desc: string; icon: any; path: string; badge?: string }[] = [
   { name: 'Content Center', desc: 'Marketing, ads & content hub', icon: LayoutDashboard, path: 'enterprise-content-center' },
   { name: 'Spocket', desc: 'US/EU dropship supplier', icon: Rocket, path: 'spocket', badge: 'PRIMARY' },
-  { name: 'Zendrop', desc: 'Auto-fulfillment · products live', icon: Zap, path: 'zendrop', badge: 'LIVE' },
   { name: 'Auto-Product Pilot', desc: 'AI product auto-import', icon: Bot, path: 'auto-product-pilot' },
   { name: 'Promotions Manager', desc: 'Deals, discounts & flash sales', icon: Tag, path: 'promotions-manager' },
   { name: 'Subscribe & Save', desc: 'Recurring orders · up to 15% off', icon: RefreshCw, path: 'subscribe' },

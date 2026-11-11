@@ -42,7 +42,6 @@ export const SCORE_WEIGHTS = {
  * conservative public-knowledge estimates, not live quotes.
  */
 export const SUPPLIER_META: Record<string, { label: string; shipDaysMin: number; shipDaysMax: number; defaultRating: number }> = {
-  zendrop:        { label: "Zendrop",        shipDaysMin: 5,  shipDaysMax: 12, defaultRating: 4.5 },
   cjdropshipping: { label: "CJdropshipping", shipDaysMin: 7,  shipDaysMax: 15, defaultRating: 4.4 },
   spocket:        { label: "Spocket",        shipDaysMin: 3,  shipDaysMax: 8,  defaultRating: 4.4 },
   aliexpress:     { label: "AliExpress",     shipDaysMin: 10, shipDaysMax: 25, defaultRating: 4.2 },
@@ -120,7 +119,7 @@ export function growthPct(s: TrendSignals): number | null {
  *
  * The score is a weighted blend, and a blend does not say which of its parts
  * were guesses. With only CJ connected, `isTrending` is always false (that flag
- * comes from Zendrop's trending feed) and rating arrives as a constant, so
+ * comes from a supplier's trending feed) and rating arrives as a constant, so
  * trend strength contributes almost nothing real and the ranking is driven by
  * margin. That is a legitimate way to rank products — it is just not what the
  * word "trending" promises, and the interface should be able to say so.
@@ -147,7 +146,7 @@ export interface ScoreInput {
   retail?: number;              // known/suggested retail; if absent we derive it
   targetMarginPct?: number;     // desired margin (default 60%)
   signals: TrendSignals;        // demand signals
-  source: string;               // primary supplier key (zendrop, cjdropshipping, …)
+  source: string;               // primary supplier key (cjdropshipping, …)
   availableSourceCount?: number; // how many sourcing channels exist for it
   connectedSourceCount?: number; // how many of those are API-connected
 }

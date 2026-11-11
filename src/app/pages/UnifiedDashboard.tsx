@@ -161,7 +161,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
   const [showStartQuote, setShowStartQuote] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
-  const [zendropStatus, setZendropStatus] = useState<{ connected: boolean; products: number } | null>(null);
 
   // Metrics state - MUST be here before any conditional returns
   const [revenueData, setRevenueData] = useState<any[]>([]);
@@ -243,26 +242,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
     fetchCompanyBranding();
   }, []);
 
-  // Live Zendrop connection status for the dropshipping sidebar button.
-  useEffect(() => {
-    const fetchZendropStatus = async () => {
-      try {
-        const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
-        const res = await fetch(`${API_BASE}/zendrop/status`, {
-          headers: await authedHeaders(),
-        });
-        if (!res.ok) { setZendropStatus({ connected: false, products: 0 }); return; }
-        const data = await res.json().catch(() => ({}));
-        setZendropStatus({
-          connected: !!data.connected,
-          products: Number(data.productsInStore ?? data.productCount ?? 0),
-        });
-      } catch {
-        setZendropStatus({ connected: false, products: 0 });
-      }
-    };
-    fetchZendropStatus();
-  }, []);
 
   // Command Center metrics are calculated from canonical invoices, payments,
   // applications, CRM contacts, and work requests—not browser demo data.

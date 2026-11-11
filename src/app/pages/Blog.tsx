@@ -77,10 +77,25 @@ function renderMarkdown(md: string): string {
   return out.join('\n');
 }
 
+/**
+ * A link's URL, only if it is one we are willing to put behind an href.
+ *
+ * The markdown here is escaped for angle brackets and quotes before it reaches
+ * this function, so `<script>` is already dead — but a link TARGET is written
+ * straight into `href`, and `[x](javascript:alert(1))` carries no character
+ * that escaping touches. Rendered, that is a one-click script execution on a
+ * public page. http, https and mailto are the only schemes a blog link needs;
+ * anything else (javascript:, data:, vbscript:) becomes an inert anchor.
+ */
+function safeHref(url: string): string {
+  return /^(https?:|mailto:)/i.test(url.trim()) ? url : '#';
+}
+
 function inline(s: string): string {
   return s
     .replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white">$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" class="text-[#ea580c] underline">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+      (_m, text, url) => `<a href="${safeHref(url)}" class="text-[#ea580c] underline">${text}</a>`);
 }
 
 export default function Blog() {

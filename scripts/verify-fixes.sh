@@ -133,45 +133,12 @@ require $MP "findPaidOrder"
 require $MP "stripFiles"
 require $MP "marketplace/entitlements"
 
-# --- Zendrop order forwarding -------------------------------------------------
-# Zendrop speaks MCP (JSON-RPC 2.0) at app.zendrop.com/mcp/v1. Order forwarding
-# used to POST to a REST endpoint that does not exist, so paid orders silently
-# stalled at fulfillment_status "pending".
-ZD=supabase/functions/server/zendrop.tsx
-require $ZD "submitZendropOrder"
-require $ZD "listZendropTools"
-require $ZD "pickOrderTool"
-require $ZD "zendrop/order-tool"
-# fulfill_order is NOT an order-creation tool (it dispatches orders already in a
-# Zendrop store). It must stay out of the create-order patterns so we don't
-# mis-call it and surface a misleading "Insufficient scope" error.
-forbid  $ZD "/^fulfill_order\$/i"
-forbid  $ZD "/^fulfill_.*order/i"
-require $ZD "cannot place this order remotely"
-# Product linking (import into the user's Zendrop account) — prerequisite for
-# fulfillment, auto-run on payment.
-require $ZD "linkProductToZendrop"
-require $ZD "linkInventoryProduct"
-require $ZD "pickProductLinkTool"
-require $ZD "zendrop/link-product"
-require $ZD "zendrop/link-all"
-require $ZD "resolveZendropStoreId"
-
-DP=supabase/functions/server/dropshipper.tsx
-require $DP "submitZendropOrder"
-# Zendrop must be intercepted before the generic REST post (still correct for
-# other providers) can reach it.
-require $DP "provider.id) === 'zendrop'"
-# Auto-fill on payment: the forward path imports products into Zendrop first.
-require $DP "linkInventoryProduct"
-# A supplier that can't accept orders via API is manual, not a retryable error.
-require $ZD "ZendropManualFulfillmentError"
-require $ZD "ZENDROP_MANUAL_REQUIRED"
-require $DP "ZENDROP_MANUAL_REQUIRED"
-require $DP "manualRequired"
-require $I "manual_required"
-# Skip reasons used to be the opaque "(send failed)".
-forbid  $DP "(send failed)"
+# --- Zendrop: REMOVED 2026-11-10 ------------------------------------------------
+# The Zendrop integration was deleted outright. Its checks lived here and
+# required symbols in supabase/functions/server/zendrop.tsx, so they would now
+# fail on a file that does not exist. Recorded rather than silently dropped:
+# if a Zendrop section ever reappears below, something has been re-added that
+# cannot place an order — see the note in dropshipper.tsx sendOrderToProvider.
 
 # --- CJdropshipping (real create-order supplier) ------------------------------
 # CJ has a REST create-order endpoint, so it is the working forward-on-payment
@@ -299,12 +266,6 @@ require $LPV "async function saveSettings"
 require $LPV "supabase.auth.updateUser"
 forbid  $LPV "toast.success('Settings saved!')"
 
-# ── Zendrop Orders: real forwarded orders, no invented customers ──
-ZDI=src/app/pages/ZendropIntegration.tsx
-forbid  $ZDI "MOCK_ORDERS"
-forbid  $ZDI "Sarah Mitchell"
-require $ZDI "dropshipper/orders"
-require $ZDI "async function loadOrders"
 
 # ── Paid-order recovery: rebuild orders for paid Stripe checkouts that never
 #    fired the webhook/redirect, so the sale is never stranded at Stripe. ──
@@ -561,26 +522,18 @@ require src/app/nav.ts "video-studio"
 
 # --- Dropshipper: real provider sync + no fabricated data ---
 DSB=supabase/functions/server/dropshipper.tsx
-require $DSB "importZendropProducts"
 require $DSB "importCJProducts"
 require $DSB "providerKind"
 forbid $DSB "track.example.com"
-require supabase/functions/server/zendrop.tsx "export async function importTopProducts"
 require supabase/functions/server/cjdropshipping.tsx "export async function importProducts"
-ZIF=src/app/pages/ZendropIntegration.tsx
-require $ZIF "zendrop/publish-to-store"
-forbid $ZIF "MOCK_PRODUCTS"
-forbid $ZIF "store_catalog"
 
-# MultiDropshipperManager: CJ Dropshipping inline connect replaced Zendrop, and
+# MultiDropshipperManager: CJ Dropshipping inline connect replaced the removed
 # connect/sync hit real server routes (no Math.random / fake product counts).
 MDM=src/app/components/MultiDropshipperManager.tsx
 require $MDM "connectCJInline"
 require $MDM "cj/verify"
 require $MDM "cj/sync"
 require $MDM "cjConnected"
-forbid $MDM "connectZendropInline"
-forbid $MDM "zendrop/verify"
 forbid $MDM "Math.floor(Math.random() \* 500)"
 
 # Landlord lifetime perk: active landlord subscribers get 15% off any quoted
@@ -592,7 +545,7 @@ require $SD "Math.max(tierDiscount, LANDLORD_LIFETIME_DISCOUNT)"
 require src/app/pages/CustomerQuoteApproval.tsx "isLandlordPlanId(membership?.planId)"
 
 # Storefront visibility toggle: hide/show all products from a dropship source
-# (e.g. Zendrop) without deleting them. Backend routes + admin toggle UI.
+# without deleting them. Backend routes + admin toggle UI.
 EP=supabase/functions/server/ecommerce-products.tsx
 require $EP "/products/source-visibility"
 require $EP "/products/source-summary"
@@ -602,7 +555,6 @@ require $MDM "Show on storefront"
 
 # Add-more-products: on-demand import of additional supplier catalog items.
 require supabase/functions/server/cjdropshipping.tsx "cj/import-more"
-require supabase/functions/server/zendrop.tsx "zendrop/import-more"
 require $MDM "async function importMore"
 require $MDM "Add more products"
 
@@ -626,7 +578,6 @@ require $HP "hot-products/export"
 require $HP "hot-products/daily-top10"
 require $HP "toCSV"
 require $HP 'p.source === "cjdropshipping"'
-require $HP 'p.source === "zendrop"'
 
 # Marketing AI image generation — must persist to storage + real Unsplash
 # fallback, and must NOT use the dead source.unsplash.com endpoint.

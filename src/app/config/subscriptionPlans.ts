@@ -1095,7 +1095,7 @@ export const PLATFORM_CAPABILITIES_BY_CATEGORY: Record<PlanCategory, string[]> =
     '💬 Live chat & 24/7 emergency dispatch',
   ],
   vendor: [
-    '🛍️ Full eCommerce storefront + Zendrop dropshipping catalog (1-click import)',
+    '🛍️ Full eCommerce storefront + dropshipping catalog (1-click import)',
     '🚀 Product Page Pilot: AI advertorial / campaign landing pages',
     '🔥 Hot Products Radar + Auto-Product Pilot AI product sourcing',
     '📈 AI Ranking Engine, promotions engine & order tracking',
@@ -1121,7 +1121,7 @@ export const PLATFORM_CAPABILITIES_BY_CATEGORY: Record<PlanCategory, string[]> =
   'territory-owner': [
     '🌐 Full white-label platform: customer, vendor, subcontractor & investor portals',
     '📣 Complete marketing suite: Ad Studio, Marketing Command Center & Social Media Hub',
-    '🛍️ eCommerce + dropshipping suite: Product Page Pilot, Hot Products Radar & Zendrop',
+    '🛍️ eCommerce + dropshipping suite: Product Page Pilot & Hot Products Radar',
     '📊 Territory analytics & revenue dashboards',
   ],
 };

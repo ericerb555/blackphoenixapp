@@ -10,7 +10,6 @@
  *   • apply a global markup % across all visible products in one click
  *     (price = cost × (1 + markup%)), then Save All;
  *   • filter by supplier to review a single vendor's economics;
- *   • pull LIVE per-item shipping from the supplier (Zendrop) in one click.
  *
  * Saves go to PUT /products/:id which persists back to the product's own KV
  * key (product_ or live_product_). Field names: `price`, `cost_price`, and
@@ -86,7 +85,6 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savingAll, setSavingAll] = useState(false);
-  const [refreshingShip, setRefreshingShip] = useState(false);
   const [syncingStore, setSyncingStore] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [query, setQuery] = useState('');
@@ -148,40 +146,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
 
   useEffect(() => { load(); }, [load]);
 
-  // Pull real-time per-item shipping from the supplier, then reload the catalog.
-  const refreshLiveShipping = useCallback(async () => {
-    setRefreshingShip(true);
-    try {
-      const token = await adminToken();
-      const res = await fetch(`${SERVER}/shipping-rates/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || publicAnonKey}` },
-        body: JSON.stringify({ limit: 500 }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || `Shipping refresh failed (${res.status})`);
-      if (data?.noShippingTool) {
-        toast.error(data.error || "Supplier didn't expose a live shipping rate — enter shipping manually.", { duration: 8000 });
-        return;
-      }
-      if (!data?.success) throw new Error(data?.error || 'Shipping refresh failed.');
-      if (data.updated === 0) {
-        // Queried Zendrop but found no shipping figure — surface what it exposed
-        // so we know whether the capability exists at all.
-        console.warn('[ProductCatalogAdmin] shipping refresh found nothing. Zendrop tools:', data.availableTools, data);
-        toast.error(
-          `${data.note || 'Zendrop returned no shipping figure.'}${Array.isArray(data.availableTools) && data.availableTools.length ? ` Tools seen: ${data.availableTools.slice(0, 8).join(', ')}` : ''}`,
-          { duration: 10000 },
-        );
-        return;
-      }
-      toast.success(`Pulled live shipping for ${data.updated} item${data.updated !== 1 ? 's' : ''}${data.missing ? ` · ${data.missing} had no rate` : ''}.`);
-      await load();
-    } catch (err: any) {
-      console.error('[ProductCatalogAdmin] refreshLiveShipping:', err);
-      toast.error(err.message || 'Could not refresh live shipping.');
-    } finally { setRefreshingShip(false); }
-  }, [load]);
+
 
   /**
    * Sync to store — pull the latest catalog from every enabled dropshipper
@@ -619,12 +584,6 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
           title="Put staged products on the storefront at the prices shown here">
           {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
           {selectedCount > 0 ? `Publish ${selectedCount} selected` : `Publish to store${draftCount ? ` (${draftCount})` : ''}`}
-        </button>
-        <button onClick={refreshLiveShipping} disabled={refreshingShip}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}
-          title="Pull real-time per-item shipping from the supplier">
-          {refreshingShip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4 text-orange-400" />} Live shipping
         </button>
         <button onClick={toggleFilter} disabled={filterBusy}
           className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold disabled:opacity-40"

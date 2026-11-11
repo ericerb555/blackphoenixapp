@@ -251,9 +251,6 @@ export default function MultiDropshipperManager() {
     if (supplierId === 'cjdropshipping') {
       route = `${SERVER}/cj/import-more`;
       body = { limit: count, pageNum: Math.max(1, Number(importMorePage) || 2), keyword: importMoreKeyword.trim() };
-    } else if (supplierId === 'zendrop') {
-      route = `${SERVER}/zendrop/import-more`;
-      body = { limit: count };
     }
     if (!route) {
       toast.error(`Adding more products isn't available for this supplier yet (CJ Dropshipping is supported).`);
@@ -316,8 +313,7 @@ export default function MultiDropshipperManager() {
   }
 
   // Load REAL connected providers + inventory from the server so this tab
-  // reflects the actual connection state (e.g. Zendrop connected on the
-  // integration page must show here too). Previously this used mock data,
+  // reflects the actual connection state. Previously this used mock data,
   // which is why connected providers never appeared.
   async function loadConnected() {
     setLoadingConnected(true);
@@ -521,7 +517,6 @@ export default function MultiDropshipperManager() {
     const kind = supplier.supplierId;
     let route: string | null = null;
     if (kind === 'cjdropshipping') route = `${SERVER}/cj/sync`;
-    else if (kind === 'zendrop') route = `${SERVER}/zendrop/sync`;
     if (!route) {
       toast.error(`Sync isn't available for ${supplier.name} yet. Connect a supported supplier (CJ Dropshipping).`);
       return;
@@ -964,8 +959,7 @@ export default function MultiDropshipperManager() {
                         {/* Add more products from this supplier */}
                         {(() => {
                           const isCJ = supplier.supplierId === 'cjdropshipping';
-                          const isZendrop = supplier.supplierId === 'zendrop';
-                          const supported = isCJ || isZendrop;
+                          const supported = isCJ;
                           const busy = importingMore === supplier.supplierId;
                           return (
                             <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">

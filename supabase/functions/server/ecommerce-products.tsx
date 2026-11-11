@@ -453,7 +453,7 @@ productsRouter.delete('/products/:id', async (c) => {
 });
 
 // ── Storefront visibility by dropship source ────────────────────────────────
-// A product's originating dropshipper is recorded on `source` (e.g. "zendrop",
+// A product's originating dropshipper is recorded on `source` (e.g.
 // "cjdropshipping"). These two routes let the owner see how many products came
 // from each source and flip ALL of them on/off the storefront at once, without
 // deleting anything — hiding = isActive:false, showing = isActive:true.
@@ -470,7 +470,7 @@ productsRouter.post('/products/source-visibility', async (c) => {
   try {
     const { source, isActive } = await c.req.json();
     if (!source || typeof source !== 'string') {
-      return c.json({ error: 'A "source" string is required (e.g. "zendrop", "cjdropshipping").' }, 400);
+      return c.json({ error: 'A "source" string is required (e.g. "cjdropshipping").' }, 400);
     }
     if (typeof isActive !== 'boolean') {
       return c.json({ error: 'An "isActive" boolean is required.' }, 400);

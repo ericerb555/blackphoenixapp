@@ -2,7 +2,7 @@
  * HotProductsRadar — advanced, cross-market trending-product discovery + sourcing.
  *
  * Three tabs:
- *  - Discover: scan the connected supplier (Zendrop) for hot best-sellers, score
+ *  - Discover: scan the connected supplier (CJ) for hot best-sellers, score
  *    them, and one-click import winners into the live store. Every row shows a full
  *    SOURCING MAP — where you can get the product (which dropshippers carry it, plus
  *    retail/wholesale/POD/digital deep-links) and an on-demand AI sourcing analysis.

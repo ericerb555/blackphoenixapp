@@ -1,7 +1,8 @@
 /**
  * CJdropshipping Integration Module
  *
- * Unlike Zendrop (whose MCP endpoint exposes NO create-order tool and requires a
+ * Unlike the removed Zendrop integration (whose MCP endpoint exposed NO
+ * create-order tool and required a
  * connected sales channel), CJdropshipping has a plain REST API that accepts an
  * order directly — POST /shopping/order/createOrderV2 → data.orderId — so a
  * paid store order can be forwarded to a real supplier with a single call.
@@ -617,7 +618,7 @@ function mapCjStatus(raw: string): CjOrderStatus['status'] {
  * it wants `CJ-Access-Token` and a different path entirely. So "sync tracking"
  * could never have worked against the only supplier this store sells, and
  * scheduling it would have failed quietly every fifteen minutes — the same
- * shape of fault as posting Zendrop orders to an endpoint that does not create
+ * shape of fault as posting Zendrop orders to an endpoint that did not create
  * them.
  *
  * NOT YET PROVEN AGAINST A LIVE CJ ORDER
