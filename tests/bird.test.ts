@@ -43,6 +43,6 @@ test('a 422 names the sender and recipient as the things to check', () => {
 
 test('an unknown status still produces a bounded, readable line', () => {
   const msg = describeBirdError(500, 'x'.repeat(5000));
-  assert.ok(msg.length < 400, 'the error is truncated, not the whole body');
+  assert.ok(msg.length < 600, 'the error is truncated, not the whole 5000-char body');
   assert.match(msg, /500/);
 });

@@ -71,7 +71,7 @@ smsRouter.post(TEST, async (c) => {
   }
   const text = String(body?.text || 'Black Phoenix test message via Bird.').slice(0, 320);
 
-  const result = await sendBirdSms(to, text, 'notification');
+  const result = await sendBirdSms(to, text, 'transactional');
   return c.json(result, result.ok ? 200 : 502);
 });
 

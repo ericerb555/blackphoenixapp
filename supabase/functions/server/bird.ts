@@ -75,21 +75,25 @@ export function resolveBirdSms(): BirdConfig {
  * that actually recur in setup are worth translating rather than echoing.
  */
 export function describeBirdError(status: number, body: string): string {
-  let message = body;
+  let message: unknown = body;
   let code = '';
   try {
     const parsed = JSON.parse(body);
-    message = parsed?.message || parsed?.error || body;
+    message = parsed?.message ?? parsed?.error ?? body;
     code = String(parsed?.code || parsed?.type || '');
+    // Bird nests the real reason under message.errors or a detail object, and a
+    // bare `${message}` renders that as "[object Object]" — which hid the one
+    // thing worth reading. Keep the whole body when the message is not a string.
+    if (message && typeof message === 'object') message = JSON.stringify(parsed);
   } catch { /* keep the raw body */ }
 
   if (status === 401 || status === 403) {
     return `Bird rejected the API key (${status}). Confirm BIRD_API_SMS_KEY is the whole key from the Bird console and that its region (bk_<region>_…) matches the account.`;
   }
   if (status === 422 || status === 400) {
-    return `Bird rejected the message (${status})${code ? ` [${code}]` : ''}: ${message}. Check the recipient is E.164 and that BIRD_SMS_FROM is a sender this account may send from.`;
+    return `Bird rejected the message (${status})${code ? ` [${code}]` : ''}: ${String(message).slice(0, 500)}. Check the recipient is E.164 and that BIRD_SMS_FROM is a sender this account may send from.`;
   }
-  return `Bird SMS failed (${status})${code ? ` [${code}]` : ''}: ${String(message).slice(0, 300)}`;
+  return `Bird SMS failed (${status})${code ? ` [${code}]` : ''}: ${String(message).slice(0, 500)}`;
 }
 
 export interface SmsResult {
@@ -101,15 +105,20 @@ export interface SmsResult {
 /**
  * Send one SMS to one recipient.
  *
- * `category` is Bird's required classification of the message — the honest
- * default here is 'notification' for the transactional messages this app
- * sends (invites, order updates, alerts); a caller sending a one-time code
- * should pass 'authentication'. 202 is success: Bird has accepted it and will
- * deliver asynchronously, so a 2xx means queued, not yet delivered.
+ * `category` is Bird's required classification, and it is a CLOSED set —
+ * 'transactional', 'marketing', 'authentication' or 'service'. Bird rejects
+ * anything else with a 422 (it rejected the first test send for exactly this:
+ * a made-up 'notification'). The default is 'transactional', which is what the
+ * messages this app sends are — invites, order updates, alerts; a one-time
+ * code should pass 'authentication'. 202 is success: Bird has accepted it and
+ * delivers asynchronously, so a 2xx means queued, not yet delivered.
  */
+export const BIRD_CATEGORIES = ['transactional', 'marketing', 'authentication', 'service'] as const;
+
 export async function sendBirdSms(
-  to: string, text: string, category = 'notification',
+  to: string, text: string, category: string = 'transactional',
 ): Promise<SmsResult> {
+  if (!BIRD_CATEGORIES.includes(category as any)) category = 'transactional';
   const cfg = resolveBirdSms();
   if (cfg.error) return { ok: false, error: cfg.error };
 
