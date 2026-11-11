@@ -543,7 +543,7 @@ async function checkOriginLock() {
   record('WAF-1', 'fail', title,
     refused
       ? 'A direct request to the Supabase origin with no firewall header was refused (403). The lock is enforcing.'
-      : `A direct request to the Supabase origin with no firewall header answered ${status}. The firewall can be walked around — send to *.supabase.co and it never sees the traffic. Set ORIGIN_LOCK_SECRET on the function and in Cloudflare, then ORIGIN_LOCK_ENFORCE=true.`,
+      : `A direct request to the Supabase origin with no firewall header answered ${status}. The firewall can be walked around — send to *.supabase.co and it never sees the traffic. Set EDGE_ORIGIN_SECRET on the function and in the Cloudflare Worker, then ORIGIN_LOCK_ENFORCE=true.`,
     refused);
 }
 

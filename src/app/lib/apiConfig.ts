@@ -46,7 +46,29 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
  *
  * To move the API: change SUPABASE_ORIGIN and nothing else.
  */
-export const SUPABASE_ORIGIN = `https://${projectId}.supabase.co`;
+/**
+ * THE API IS REACHED THROUGH THE FIREWALL, NOT AT THE ORIGIN.
+ *
+ * This is the line the whole centralisation exercise existed for — 504 call
+ * sites import API_BASE_URL so that moving the API is one edit instead of a
+ * 361-file sweep with six hand-typed literals surviving it.
+ *
+ * `api.theblackphoenixcompany.com` is a Cloudflare Worker
+ * (cloudflare/origin-proxy.js) that forwards to the Supabase origin and
+ * stamps the origin-lock header on the way. So traffic now passes through
+ * Cloudflare's WAF, rate limiting and bot rules, none of which could see a
+ * single request while the browser addressed <ref>.supabase.co directly.
+ *
+ * The origin stays reachable and always will — the project ref is compiled
+ * into this bundle for anyone to read. What stops it mattering is the lock
+ * on the server refusing requests that did not come through here, which is
+ * the last step of docs/security/cloudflare-cutover.md and is currently
+ * reporting rather than enforcing.
+ *
+ * TO ROLL BACK: put `https://${projectId}.supabase.co` back. Everything
+ * keeps working, with no firewall in front of it.
+ */
+export const SUPABASE_ORIGIN = 'https://api.theblackphoenixcompany.com';
 
 /**
  * The functions root. Every caller appends the function slug itself —
