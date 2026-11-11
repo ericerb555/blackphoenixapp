@@ -21,7 +21,7 @@
  *
  * The ceiling is not one number, because the economics differ:
  *
- *   quoted work            20%
+ *   labour on a quote      20%
  *   subscription fees      30% for the first ten of each portal, lifetime;
  *                          otherwise the standard cap
  *
@@ -43,6 +43,16 @@
  * on quote pricing". So it governs what comes off a quote or a contract job,
  * which is where a stacked discount can sell work below what it costs to
  * deliver.
+ *
+ * WHAT IT COMES OFF, SINCE THE PERCENTAGE ALONE DOES NOT SAY
+ *
+ * Labour, and labour only. Eric: "the discount only comes off labor, not
+ * materials." Materials, permits and plant are bought in at what the supplier
+ * charges and carry no margin worth giving away; our own work is the thing a
+ * plan earns money off. Tax is not discountable at all, and a credit for goods
+ * the customer supplied themselves is already a deduction. The base is applied
+ * in the approval page against the labour figure the customer can see, so the
+ * percentage divides into the row above it.
  *
  * It is deliberately NOT a general discount ceiling. A subscription fee is a
  * different question with different economics, and nothing about a plan price
@@ -173,6 +183,34 @@ export interface ResolvedDiscount {
   components: DiscountComponent[];
 }
 
+/**
+ * What a discount actually takes off, in money.
+ *
+ * LABOUR ONLY. Eric: "the discount only comes off labor, not materials."
+ *
+ * It lives here rather than in the page that draws it for the reason every
+ * other figure in this codebase moved out of a `.tsx` file: a calculation that
+ * decides what a customer is charged belongs somewhere the test runner can
+ * reach. The page was working it out inline, and the day the markup moved
+ * into the line prices that inline sum silently grew by a quarter — a change
+ * to somebody's bill that no assertion anywhere would have caught.
+ *
+ * The labour figure passed in is the one the CUSTOMER SEES, markup included,
+ * so the percentage divides into the row printed above the discount. Taking
+ * it off our cost instead would keep the dollars where they were and leave a
+ * deduction that is not the stated percentage of anything on the page — and
+ * would hand anyone who divides the two our margin.
+ */
+export function labourDiscountAmount(labourShown: unknown, percent: unknown): number {
+  const base = Number(labourShown);
+  const pct = Number(percent);
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  if (!Number.isFinite(pct) || pct <= 0) return 0;
+  // The cap is applied where the percentage is resolved; this is arithmetic,
+  // not policy, and clamping twice is how two ceilings end up disagreeing.
+  return Math.round(base * (Math.min(100, pct) / 100) * 100) / 100;
+}
+
 /** A percentage from anywhere, bounded to something a discount can be. */
 function readPercent(raw: unknown): number {
   const n = Number(raw);
@@ -262,7 +300,7 @@ export function resolveDiscount(
 
   const plan = readPercent(planPercent);
   if (plan > 0) {
-    components.push({ source: 'plan', percent: plan, why: 'Included with the plan' });
+    components.push({ source: 'plan', percent: plan, why: 'Labour discount included with the plan' });
   }
 
   for (const grant of grants || []) {
@@ -270,7 +308,7 @@ export function resolveDiscount(
     components.push({
       source: 'grant',
       percent: readPercent(grant.percent),
-      why: String(grant.reason || '').trim() || 'Granted by an administrator',
+      why: String(grant.reason || '').trim() || 'Labour discount granted by an administrator',
       grantId: grant.id,
     });
   }

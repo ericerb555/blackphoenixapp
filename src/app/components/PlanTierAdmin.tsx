@@ -444,7 +444,7 @@ function TierEditor({
             />
           </div>
           <div className="sm:col-span-2">
-            <span className={label}>Discount on contract work, %</span>
+            <span className={label}>Discount on labour, %</span>
             <input
               className={field}
               inputMode="decimal"
@@ -456,9 +456,11 @@ function TierEditor({
                 finding out from a customer that half the discount never
                 arrived is worse than being told here. */}
             <p className="mt-1.5 text-[11px] text-gray-600">
-              What somebody on this plan gets off quoted work. Added to anything an
-              administrator grants them, and the total is capped at 20% however many
-              sources agree.
+              What somebody on this plan gets off the LABOUR on a quote. Materials,
+              permits and tax are not discounted — they are bought in at what the
+              supplier charges, and our own work is what a plan earns money off.
+              Added to anything an administrator grants them, and the total is
+              capped at 20% however many sources agree.
               {Number(draft.discountPercent) > 20 && (
                 <span className="text-amber-400">
                   {' '}This is above the cap, so it will never be felt in full.

@@ -257,7 +257,7 @@ planCatalogRouter.post("/make-server-3eae23a6/plan-tiers/:audience", async (c) =
     // A tier set above the cap is not an error, but it will never be felt in
     // full, and finding that out from a customer is worse than being told now.
     discountNote: Number(tier.discountPercent || 0) > QUOTE_DISCOUNT_CAP_PERCENT
-      ? `This plan gives ${tier.discountPercent}% off, but no customer can receive more than `
+      ? `This plan gives ${tier.discountPercent}% off labour, but no customer can receive more than `
         + `${QUOTE_DISCOUNT_CAP_PERCENT}% once every discount is added up.`
       : undefined,
     // The single most useful thing to tell somebody who has just saved a plan

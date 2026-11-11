@@ -46,6 +46,7 @@ import {
   Sparkles, TrendingUp, Zap, Star, Award
 } from 'lucide-react';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { labourDiscountAmount } from '../../../supabase/functions/server/discounts.ts';
 
 interface PaymentScheduleItem {
   id: string;
@@ -278,8 +279,27 @@ export default function CustomerQuoteApproval() {
   // Sent with the quote by the server. Nothing here decides it.
   const [discount, setDiscount] = useState<ResolvedDiscount | null>(null);
   const discountPct = Number(discount?.percent || 0);
-  const jobSubtotal = (quote?.materialsSubtotal || 0) + (quote?.laborSubtotal || 0);
-  const discountAmount = Math.round(jobSubtotal * (discountPct / 100));
+  /**
+   * THE DISCOUNT COMES OFF LABOUR, AND OFF NOTHING ELSE.
+   *
+   * Eric: "the discount only comes off labor, not materials."
+   *
+   * It used to be taken on materials plus labour, which discounted goods we
+   * buy in at whatever the supplier charged — margin we do not have to give
+   * away and, on a material-heavy job, most of the discount. Our own work is
+   * the thing a membership earns money off.
+   *
+   * It also keeps the figure from rising when the markup moved into the line
+   * prices. Ten per cent of a labour line that now reads $7,500 is $750,
+   * where ten per cent of materials-plus-labour at the old cost figures was
+   * $1,000 — so this is less than a subscriber used to get, not more, which
+   * is the direction a change to somebody else’s discount may safely go.
+   *
+   * Taken on the figure the customer can SEE, so the percentage divides into
+   * the labour row above it. A discount worked out against a number not on
+   * the page is the arithmetic hole this whole change set exists to close.
+   */
+  const discountAmount = labourDiscountAmount(quote?.laborSubtotal, discountPct);
   const discountedTotal = Math.max(0, (quote?.totalCost || 0) - discountAmount);
 
   /**
@@ -733,7 +753,7 @@ export default function CustomerQuoteApproval() {
                         given — this page has no plan catalogue to look names up
                         in, and inventing one is how the two came to disagree. */}
                     {discount?.components?.map(c => c.why).filter(Boolean).join(' + ') || 'Discount'}
-                    {' '}({discountPct}% off)
+                    {' '}({discountPct}% off labour)
                   </span>
                   <span className="font-semibold">−${discountAmount.toLocaleString()}</span>
                 </div>
@@ -749,7 +769,7 @@ export default function CustomerQuoteApproval() {
               </div>
               {discountPct > 0 && (
                 <div className="text-sm text-green-400/80 text-right">
-                  You saved ${discountAmount.toLocaleString()} with your subscription
+                  You saved ${discountAmount.toLocaleString()} on labour with your subscription
                 </div>
               )}
             </div>

@@ -265,7 +265,7 @@ export default function DiscountGrants() {
 
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <div>
-                <span className={label}>Percent off</span>
+                <span className={label}>Percent off labour</span>
                 <input
                   className={input}
                   inputMode="decimal"
@@ -298,7 +298,8 @@ export default function DiscountGrants() {
               <p className="mt-2 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-300">
                 <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
                 <span>
-                  Discounts on quoted work are capped at {QUOTE_CAP}% once every source is
+                  Discounts come off the LABOUR on a quote, never materials, permits or tax,
+                  and are capped at {QUOTE_CAP}% once every source is
                   added together, so this will not be felt in full there. Up to {FOUNDING_CAP}%
                   is reachable on a subscription fee for one of a portal's first ten subscribers.
                 </span>
@@ -406,8 +407,8 @@ export default function DiscountGrants() {
         <p className="mt-4 text-[11px] text-gray-600">
           Withdrawing stops a grant applying from now on and keeps the record — it is
           what explains an invoice from last quarter. A customer's total is the plan
-          they pay for plus every live grant aimed at them, capped at {QUOTE_CAP}% on
-          quoted work.
+          they pay for plus every live grant aimed at them, capped at {QUOTE_CAP}% and
+          applied to the labour on a quote.
         </p>
       </div>
     </div>

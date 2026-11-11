@@ -30,6 +30,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMargins } from '../supabase/functions/server/quoteMargins.ts';
 import { customerQuoteView } from '../supabase/functions/server/customerQuoteView.ts';
+import { labourDiscountAmount } from '../supabase/functions/server/discounts.ts';
 import {
   asFraction, customerPricingOf, atCustomerPrice,
   spreadCustomerPrices, allocate, preTaxTotalOf,
@@ -250,4 +251,41 @@ test('a quote carrying no margin is unchanged, to the penny', () => {
   assert.equal(out.materials[0].unitCost, 25);
   assert.equal(out.labor[0].hourlyRate, 70);
   assert.equal(out.totalCost, 950);
+});
+
+/* ── the discount, which comes off labour and nothing else ────────────────── */
+
+test('the discount is taken on labour, never on materials', () => {
+  // The priced figures a customer sees on the job above: $5,000 of materials,
+  // $7,500 of labour. Ten per cent takes $750, not $1,250.
+  assert.equal(labourDiscountAmount(7500, 10), 750);
+});
+
+test('materials, permits, tax and credits are not discountable', () => {
+  const out = customerQuoteView(pricedQuote);
+  const taken = labourDiscountAmount(out.laborSubtotal, 10);
+  // Nothing in the deduction comes from anywhere but the labour row.
+  assert.equal(taken, round2(out.laborSubtotal * 0.1));
+  assert.ok(taken < round2((out.materialsSubtotal + out.laborSubtotal) * 0.1));
+});
+
+test('the discount does not rise because the markup moved into the prices', () => {
+  // What a subscriber used to get: 10% of materials plus labour AT COST.
+  const wasBefore = round2((4000 + 6000) * 0.1);
+  const out = customerQuoteView(pricedQuote);
+  const now = labourDiscountAmount(out.laborSubtotal, 10);
+  assert.ok(now <= wasBefore, `${now} must not exceed the old ${wasBefore}`);
+});
+
+test('a quote with no labour on it earns no discount', () => {
+  assert.equal(labourDiscountAmount(0, 10), 0);
+  assert.equal(labourDiscountAmount(7500, 0), 0);
+  assert.equal(labourDiscountAmount(undefined, 10), 0);
+  assert.equal(labourDiscountAmount(7500, -5), 0);
+});
+
+test('the percentage divides into the labour figure the customer is shown', () => {
+  const out = customerQuoteView(pricedQuote);
+  const taken = labourDiscountAmount(out.laborSubtotal, 15);
+  assert.equal(round2(taken / out.laborSubtotal * 100), 15);
 });
