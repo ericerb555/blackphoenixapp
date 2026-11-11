@@ -27,6 +27,9 @@
 import { groupLinesByPhase } from './invoicePhases';
 import { selectQuoteLines } from './quotePdfSelection';
 import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup';
+import {
+  customerPricingOf, preTaxTotalOf, atCustomerPrice,
+} from '../../../supabase/functions/server/quoteCustomerPrice.ts';
 import { companyInfo } from './config/companyInfo';
 import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
 
@@ -56,6 +59,35 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    */
   const { sections, lines, steps, phaseCost: trueCost, phaseText: describe, showLines, credits, rates: rateVisibility } =
     selectQuoteLines(quote, forCustomer);
+  /**
+   * THE CUSTOMER'S COPY IS PRICED; OURS IS COSTED.
+   *
+   * Eric: "on the quotes the line items are not adding up to the total on the
+   * bottom." They did not. The lines carried what the work costs us, the
+   * total at the foot of the page carried the markup as well, and the
+   * difference — a fifth of the job on the standard 10/10/5 — appeared
+   * nowhere. A customer adding the column up got a different answer from the
+   * one they were being asked to sign.
+   *
+   * The markup is spread back into the line prices rather than given a row of
+   * its own. A contractor's quote says what each part of the job costs the
+   * customer, margin included; a line reading "profit" invites a negotiation
+   * about the wrong number.
+   *
+   * The office copy is untouched and stays at cost — it is read beside the
+   * "of which ours" annotations below, which only make sense against costs.
+   */
+  const pricing = customerPricingOf(quote);
+  if (forCustomer && pricing.markup > 0) {
+    /**
+     * Rates are scaled, not re-derived. `toPdfLine` multiplies quantity by
+     * rate for the amount, so lifting the rate lifts the amount with it and
+     * the line still multiplies out for anyone who checks it.
+     */
+    for (const line of lines) line.unit_price = line.unit_price * pricing.factor;
+    for (const [name, cost] of trueCost) trueCost.set(name, atCustomerPrice(cost, pricing));
+  }
+
   const grouped = groupLinesByPhase(lines, steps);
 
   /**
@@ -73,6 +105,8 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
   const rateLabel = rates ? describeRates(rates) : '';
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
+
+
   const toPdfLine = (l: any) => ({
     description: l.description,
     quantity: l.quantity,
@@ -250,8 +284,22 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     emptyReason,
     showLines,
     credits,
-    subtotal: Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
-      || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0),
+    /**
+     * What the job comes to before tax and the customer's own credits.
+     *
+     * On the customer's copy this is the PRICED figure — the quote's own
+     * `preTaxTotal`, which is materials, labour and soft costs with the
+     * markup on, and exactly `total` less tax plus credits. It used to be
+     * materials plus labour AT COST, which is why the column never reached
+     * the total: the markup and the soft costs were both missing from it.
+     *
+     * The office copy keeps the cost figure, which is the one that belongs
+     * beside the per-phase "of which ours" lines.
+     */
+    subtotal: forCustomer
+      ? preTaxTotalOf(quote, pricing)
+      : Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
+        || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0),
     tax: Number(quote?.taxAmount) || 0,
     taxRate: Number(quote?.taxRate) || undefined,
     total: Number(quote?.totalCost || quote?.total) || 0,

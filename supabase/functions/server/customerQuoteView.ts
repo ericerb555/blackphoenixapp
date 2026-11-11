@@ -110,8 +110,12 @@ export interface CustomerQuote {
   /** What the home owner is supplying. Deducted from the materials figure. */
   credits: CustomerCredit[];
   creditsSubtotal: number;
+  /** Materials at the customer's price — markup spread in, tax not. */
   materialsSubtotal: number;
+  /** Labour at the customer's price. */
   laborSubtotal: number;
+  /** Soft costs — permits, skips, plant hire — at the customer's price. */
+  otherCostsSubtotal: number;
   taxRate: number;
   taxAmount: number;
   totalCost: number;
@@ -120,6 +124,10 @@ export interface CustomerQuote {
   notes: string;
   scopeOfWork: string;
 }
+
+import {
+  customerPricingOf, preTaxTotalOf, allocate, atCustomerPrice, spreadCustomerPrices,
+} from "./quoteCustomerPrice.ts";
 
 const str = (v: any) => (v === null || v === undefined ? '' : String(v));
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -277,31 +285,128 @@ export function customerQuoteView(quote: any): CustomerQuote {
    * `totalCost` still travels, because what a line COSTS is the thing
    * being shown. One number cannot be divided into an hourly rate.
    */
-  const materials = (Array.isArray(quote?.materials) ? quote.materials : [])
-    .filter(isIncluded).filter(isVisible)
-    .map((m: any): CustomerMaterial => ({
-      id: str(m?.id),
-      name: str(m?.name),
-      description: str(m?.description),
-      quantity: modes.materials === 'full' ? num(m?.quantity) : 0,
-      unit: modes.materials === 'full' ? str(m?.unit) : '',
-      unitCost: modes.materials === 'full' ? num(m?.unitCost) : 0,
-      totalCost: num(m?.totalCost),
-      category: str(m?.category),
-    }));
+  /**
+   * EVERY FIGURE BELOW IS A PRICE, NOT A COST.
+   *
+   * The stored line carries what the work costs us; overhead, profit and
+   * contingency sit on top of the whole job and land only in `totalCost`.
+   * Sending the costs down and the total with the markup in it is what made
+   * a customer's quote fail to add up — the lines came to about 80% of the
+   * figure at the bottom and nothing on the page accounted for the rest.
+   *
+   * `quoteCustomerPrice` spreads the markup back across the lines it came
+   * from, so what travels is what the customer pays for each part of the
+   * job. Allocation rather than multiplication: the lines are made to sum to
+   * their section, the sections to the quote's own `preTaxTotal`, and that
+   * plus tax less credits IS `totalCost`. Every sum on the page comes out.
+   *
+   * A quote with no margin on it is unchanged, to the penny.
+   */
+  const pricing = customerPricingOf(quote);
 
-  const labor = (Array.isArray(quote?.labor) ? quote.labor : [])
-    .filter(isIncluded).filter(isVisible)
-    .map((l: any): CustomerLabor => ({
-      id: str(l?.id),
-      role: str(l?.role),
-      description: str(l?.description),
+  /**
+   * Priced across the INCLUDED lines, drawn for the VISIBLE ones.
+   *
+   * The hidden line is charged for — hiding removes the detail, not the
+   * money — so it has to take its share of the markup here, or the share
+   * belonging to it would be redistributed onto the lines the customer can
+   * see and inflate every one of them.
+   */
+  const includedMaterials = (Array.isArray(quote?.materials) ? quote.materials : []).filter(isIncluded);
+  const includedLaborLines = (Array.isArray(quote?.labor) ? quote.labor : []).filter(isIncluded);
+
+  /**
+   * The stored subtotal first, the lines when there is none.
+   *
+   * A record written by the estimator carries both; one assembled by hand,
+   * and every fixture in the tests, carries lines alone. Reading only the
+   * stored figure priced those quotes at nothing — a column of noughts under
+   * a real total, which is a worse answer than the one being fixed.
+   */
+  const sumOf = (lines: any[], field: string) =>
+    round2(lines.reduce((sum: number, l: any) => sum + num(l?.[field]), 0));
+  const materialsCost = num(quote?.materialsSubtotal) || sumOf(includedMaterials, 'totalCost');
+  const laborCost = num(quote?.laborSubtotal) || sumOf(includedLaborLines, 'totalCost');
+  const otherCost = num(quote?.additionalCostsSubtotal)
+    || sumOf((Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []).filter(isIncluded), 'amount');
+  const directCost = round2(materialsCost + laborCost + otherCost);
+
+  /**
+   * The quote's own pre-tax total when it has one, because that is the
+   * figure `totalCost` was built from and the only one guaranteed to close
+   * the arithmetic. Falling back to direct cost times the rates covers the
+   * records that predate `applyMargins`; falling back to direct cost itself
+   * covers a quote with no margin, which must come through unchanged.
+   */
+  const storedPreTax = preTaxTotalOf({ ...quote, directCost }, pricing);
+  const preTax = storedPreTax > 0 ? storedPreTax : directCost;
+
+  const [pricedMaterials, pricedLabor, pricedOther] = directCost > 0
+    ? allocate([materialsCost, laborCost, otherCost], preTax)
+    : [materialsCost, laborCost, otherCost];
+
+  /**
+   * Scaled by the markup, NOT allocated to the section subtotal.
+   *
+   * Allocating would force the lines to sum to `pricedMaterials` — right
+   * when the stored subtotal is the sum of these lines, and badly wrong when
+   * it is not. A record whose subtotal counts something the line list does
+   * not would see every line inflated to close the gap, turning a bookkeeping
+   * discrepancy into a dozen wrong prices on the customer's copy. Scaling
+   * carries each line's own share of the markup and nothing else.
+   */
+  const materialPrices = spreadCustomerPrices(includedMaterials.map((m: any) => num(m?.totalCost)), pricing);
+
+  const materials = includedMaterials
+    .map((m: any, i: number) => ({ line: m, price: materialPrices[i] ?? 0 }))
+    .filter(({ line }: any) => isVisible(line))
+    .map(({ line: m, price }: any): CustomerMaterial => {
+      const quantity = modes.materials === 'full' ? num(m?.quantity) : 0;
+      return {
+        id: str(m?.id),
+        name: str(m?.name),
+        description: str(m?.description),
+        quantity,
+        unit: modes.materials === 'full' ? str(m?.unit) : '',
+        /**
+         * Back out of the priced line rather than scaled on its own, so
+         * quantity x unit price lands on the amount beside it. Scaling the
+         * stored unit cost separately rounds twice and leaves a line whose
+         * own three numbers do not multiply — the same complaint as the
+         * total, one row further down.
+         */
+        unitCost: quantity > 0 ? round2(price / quantity) : 0,
+        totalCost: price,
+        category: str(m?.category),
+      };
+    });
+
+  const laborPrices = spreadCustomerPrices(includedLaborLines.map((l: any) => num(l?.totalCost)), pricing);
+
+  const labor = includedLaborLines
+    .map((l: any, i: number) => ({ line: l, price: laborPrices[i] ?? 0 }))
+    .filter(({ line }: any) => isVisible(line))
+    .map(({ line: l, price }: any): CustomerLabor => {
       // Hours and the rate are the two numbers that reveal pricing, and
       // either one alone is enough with the total beside it. Both go.
-      hours: modes.labor === 'full' ? num(l?.hours) : 0,
-      hourlyRate: modes.labor === 'full' ? num(l?.hourlyRate) : 0,
-      totalCost: num(l?.totalCost),
-    }));
+      const hours = modes.labor === 'full' ? num(l?.hours) : 0;
+      return {
+        id: str(l?.id),
+        role: str(l?.role),
+        description: str(l?.description),
+        hours,
+        /**
+         * The CHARGE-OUT rate, which is what an hour of this trade costs the
+         * customer. The stored `hourlyRate` is what it costs us to put
+         * somebody there, and sending that out both understated the line and
+         * handed over our cost base — the thing the 'no-rates' mode exists
+         * to withhold. Derived from the priced line so hours x rate is the
+         * amount printed next to it.
+         */
+        hourlyRate: hours > 0 ? round2(price / hours) : 0,
+        totalCost: price,
+      };
+    });
 
   const processSteps = (Array.isArray(quote?.processSteps) ? quote.processSteps : [])
     .filter(isIncluded).filter(isVisible)
@@ -324,7 +429,11 @@ export function customerQuoteView(quote: any): CustomerQuote {
         description: sections.processDetail ? str(s?.description) : '',
         estimatedDuration: str(s?.estimatedDuration),
       };
-      if (costs) step.cost = costs.get(title) ?? 0;
+      // Priced like everything else on this document. A phase total at cost,
+      // under a grand total carrying the markup, is the same arithmetic hole
+      // one level down — and this figure is the ONLY one a customer gets when
+      // the lines are withheld.
+      if (costs) step.cost = atCustomerPrice(costs.get(title) ?? 0, pricing);
       return step;
     });
 
@@ -365,9 +474,22 @@ export function customerQuoteView(quote: any): CustomerQuote {
       note: str(credit?.reason),
     })),
     creditsSubtotal: Math.abs(num(quote?.creditsSubtotal)),
-    // Passed through, never recomputed — see the note at the top.
-    materialsSubtotal: num(quote?.materialsSubtotal),
-    laborSubtotal: num(quote?.laborSubtotal),
+    /**
+     * The sections at the customer's price, summing to `preTaxTotal`.
+     *
+     * Still never recomputed — `totalCost` below is the stored figure and
+     * the authority, and these are apportioned FROM it rather than added up
+     * into it. What changed is that they are no longer the cost of the work
+     * sitting under a total that includes the markup on it.
+     */
+    materialsSubtotal: pricedMaterials,
+    laborSubtotal: pricedLabor,
+    /**
+     * Permits, skips, plant hire — real money that reached `totalCost` and
+     * appeared on nothing the customer could read. Emitted only when there is
+     * some, so a quote without soft costs is unchanged.
+     */
+    otherCostsSubtotal: pricedOther,
     taxRate: num(quote?.taxRate),
     taxAmount: num(quote?.taxAmount),
     totalCost: num(quote?.totalCost || quote?.total),

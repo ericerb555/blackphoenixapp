@@ -93,6 +93,9 @@ import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '.
 /* The server's pricing arithmetic, imported rather than reimplemented — see
    the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
+import {
+  customerPricingOf, preTaxTotalOf, allocate,
+} from '../../../supabase/functions/server/quoteCustomerPrice.ts';
 
 interface MaterialItem {
   id: string;
@@ -361,12 +364,16 @@ function PriceSource({ source, vendor }: { source?: string; vendor?: string }) {
  * something to read on the way to sending a quote.
  */
 function QuoteBasis({ quote }: { quote: any }) {
-  const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
+  /* A deduction prints as one. `$-500.00` reads as a typo. */
+  const money = (n: any) => {
+    const v = Number(n) || 0;
+    return v < 0 ? `−${Math.abs(v).toFixed(2)}` : `${v.toFixed(2)}`;
+  };
   const pct = (v: any) => {
     const f = asFraction(v);
     return f > 0 ? `${Math.round(f * 1000) / 10}%` : '';
   };
-  const has = (n: any) => Number(n) > 0;
+  const has = (n: any) => Math.abs(Number(n) || 0) > 0;
 
   const softCosts: any[] = Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : [];
   const rows: Array<[string, any, string?]> = [
@@ -387,6 +394,15 @@ function QuoteBasis({ quote }: { quote: any }) {
     ['Profit', quote?.profitAmount, pct(quote?.profitPercent)],
     ['Contingency', quote?.contingencyAmount, pct(quote?.contingencyPercent)],
     ['Tax on materials', quote?.taxAmount, quote?.taxRate ? `${(Number(quote.taxRate) * 100).toFixed(2)}%` : ''],
+    /*
+      The credit, which is the only term here that SUBTRACTS.
+
+      Leaving it out left the one panel whose entire job is to explain the
+      total unable to reach it: on a quote with a credit the rows summed to
+      more than the figure they were explaining, which is worse than not
+      explaining it at all.
+    */
+    ['Supplied by the customer', quote?.creditsSubtotal ? -Math.abs(Number(quote.creditsSubtotal)) : 0],
   ];
   const shown = rows.filter(([, value]) => has(value));
 
@@ -3683,35 +3699,79 @@ export function QuoteToContractEditor({
                   )}
                 </div>
 
-                {/* Quote Summary */}
-                <div className={`grid gap-4 ${(currentQuote.creditsSubtotal || 0) > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                  <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
-                    <div className="text-blue-400 text-sm mb-1">Materials</div>
-                    <div className="text-2xl font-bold text-white">
-                      ${(currentQuote.materialsSubtotal || 0).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/30 rounded-lg p-4">
-                    <div className="text-purple-400 text-sm mb-1">Labor</div>
-                    <div className="text-2xl font-bold text-white">
-                      ${(currentQuote.laborSubtotal || 0).toLocaleString()}
-                    </div>
-                  </div>
-                  {(currentQuote.creditsSubtotal || 0) > 0 && (
-                    <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-lg p-4">
-                      <div className="text-emerald-400 text-sm mb-1">Credits</div>
-                      <div className="text-2xl font-bold text-white">
-                        −${(currentQuote.creditsSubtotal || 0).toLocaleString()}
+                {/*
+                  THE TILES HAVE TO COME TO THE TOTAL.
+
+                  Eric: "on the quotes the line items are not adding up to the
+                  total on the bottom."
+
+                  They did not. This was Materials, Labor and Total, and the
+                  total carries overhead, profit, contingency, soft costs and
+                  tax as well — about a fifth of the job on the standard
+                  10/10/5, in no tile on the screen. The arithmetic was right
+                  and the display simply left four terms out, which is
+                  indistinguishable from the arithmetic being wrong.
+
+                  The markup is spread into the section figures rather than
+                  given a tile of its own, because these are the numbers the
+                  customer is about to be sent — `quoteCustomerPrice` does the
+                  same apportionment for the PDF and the approval page, so
+                  what is on this screen is what lands on theirs.
+                */}
+                {(() => {
+                  const pricing = customerPricingOf(currentQuote);
+                  const costs = [
+                    Number(currentQuote.materialsSubtotal) || 0,
+                    Number(currentQuote.laborSubtotal) || 0,
+                    Number((currentQuote as any).additionalCostsSubtotal) || 0,
+                  ];
+                  const direct = costs.reduce((sum, n) => sum + n, 0);
+                  const preTax = preTaxTotalOf(currentQuote, pricing);
+                  const [materials, labor, other] = direct > 0
+                    ? allocate(costs, preTax > 0 ? preTax : direct)
+                    : costs;
+                  const tax = Number(currentQuote.taxAmount) || 0;
+                  const credits = Number(currentQuote.creditsSubtotal) || 0;
+                  const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+                  type Tile = { label: string; value: number; box: string; text: string; negative?: boolean };
+                  const tiles: Tile[] = [
+                    { label: 'Materials', value: materials, box: 'from-blue-500/10 to-blue-600/10 border-blue-500/30', text: 'text-blue-400' },
+                    { label: 'Labor', value: labor, box: 'from-purple-500/10 to-purple-600/10 border-purple-500/30', text: 'text-purple-400' },
+                  ];
+                  if (other > 0) tiles.push({ label: 'Other costs', value: other, box: 'from-sky-500/10 to-sky-600/10 border-sky-500/30', text: 'text-sky-400' });
+                  if (tax > 0) tiles.push({ label: 'Tax', value: tax, box: 'from-amber-500/10 to-amber-600/10 border-amber-500/30', text: 'text-amber-400' });
+                  if (credits > 0) tiles.push({ label: 'Credits', value: credits, box: 'from-emerald-500/10 to-emerald-600/10 border-emerald-500/30', text: 'text-emerald-400', negative: true });
+                  tiles.push({ label: 'Total', value: Number(currentQuote.totalCost) || 0, box: 'from-[#ea580c]/10 to-[#fb923c]/10 border-[#ea580c]/30', text: 'text-[#ea580c]' });
+
+                  /* Spelled out rather than built from `tiles.length` — a
+                     class name assembled at runtime is one Tailwind never
+                     sees and therefore never emits. */
+                  const columns = tiles.length <= 3 ? 'grid-cols-3'
+                    : tiles.length === 4 ? 'grid-cols-2 md:grid-cols-4'
+                    : 'grid-cols-2 md:grid-cols-3';
+
+                  return (
+                    <div>
+                      <div className={`grid gap-4 ${columns}`}>
+                        {tiles.map((tile) => (
+                          <div key={tile.label} className={`bg-gradient-to-br ${tile.box} border rounded-lg p-4`}>
+                            <div className={`text-sm mb-1 ${tile.text}`}>{tile.label}</div>
+                            <div className="text-2xl font-bold text-white">
+                              {tile.negative ? '−' : ''}${money(tile.value)}
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                      {pricing.markup > 0 && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Materials and labour carry the {Math.round(pricing.markup * 1000) / 10}% markup, spread across the lines —
+                          these are the figures the customer is sent. &ldquo;How this quote was built&rdquo; below breaks them back out.
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <div className="bg-gradient-to-br from-[#ea580c]/10 to-[#fb923c]/10 border border-[#ea580c]/30 rounded-lg p-4">
-                    <div className="text-[#ea580c] text-sm mb-1">Total</div>
-                    <div className="text-2xl font-bold text-white">
-                      ${(currentQuote.totalCost || 0).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/*
                   The tax rate, which drove every total on the quote and had

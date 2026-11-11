@@ -698,11 +698,31 @@ export default function CustomerQuoteApproval() {
                   <span className="font-semibold">${quote.laborSubtotal.toLocaleString()}</span>
                 </div>
               )}
+              {/* Permits, skips, plant hire. Real money that reached the total
+                  and was itemised nowhere, so the column it sits in did not
+                  add up — the same hole the markup left, one row down. */}
+              {Number((quote as any).otherCostsSubtotal) > 0 && (
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>Other project costs</span>
+                  <span className="font-semibold">${Number((quote as any).otherCostsSubtotal).toLocaleString()}</span>
+                </div>
+              )}
               {/* Labelled "Tax", with no rate. See the note on `taxAmount`. */}
               {quote.taxAmount > 0 && (
                 <div className="flex justify-between items-center text-gray-400">
                   <span>Tax</span>
                   <span className="font-semibold">${quote.taxAmount.toLocaleString()}</span>
+                </div>
+              )}
+              {/* What the customer is supplying themselves, deducted.
+                  It was in the total and on none of these rows, so a quote
+                  with a credit on it read as arithmetic that did not work —
+                  and the deduction a customer most wants to see confirmed is
+                  the one for the tiles they paid for. */}
+              {Number((quote as any).creditsSubtotal) > 0 && (
+                <div className="flex justify-between items-center text-emerald-400">
+                  <span>Supplied by you</span>
+                  <span className="font-semibold">−${Number((quote as any).creditsSubtotal).toLocaleString()}</span>
                 </div>
               )}
               {discountPct > 0 && (

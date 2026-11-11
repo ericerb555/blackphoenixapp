@@ -54,28 +54,16 @@ export interface MarkupShare {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * A rate, whichever of the two conventions in this codebase wrote it.
+ * The fraction normaliser now lives beside the pricing it feeds.
  *
- * `applyMargins` is explicit that its inputs and outputs are FRACTIONS —
- * 0.10 is ten per cent — and that is what the server stores. But the company
- * settings hold PERCENTAGES, `repriceEstimate` converts at its boundary, and
- * `QuoteBasis` renders the stored value straight into a `%` sign, so a quote
- * carrying 0.1 displays as "0.1%" when it means ten.
- *
- * Mixing those two up is the exact fault that once shipped 40% overhead and
- * 40% profit on every repriced quote — the worst pricing bug this project
- * has had, and the reason `quoteMargins.ts` exists as its own tested module.
- * So this does not guess per caller: anything above 1 is read as a
- * percentage, anything at or below 1 as a fraction. A real rate above 100%
- * is not a thing, and a 1% rate is written 0.01, so the rule is unambiguous
- * over every value either convention can produce.
+ * It moved to `quoteCustomerPrice.ts` when the customer price became a thing
+ * the edge function computes too — `customerQuoteView` cannot import this file,
+ * and a second copy of the 0.10-versus-10 rule is the precise mistake that
+ * shipped 40% overhead on every repriced quote. Re-exported so every existing
+ * caller of `quoteMarkup` is untouched.
  */
-export function asFraction(value: unknown): number {
-  if (value === null || value === undefined || value === '') return 0;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return n > 1 ? n / 100 : n;
-}
+import { asFraction } from "../../../supabase/functions/server/quoteCustomerPrice.ts";
+export { asFraction };
 
 /**
  * The rates this quote was priced with.
