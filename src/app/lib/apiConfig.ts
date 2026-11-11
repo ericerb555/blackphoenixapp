@@ -68,7 +68,27 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
  * TO ROLL BACK: put `https://${projectId}.supabase.co` back. Everything
  * keeps working, with no firewall in front of it.
  */
-export const SUPABASE_ORIGIN = 'https://api.theblackphoenixcompany.com';
+/**
+ * ROLLED BACK 2026-11-11: the hostname does not serve the API yet.
+ *
+ * `api.theblackphoenixcompany.com` still resolves to Vercel — the stale
+ * record docs/security/cloudflare-cutover.md §2.1 exists to delete — and Vercel
+ * answers every request on it with 404 DEPLOYMENT_NOT_FOUND. The nameservers
+ * are still ns1/ns2.vercel-dns.com, so Phase 1 of the cutover has not run and
+ * there is no Worker in front of anything.
+ *
+ * Pointing the bundle at it (8e03150, 10 Nov) therefore did not put the app
+ * behind a firewall; it pointed every one of the 504 call sites at a 404. The
+ * pipeline board, work requests, quotes and invoices all fetch and fail.
+ *
+ * Verified 2026-11-11:
+ *   api.theblackphoenixcompany.com/functions/v1/.../health -> 404 (Server: Vercel)
+ *   plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/.../health -> 200
+ *
+ * PUT THE LINE BELOW BACK TO `https://api.theblackphoenixcompany.com` once that
+ * first curl answers 200 — and not before.
+ */
+export const SUPABASE_ORIGIN = `https://${projectId}.supabase.co`;
 
 /**
  * The functions root. Every caller appends the function slug itself —
