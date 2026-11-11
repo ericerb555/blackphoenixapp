@@ -477,6 +477,77 @@ function checkApiBaseCentralised() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WAF-1 — a firewall is actually in front of the API
+//
+// Step 6 of docs/security/waf.md, and the step that was left undone — which
+// meant this suite could print "13 passed" while there was no firewall in
+// front of anything at all. A security report that is silent about a control
+// reads as a report that the control is fine.
+//
+// IT REPORTS THE STAGE RATHER THAN ASSERTING THE END STATE. The rollout has
+// steps that are somebody's afternoon with a DNS panel, and a check that
+// fails red from the day it is written gets switched off before the work
+// happens. So: a warning while the firewall is not in the path, and a real
+// failure once it is — because from that moment an origin that still answers
+// a request carrying no firewall header means the lock is not doing its job
+// and everything in front of it can be walked around.
+// ─────────────────────────────────────────────────────────────────────────────
+async function checkOriginLock() {
+  const title = 'A firewall fronts the API and the origin refuses to be bypassed';
+
+  let apiConfig = '';
+  try {
+    apiConfig = readFileSync(new URL('../src/app/lib/apiConfig.ts', import.meta.url), 'utf8');
+  } catch {
+    record('WAF-1', 'warn', title, 'Could not read src/app/lib/apiConfig.ts to see where the app sends its traffic.', false);
+    return;
+  }
+
+  // The one line the cutover changes. See the note on SUPABASE_ORIGIN.
+  const origin = apiConfig.match(/SUPABASE_ORIGIN\s*=\s*[`'"]([^`'"]+)[`'"]/)?.[1] || '';
+  const resolved = origin.replace('${projectId}', T.projectId);
+  const throughOwnHostname = /^https:\/\/api\./.test(resolved) && !/supabase\.co/.test(resolved);
+
+  if (!throughOwnHostname) {
+    record('WAF-1', 'warn', title,
+      `The app calls the Supabase origin directly (${resolved || 'SUPABASE_ORIGIN unreadable'}), so no firewall of ours is in the request path and the origin lock cannot refuse anything. docs/security/waf.md steps 1, 4 and 5: Cloudflare in front, api.<domain> pointed at Supabase, then the lock set and enforced.`,
+      false);
+    return;
+  }
+
+  /*
+   * The app goes through the firewall now, so the question becomes whether
+   * the back door is shut. This asks the ORIGIN — never the firewall — for a
+   * route that exists, carrying a valid key and no firewall header. Once the
+   * lock is enforcing, that must be refused.
+   *
+   * /health is deliberately NOT used: it is on ORIGIN_LOCK_EXEMPT, so it
+   * answers either way and would make this pass for the wrong reason.
+   */
+  let status = 0;
+  try {
+    const res = await fetch(`${T.fn}/phoenix/chat`, {
+      method: 'POST',
+      headers: { ...H, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'origin lock probe' }),
+    });
+    status = res.status;
+  } catch (err) {
+    record('WAF-1', 'fail', title, `Could not reach the origin to test it: ${err?.message || err}`, false);
+    return;
+  }
+
+  // 403 is the lock. 401 is the auth wall answering first, which means the
+  // request got past the lock and the lock is not enforcing.
+  const refused = status === 403;
+  record('WAF-1', 'fail', title,
+    refused
+      ? 'A direct request to the Supabase origin with no firewall header was refused (403). The lock is enforcing.'
+      : `A direct request to the Supabase origin with no firewall header answered ${status}. The firewall can be walked around — send to *.supabase.co and it never sees the traffic. Set ORIGIN_LOCK_SECRET on the function and in Cloudflare, then ORIGIN_LOCK_ENFORCE=true.`,
+    refused);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEP-1 — no high-severity dependency advisories
 //
 // Slow, so --quick skips it. Thresholded at high rather than at zero
@@ -605,6 +676,7 @@ async function main() {
   await checkRetired();
   await checkHeaders();
   await checkCspHashes();
+  await checkOriginLock();
   checkApiBaseCentralised();
   checkCommittedSecrets();
   checkDependencies();
