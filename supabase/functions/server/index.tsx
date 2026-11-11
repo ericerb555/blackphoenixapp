@@ -14636,12 +14636,12 @@ async function forwardStoreOrderToSupplier(order: any, storageKey?: string): Pro
    * forwarding failure is a retryable one again and the distinction had no
    * case left to describe. Eric asked for the whole thing out on 2026-11-11.
    *
-   * ONE ORDER STILL CARRIES THE STATUS: `BP-F42D79D34D`, paid on 2026-08-07
-   * and never shipped, confirmed in production. `storeWatchRules.ts` still
-   * recognises `manual_required` for exactly that reason and keeps flagging
-   * it as urgent — the rule is deliberately NOT removed with this write path.
-   * Nothing can set the status again; something still has to answer for the
-   * order that has it.
+   * One order still carries the status — `BP-F42D79D34D` — and it needs
+   * nothing: it is marked `is_test: true`, resolved by Eric on 2026-10-03,
+   * with a note recording that it was his wife exercising the live checkout.
+   * No customer, no refund due. The watchdog skips test orders, so it never
+   * reported it; its matching rule was removed on 2026-11-11 once that was
+   * read rather than assumed. See storeWatchRules.ts.
    */
   order.fulfillment_status = result.success ? 'forwarded_to_doba' : 'pending';
   order.fulfillment_forwarded_at = new Date().toISOString();

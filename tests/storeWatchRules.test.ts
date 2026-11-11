@@ -82,10 +82,14 @@ test('the threshold is a boundary, not a suggestion', () => {
   assert.deepEqual(kinds(findStuck({ orders: [just], asks: [], now: NOW })), []);
 });
 
-test('an order that never resolves itself is urgent', () => {
-  const manual = { ...PAID, fulfillment_status: 'manual_required', created_at: daysAgo(2) };
-  const found = findStuck({ orders: [manual], asks: [], now: NOW });
-  assert.deepEqual(kinds(found), ['manual-required']);
+test('money taken and nothing ordered is urgent', () => {
+  // Was written against `manual_required`, a status nothing can set since the
+  // Zendrop removal — see the note in storeWatchRules.ts. The property under
+  // test is unchanged: an order that will not fix itself is urgent, not a
+  // warning.
+  const stuck = { ...PAID, created_at: daysAgo(2) };
+  const found = findStuck({ orders: [stuck], asks: [], now: NOW });
+  assert.deepEqual(kinds(found), ['paid-not-forwarded']);
   assert.equal(found[0].severity, 'urgent');
 });
 
@@ -174,13 +178,17 @@ test('urgent first, then oldest — the order to work through them in', () => {
 });
 
 test('one order can be wrong in more than one way', () => {
+  // Paid and never forwarded, AND carrying a tracking number nobody has
+  // chased. Two findings from one record, which is the property that matters:
+  // the first match must not stop the scan.
   const order = {
-    ...PAID, id: 'BP-2', fulfillment_status: 'manual_required', created_at: daysAgo(10),
+    ...PAID, id: 'BP-2', created_at: daysAgo(10),
     tracking_number: 'LP9', tracking_checked_at: daysAgo(1),
   };
   const found = kinds(findStuck({ orders: [order], asks: [], now: NOW }));
-  assert.ok(found.includes('manual-required'));
-  assert.ok(found.includes('shipped-not-told'));
+  assert.ok(found.includes('paid-not-forwarded'), `got ${found.join(', ')}`);
+  assert.ok(found.includes('shipped-not-told'), `got ${found.join(', ')}`);
+  assert.ok(found.length >= 2);
 });
 
 // ── The clock itself ────────────────────────────────────────────────────────

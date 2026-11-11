@@ -17,7 +17,6 @@
  * still this, after that long".
  *
  *   paid-not-forwarded      money taken, nothing ordered from the supplier
- *   manual-required         an order that will never resolve on its own
  *   forwarded-no-tracking   the supplier has it and has said nothing since
  *   shipped-not-told        we know it shipped; the customer does not
  *   delivered-not-told      the same, after it arrived
@@ -31,8 +30,6 @@
 export interface WatchThresholds {
   /** Paid, and still not sent to a supplier. */
   notForwardedHours: number;
-  /** Sitting at manual_required, which never clears itself. */
-  manualRequiredHours: number;
   /** Supplier has the order but has reported no tracking. */
   noTrackingDays: number;
   /** We know something and the customer does not. */
@@ -43,7 +40,6 @@ export interface WatchThresholds {
 
 export const WATCH_DEFAULTS: WatchThresholds = {
   notForwardedHours: 4,
-  manualRequiredHours: 24,
   noTrackingDays: 5,
   customerUntoldHours: 2,
   questionIgnoredDays: 3,
@@ -51,7 +47,6 @@ export const WATCH_DEFAULTS: WatchThresholds = {
 
 export type FindingKind =
   | "paid-not-forwarded"
-  | "manual-required"
   | "forwarded-no-tracking"
   | "shipped-not-told"
   | "delivered-not-told"
@@ -143,33 +138,29 @@ export function findStuck(input: {
       }
     }
 
-    /**
-     * A state that never clears itself — and that nothing can set any more.
+    /*
+     * `manual_required` HAS NO RULE, and this note is here so the gap reads as
+     * a decision rather than an oversight.
      *
-     * `manual_required` was written for a supplier that could be bought from but
-     * not ordered from by API. That was only ever Zendrop, removed on
-     * 2026-11-10, and the write path went with `manualRequired` on 2026-11-11.
+     * The status was written for a supplier that could be bought from but not
+     * ordered from by API. That was only ever Zendrop, deleted on 2026-11-10,
+     * and the code that set the status went with `manualRequired` the day
+     * after. Nothing can produce it again.
      *
-     * THIS RULE STAYS ANYWAY, and it is not dead code. Order `BP-F42D79D34D` —
-     * paid 2026-08-07, never shipped — still carries the status, confirmed in
-     * production. It is the only order in the store, and this rule is the only
-     * thing reporting it. Deleting the rule because nothing can produce the
-     * status would silently retire the alarm on a real unshipped order, which is
-     * the exact failure this whole file exists to prevent.
+     * A rule was kept for one more day on the belief that a real unshipped
+     * order depended on it. That was wrong, and reading the record is what
+     * settled it: the only order carrying the status, `BP-F42D79D34D`, is
+     * marked `is_test: true` with `resolved_by: eric` on 2026-10-03 and a note
+     * saying it was his wife exercising the live checkout — no customer, no
+     * refund due. Test orders are skipped at the top of this loop, so the rule
+     * had never fired on it and never would have. Confirmed by running these
+     * rules against the stored record: zero findings as stored, one
+     * `manual-required` finding with the test flag removed.
      *
-     * Remove it when that order is resolved, and not before.
+     * If a future supplier brings the status back, bring the rule back with
+     * it — a state that cannot clear itself does need watching. It just has
+     * nothing to watch today.
      */
-    if (status === "manual_required" && age !== null && age >= t.manualRequiredHours) {
-      findings.push({
-        kind: "manual-required",
-        key: `manual-required:${id}`,
-        severity: "urgent",
-        summary: "Needs fulfilling by hand, and will not resolve on its own.",
-        subject: { kind: "order", id },
-        ageHours: age,
-        amount: money(order),
-      });
-    }
 
     // The supplier has it and has said nothing.
     if (status === "forwarded_to_doba" && !order.tracking_number) {
