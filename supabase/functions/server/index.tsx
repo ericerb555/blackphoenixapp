@@ -17,6 +17,7 @@ import {
 import { customerQuoteView } from "./customerQuoteView.ts";
 import { customerInvoiceView } from "./customerInvoiceView.ts";
 import { runEstimator } from "./quote-generator.tsx";
+import { buildInvoiceRecord } from "./invoiceDraft.ts";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
 import galleryRouter from "./gallery.tsx";
@@ -12893,31 +12894,28 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
   try {
     const { user, admin } = await financialActor(c); if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
     const body = await c.req.json(); const recipient = invoiceRecipient(body); const requestedDraft = body.is_draft ?? body.status === 'draft';
+    /*
+     * The record and its arithmetic come from `invoiceDraft.ts`.
+     *
+     * They were written out here, inside a file the test runner cannot load,
+     * which meant the sum deciding what a customer is asked to pay was the
+     * one sum on this platform with no test over it. The assistant can now
+     * propose an invoice, and the alternative to sharing this was a second
+     * implementation of the same total — which is how one of them ends up
+     * taxing a discount and the other does not.
+     *
+     * Behaviour is unchanged: the line items still win over a posted total,
+     * a missing recipient still forces a draft, and the number is still
+     * date-plus-id. All of that is now pinned by tests/invoiceDraft.test.ts.
+     */
     if (!requestedDraft && !recipient.customerEmail) return c.json({ success: false, error: 'A recipient email is required before an invoice can be issued.' }, 400);
-    const id = String(body.id || crypto.randomUUID()); const lineItems = Array.isArray(body.line_items) ? body.line_items.map((item: any, index: number) => ({ ...item, line_number: item.line_number || index + 1, quantity: Number(item.quantity || 0), unit_price: Number(item.unit_price || 0), amount: Number(item.amount ?? Number(item.quantity || 0) * Number(item.unit_price || 0)) })) : [];
-    // An invoice adds up, or it is not an invoice.
-    //
-    // The subtotal was already derived from the line items, and then tax and
-    // total each preferred a figure from the request — so an invoice could be
-    // stored saying $50 while showing $500 of lines. Nobody has to be malicious
-    // for that to happen: a screen that sends a stale total after an edit is
-    // enough, and the customer is the one who spots it.
-    //
-    // Rate and discount are inputs and still come from the caller. The
-    // arithmetic they feed is ours. This computes exactly what the invoice
-    // screen computes, so it changes nothing for a caller that was already
-    // consistent — and quietly corrects one that was not.
-    const subtotal = money(lineItems.reduce((sum: number, item: any) => sum + item.amount, 0));
-    const taxRate = Number(body.tax_rate || 0);
-    const taxAmount = money(subtotal * (taxRate / 100));
-    const discount = money(body.discount_amount || 0);
-    const total = money(subtotal + taxAmount - discount);
-    const postedTotal = body.total_amount === undefined ? null : money(body.total_amount);
-    if (postedTotal !== null && Math.abs(postedTotal - total) > 0.01) {
-      console.log(`[invoices] posted total ${postedTotal} does not match the line items (${total}); using the line items`);
-    } const now = new Date().toISOString(); const invoiceNumber = body.invoice_number || body.invoice_id || `INV-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
-    const isDraft = Boolean(requestedDraft) || !recipient.customerEmail; const status = isDraft ? 'draft' : (body.status && body.status !== 'draft' ? body.status : 'pending');
-    const record = { ...body, id, invoice_id: body.invoice_id || invoiceNumber, invoice_number: invoiceNumber, customerEmail: recipient.customerEmail, customer_email: recipient.customerEmail, customerName: recipient.customerName, customer_name: recipient.customerName, clientEmail: recipient.customerEmail, client_email: recipient.customerEmail, recipientPortal: recipient.recipientPortal, recipient_portal: recipient.recipientPortal, paymentRail: recipient.paymentRail, payment_rail: recipient.paymentRail, line_items: lineItems, subtotal, tax_rate: taxRate, tax_amount: taxAmount, discount_amount: discount, total_amount: total, paid_amount: money(body.paid_amount || 0), balance_due: money(total - money(body.paid_amount || 0)), status, is_draft: isDraft, issuedAt: isDraft ? null : now, createdAt: body.createdAt || now, updatedAt: now, createdBy: user.email };
+    const now = new Date().toISOString();
+    const built = buildInvoiceRecord(body, { recipient, createdBy: user.email, now });
+    if (built.postedTotalIgnored !== null) {
+      console.log(`[invoices] posted total ${built.postedTotalIgnored} does not match the line items (${built.record.total_amount}); using the line items`);
+    }
+    const record = built.record;
+    const id = String(record.id);
     /**
      * The job comes from the quote this invoice bills for.
      *
