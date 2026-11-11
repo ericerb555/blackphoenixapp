@@ -149,7 +149,45 @@ matters.
 It points at Vercel and returns `404 DEPLOYMENT_NOT_FOUND`. If Cloudflare
 imported it, remove it, or step 2.3 will collide with it.
 
-### 2.2 Enable the Supabase custom domain add-on · **you**
+### 2.2 Give the hostname to Supabase — two ways, one of them free · **you**
+
+**A. A Cloudflare Worker · free · `cloudflare/origin-proxy.js` · recommended**
+
+The add-on exists to solve one narrow problem: a proxied CNAME sends
+`Host: api.theblackphoenixcompany.com` to Supabase, and Supabase's gateway
+refuses a hostname nobody registered. A Worker never forwards the original
+request — it makes a new `fetch()` to the real Supabase hostname, so Host and
+SNI are correct by construction and the problem does not arise.
+
+It is also strictly better in two ways. The origin-lock header is set in code
+from an encrypted binding rather than typed into a Transform Rule screen
+where anybody with account read access can see the shared secret. And no DNS
+record is needed at all: the proxied wildcard `*` already resolves `api.`
+through Cloudflare, and a Worker route intercepts before the request reaches
+the wildcard's Vercel origin.
+
+Free tier is 100,000 requests a day, and the WAF runs BEFORE Workers, so
+managed rules still apply to the hostname. Deployment steps are in the header
+of `cloudflare/origin-proxy.js`; it replaces 2.3, 2.5 and 4.2.
+
+One thing to measure once it is live rather than assume: Supabase sits behind
+its own Cloudflare, which may overwrite `cf-connecting-ip` with the Worker's
+address. If it does, `clientIp()` pools every visitor into one client and the
+IP-reputation middleware would ban all of them together the first time any one
+of them misbehaved. The Worker forwards a copy in `x-client-ip` so the fix is
+a small server-side change — trust that header only when the X-Edge-Auth
+match proves the request came through the Worker — but take the measurement
+first.
+
+**B. The Supabase custom domain add-on · about $10/month**
+
+What the rest of this phase describes. Fewer moving parts: no code in the
+request path, nothing to redeploy when a Worker runtime changes under you.
+Worth it if you would rather pay than own one more small program.
+
+If you take route A, skip to Phase 3. The rest of Phase 2 is route B.
+
+### 2.2b Enable the Supabase custom domain add-on · **you** · route B only
 
 Dashboard → project → **Settings → Add-ons → Custom Domain**. A paid add-on on
 a paid plan; the org is already Pro.
