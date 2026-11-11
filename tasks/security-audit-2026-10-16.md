@@ -973,3 +973,50 @@ writes are refused. The remaining gap — anon `UPDATE` and `DELETE` on tables
 with RLS and no policies — is closed by the same structural argument as the
 `INSERT`s, and an external pen test (Phase 3 Stage 4) is where it gets proved
 properly.
+
+### GRANT-1 — closed, 2026-11-11
+
+Applied through the management API, and verified by reading the grants back
+rather than trusting the apply.
+
+**What changed.** The ten service-only tables hold nothing for `anon` or
+`authenticated` any more. Nobody outside `service_role` holds `TRUNCATE` or
+`MAINTAIN` anywhere in `public`. And the Supabase default that caused all of
+this is off: `pg_default_acl` for new tables in `public` now reads
+`{postgres, service_role}`, where it used to hand `arwdDxtm` to the anonymous
+role on every table created.
+
+That last part is the only piece that stops an eleventh table. `app_error_log`
+got the full set within an hour of being created on 2026-11-10, without anybody
+choosing it.
+
+**The TRUNCATE hole is shut.** `has_table_privilege('anon', 'kv_store_57095a78',
+'TRUNCATE')` is now `false`. It was `true`, and RLS does not cover TRUNCATE — a
+fact proved on a throwaway table rather than assumed: with RLS on and no
+policies, `anon` could see none of three rows and still emptied the table.
+
+**Proved by request, not only by reading privileges.**
+
+    POST/GET anon → kv_store_57095a78   401  permission denied for table
+    POST/GET anon → app_error_log        401  permission denied for table
+    POST/GET anon → ai_kill_switch       401  permission denied for table
+
+Before this they answered `200 []` — correct, but from RLS alone. A grant
+refusal is a second, independent layer, which was the whole point of the
+finding.
+
+**The regression check mattered more than the fix.** All 23 tables that are
+legitimately reached from a browser kept `SELECT`, `INSERT`, `UPDATE` and
+`DELETE` and lost only `TRUNCATE`/`MAINTAIN` — `companies`, `work_requests`,
+`organizations`, the `bid_*` family, the `exchange_*` directory, the investment
+tables. Confirmed live: the public Exchange directory still returns its rows to
+an anonymous reader (`exchange_territory` → Pelham NH, full record).
+
+**Probe after:** `14 passed · 1 failed · 1 warning · 2 skipped`. The failure is
+`WAF-1`, a check another session added in the same window — there is no firewall
+in front of the API, so the origin can be addressed directly. It is unrelated to
+this change and was not introduced by it.
+
+**Still open:** `ANON-2` (a dashboard toggle), CSP promotion (needs a receipts
+counter before an empty store means anything), origin lock and IP reputation
+enforcement, Phase 3 stages 3–4, Phase 4 items 12–14, and `WAF-1`.

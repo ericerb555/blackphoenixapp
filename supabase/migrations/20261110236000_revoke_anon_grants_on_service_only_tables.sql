@@ -1,10 +1,17 @@
 -- GRANT-1 — stop handing `anon` every privilege on tables only the server uses.
 --
--- NOT YET APPLIED. Written, reviewed and committed on 2026-11-10; Eric's call
--- was "build it, don't apply yet". Apply through the management API, not
--- `supabase db push` — see the version-mismatch note in
--- `20261015120000_exchange_listing_logo.sql`. Verification queries at the foot
--- of this file.
+-- APPLIED 2026-11-11, through the management API. Written on 2026-11-10 and
+-- held back a day because Eric asked to see it before it ran.
+--
+-- Verified afterwards by reading the grants back rather than trusting the
+-- apply: the ten tables hold nothing for anon or authenticated, nobody outside
+-- service_role holds TRUNCATE or MAINTAIN anywhere in the schema, and the 23
+-- tables that are legitimately reached from a browser kept SELECT, INSERT,
+-- UPDATE and DELETE. Proved by request too — those ten now answer
+-- `401 permission denied for table`, where before they answered `200 []` from
+-- RLS alone, and the public Exchange directory still returns its rows to an
+-- anonymous reader. The probe still passes 14, and `has_table_privilege
+-- ("anon", ..., "TRUNCATE")` is now false on the key-value stores.
 --
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WHAT WAS FOUND
