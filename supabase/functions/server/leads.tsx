@@ -47,6 +47,7 @@ import { requireStaff } from "./requireStaff.ts";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
 import { leadPathNeedsStaff } from "./leadsAccess.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { assertAiAllowed, AiStopped } from "./aiKillSwitch.ts";
 
 export const leadsRouter = new Hono();
 
@@ -95,8 +96,36 @@ leadsRouter.post('/make-server-3eae23a6/leads/capture', async (c) => {
     let intent = 'browsing';
     let aiSummary = '';
 
-    if (OPENAI_API_KEY) {
+    /**
+     * WHO IS ALLOWED TO SPEND MONEY HERE, AND WHEN.
+     *
+     * This endpoint is public and unauthenticated — it is the storefront
+     * enquiry form — and it used to call a paid model on every new email with
+     * no gate of any kind. Two holes fell out of that:
+     *
+     *  1. A script posting unique random emails drove an unbounded number of
+     *     gpt-4o-mini calls. The dedup above only catches a REPEATED address;
+     *     a fresh one each time sails past it. Anonymous cost DoS.
+     *  2. The emergency stop could not halt it. `assertAiAllowed` was never
+     *     called, so the one control that is supposed to cut all model spend
+     *     did not cover the one model call a stranger can trigger at will.
+     *
+     * The fix is both of these. The model is only consulted for a lead that
+     * carries real buying signal — a cart, or an explicit quote request —
+     * because those are the leads whose score is worth paying to sharpen, and
+     * they are exactly what a spam flood does not send. Everything else takes
+     * the free rule-based path below, which was always the fallback. And the
+     * call that remains is now behind the kill switch, so "stop all AI" means
+     * it.
+     */
+    const worthScoringWithAI = Number(cartValue) > 0 || source === 'quote';
+
+    if (OPENAI_API_KEY && worthScoringWithAI) {
       try {
+        // The emergency stop decides before a cent is spent. On stop this
+        // throws and the catch below drops to the free rule-based score, so a
+        // halted model never blocks a lead from being captured.
+        await assertAiAllowed('leads');
         const prompt = `Score this ecommerce lead from 0-100 and classify intent.
 Lead data:
 - Source: ${source || 'store'}
@@ -122,9 +151,18 @@ Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "o
         score = parsed.score || 50;
         intent = parsed.intent || 'warm';
         aiSummary = parsed.summary || '';
-      } catch { /* use default score */ }
-    } else {
-      // Simple rule-based scoring without AI
+      } catch {
+        // Model refused, errored, or the kill switch is engaged. Fall through
+        // to the free rule-based score below rather than failing the capture.
+        score = 0;
+      }
+    }
+
+    // Rule-based scoring: the default for every low-signal capture, and the
+    // fallback whenever the AI path above was skipped or did not produce a
+    // score. `score === 0` is the sentinel the catch sets for "AI gave us
+    // nothing"; the AI success path always lands well above it.
+    if (!worthScoringWithAI || !OPENAI_API_KEY || score === 0) {
       if (cartValue > 100) { score = 85; intent = 'hot'; }
       else if (cartValue > 0) { score = 70; intent = 'warm'; }
       else if (source === 'quote') { score = 90; intent = 'hot'; }
