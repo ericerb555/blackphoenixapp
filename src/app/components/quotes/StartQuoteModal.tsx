@@ -26,6 +26,8 @@ import { toast } from 'sonner';
 import { generateDemoQuote } from '../../lib/demoQuoteGenerator';
 import { QuotePricingBasisBanner } from './QuotePricingBasisBanner';
 import { QuoteAttachmentsPanel } from './QuoteAttachmentsPanel';
+import { IntakeGuide } from './IntakeGuide';
+import { categoryForServiceType } from '../../../../supabase/functions/server/intakeFields.ts';
 import { QuoteToContractEditor } from '../QuoteToContractEditor';
 import { publicAnonKey } from '../../utils/supabase/info';
 import { authedHeaders } from '../../utils/authHeaders';
@@ -66,6 +68,58 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
    * the files already uploaded against the first.
    */
   const [requestId] = useState(() => `wr-${Date.now()}`);
+
+  /** Photos and video already attached, so the guide does not ask twice. */
+  const [mediaCounts, setMediaCounts] = useState({ photos: 0, videos: 0 });
+
+  /**
+   * THE FOUR FIELDS WHOSE NAMES DIFFER, AND NOTHING ELSE.
+   *
+   * This modal calls them `customerName`, `customerEmail`, `customerPhone` and
+   * `location`; `intakeFields.ts` calls them `clientName`, `clientEmail`,
+   * `clientPhone` and `siteAddress`, because that is what the customer-facing
+   * form and `quoteBrief.ts` call them. Every other field — all eighteen
+   * measurements and conditions — already matches by name, which is the reason
+   * one interview can serve both screens.
+   *
+   * Mapped here rather than inside `IntakeGuide`, so the divergence is written
+   * down in the file that actually has it instead of in a shared component that
+   * would otherwise need to know about every form that ever uses it.
+   */
+  const INTAKE_ALIASES: Record<string, string> = {
+    clientName: 'customerName',
+    clientEmail: 'customerEmail',
+    clientPhone: 'customerPhone',
+    siteAddress: 'location',
+  };
+
+  /** This modal's form, read under the names the interview uses. */
+  const intakeValuesFrom = (f: typeof form): Record<string, unknown> => {
+    const out: Record<string, unknown> = { ...f };
+    for (const [intakeName, localName] of Object.entries(INTAKE_ALIASES)) {
+      out[intakeName] = (f as any)[localName];
+    }
+    return out;
+  };
+
+  /**
+   * Answers the guide extracted, written back under this modal's names.
+   *
+   * Everything arriving here has already been allowlisted by key and coerced by
+   * type on the server (`coerceUpdates`), so there is no field a model could
+   * invent and nothing to re-validate — but an unrecognised name is still
+   * dropped rather than spread blindly into form state.
+   */
+  const applyIntakeUpdates = (updates: Record<string, string | number>) => {
+    setForm((prev) => {
+      const next: any = { ...prev };
+      for (const [name, value] of Object.entries(updates)) {
+        const local = INTAKE_ALIASES[name] || name;
+        if (local in prev) next[local] = value;
+      }
+      return next;
+    });
+  };
 
   const [form, setForm] = useState({
     customerName: '',
@@ -690,7 +744,10 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             estimator failing, the form being re-filled, or the modal being
             closed and the quote picked up later from the pipeline.
           */}
-          <QuoteAttachmentsPanel quoteId={requestId} />
+          <QuoteAttachmentsPanel
+            quoteId={requestId}
+            onCountChange={({ photos, videos }) => setMediaCounts({ photos, videos })}
+          />
 
           {/*
             Everything below is optional and the estimator is told nothing about
@@ -698,6 +755,23 @@ export function StartQuoteModal({ onClose }: StartQuoteModalProps) {
             about the job rather than silence. So filling none of this is
             exactly as good as before, and filling any of it is better.
           */}
+          {/*
+            The same interview the customer gets, for a job taken down the
+            phone. It fills the panel below rather than replacing it: the
+            fields stay editable, and a call that goes quiet halfway through
+            leaves whatever was captured.
+          */}
+          <IntakeGuide
+            category={categoryForServiceType(form.serviceType)}
+            values={intakeValuesFrom(form)}
+            // The real counts, from the attachments panel on this same screen.
+            // Passing zeroes would have had the guide chase photos that were
+            // already attached a few inches further up.
+            mediaCounts={mediaCounts}
+            onApply={applyIntakeUpdates}
+            surface="staff"
+          />
+
           <details className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A]">
             <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-300">
               Job details — the numbers a takeoff needs

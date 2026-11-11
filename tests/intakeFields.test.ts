@@ -19,6 +19,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   INTAKE_FIELDS, fieldsFor, statusOf, nextQuestion, coerceUpdates, isFilled,
+  categoryForServiceType,
   type IntakeCategory,
 } from '../supabase/functions/server/intakeFields.ts';
 
@@ -217,4 +218,59 @@ test('trash and demo leans on photographs', () => {
   assert.ok(photos?.requiredForQuote, 'the form already refuses to submit one without a photo');
   // And it should not be demanding kitchen measurements for a dump run.
   assert.ok(!fields.some((f) => f.name === 'ceilingHeight'));
+});
+
+/* ── the trade a staff member picks, mapped to a category ───────────────── */
+
+test('every trade Start Quote offers maps to a category', () => {
+  // The exact eleven in StartQuoteModal's SERVICE_TYPES. If one is added there
+  // and falls through to a category that asks the wrong questions, this is
+  // where it should be noticed.
+  const expected: Record<string, IntakeCategory> = {
+    'Kitchen Remodel': 'kitchen_bath',
+    'Bathroom Remodel': 'kitchen_bath',
+    'Roofing': 'simple_service',
+    'Flooring': 'simple_service',
+    'Painting': 'simple_service',
+    'Deck / Patio': 'simple_service',
+    'Windows & Doors': 'simple_service',
+    'HVAC': 'simple_service',
+    'Electrical': 'simple_service',
+    'Plumbing': 'simple_service',
+    'General Construction': 'full_renovation',
+  };
+  for (const [trade, category] of Object.entries(expected)) {
+    assert.strictEqual(categoryForServiceType(trade), category, `"${trade}"`);
+  }
+});
+
+test('a clear-out is recognised however it is phrased', () => {
+  // trash_demo is the one category whose questions differ sharply — photos
+  // carry it and the kitchen measurements are irrelevant.
+  for (const phrase of [
+    'Trash & Demo Removal', 'junk removal', 'debris haul away',
+    'garage clean-out', 'demolition', 'dumpster run',
+  ]) {
+    assert.strictEqual(categoryForServiceType(phrase), 'trash_demo', `"${phrase}"`);
+  }
+});
+
+test('an unknown trade gets the general questions, not silence', () => {
+  // Falling to '' would make the job unquotable and stop the interview asking
+  // anything category-specific, which is worse than asking the general set.
+  assert.strictEqual(categoryForServiceType('Chimney sweeping'), 'simple_service');
+  assert.strictEqual(categoryForServiceType('Snow removal'), 'simple_service');
+});
+
+test('no service type at all stays unknown', () => {
+  for (const empty of ['', '   ', null, undefined]) {
+    assert.strictEqual(categoryForServiceType(empty), '', JSON.stringify(empty));
+  }
+});
+
+test('a kitchen is a kitchen before it is a remodel', () => {
+  // Order matters: "Kitchen Remodel" matches both the kitchen rule and the
+  // remodel rule, and the kitchen questions are the right ones.
+  assert.strictEqual(categoryForServiceType('Kitchen Remodel'), 'kitchen_bath');
+  assert.strictEqual(categoryForServiceType('Full gut renovation'), 'new_construction');
 });

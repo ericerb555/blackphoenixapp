@@ -267,6 +267,41 @@ export const INTAKE_FIELDS: IntakeField[] = [
   },
 ];
 
+/**
+ * The category behind a free-text service type.
+ *
+ * WHY THIS IS NEEDED AT ALL
+ *
+ * The customer form asks for one of five categories up front. `StartQuoteModal`
+ * does not — staff pick a trade from a list of eleven ("Roofing", "Kitchen
+ * Remodel", "Deck / Patio"), because that is how a job is described on the
+ * phone. The interview needs a category to know which questions apply, so the
+ * trade is mapped to one.
+ *
+ * Matched on substrings rather than an exact list, because `serviceType` is a
+ * free-text field on both the modal and the work request — it arrives as
+ * whatever somebody typed, and has done since long before this existed.
+ *
+ * An unrecognised trade falls to `simple_service` and NOT to `''`. Empty means
+ * "we do not know what kind of work this is", which makes the job unquotable
+ * and stops the interview asking about anything category-specific. A trade we
+ * simply have no rule for is better served by the general questions than by
+ * silence.
+ */
+export function categoryForServiceType(serviceType: unknown): IntakeCategory {
+  const s = String(serviceType ?? '').toLowerCase().trim();
+  if (!s) return '';
+
+  if (/trash|debris|junk|clear|clean[- ]?out|demo|demolition|dump|haul/.test(s)) return 'trash_demo';
+  if (/kitchen|bath|powder room|wet room/.test(s)) return 'kitchen_bath';
+  if (/new construction|new build|custom home|addition|adu|extension|whole home|full renovation|gut/.test(s)) {
+    return 'new_construction';
+  }
+  if (/general construction|renovation|remodel|restoration|rebuild/.test(s)) return 'full_renovation';
+
+  return 'simple_service';
+}
+
 /** Every field that applies to a category, in asking order. */
 export function fieldsFor(category: IntakeCategory, surface: IntakeSurface = 'customer'): IntakeField[] {
   return INTAKE_FIELDS.filter((f) => {

@@ -155,7 +155,13 @@ export function QuoteAttachmentsPanel({
   title?: string;
   hint?: string;
   className?: string;
-  onCountChange?: (count: number) => void;
+  /**
+   * Photos and video counted separately, because a caller that asks "do we have
+   * what we need" treats them differently — the intake guide stops chasing
+   * photos once there are some, and keeps suggesting a walkthrough video on a
+   * big job regardless. A single total could not answer either question.
+   */
+  onCountChange?: (counts: { photos: number; videos: number; total: number }) => void;
 }) {
   const [items, setItems] = useState<QuoteAttachment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +195,13 @@ export function QuoteAttachmentsPanel({
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { onCountChange?.(items.length); }, [items.length, onCountChange]);
+  useEffect(() => {
+    onCountChange?.({
+      photos: items.filter((a) => a.kind === 'image').length,
+      videos: items.filter((a) => a.kind === 'video').length,
+      total: items.length,
+    });
+  }, [items, onCountChange]);
 
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
