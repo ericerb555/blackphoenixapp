@@ -18,6 +18,7 @@ import { customerQuoteView } from "./customerQuoteView.ts";
 import { customerInvoiceView } from "./customerInvoiceView.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import { buildInvoiceRecord } from "./invoiceDraft.ts";
+import { findLeadByEmail, putLead } from "./leadsStore.ts";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
 import galleryRouter from "./gallery.tsx";
@@ -2953,7 +2954,8 @@ async function syncPortalAccess(application: any, intake: any, statusOverride?: 
 
 const APPLICATIONS_KEY = 'applications';
 const CRM_CONTACTS_KEY = 'crm_contacts:default';
-const LEADS_KEY = 'leads:all';
+// Leads moved from a single `leads:all` array to one key per lead; see
+// leadsStore.ts. The application upsert below now goes through that store.
 const APPLICATION_PLAN_PROPOSAL_PREFIX = 'application_plan_proposal:';
 
 async function ensureApplicationPlanProposal(application: any, reviewedBy: string) {
@@ -3169,11 +3171,10 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
   else contacts.unshift(contact);
   await kv.set(CRM_CONTACTS_KEY, contacts);
 
-  const leads: any[] = (await kv.get(LEADS_KEY)) || [];
-  const leadIndex = leads.findIndex((lead: any) => String(lead.email || '').toLowerCase() === applicant.email);
+  const priorLead = await findLeadByEmail(applicant.email);
   const lead = {
-    ...(leadIndex >= 0 ? leads[leadIndex] : {}),
-    id: leadIndex >= 0 ? leads[leadIndex].id : `application_lead_${id}`,
+    ...(priorLead || {}),
+    id: priorLead ? priorLead.id : `application_lead_${id}`,
     name: applicant.name,
     email: applicant.email,
     phone: applicant.phone,
@@ -3183,15 +3184,13 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
     status: 'new',
     intent: 'warm',
     score: planPreference ? 78 : 70,
-    taxClassification: taxClassification || (leadIndex >= 0 ? leads[leadIndex].taxClassification : null),
-    planPreference: planPreference || (leadIndex >= 0 ? leads[leadIndex].planPreference : null),
+    taxClassification: taxClassification || priorLead?.taxClassification || null,
+    planPreference: planPreference || priorLead?.planPreference || null,
     lastSeen: now,
-    capturedAt: leadIndex >= 0 ? leads[leadIndex].capturedAt : now,
-    tags: Array.from(new Set([...(leadIndex >= 0 && Array.isArray(leads[leadIndex].tags) ? leads[leadIndex].tags : []), 'application', applicationType])),
+    capturedAt: priorLead?.capturedAt || now,
+    tags: Array.from(new Set([...(Array.isArray(priorLead?.tags) ? priorLead.tags : []), 'application', applicationType])),
   };
-  if (leadIndex >= 0) leads[leadIndex] = lead;
-  else leads.unshift(lead);
-  await kv.set(LEADS_KEY, leads);
+  await putLead(lead);
 
   return { application, contact, updated: existingIndex >= 0 };
 }

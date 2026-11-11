@@ -30,6 +30,7 @@
  * somebody did not want and a draft nobody reads.
  */
 import * as kv from "./kv_store.tsx";
+import { findLeadByEmail, putLead } from "./leadsStore.ts";
 import type { ActionRisk } from "./actionQueueRules.ts";
 
 export interface ActionContext {
@@ -82,8 +83,7 @@ async function knownContact(email: string): Promise<{ known: boolean; where?: st
   const wanted = email.trim().toLowerCase();
   if (!wanted) return { known: false };
 
-  const leads = ((await kv.get('leads:all')) as any[]) || [];
-  if (leads.some((l: any) => str(l?.email, 160).toLowerCase() === wanted)) {
+  if (await findLeadByEmail(wanted)) {
     return { known: true, where: 'a lead' };
   }
 
@@ -200,8 +200,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
     },
     async run(p) {
       const email = str(p.leadEmail, 160).toLowerCase();
-      const leads = ((await kv.get('leads:all')) as any[]) || [];
-      const lead = leads.find((l: any) => String(l?.email || '').toLowerCase() === email);
+      const lead = await findLeadByEmail(email);
       if (!lead) throw new Error(`No lead with that address.`);
 
       // Imported here rather than at module scope: `leads.tsx` builds a Hono
@@ -280,13 +279,12 @@ export const ACTIONS: Record<string, ActionHandler> = {
     async run(p, ctx) {
       const email = str(p.leadEmail, 160).toLowerCase();
       const status = str(p.status, 20).toLowerCase();
-      const leads = ((await kv.get('leads:all')) as any[]) || [];
-      const i = leads.findIndex((l: any) => str(l?.email, 160).toLowerCase() === email);
-      if (i === -1) throw new Error(`No lead with the address ${email}.`);
-      const was = str(leads[i]?.status, 20) || 'unknown';
-      const trail = Array.isArray(leads[i]?.statusLog) ? leads[i].statusLog : [];
-      leads[i] = {
-        ...leads[i],
+      const lead = await findLeadByEmail(email);
+      if (!lead) throw new Error(`No lead with the address ${email}.`);
+      const was = str(lead?.status, 20) || 'unknown';
+      const trail = Array.isArray(lead?.statusLog) ? lead.statusLog : [];
+      await putLead({
+        ...lead,
         status,
         statusLog: [
           // Attributed to the approver. A pipeline that changed itself is
@@ -294,8 +292,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
           { from: was, to: status, at: new Date().toISOString(), by: ctx.approvedBy, note: str(p?.note, 300) || null },
           ...trail,
         ].slice(0, 50),
-      };
-      await kv.set('leads:all', leads);
+      });
       return `${email} moved from ${was} to ${status}.`;
     },
   },

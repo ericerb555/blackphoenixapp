@@ -48,6 +48,7 @@ import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
 import { leadPathNeedsStaff } from "./leadsAccess.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { assertAiAllowed, AiStopped } from "./aiKillSwitch.ts";
+import { allLeads, getLead, findLeadByEmail, putLead, deleteLead } from "./leadsStore.ts";
 
 export const leadsRouter = new Hono();
 
@@ -78,16 +79,16 @@ leadsRouter.post('/make-server-3eae23a6/leads/capture', async (c) => {
     if (!email) return c.json({ error: 'Email required' }, 400);
 
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY') || '';
-    const existingLeads: any[] = (await kv.get('leads:all') as any[]) || [];
 
-    // Don't duplicate
-    const existing = existingLeads.find((l: any) => l.email === email);
+    // Don't duplicate. One pointer lookup now, not a scan of every lead — and
+    // the update touches only this lead's key, so two captures at once can no
+    // longer overwrite each other the way a shared-array rewrite did.
+    const existing = await findLeadByEmail(email);
     if (existing) {
-      // Update activity
       existing.lastSeen = new Date().toISOString();
       existing.pageViews = (existing.pageViews || 0) + 1;
       if (cartValue) existing.cartValue = cartValue;
-      await kv.set('leads:all', existingLeads);
+      await putLead(existing);
       return c.json({ success: true, leadId: existing.id, existing: true });
     }
 
@@ -184,8 +185,7 @@ Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "o
       sequenceStep: 0,
     };
 
-    existingLeads.unshift(lead);
-    await kv.set('leads:all', existingLeads);
+    await putLead(lead);
     return c.json({ success: true, leadId: lead.id, score, intent });
   } catch (e: any) { return c.json({ error: e.message }, 500); }
 });
@@ -193,7 +193,7 @@ Return JSON only: {"score": number, "intent": "hot"|"warm"|"cold", "summary": "o
 // Get all leads
 leadsRouter.get('/make-server-3eae23a6/leads', async (c) => {
   try {
-    const leads = (await kv.get('leads:all') as any[]) || [];
+    const leads = await allLeads();
     const stats = {
       total: leads.length,
       hot: leads.filter((l: any) => l.intent === 'hot').length,
@@ -261,8 +261,7 @@ export async function sendLeadEmail(
 
     if (!RESEND_API_KEY) return { ok: false, status: 400, error: 'RESEND_API_KEY not configured' };
 
-    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
-    const lead = leads.find((l: any) => l.id === leadId);
+    const lead = await getLead(leadId);
     if (!lead) return { ok: false, status: 404, error: 'Lead not found' };
 
     // AI writes the email
@@ -363,7 +362,7 @@ export async function sendLeadEmail(
     lead.lastEmailSent = new Date().toISOString();
     lead.lastEmailType = emailType;
     lead.status = 'contacted';
-    await kv.set('leads:all', leads);
+    await putLead(lead);
 
     return { ok: true, subject, to: lead.email };
 }
@@ -386,7 +385,7 @@ leadsRouter.post('/make-server-3eae23a6/leads/blast', async (c) => {
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
     if (!RESEND_API_KEY) return c.json({ error: 'RESEND_API_KEY not configured' }, 400);
 
-    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
+    const leads = await allLeads();
     const targets = intentFilter && intentFilter !== 'all'
       ? leads.filter((l: any) => l.intent === intentFilter)
       : leads;
@@ -423,8 +422,7 @@ leadsRouter.post('/make-server-3eae23a6/leads/blast', async (c) => {
 leadsRouter.delete('/make-server-3eae23a6/leads/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const leads: any[] = (await kv.get('leads:all') as any[]) || [];
-    await kv.set('leads:all', leads.filter((l: any) => l.id !== id));
+    await deleteLead(id);
     return c.json({ success: true });
   } catch (e: any) { return c.json({ error: e.message }, 500); }
 });

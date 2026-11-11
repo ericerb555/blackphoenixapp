@@ -52,6 +52,7 @@ import {
 } from "./phoenixTools.ts";
 import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } from "./actionQueue.ts";
 import { actionCatalogue } from "./aiActions.ts";
+import { allLeads } from "./leadsStore.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
 import { estimateTtsCostCents, estimateSttCostCents } from "./modelPricing.ts";
 import {
@@ -244,7 +245,7 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
 
     const [leadRows, quoteRows, invoiceRows, wr, referralRows, galleryRows, articleRows, keywordDoc, reelRows] =
       await Promise.all([
-        kv.get('leads:all') as Promise<any[]>,
+        allLeads(),
         kv.getByPrefix('quote:') as Promise<any[]>,
         kv.getByPrefix('invoice:') as Promise<any[]>,
         workRequests(),
@@ -485,7 +486,7 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
   }
 
   if (name === 'leads') {
-    const all = ((await kv.get('leads:all')) as any[]) || [];
+    const all = await allLeads();
     const wanted = input?.intent ? String(input.intent).toLowerCase() : null;
     const rows = wanted ? all.filter((l) => String(l?.intent || '').toLowerCase() === wanted) : all;
     return {
@@ -524,7 +525,7 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
       workRequests(),
       kv.getByPrefix('quote:') as Promise<any[]>,
       kv.getByPrefix('invoice:') as Promise<any[]>,
-      kv.get('leads:all') as Promise<any[]>,
+      allLeads(),
       kv.get('admin_alerts') as Promise<any[]>,
     ]);
     const q = (quotes || []).filter(Boolean);
@@ -579,7 +580,7 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
     const [wr, invoices, leadRows, alertRows] = await Promise.all([
       workRequests(),
       kv.getByPrefix('invoice:') as Promise<any[]>,
-      kv.get('leads:all') as Promise<any[]>,
+      allLeads(),
       kv.get('admin_alerts') as Promise<any[]>,
     ]);
 
