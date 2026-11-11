@@ -31,6 +31,7 @@ import variancesRouter from "./variances-kv.tsx";
 import pagePilotRouter from "./page-pilot.tsx";
 import mediaRouter from "./media-library.tsx";
 import appErrorsRouter from "./app-errors.tsx";
+import smsRouter from "./sms.ts";
 import { exchangeDirectory } from "./exchangeDirectory.tsx";
 import { exchangeClaimRoutes } from "./exchangeClaimRoutes.tsx";
 import { exchangeAccountRoutes } from "./exchangeAccountRoutes.tsx";
@@ -876,6 +877,10 @@ const PUBLIC_PREFIXES = [
 // Public to read, protected to change. The storefront has to render these to a
 // stranger; only staff may edit them.
 const PUBLIC_GET_PREFIXES = [
+  // The SMS config check. Secret-gated in its own handler (404 when the secret
+  // is unset), so passing it the session check here leaks nothing — it reveals
+  // the sender number and region only to a caller holding SMS_TEST_SECRET.
+  '/sms/status',
   // Ads are shown to every visitor including signed-out ones, and a marquee that
   // renders nothing on the public site is an advertiser paying for a blank. The
   // shadow log caught both of these as would-block, which is exactly what shadow
@@ -1025,6 +1030,16 @@ const PUBLIC_POST_PATHS = [
    * and drops anything past forty reports a minute. See app-errors.tsx.
    */
   '/app-errors',
+  /**
+   * The SMS test send. Public at the auth wall, secret at the door.
+   *
+   * It carries no session — an operator reaches it with SMS_TEST_SECRET in a
+   * header, the same shape as the Stripe webhook above. Its own handler refuses
+   * anything without that secret and answers 404 when the secret is unset, so
+   * listing it here only hands the request past the session check to that gate.
+   * Removing the secret retires the route whether or not this entry stays.
+   */
+  '/sms/test',
   '/applications',            // the five application forms
   '/applications/submit',     // the older form endpoint, still linked
   '/signup/universal',        // portal card signups
@@ -1599,6 +1614,8 @@ app.route("/", mediaRouter);
  * for what that route refuses to store and what it refuses to say back.
  */
 app.route("/", appErrorsRouter);
+// SMS diagnostics and a secret-gated test send; see sms.ts. Full paths, root mount.
+app.route("/", smsRouter);
 /**
  * Phoenix Exchange.
  *
