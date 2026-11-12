@@ -1,4 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
+import OnCallSetup from './OnCallSetup';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
 import DocumentPreviewModal from '../documents/DocumentPreviewModal';
@@ -39,7 +40,7 @@ import {
   Recycle, Video, ArrowUpRight, ArrowDownRight, Plus, Filter,
   Upload, Search, Play, Pause, Volume2, VolumeX, ChevronLeft, 
   Sparkles, Zap, Crown, Gift, Trophy, Timer, Users, Target, ExternalLink, Smartphone, Monitor,
-  Megaphone, Tag, Award, BarChart3, Building2, Image as ImageIcon
+  Megaphone, Tag, Award, BarChart3, Building2, Image as ImageIcon, Siren
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrimaryButton } from '../ui/button/PrimaryButton';
@@ -85,7 +86,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'on-call' | 'guide'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
@@ -757,6 +758,7 @@ export default function CustomerPortalView() {
     { id: 'visualiser', label: 'See It On Your Home', icon: ImageIcon },
     { id: 'floor-visualiser', label: 'Try a Floor', icon: ImageIcon },
     { id: 'documents', label: 'Documents', icon: FileText },
+    { id: 'on-call', label: 'Emergency Line', icon: Siren },
     { id: 'guide', label: 'Portal Guide', icon: FileText },
   ];
 
@@ -942,6 +944,13 @@ export default function CustomerPortalView() {
         )}
         {activeTab === 'floor-visualiser' && <FloorVisualiser accent="orange" />}
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
+        {/*
+          A homeowner has one property and no site office, which is exactly the
+          account for which an unanswered emergency line is worst: there is
+          nobody else to ring. Same screen as the association and landlord
+          portals, orange like the rest of this one.
+        */}
+        {activeTab === 'on-call' && <OnCallSetup session={session} accent="orange" />}
         {activeTab === 'guide' && <PortalFeatureGuide portal="customer" />}
 
         {activeTab === 'dashboard' && (

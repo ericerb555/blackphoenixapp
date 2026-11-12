@@ -63,19 +63,57 @@ new way to spend money nobody can see or stop.
 
 ## The plan
 
-- [ ] **A. Number directory.** `onCallNumbers.ts` — pure resolution of a dialled
-      number to an account, plus the caller's number to a known property/unit.
-- [ ] **B. Attendant state machine.** `onCallAttendant.ts` — pure: what to say,
-      what to ask next, when enough is known to dispatch, deterministic
-      classification into the emergency categories, safety-critical detection.
-- [ ] **C. Voice router.** `onCallVoice.tsx` — Twilio webhooks, signature
-      verification, TwiML, per-call session in KV, AI assist behind the ledger
-      and kill switch with the pure classifier as fallback.
-- [ ] **D. Terminate on the existing spine** — build a work request with
-      `priority: 'urgent'` and hand it to `persistWorkRequest`. No second
-      dispatch system.
-- [ ] **E. Portal settings** — an AI Attendant section in `OnCallSetup.tsx`.
-- [ ] **F. Reporting** — call history, transcripts, AI summaries on the
-      existing on-call screens.
+- [x] **A. Number directory.** `onCallNumbers.ts` — pure, 14 tests. One number
+      belongs to one account; a second account claiming it is refused when it is
+      saved rather than guessed at while somebody is on the line. A disabled
+      line answers nothing. An unrecognised caller is never turned away.
+- [x] **B. Attendant state machine.** `onCallAttendant.ts` — pure, 24 tests. Ten
+      categories, a question cap, a skippable unit question, a handoff any
+      caller can ask for at any point, and safety cues that win wherever they
+      appear in the sentence.
+- [x] **C. Voice router.** `onCallVoice.tsx` — three Twilio webhooks behind
+      `X-Twilio-Signature`, plus the account's own settings, number directory
+      and call history. Exempt at the auth gate and the origin lock; refuses
+      everything while `TWILIO_AUTH_TOKEN` is unset.
+- [x] **D. Terminate on the existing spine.** The attendant writes an urgent
+      work request and hands it to `persistWorkRequest`. No second dispatch
+      system: routing, paging, escalation and Phoenix Exchange are untouched.
+- [x] **E. Portal settings.** `AiAttendantPanel.tsx`, inside `OnCallSetup` and
+      above the rota — a caller meets the number before the ladder. So it is
+      already in the **landlord, condo association and property manager**
+      portals, and the **homeowner portal** gains an Emergency Line tab, which
+      is the account with nobody else to ring.
+- [x] **F. Reporting.** Call history, dispatch status, transcript and recording
+      on the same panel.
 
-Items A–D are the chain; E and F are what makes it sellable.
+## What is yours — nothing answers until these are done
+
+1. **Set `TWILIO_AUTH_TOKEN`** (with `TWILIO_ACCOUNT_SID` and
+   `TWILIO_PHONE_NUMBER`, which paging already needs). Until it is set, every
+   inbound call is refused with a 404 — deliberately: an unauthenticated
+   endpoint that creates emergencies is worse than no endpoint.
+2. **Point a Twilio number at the webhook.** In the Twilio console, that
+   number's *A call comes in*, HTTP POST:
+
+       https://<your edge host>/make-server-3eae23a6/voice/incoming
+
+   The status callback, if you want one, is `/voice/status`. `/voice/gather` is
+   reached by the TwiML itself and needs no configuration.
+3. **Assign that number in the portal** — Emergency Line → Numbers. A number
+   pointed at us that no account has claimed is answered with "this number is
+   not set up", which is the right answer and not a useful one.
+4. **Test it on your own account before a tenant does.** Your own number as the
+   rota, at a time you choose. Nothing here has had a real emergency through it.
+
+## Deliberately not built yet, and why
+
+- **A model in the loop.** The classifier is deterministic keyword matching.
+  Layering an LLM pass on top is a small change — `recordedOpenAIFetch` in
+  `aiLedger.ts` meters it and `aiKillSwitch` stops it — but it has to stay a
+  *suggestion* over the classifier rather than the thing that decides, and it
+  must never leave a caller waiting on a model that is slow.
+- **Caller verification against the tenant roster.** `recognizeCaller` is
+  written and pinned; nothing calls it yet, because the roster it should read
+  differs per portal type.
+- **Spending authorisation and manager approval limits** from the brief. Those
+  belong on the on-call config beside the callout rates, not on the attendant.

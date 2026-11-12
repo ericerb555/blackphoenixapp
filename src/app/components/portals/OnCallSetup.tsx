@@ -40,6 +40,7 @@ import {
   Clock, Users, Handshake, Wallet, ShieldCheck, Radio, Siren, Share2,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import AiAttendantPanel from './AiAttendantPanel';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -528,6 +529,14 @@ export default function OnCallSetup({ session, accent = 'orange' }: {
           </span>
         </label>
       </div>
+
+      {/* ── the front door: the number people ring ─────────────────────── */}
+      {/*
+        Above the rota deliberately. The attendant is what a caller meets
+        first, and an account that sets up a ladder without ever assigning a
+        number has built a rota nobody can reach.
+      */}
+      <AiAttendantPanel session={session} tone={tone} input={input} />
 
       {/* ── people ─────────────────────────────────────────────────────── */}
       <div className={card}>
