@@ -93,12 +93,31 @@ All SMS now leaves through `bird.ts` (`BIRD_API_SMS_KEY` + `BIRD_SMS_FROM`);
 `twilio.ts` is deleted and nothing reads a `TWILIO_*` secret except this
 attendant's own signature check, which is therefore inert.
 
+### A correction, same day
+
+I first recorded that the ring "could not be ported" because Bird runs
+sequences built in its console. **That was wrong, and wrong in the direction
+that matters.** Bird's Create Call API accepts an **inline sequence
+definition** in the request body — not only the id of something published in
+the dashboard — and `voice.say` speaks text. So an outbound page is one
+request with the words in the body: the direct analogue of the inline TwiML it
+replaced, with no console setup and no callback URL to host.
+
+    POST {host}/v1/voice/calls
+    Authorization: Bearer bk_<region>_…
+    Idempotency-Key: <once per page>
+    { from, to, sequence: { entry_node_id, trigger_data, definition } }
+    → 202 Accepted
+
+`birdVoice.ts` does this and the ring is back. What stays true from the
+original note is the **inbound** half only.
+
 ### What this cost, exactly
 
 | | Before | Now |
 |---|---|---|
-| On-call SMS page | Twilio | **Bird — works** |
-| On-call voice page (the ring) | Twilio Calls.json + inline TwiML | **not sent**, recorded as `skipped` with its reason |
+| On-call SMS page | Twilio | **Bird** — but see the warning below |
+| On-call voice page (the ring) | Twilio Calls.json + inline TwiML | **Bird inline sequence — restored, never yet placed against the live API** |
 | AI attendant inbound line | Twilio webhooks + TwiML | **inert**, webhooks 404, panel says why |
 | Everything the rota decides | unchanged | unchanged |
 
@@ -108,15 +127,23 @@ hand-off and the whole portal are untouched. So is the attendant's thinking:
 pinned by 38 tests that know nothing about any telephone company. What is
 provider-specific is `onCallVoice.tsx`'s TwiML and its signature check.
 
-### Why it cannot simply be ported
+### Why the INBOUND half still cannot simply be ported
 
-Bird's voice product is not TwiML by another name. An inbound call is routed to
-a SIP trunk, a **published sequence** built in Bird's console, a verified
-forwarding number, a ring group, or rejected. Bird's webhooks are *events* —
-`voice_call.initiated` / `.answered` / `.ended`, signed per the Standard
-Webhooks spec with HMAC-SHA256 — reporting what a call did rather than asking
-what should happen next. There is no per-turn "say this, now listen" exchange,
-so the attendant's conversation loop has nothing to attach to.
+Outbound is solved (above). Inbound is the part that genuinely differs. A call
+arriving on a Bird number is routed to a SIP trunk, a **published sequence**
+built in Bird's console, a verified forwarding number, a ring group, or
+rejected. Bird's webhooks are *events* — `voice_call.initiated` / `.answered`
+/ `.ended`, signed per the Standard Webhooks spec with HMAC-SHA256 —
+reporting what a call did rather than asking what should happen next. There is
+no per-turn "say this, now listen" exchange, so the attendant's conversation
+loop has nothing to attach to.
+
+What Bird's own product page *does* document for sequences is promising for
+the fallback build: "spoken greetings, keypad menus, and routing branches" in
+a visual editor, and recording that captures "call audio **and transcripts**".
+If that transcript is reachable from the `voice_call.ended` webhook, the
+keypad-plus-recording attendant needs no separate transcription vendor —
+`classifyEmergency` can read it as it stands.
 
 ## What is yours — Eric's call, 2026-11-11: ask Bird first
 
@@ -148,10 +175,16 @@ The answer picks the build:
 - **Confirm `BIRD_SMS_FROM` is set.** `bird.ts` needs the sender as well as the
   key, and without it every SMS on the platform — invites, order updates,
   on-call pages — reports "not configured" and sends nothing.
-- **The ring is currently missing from on-call paging.** The text goes; the
-  phone does not ring. Until the question above is answered, an emergency page
-  is a text message only, and anyone who sleeps through a text is not woken.
-  `BIRD_VOICE_SEQUENCE_ID` is the switch the code is already watching for.
+- **Set `BIRD_VOICE_FROM`** — a voice-capable Bird number in E.164. The ring is
+  wired again but it cannot place a call without a dialable caller ID, and
+  `BIRD_SMS_FROM` is deliberately not reused: an alphanumeric sender id is
+  valid for a text and cannot place a call. If your Bird key does not carry
+  voice scope, set `BIRD_API_VOICE_KEY` as well; otherwise the SMS key is used.
+- **Place one test call before trusting the ring.** `birdVoice.ts` is written
+  against Bird's documentation and has never been run against the live API. Its
+  sequence graph is pinned by 10 tests — connected end to end, speaks twice,
+  only documented node types — but no test can prove Bird accepts it. Ring your
+  own phone first.
 - **Test it on your own account before a tenant does**, whatever shape it ends
   up. Your own number as the rota, at a time you choose. Nothing here has had a
   real emergency through it.

@@ -8,14 +8,18 @@
  * deleted: this is now the only SMS transport, and every caller goes through
  * resolveBirdSms/sendBirdSms rather than learning Bird's request format.
  *
- * VOICE IS NOT HERE, AND THAT IS NOT AN OVERSIGHT
+ * VOICE IS NEXT DOOR, IN birdVoice.ts
  *
- * Bird voice is not a drop-in for Twilio's: an inbound or outbound call runs a
- * published SEQUENCE built in Bird's console, and Bird's webhooks report what
- * a call did rather than being asked what it should do next. So there is no
- * sendBirdVoice() to pair with sendBirdSms(), and writing one against a guessed
- * endpoint would put a guess in the path that wakes somebody at 3am. See
- * tasks/ai-emergency-attendant.md.
+ * Kept separate because the credentials differ: BIRD_SMS_FROM may be an
+ * alphanumeric sender id, which is valid for a text and cannot place a call,
+ * and Bird keys carry scopes so voice may need its own. OUTBOUND calls work
+ * the same way as a text in the end — one request, an inline sequence in the
+ * body — see birdVoice.ts.
+ *
+ * INBOUND is the half that genuinely differs: a call arriving on a Bird number
+ * runs a published sequence or routes to SIP, and Bird webhooks report what a
+ * call did rather than being asked what to do next. The AI attendant waits on
+ * that. See tasks/ai-emergency-attendant.md.
  *
  * WHICH BIRD API
  *

@@ -31,16 +31,15 @@
  * them unset this records that it could not page and says so loudly rather than
  * failing quietly.
  *
- * THE PHONE CALL IS CURRENTLY MISSING, AND THAT IS STATED RATHER THAN HIDDEN
- *
- * The account moved off Twilio. Bird's voice product is not a TwiML
- * equivalent — see the note on VOICE_NOT_WIRED below — so the text is sent and
- * the ring is recorded as skipped with its reason, on the record and in the
- * log. Read `tasks/ai-emergency-attendant.md` for what closing that needs.
+ * The ring needs its own two: `BIRD_API_VOICE_KEY` (the SMS key is the
+ * fallback, since Bird keys carry scopes) and `BIRD_VOICE_FROM`, which must be
+ * a dialable number — an alphanumeric SMS sender id cannot place a call. See
+ * `birdVoice.ts`.
  */
 
 import { e164, pageText, pageSpeech } from "./onCallMessage.ts";
 import { resolveBirdSms, sendBirdSms } from "./bird.ts";
+import { placeBirdVoiceCall } from "./birdVoice.ts";
 
 export { e164, pageText, pageSpeech };
 
@@ -66,28 +65,19 @@ export function pagingConfigured(): boolean {
 }
 
 /**
- * Why the phone no longer rings, and why that is said rather than hidden.
+ * A correction worth keeping, because it was briefly wrong in the direction
+ * that matters.
  *
- * This used to place a voice call through Twilio with inline TwiML. The
- * account has moved to Bird, whose voice product is not a TwiML-equivalent:
- * an inbound or outbound call runs a *published sequence* built in Bird's
- * console, and Bird's webhooks report what a call did rather than being asked
- * what it should do next. So the voice leg cannot be ported by swapping a URL,
- * and a guess written into the one code path whose job is to wake somebody at
- * three in the morning is worse than an honest gap.
+ * When Twilio was removed this said the ring "could not be ported" and
+ * recorded every voice attempt as skipped. That was wrong: Bird's Create Call
+ * API accepts an INLINE sequence definition, so an outbound page is one
+ * request with `voice.say` in the body — the direct analogue of the inline
+ * TwiML it replaced, with no console setup and no callback URL to host. See
+ * `birdVoice.ts`.
  *
- * Until a Bird sequence exists and its id is in `BIRD_VOICE_SEQUENCE_ID`, the
- * text is sent and the voice attempt is recorded as `skipped` with this reason
- * attached — which is visible on the call record and in the log, because the
- * whole point of this file is that a page which did not happen must never look
- * like one that did.
+ * The ring is back. It still reports honestly when it cannot be placed,
+ * because that is this file's whole premise.
  */
-const VOICE_NOT_WIRED =
-  "voice paging is not configured — Bird needs a published call sequence (set BIRD_VOICE_SEQUENCE_ID)";
-
-function voiceConfigured(): boolean {
-  return Boolean((Deno.env.get("BIRD_VOICE_SEQUENCE_ID") || "").trim());
-}
 
 /**
  * Page one rung of a rota.
@@ -96,10 +86,10 @@ function voiceConfigured(): boolean {
  * what wakes them. Sending the text second would mean a phone ringing about
  * something with no detail attached.
  *
- * Only the text is sent today. `pageSpeech` is still exported and still the
- * right words — it is what a Bird sequence will read out — and keeping it here
- * rather than deleting it is deliberate: the words were the part that took
- * thought, and the gap is the transport.
+ * Both go out per contact, and each is recorded separately on the attempt. A
+ * rung where the text sent and the call failed is a materially different thing
+ * from one where neither did, and whoever reads the record at 7am needs to be
+ * able to tell them apart.
  */
 export async function pageContacts(
   call: any,
@@ -121,6 +111,7 @@ export async function pageContacts(
   }
 
   const text = pageText(call);
+  const speech = pageSpeech(call);
   const attempts: PageAttempt[] = [];
 
   for (const contact of reachable) {
@@ -152,11 +143,28 @@ export async function pageContacts(
       console.log(`[OnCall] SMS to ${to} failed for call ${call?.id}: ${attempt.detail}`);
     }
 
-    if (opts.voice !== false && !voiceConfigured()) {
-      // Recorded on the attempt, not swallowed: somebody reading this call
-      // record has to be able to see that the phone never rang.
-      attempt.voice = "skipped";
-      attempt.detail = [attempt.detail, VOICE_NOT_WIRED].filter(Boolean).join(" | ");
+    if (opts.voice !== false) {
+      /**
+       * The idempotency key is the call and the contact, never a fresh uuid.
+       *
+       * Bird requires one, and what it protects against here is a retry of a
+       * rung becoming two phone calls to the same person about the same
+       * emergency. Derived from facts that are stable across a retry, so the
+       * second attempt is recognised as the same call rather than a new one.
+       */
+      const voiceResult = await placeBirdVoiceCall(
+        to,
+        speech,
+        `oncall-${String(call?.id || "nocall")}-${attempt.contactId || to}`,
+      );
+      if (voiceResult.ok) {
+        attempt.voice = "called";
+      } else {
+        attempt.voice = "failed";
+        attempt.detail = [attempt.detail, String(voiceResult.error || "").slice(0, 300)]
+          .filter(Boolean).join(" | ");
+        console.log(`[OnCall] call to ${to} failed for call ${call?.id}: ${voiceResult.error}`);
+      }
     }
 
     attempts.push(attempt);
