@@ -14,8 +14,10 @@
 
 import { Hono } from 'npm:hono@4';
 import { recordedOpenAIFetch } from "./aiLedger.ts";
+import { MAX_READING_TOKENS, readJsonReply, unreadableReply } from "./floorPlanReply.ts";
 
 const app = new Hono();
+
 
 interface VideoAnalysisRequest {
   videoUrl?: string;
@@ -182,7 +184,7 @@ async function analyzeWithOpenAI(
       // analysis" over a refusal nobody could see.
       model: 'gpt-4.1-mini',
       messages,
-      max_tokens: 4096,
+      max_tokens: MAX_READING_TOKENS,
       temperature: 0.2
     })
   });
@@ -289,22 +291,16 @@ All measurements should be in inches. Be as precise as possible based on visible
 
     console.log('✅ AI Analysis complete');
 
-    // Extract JSON from response
-    let floorPlanData;
-    try {
-      // Try to find JSON in the response
-      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        floorPlanData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
+    // Extract JSON from response — see readJsonReply for why not a regex.
+    const imageReply = readJsonReply(aiResponse);
+    const floorPlanData = imageReply.data;
+    if (!floorPlanData) {
+      console.error(`[ai-floorplan] image reply unusable, truncated=${imageReply.truncated}`);
       return c.json({
-        error: 'Failed to parse AI analysis',
-        rawResponse: analysisText
-      }, 500);
+        error: unreadableReply(imageReply.truncated),
+        truncated: imageReply.truncated,
+        rawResponse: imageReply.text.slice(0, 500),
+      }, 422);
     }
 
     // Convert to FloorPlanElements format
@@ -509,7 +505,7 @@ All measurements in inches. Create a functional, realistic layout.`;
       // analysis" over a refusal nobody could see.
       model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4096,
+        max_tokens: MAX_READING_TOKENS,
         temperature: 0.7
       })
     });
@@ -521,20 +517,16 @@ All measurements in inches. Create a functional, realistic layout.`;
     const aiResponse = await response.json();
     const analysisText = aiResponse.choices[0]?.message?.content || '';
 
-    // Parse AI response
-    let floorPlanData;
-    try {
-      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        floorPlanData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
+    // Parse AI response — see readJsonReply for why not a regex.
+    const describedReply = readJsonReply(aiResponse);
+    const floorPlanData = describedReply.data;
+    if (!floorPlanData) {
+      console.error(`[ai-floorplan] description reply unusable, truncated=${describedReply.truncated}`);
       return c.json({
-        error: 'Failed to parse AI response',
-        rawResponse: analysisText
-      }, 500);
+        error: unreadableReply(describedReply.truncated),
+        truncated: describedReply.truncated,
+        rawResponse: describedReply.text.slice(0, 500),
+      }, 422);
     }
 
     // Convert to FloorPlanElements
@@ -731,22 +723,16 @@ All measurements should be in inches. Be as precise as possible based on visible
 
     console.log('✅ AI Analysis complete');
 
-    // Extract JSON from response
-    let kitchenData;
-    try {
-      // Try to find JSON in the response
-      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        kitchenData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
+    // Extract JSON from response — see readJsonReply for why not a regex.
+    const kitchenReply = readJsonReply(aiResponse);
+    const kitchenData = kitchenReply.data;
+    if (!kitchenData) {
+      console.error(`[ai-floorplan] kitchen reply unusable, truncated=${kitchenReply.truncated}`);
       return c.json({
-        error: 'Failed to parse AI analysis',
-        rawResponse: analysisText
-      }, 500);
+        error: unreadableReply(kitchenReply.truncated),
+        truncated: kitchenReply.truncated,
+        rawResponse: kitchenReply.text.slice(0, 500),
+      }, 422);
     }
 
     // Convert to FloorPlanElements format
