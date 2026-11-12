@@ -92,6 +92,12 @@ import { createDemoAdsSection4 } from '../lib/demoAdCreatorSection4';
 import createDemoProfessionalReels from '../lib/demoProfessionalReels';
 import { saveVideoAsset, VideoAsset } from '../lib/videoAssetManager';
 import { useCompany } from '../contexts/CompanyContext';
+import { lazy as reactLazy, Suspense as ReactSuspense } from 'react';
+/**
+ * Lazy on purpose. This page is already four thousand lines and the creator
+ * pulls in a canvas renderer nobody needs until they open the tab.
+ */
+const BeforeAfterCreator = reactLazy(() => import('../components/contentstudio/BeforeAfterCreator'));
 import {
   getMusicAssets,
   saveMusicAsset,
@@ -173,7 +179,7 @@ export default function EnterpriseContentCenter() {
   const companyContext = useCompany();
   const currentCompany = companyContext?.activeCompany || null;
 
-  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce' | 'digital-products' | 'creative-studio' | 'content-studio' | 'reel-studio'>('command');
+  const [activeTab, setActiveTab] = useState<'command' | 'ad-studio' | 'library' | 'create' | 'templates' | 'calendar' | 'analytics' | 'settings' | 'photo-video' | 'storage' | 'social-scheduler' | 'social-accounts' | 'creator-vetting' | 'creator-studio' | 'shop-intelligence' | 'store-boosters' | 'promotions-engine' | 'fulfillment' | 'hot-products' | 'store-content' | 'store' | 'ecommerce' | 'digital-products' | 'creative-studio' | 'content-studio' | 'reel-studio' | 'before-after'>('command');
 
   // Which sub-tab the embedded Online Store panel should open on (deep-linkable).
   const [storeSubTab, setStoreSubTab] = useState<import('../components/DropshipperAdminPanel').StoreTab>('overview');
@@ -194,7 +200,7 @@ export default function EnterpriseContentCenter() {
   // Deep-link support: open a specific tab via ?tab=ad-studio etc.
   useEffect(() => {
     try {
-      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce', 'digital-products', 'creative-studio', 'content-studio', 'reel-studio'];
+      const valid = ['command', 'ad-studio', 'library', 'create', 'templates', 'calendar', 'analytics', 'settings', 'photo-video', 'storage', 'social-scheduler', 'social-accounts', 'creator-vetting', 'creator-studio', 'shop-intelligence', 'store', 'ecommerce', 'digital-products', 'creative-studio', 'content-studio', 'reel-studio', 'before-after'];
       const storeSubTabs = ['overview', 'providers', 'catalog', 'pricing', 'inventory', 'orders', 'errors'];
       const tab = new URLSearchParams(window.location.search).get('tab');
       if (tab && tab.startsWith('store-') && storeSubTabs.includes(tab.replace('store-', ''))) {
@@ -2035,6 +2041,7 @@ export default function EnterpriseContentCenter() {
             { id: 'command', label: '🎯 Command Center', icon: Target },
             { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
             { id: 'creative-studio', label: '🎨 Creative Studio', icon: Wand2 },
+            { id: 'before-after', label: '🪄 Before & After', icon: ImageIcon },
             { id: 'content-studio', label: '✍️ Content Studio', icon: Repeat },
             { id: 'reel-studio', label: '🎬 Reel Studio', icon: Film },
             { id: 'ecommerce', label: '🛒 eCommerce Store', icon: Store },
@@ -2088,6 +2095,20 @@ export default function EnterpriseContentCenter() {
           {/* Creative Studio Tab — Higgsfield-style AI image/VFX generation. */}
           {activeTab === 'creative-studio' && (
             <CreativeStudio />
+          )}
+
+          {/*
+            Before & After Creator — the project photographs, laid out and
+            branded. It reuses the job gallery, the media library, the branding
+            profile and the tested layout engine rather than rebuilding any of
+            them, which is the whole reason it is a tab here and not a page.
+          */}
+          {activeTab === 'before-after' && (
+            <div className="p-6">
+              <ReactSuspense fallback={<div className="text-gray-500 text-sm p-8">Opening the creator…</div>}>
+                <BeforeAfterCreator />
+              </ReactSuspense>
+            </div>
           )}
 
           {/* Content Studio Tab — Brand Kit, Omnichannel Repurposer & AI Planner. */}
