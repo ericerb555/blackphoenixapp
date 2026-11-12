@@ -60,6 +60,7 @@ import { constructionTax } from '../lib/constructionTax';
 import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInvoice';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
+import QuoteMarginControl from '../components/quotes/QuoteMarginControl';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -1824,6 +1825,42 @@ export default function UnifiedProjectPipeline() {
                   <div className="flex justify-between"><dt className="text-gray-500">Raised</dt>
                     <dd className="text-gray-300">{selectedItem.createdDate ? new Date(selectedItem.createdDate).toLocaleDateString() : '—'}</dd></div>
                 </dl>
+
+                {/*
+                  Overhead, profit and contingency, on this quote.
+
+                  Eric's requirement: adjustable per quote, and spread across
+                  every line item rather than given a row of their own. The
+                  arithmetic is `applyMargins` — the server's own module — so
+                  this preview cannot become a second opinion about what a
+                  customer is charged.
+
+                  Only where there is a quote with costs to apply them to; a
+                  pipeline item with no quote has nothing to mark up.
+                */}
+                {selectedItem.quote && (Number(selectedItem.quote.materialsSubtotal) || Number(selectedItem.quote.laborSubtotal)) ? (
+                  <QuoteMarginControl
+                    quote={selectedItem.quote}
+                    onApply={async (patch) => {
+                      const updated = {
+                        ...selectedItem,
+                        quote: { ...selectedItem.quote, ...patch },
+                        lastModified: new Date().toISOString(),
+                      } as PipelineItem;
+                      try {
+                        await saveItemToBackend(updated);
+                        setItems(prev => prev.map(i => (i.id === updated.id ? updated : i)));
+                        setSelectedItem(updated);
+                        toast.success(`Quote #${updated.itemNumber} set to $${patch.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+                      } catch (error: any) {
+                        // Not swallowed: the figure on screen would otherwise
+                        // look saved, and the next person to open it would be
+                        // reading the old price without knowing.
+                        toast.error(error?.message || 'Could not save the margins to this quote.');
+                      }
+                    }}
+                  />
+                ) : null}
 
                 {/*
                   How this job is doing.
