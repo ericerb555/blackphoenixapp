@@ -47,6 +47,53 @@
  * resolver says so rather than letting Bird reject the send with a vaguer code.
  */
 
+/**
+ * The sender, in the form Bird will accept — or a refusal that says why.
+ *
+ * THREE CASES, AND THE THIRD IS THE ONE THAT MATTERS
+ *
+ * An alphanumeric sender id ("BLACKPHOENIX") is legal for SMS and is passed
+ * through untouched; normalising it would destroy it.
+ *
+ * A North American number typed the way a person types it — "6038108010",
+ * "(603) 810-8010" — is normalised to +16038108010. Bird wants E.164 and a
+ * bare ten digits is rejected, which is a plausible cause of a failing send
+ * that names nothing.
+ *
+ * Anything else — nine digits, twelve digits, a number missing a character —
+ * is REFUSED rather than normalised. This is the case worth the function.
+ * Prefixing "+" to nine digits produces "+603331918", which is not an error:
+ * it is a syntactically valid number in Portugal. Bird would accept the
+ * config, the send would fail somewhere far away, and the message would say
+ * nothing about the digit that was missed. Counting them here, once, at
+ * configuration time, is the only moment anybody is looking.
+ */
+export function normalizeSender(raw: unknown): { sender: string; error?: string } {
+  const s = String(raw ?? '').trim();
+  if (!s) return { sender: '', error: 'no sender set' };
+
+  // A letter anywhere means an alphanumeric sender id. Not a phone number.
+  if (/[a-z]/i.test(s)) return { sender: s };
+
+  const digits = s.replace(/\D/g, '');
+  if (s.startsWith('+')) {
+    // Explicit country code: trust it, but it still has to be a plausible length.
+    if (digits.length < 8 || digits.length > 15) {
+      return { sender: '', error: `"${s}" has ${digits.length} digits, which is not a valid international number.` };
+    }
+    return { sender: `+${digits}` };
+  }
+  if (digits.length === 10) return { sender: `+1${digits}` };
+  if (digits.length === 11 && digits.startsWith('1')) return { sender: `+${digits}` };
+
+  return {
+    sender: '',
+    error: `"${s}" has ${digits.length} digits. A US number needs 10 (e.g. 6038108010), `
+      + `or write it in full international form starting with "+". `
+      + `It has NOT been guessed at — a missing digit becomes a real number in another country.`,
+  };
+}
+
 /** The regional host a Bird v1 key belongs to, or null if the key isn't one. */
 export function birdHostFromKey(key: unknown): string | null {
   const m = String(key ?? '').trim().match(/^bk_([a-z0-9]+)_/i);
@@ -77,7 +124,18 @@ export function resolveBirdSms(): BirdConfig {
   if (!from) {
     return { ...empty, error: 'The SMS sender is not set. Put your Bird number in BIRD_SMS_FROM in E.164 form (e.g. +16035551234), or a registered alphanumeric sender id.' };
   }
-  return { key, host, from };
+  /**
+   * Normalised here rather than trusted as typed.
+   *
+   * Bird wants E.164 and a bare ten digits is rejected — which looks, from the
+   * outside, exactly like a credential problem. Doing it once at resolution
+   * means no caller has to know and no caller can forget.
+   */
+  const sender = normalizeSender(from);
+  if (sender.error) {
+    return { ...empty, error: `BIRD_SMS_FROM is not usable: ${sender.error}` };
+  }
+  return { key, host, from: sender.sender };
 }
 
 /**

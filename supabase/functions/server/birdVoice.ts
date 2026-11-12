@@ -41,7 +41,7 @@
  * fallback for accounts where one key covers both.
  */
 
-import { birdHostFromKey } from './bird.ts';
+import { birdHostFromKey, normalizeSender } from './bird.ts';
 
 export interface BirdVoiceConfig {
   key: string;
@@ -68,18 +68,32 @@ export function resolveBirdVoice(): BirdVoiceConfig {
    * A sender that cannot be dialled from is refused here rather than at Bird.
    *
    * An alphanumeric sender id is perfectly valid for SMS and meaningless for a
-   * phone call. Letting it through means every page fails at Bird with a vague
-   * code, at three in the morning, on the attempt nobody is watching.
+   * phone call, so the SMS sender is only inherited when it is itself a
+   * number. `normalizeSender` is what decides that, and it refuses a number of
+   * the wrong length rather than prefixing "+" and producing a real number in
+   * another country — which would fail at Bird, at three in the morning, on
+   * the attempt nobody is watching.
    */
-  const from = explicit || (/^\+?[1-9]\d{6,15}$/.test(smsFrom) ? smsFrom : '');
-  if (!from) {
+  const raw = explicit || smsFrom;
+  if (!raw) {
     return {
       ...empty,
       error: 'The voice caller ID is not set. Put a Bird voice-capable number in BIRD_VOICE_FROM '
-        + 'in E.164 form (e.g. +16035551234). BIRD_SMS_FROM cannot be used because it is not a dialable number.',
+        + 'in E.164 form (e.g. +16035551234).',
     };
   }
-  return { key, host, from: from.startsWith('+') ? from : `+${from}` };
+  const sender = normalizeSender(raw);
+  if (sender.error) {
+    return { ...empty, error: `BIRD_VOICE_FROM is not usable: ${sender.error}` };
+  }
+  if (!sender.sender.startsWith('+')) {
+    return {
+      ...empty,
+      error: `"${sender.sender}" is an alphanumeric sender id. That is valid for a text and cannot `
+        + 'place a phone call — set BIRD_VOICE_FROM to a voice-capable Bird number in E.164 form.',
+    };
+  }
+  return { key, host, from: sender.sender };
 }
 
 export function voiceConfigured(): boolean {
