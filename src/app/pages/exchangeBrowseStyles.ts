@@ -295,6 +295,27 @@ export const BROWSE_CSS = `
   display:flex; align-items:center; justify-content:center; background:#fff; }
 .bpxb-ad-image img { max-width:100%; max-height:100%; object-fit:contain; }
 
+/* ── a reel, which needs a frame the 56px thumbnail cannot give it ──────── */
+/* A reel is shot portrait. Dropped into the square above it would play at
+   56px, which is not an advertisement anybody is going to watch — so a video
+   ad stacks instead of sitting in a row, and gets a frame shaped like the
+   thing that was filmed. Capped rather than full width: the Exchange is a
+   directory and a reel that fills the screen on a phone would push every
+   listing below the fold, which is the point at which a labelled space beside
+   the listings has started competing with them. The dashed border and the
+   Advertisement heading are untouched and still carry the disclosure. */
+.bpxb-ad--reel { flex-direction:column; align-items:stretch; gap:10px; }
+.bpxb-ad-reel { width:100%; max-width:210px; aspect-ratio:9/16; max-height:320px;
+  margin:0 auto; border-radius:12px; overflow:hidden; background:#000;
+  display:flex; align-items:center; justify-content:center; }
+/* Cover, unlike the contained logo above: a reel that does not quite match
+   9:16 should fill its frame rather than sit in letterbox bars, and the crop
+   is at the edges where reels carry nothing. */
+.bpxb-ad-reel video { width:100%; height:100%; object-fit:cover; display:block; }
+/* Stacked, the text reads centred under the frame rather than ragged beside a
+   column of video. */
+.bpxb-ad--reel .bpxb-door-text { text-align:center; }
+
 /* ── a logo, which only a claimed listing can have ───────────────── */
 /* A fixed frame rather than a loose image. Logos arrive as any aspect ratio a
    business happens to have, and a row of differently-shaped images reads as a

@@ -212,6 +212,11 @@ advertisingRouter.post("/advertising/creatives", async (c) => {
       // an advertiser cannot skip it.
       linkUrl: safeUrl(body.linkUrl ?? existing?.linkUrl),
       imageUrl: await ourImageUrl(who.email, safeUrl(body.imageUrl ?? existing?.imageUrl)),
+      // A reel to play instead of the picture. Ours only — see `ourVideoUrl`.
+      // The image is kept either way and is what shows while the video loads,
+      // and all that is left if the video is refused or a browser will not
+      // play it.
+      videoUrl: ourVideoUrl(who.email, String(body.videoUrl ?? existing?.videoUrl ?? "")),
       // Where it is allowed to appear. `marquee` is the strip the platform
       // already renders on nineteen surfaces.
       /*
@@ -315,6 +320,33 @@ advertisingRouter.delete("/advertising/creatives/:id", async (c) => {
  * URL: an advertisement without a picture is a small loss, and serving one
  * from an address we never checked is not.
  */
+/**
+ * Video on an advertisement, which is only ever a file we already hold.
+ *
+ * Images get mirrored when an advertiser supplies a foreign address — see
+ * `ourImageUrl` below. Video deliberately does not: mirroring a video means
+ * pulling tens of megabytes from somebody else's server on a save, into a
+ * bucket priced per gigabyte, with no size known in advance. So a foreign
+ * address is refused outright rather than fetched.
+ *
+ * In practice the reel is already ours. `store-content.tsx` publishes rendered
+ * reels into a public bucket and that is where marketing video on this platform
+ * lives, so putting one on the Exchange is a matter of naming a URL we are
+ * already serving on the storefront.
+ *
+ * The consequence of refusing, stated plainly: an advertisement with a foreign
+ * video address keeps its picture and loses its video, rather than putting a
+ * request to an advertiser's server into every visitor's browser — the same
+ * reasoning `ourImageUrl` records, and the same answer.
+ */
+function ourVideoUrl(email: string, url: string): string {
+  const safe = safeUrl(url);
+  if (!safe) return "";
+  if (isOurCopy(safe)) return safe;
+  console.warn(`[Ads] video refused for ${email}: not a file we host`);
+  return "";
+}
+
 async function ourImageUrl(email: string, url: string): Promise<string> {
   if (!url || isOurCopy(url)) return url;
   const namespace = String(email || "").replace(/[^a-z0-9]+/gi, "_").slice(0, 80) || "unknown";
@@ -574,6 +606,15 @@ advertisingRouter.get("/advertising/serve", async (c) => {
         // leave those already stored to keep being served.
         linkUrl: safeUrl(cr.linkUrl),
         imageUrl: safeUrl(cr.imageUrl),
+        /*
+         * Re-checked that it is ours on the way out, not merely that it parses.
+         * Records written before `ourVideoUrl` existed have never been through
+         * the write-side check, and this is the route that hands a URL to every
+         * visitor's browser including signed-out ones. A foreign video address
+         * stored earlier becomes no video here rather than a request to
+         * somebody else's server from every visitor on the Exchange.
+         */
+        videoUrl: isOurCopy(safeUrl(cr.videoUrl || "")) ? safeUrl(cr.videoUrl) : "",
       })),
     });
   } catch (error: any) {

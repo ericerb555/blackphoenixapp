@@ -12,7 +12,7 @@
  * PlanSnapshot type and casts on load.
  */
 
-export const GENERATED_AT = "2026-11-12T02:15:22.888Z";
+export const GENERATED_AT = "2026-11-12T02:17:18.502Z";
 export const PLANS = [
   {
     "file": "todo.md",

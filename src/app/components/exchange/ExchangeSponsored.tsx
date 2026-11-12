@@ -50,6 +50,8 @@ interface Ad {
   content: string;
   linkUrl: string | null;
   imageUrl: string | null;
+  /** A reel to play in place of the picture. Only ever a file we host. */
+  videoUrl?: string | null;
 }
 
 /**
@@ -142,13 +144,44 @@ export default function ExchangeSponsored({ limit = 2 }: { limit?: number }) {
         const href = safeAdUrl(ad.linkUrl);
         const image = safeAdUrl(ad.imageUrl);
 
+        const video = safeAdUrl(ad.videoUrl);
+
         const inside = (
           <>
-            {image && (
+            {/*
+              A reel plays where the picture would be; the picture is the
+              poster behind it and what remains if the video will not play.
+
+              MUTED, AND NOT NEGOTIABLE. This is an advertisement on a
+              directory somebody came to in order to read listings. Sound
+              starting on its own is the behaviour that makes people leave the
+              page, and on iOS an unmuted autoplay is refused outright, so a
+              reel with audio would simply show a frozen frame on every phone.
+              `playsInline` for the same reason — without it iOS Safari takes
+              the video fullscreen and hijacks the visit.
+
+              No controls: at this size they cover most of the frame, and a
+              paused advertisement is worth nothing to the advertiser. Tapping
+              the tile follows the ad's link, which is what a viewer wants from
+              an advertisement they are interested in.
+            */}
+            {video ? (
+              <div className="bpxb-ad-reel">
+                <video
+                  src={video}
+                  poster={image || undefined}
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                />
+              </div>
+            ) : image ? (
               <div className="bpxb-ad-image">
                 <img src={image} alt="" />
               </div>
-            )}
+            ) : null}
             <div className="bpxb-door-text">
               <div className="bpxb-door-title">{ad.title}</div>
               {ad.content && <div className="bpxb-note">{ad.content}</div>}
@@ -163,7 +196,7 @@ export default function ExchangeSponsored({ limit = 2 }: { limit?: number }) {
         return href ? (
           <a
             key={ad.id}
-            className="bpxb-ad"
+            className={video ? "bpxb-ad bpxb-ad--reel" : "bpxb-ad"}
             href={href}
             target="_blank"
             rel="nofollow sponsored noopener noreferrer"
@@ -172,7 +205,7 @@ export default function ExchangeSponsored({ limit = 2 }: { limit?: number }) {
             {inside}
           </a>
         ) : (
-          <div key={ad.id} className="bpxb-ad">{inside}</div>
+          <div key={ad.id} className={video ? "bpxb-ad bpxb-ad--reel" : "bpxb-ad"}>{inside}</div>
         );
       })}
     </div>
