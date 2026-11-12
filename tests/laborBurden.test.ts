@@ -25,8 +25,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   burdenOf, burdenedRate, burdenedLabor, burdenOnSubtotal, describeBurden,
+  burdenFor, hasBurdenOverride,
 } from '../supabase/functions/server/laborBurden.ts';
 import { applyMargins } from '../supabase/functions/server/quoteMargins.ts';
+import { normalizeQuoteDoc } from '../supabase/functions/server/quoteDoc.ts';
 
 /* ── inert until configured, which is what makes it safe to ship ─────────── */
 
@@ -192,4 +194,74 @@ test('the components are named so a reader can disagree with one of them', () =>
   const b = burdenOf({ payrollTaxPercent: 12, workersCompPercent: 9 });
   assert.equal(describeBurden(b), "12% payroll tax + 9% workers' comp");
   assert.equal(describeBurden(burdenOf({ burdenPercent: 30 })), '30% labour burden');
+});
+
+/* ── the per-quote override, and absent versus zero ──────────────────────── */
+
+test('a quote with no opinion inherits the company rate', () => {
+  const settings = { burdenPercent: 35 };
+  const b = burdenFor({ id: 'q1' }, settings);
+  assert.equal(b.rate, 0.35);
+  assert.equal(b.overridden, false);
+  assert.equal(b.source, 'blended');
+});
+
+test('a quote with its own number keeps it, whatever the company says', () => {
+  const b = burdenFor({ laborBurdenPercent: 42 }, { burdenPercent: 35 });
+  assert.equal(b.rate, 0.42);
+  assert.equal(b.overridden, true);
+  assert.equal(b.source, 'quote');
+  assert.equal(burdenedRate(100, b), 142);
+});
+
+test('a deliberate ZERO on a quote is an override, not an absence', () => {
+  // The case that makes `|| 0` wrong everywhere else in this file's story:
+  // this job carries no burden on purpose and must not regain one when
+  // somebody edits the company settings.
+  const b = burdenFor({ laborBurdenPercent: 0 }, { burdenPercent: 35 });
+  assert.equal(b.rate, 0);
+  assert.equal(b.overridden, true);
+  assert.equal(b.configured, true);
+  assert.equal(burdenedLabor(70, 40, b).cost, 2800);
+});
+
+test('absent, null and empty all mean inherit', () => {
+  const settings = { burdenPercent: 35 };
+  for (const raw of [undefined, null, '']) {
+    const b = burdenFor({ laborBurdenPercent: raw }, settings);
+    assert.equal(b.rate, 0.35, `${JSON.stringify(raw)} must inherit`);
+    assert.equal(b.overridden, false);
+  }
+  assert.equal(hasBurdenOverride(0), true);
+  assert.equal(hasBurdenOverride(null), false);
+  assert.equal(hasBurdenOverride(''), false);
+  assert.equal(hasBurdenOverride(-1), false);
+});
+
+test('a quote override is capped like any other rate', () => {
+  assert.equal(burdenFor({ laborBurdenPercent: 3500 }, null).rate, 1);
+});
+
+test('with no company rate and no override, nothing happens at all', () => {
+  const b = burdenFor({}, {});
+  assert.equal(b.rate, 0);
+  assert.equal(b.configured, false);
+  assert.equal(b.overridden, false);
+});
+
+/* ── and it has to survive being saved ───────────────────────────────────── */
+
+test('the per-quote burden survives storage, and absent stays absent', () => {
+  assert.equal(normalizeQuoteDoc({ id: 'q' }).laborBurdenPercent, null);
+  assert.equal(normalizeQuoteDoc({ id: 'q', laborBurdenPercent: 42 }).laborBurdenPercent, 42);
+  // The one that would have broken inheritance for every quote ever saved.
+  assert.equal(normalizeQuoteDoc({ id: 'q', laborBurdenPercent: 0 }).laborBurdenPercent, 0);
+  assert.equal(normalizeQuoteDoc({ id: 'q', laborBurdenPercent: '' }).laborBurdenPercent, null);
+  assert.equal(normalizeQuoteDoc({ id: 'q', laborBurdenPercent: 'abc' }).laborBurdenPercent, null);
+});
+
+test('a saved quote resolves to the same burden it had before saving', () => {
+  const settings = { burdenPercent: 35 };
+  const quote = { id: 'q', laborBurdenPercent: 18 };
+  assert.equal(burdenFor(normalizeQuoteDoc(quote), settings).rate, burdenFor(quote, settings).rate);
 });

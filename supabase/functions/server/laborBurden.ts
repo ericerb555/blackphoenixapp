@@ -92,7 +92,7 @@ export interface Burden {
   /** True when a real rate is configured — false means this is doing nothing. */
   configured: boolean;
   /** Which shape the rate came from, for a screen that has to explain itself. */
-  source: "blended" | "components" | "unset";
+  source: "blended" | "components" | "unset" | "quote";
 }
 
 /**
@@ -202,4 +202,67 @@ export function describeBurden(burden: Burden): string {
   if (burden.liability > 0) parts.push(`${pct(burden.liability)} liability`);
   if (burden.benefits > 0) parts.push(`${pct(burden.benefits)} benefits`);
   return parts.join(" + ");
+}
+
+/**
+ * ───────────────────────────────────────────────────────────────────────────
+ * THE PER-QUOTE OVERRIDE
+ *
+ * Eric: "i should be able to edit each project and tweek the number within my
+ * quote editor."
+ *
+ * The company settings hold the detail — the four components, each separately
+ * knowable and separately argued about. A quote overrides with ONE number,
+ * because that is the question actually being asked at the quote: this job is
+ * different, and the difference is a single figure.
+ *
+ * ABSENT AND ZERO ARE DIFFERENT, and this is the whole subtlety.
+ *
+ *   absent   this quote inherits whatever the company is set to, and keeps
+ *            inheriting it when that changes
+ *   0        this quote carries NO burden, deliberately, and must not quietly
+ *            regain one when somebody edits the company settings
+ *
+ * Every other number on a quote in this codebase reads `Number(x) || 0`, which
+ * collapses those two into the same thing. Here that would be a live fault:
+ * every quote ever saved would read as an explicit zero override, and the
+ * company rate would reach nothing. So presence is tested before value, and
+ * `quoteDoc.ts` stores this field as null-when-absent rather than zero.
+ */
+
+/** Is there an override here at all, as opposed to a field left alone? */
+export function hasBurdenOverride(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return false;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0;
+}
+
+/**
+ * The burden for one quote: its own number when it has one, the company's
+ * otherwise.
+ *
+ * `source` says which, because a screen showing 35% has to be able to answer
+ * "is that mine or the company's" — and because an inherited figure changes
+ * under the quote when the settings change, while an overridden one does not.
+ */
+export function burdenFor(
+  quote: any, settings: BurdenSettings | null | undefined,
+): Burden & { overridden: boolean } {
+  const raw = quote?.laborBurdenPercent;
+  if (hasBurdenOverride(raw)) {
+    const rate = clamped(raw);
+    return {
+      payrollTax: 0, workersComp: 0, liability: 0, benefits: 0,
+      rate,
+      factor: 1 + rate,
+      /**
+       * A deliberate zero IS configured. It is a decision somebody made about
+       * this job, and the point of recording it is that nothing overrides it.
+       */
+      configured: true,
+      source: "quote",
+      overridden: true,
+    };
+  }
+  return { ...burdenOf(settings), overridden: false };
 }

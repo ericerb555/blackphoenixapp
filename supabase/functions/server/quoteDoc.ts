@@ -309,6 +309,35 @@ export function normalizeQuoteDoc(input: any) {
     preTaxTotal: Number(input.preTaxTotal) || 0,
 
     /**
+     * THE PER-QUOTE LABOUR BURDEN, AND THE ONE FIELD HERE THAT IS NOT `|| 0`.
+     *
+     * Eric: "i should be able to edit each project and tweek the number
+     * within my quote editor."
+     *
+     * `null` means this quote inherits the company rate and keeps inheriting
+     * it when that changes. A NUMBER means this job was decided on its own,
+     * and `0` is a real decision — no burden on this one — which must not
+     * quietly regain a burden the next time somebody edits the settings.
+     *
+     * Every other money field on this list reads `Number(x) || 0`, which
+     * collapses absent and zero into the same value. Doing that here would
+     * stamp an explicit zero override onto every quote ever saved, and the
+     * company rate would then reach nothing at all — the failure would look
+     * exactly like the burden never having been built.
+     *
+     * So: absent stays absent. `laborBurden.hasBurdenOverride` is the one
+     * place that decides what counts as set, and it tests presence before
+     * value for the same reason.
+     */
+    laborBurdenPercent:
+      input.laborBurdenPercent === null || input.laborBurdenPercent === undefined
+      || input.laborBurdenPercent === ""
+      || !Number.isFinite(Number(input.laborBurdenPercent))
+      || Number(input.laborBurdenPercent) < 0
+        ? null
+        : Number(input.laborBurdenPercent),
+
+    /**
      * What the customer signed for, stamped by the signing route.
      *
      * Named here for the same reason as `signature` above: a save after an
