@@ -59,6 +59,8 @@ import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
 import { AGENTS, findAgent, reconcile } from "./agentRegistry.ts";
+import { assess } from "./securityPosture.ts";
+import { lastProbeReport } from "./securityPostureStore.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -220,6 +222,19 @@ async function runTool(
       expiresAt: proposed.request!.expiresAt,
       note: "Nothing has happened. This is waiting for a person to approve it.",
     };
+  }
+
+  if (name === 'security_posture') {
+    /**
+     * Reported, never re-tested.
+     *
+     * This returns what `scripts/security-probe.mjs` last found. Nothing here
+     * checks a control — a control re-checked by the thing that reports on it
+     * is a control that reports on itself. `assess()` adds the age, because a
+     * probe that stopped running leaves exactly the same clean result as one
+     * that keeps passing.
+     */
+    return assess(await lastProbeReport(), Date.now());
   }
 
   if (name === 'agent_answer') {

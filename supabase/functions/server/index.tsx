@@ -116,6 +116,7 @@ import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
 import { automationOverviewRoutes } from "./automationOverview.tsx";
 import { exchangeUpkeepRoutes } from "./exchangeUpkeepRoutes.tsx";
+import { securityRoutes } from "./securityRoutes.ts";
 import { refundPolicyRoutes } from "./refundPolicyRoutes.tsx";
 import { registerStoreTrackingJob } from "./storeTrackingJob.ts";
 import { storeCatalogueRouter, registerStoreCatalogueJob } from "./storeCatalogueJob.ts";
@@ -523,6 +524,14 @@ const ORIGIN_LOCK_EXEMPT = [
   '/compliance/run-reminders',
   '/on-call/escalate-due',
   '/cron/screening/expire-invitations',
+  /**
+   * GitHub Actions posts the probe result from its own runners, which do not
+   * go through Cloudflare, so the origin lock would refuse every report the
+   * day it starts enforcing — and the symptom would be a security report that
+   * silently stops arriving, which is the worst possible thing to fail quietly.
+   * It authenticates by its own secret instead.
+   */
+  '/security/probe-report',
   /**
    * Twilio rings these from its own network rather than through Cloudflare, so
    * the origin lock would refuse every inbound emergency call. Each one still
@@ -1057,6 +1066,22 @@ const PUBLIC_POST_PATHS = [
    * Removing the secret retires the route whether or not this entry stays.
    */
   '/sms/test',
+  /**
+   * The security probe filing its result. Public at the auth wall, secret at
+   * the door — the same shape as `/sms/test` directly above.
+   *
+   * CI has no session and must not be given one. The handler refuses anything
+   * without SECURITY_PROBE_SECRET and refuses outright when the secret is
+   * unset, so listing it here only carries the request past the session check
+   * to that gate. Deleting the secret retires the route whether or not this
+   * entry stays.
+   *
+   * It meets the bar this list sets: it writes one validated, capped record of
+   * what the probe found and grants the caller nothing. The posted body cannot
+   * widen anything — a malformed post is dropped rather than stored, because a
+   * stored result is what the assistant repeats as fact.
+   */
+  '/security/probe-report',
   '/applications',            // the five application forms
   '/applications/submit',     // the older form endpoint, still linked
   '/signup/universal',        // portal card signups
@@ -1838,6 +1863,13 @@ app.route("/", automationOverviewRoutes);
  * refuses everything while none is configured.
  */
 app.route("/", exchangeUpkeepRoutes);
+/**
+ * Where the security probe files its result, so the assistant can say whether
+ * the controls still hold. Spells its own full path, so it mounts at the root
+ * for the same reason the upkeep routes do. Refuses everything while
+ * SECURITY_PROBE_SECRET is unset.
+ */
+app.route("/", securityRoutes);
 /**
  * The refund policy. Reading one is public — see the note in the module and the
  * PUBLIC_PREFIXES entry; writing and publishing are staff only.

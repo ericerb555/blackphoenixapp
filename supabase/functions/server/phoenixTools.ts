@@ -270,6 +270,21 @@ export const PHOENIX_TOOLS = [
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
+    name: 'security_posture',
+    description:
+      'What the last security probe found, and how long ago. Returns the pass '
+      + '/ fail / warning counts, every failed check by name, and a verdict '
+      + 'line. Use for "are we secure", "did anything break security-wise", '
+      + '"what is the security status". Two things to carry into the answer '
+      + 'rather than smoothing over: a STALE result means the probe stopped '
+      + 'running and the state is unknown, which is not the same as a pass; '
+      + 'and the probe reaches only the surface a public key can reach, so a '
+      + 'clean run says nothing about the source, the dependencies or anything '
+      + 'behind a login. Never state the platform is secure — state what was '
+      + 'checked, when, and what it found.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
     name: 'agent_registry',
     description:
       'Every AI agent on the platform, what each is for, and whether it has '

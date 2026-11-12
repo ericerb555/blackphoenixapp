@@ -52,7 +52,16 @@ test('no tool is named for an action', () => {
     // so advice about marketing has a number under it.
     'growth_signals',
     'leads', 'open_module', 'pending_actions',
-    'propose_action', 'quotes_and_invoices', 'recent_ai_calls', 'work_requests',
+    'propose_action', 'quotes_and_invoices', 'recent_ai_calls',
+    // Added deliberately 2026-11-11. The probe ran weekly into a workflow log,
+    // so asked "are we secure" this assistant could see errors and model spend
+    // and nothing about whether the controls held. It reports the stored result
+    // and its AGE — a probe that stopped running leaves the same clean result
+    // as one that keeps passing, and only the age separates them. It re-tests
+    // nothing: a control checked by the thing reporting on it is a control
+    // reporting on itself.
+    'security_posture',
+    'work_requests',
   ]);
 });
 

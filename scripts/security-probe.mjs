@@ -664,6 +664,48 @@ function report() {
   return fails.length ? 1 : 0;
 }
 
+/**
+ * File the result where the assistant can read it.
+ *
+ * Best effort on purpose: the probe's job is to check controls and exit with a
+ * code CI can act on, and a reporting endpoint that is down must not turn a
+ * clean run into a failed build. A report that does not arrive shows up as a
+ * STALE posture in `securityPosture.ts`, which is the honest symptom.
+ *
+ * Posts nothing when SECURITY_PROBE_SECRET is unset, so a developer running
+ * this by hand does not overwrite the scheduled run's result with a local one.
+ */
+async function fileReport() {
+  const secret = process.env.SECURITY_PROBE_SECRET;
+  if (!secret) return;
+
+  const brief = (r) => ({ id: r.id, title: r.title, detail: r.detail });
+  const body = {
+    at: new Date().toISOString(),
+    passed: results.filter((r) => r.status === 'PASS').length,
+    failed: results.filter((r) => r.status === 'FAIL').length,
+    warnings: results.filter((r) => r.status === 'WARN').length,
+    skipped: results.filter((r) => r.status === 'SKIP').length,
+    failures: results.filter((r) => r.status === 'FAIL').map(brief),
+    warned: results.filter((r) => r.status === 'WARN').map(brief),
+    mode: QUICK ? 'quick' : 'full',
+    commit: process.env.GITHUB_SHA || undefined,
+  };
+
+  try {
+    const res = await fetch(`${T.fn}/security/probe-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-probe-secret': secret },
+      body: JSON.stringify(body),
+    });
+    console.log(res.ok
+      ? '  (result filed)'
+      : `  (result NOT filed: HTTP ${res.status})`);
+  } catch (err) {
+    console.log(`  (result NOT filed: ${err?.message || err})`);
+  }
+}
+
 async function main() {
   // Liveness first: if the API is down, AUTH-1 passes for the wrong reason
   // and the whole run is misleading.
@@ -680,7 +722,11 @@ async function main() {
   checkApiBaseCentralised();
   checkCommittedSecrets();
   checkDependencies();
-  process.exit(report());
+  const code = report();
+  // After report(), so the table is printed whatever happens next, and awaited
+  // so the process does not exit with the post in flight.
+  await fileReport();
+  process.exit(code);
 }
 
 main().catch((err) => {
