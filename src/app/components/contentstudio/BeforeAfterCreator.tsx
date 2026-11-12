@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image as ImageIcon, Upload, Download, Save, Loader2, Check, Wand2,
-  LayoutGrid, Tag, Palette, RefreshCw,
+  LayoutGrid, Tag, Palette, RefreshCw, MessageSquare, Copy, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -49,6 +49,10 @@ interface GalleryPhoto {
 }
 
 type Slot = 'before' | 'after';
+
+/** One platform’s copy, exactly as `/content-studio/package` returns it. */
+interface Channel { title?: string; body?: string; hashtags?: string[] }
+interface Variant { angle?: string; channels?: Record<string, Channel> }
 
 /**
  * The brand, read from whichever company is active.
@@ -89,7 +93,12 @@ export default function BeforeAfterCreator() {
 
   const [gallery, setGallery] = useState<GalleryPhoto[]>([]);
   const [picking, setPicking] = useState<Slot | null>(null);
-  const [busy, setBusy] = useState<'' | 'saving' | 'downloading'>('');
+  const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing'>('');
+
+  /* The copy, and the facts it is allowed to use. */
+  const [projectNote, setProjectNote] = useState('');
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [bestIndex, setBestIndex] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const brand = useMemo(brandFromCompany, []);
@@ -199,6 +208,72 @@ export default function BeforeAfterCreator() {
       toast.error(err?.message || 'It could not be saved. The download still works.');
     } finally { setBusy(''); }
   }, [ready]);
+
+  /**
+   * The captions, through the route that already writes copy.
+   *
+   * `/content-studio/package` returns variants with a title, a body and
+   * hashtags PER PLATFORM, already carrying the brand voice and already
+   * metered. Writing a second copy route for this tool would mean two
+   * prompts, two brand voices and two places for the tone to drift.
+   *
+   * WHAT IT IS ALLOWED TO SAY is the part that needed care. Eric: the AI
+   * "must use actual project information and never invent completed work or
+   * customer testimonials." A model handed "before and after" and nothing
+   * else will cheerfully produce a delighted homeowner and a timeline it has
+   * no knowledge of. So the brief it gets is built from what is actually on
+   * the screen — the photo titles and whatever the user typed — and the
+   * context spells out the prohibition rather than hoping.
+   */
+  const writeCaptions = useCallback(async () => {
+    const facts = projectNote.trim();
+    if (!facts) {
+      toast.error('Say what the job was first — the captions are written from that, not invented.');
+      return;
+    }
+    setBusy('writing');
+    try {
+      const res = await fetch(`${SERVER}/content-studio/package`, {
+        method: 'POST',
+        headers: await authedHeaders(),
+        body: JSON.stringify({
+          topic: `Before and after: ${facts}`,
+          platforms: ['instagram', 'facebook'],
+          variants: 3,
+          tone: 'confident, plain-spoken, proud of the work and not boastful',
+          context: [
+            'This is a BEFORE AND AFTER post built from the company\u2019s own project photographs.',
+            `What the job actually was: ${facts}`,
+            'STRICT RULES:',
+            '- Use ONLY the facts above. Invent nothing else about the job.',
+            '- No customer quotes, testimonials, names or reactions. None were supplied.',
+            '- No timescales, prices, square footage or materials unless stated above.',
+            '- Do not claim awards, ratings, guarantees or years in business.',
+            '- Describe the change visible between the two photographs, nothing more.',
+            `Call to action: ${brand.callToAction}. Website: ${brand.website || ''}.`,
+          ].join('\n'),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || `The writer refused (${res.status}).`);
+      }
+      const got: Variant[] = Array.isArray(data.variants) ? data.variants : [];
+      if (!got.length) throw new Error('Nothing came back to use.');
+      setVariants(got);
+      setBestIndex(Number.isInteger(data.bestVariantIndex) ? Math.max(0, Math.min(got.length - 1, data.bestVariantIndex)) : 0);
+    } catch (err: any) {
+      toast.error(err?.message || 'The captions could not be written.');
+    } finally {
+      setBusy('');
+    }
+  }, [projectNote, brand]);
+
+  const copy = useCallback((text: string) => {
+    navigator.clipboard?.writeText(text)
+      .then(() => toast.success('Copied.'))
+      .catch(() => toast.error('Could not copy — select it by hand.'));
+  }, []);
 
   const slotCard = (slot: Slot, src: string) => (
     <div className="flex-1 min-w-[140px]">
@@ -400,6 +475,117 @@ export default function BeforeAfterCreator() {
             <p className="text-[11px] text-gray-600 mt-2">
               Read from your business profile — change it there and every design follows.
             </p>
+          </div>
+
+          {/*
+            The words. Through /content-studio/package, which already carries
+            the brand voice and is already metered — a second copy route here
+            would be a second place for the tone to drift.
+          */}
+          <div className="bg-[#111] border border-gray-700 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase">
+              <MessageSquare className="w-3.5 h-3.5 inline mr-1" />Captions and hashtags
+            </p>
+            <textarea
+              value={projectNote}
+              onChange={(e) => setProjectNote(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-black border border-gray-700 rounded-lg text-white text-sm"
+              placeholder="What was the job? e.g. Full bathroom strip-out and refit in Salem — new shower, tile and vanity."
+            />
+            <p className="text-[11px] text-gray-600 flex gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500/70" />
+              <span>
+                The writer is given these facts and told to invent nothing else — no customer
+                quotes, no timescales, no prices. If it is not written here it will not appear.
+              </span>
+            </p>
+            <button
+              disabled={busy !== '' || !projectNote.trim()}
+              onClick={() => void writeCaptions()}
+              className="w-full px-4 py-2 rounded-lg bg-[#ea580c] text-white text-sm font-semibold disabled:opacity-40 hover:bg-[#f97316]"
+            >
+              {busy === 'writing'
+                ? <><Loader2 className="w-4 h-4 inline animate-spin mr-1" />Writing…</>
+                : <><Wand2 className="w-4 h-4 inline mr-1" />Write captions</>}
+            </button>
+
+            {variants.map((v, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border p-3 ${i === bestIndex ? 'border-[#ea580c]/60 bg-[#ea580c]/5' : 'border-gray-800'}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500">
+                    {v.angle || `Option ${i + 1}`}{i === bestIndex ? ' · suggested' : ''}
+                  </span>
+                </div>
+            {v.channels?.instagram && (
+              <div className="mt-2">
+                <p className="text-[10px] uppercase tracking-wide text-gray-600 mb-1">Instagram</p>
+                {v.channels.instagram.title && (
+                  <p className="text-sm font-semibold text-white">{v.channels.instagram.title}</p>
+                )}
+                <p className="text-xs text-gray-400 whitespace-pre-wrap">{v.channels.instagram.body}</p>
+                {!!v.channels.instagram.hashtags?.length && (
+                  <p className="text-[11px] text-sky-400/80 mt-1">
+                    {v.channels.instagram.hashtags.map((h: string) => (h.startsWith('#') ? h : '#' + h)).join(' ')}
+                  </p>
+                )}
+                <div className="flex gap-2 mt-1.5">
+                  <button
+                    onClick={() => copy([v.channels?.instagram?.title, v.channels?.instagram?.body,
+                      (v.channels?.instagram?.hashtags || []).map((h: string) => (h.startsWith('#') ? h : '#' + h)).join(' ')]
+                      .filter(Boolean).join('\n\n'))}
+                    className="text-[11px] px-2 py-1 rounded border border-gray-700 text-gray-300 hover:bg-white/5"
+                  >
+                    <Copy className="w-3 h-3 inline mr-1" />Copy
+                  </button>
+                  {v.channels.instagram.title && (
+                    <button
+                      onClick={() => setOverlayText(String(v.channels?.instagram?.title || '').slice(0, 60))}
+                      className="text-[11px] px-2 py-1 rounded border border-gray-700 text-gray-300 hover:bg-white/5"
+                    >
+                      Use as overlay
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {v.channels?.facebook && (
+              <div className="mt-2">
+                <p className="text-[10px] uppercase tracking-wide text-gray-600 mb-1">Facebook</p>
+                {v.channels.facebook.title && (
+                  <p className="text-sm font-semibold text-white">{v.channels.facebook.title}</p>
+                )}
+                <p className="text-xs text-gray-400 whitespace-pre-wrap">{v.channels.facebook.body}</p>
+                {!!v.channels.facebook.hashtags?.length && (
+                  <p className="text-[11px] text-sky-400/80 mt-1">
+                    {v.channels.facebook.hashtags.map((h: string) => (h.startsWith('#') ? h : '#' + h)).join(' ')}
+                  </p>
+                )}
+                <div className="flex gap-2 mt-1.5">
+                  <button
+                    onClick={() => copy([v.channels?.facebook?.title, v.channels?.facebook?.body,
+                      (v.channels?.facebook?.hashtags || []).map((h: string) => (h.startsWith('#') ? h : '#' + h)).join(' ')]
+                      .filter(Boolean).join('\n\n'))}
+                    className="text-[11px] px-2 py-1 rounded border border-gray-700 text-gray-300 hover:bg-white/5"
+                  >
+                    <Copy className="w-3 h-3 inline mr-1" />Copy
+                  </button>
+                  {v.channels.facebook.title && (
+                    <button
+                      onClick={() => setOverlayText(String(v.channels?.facebook?.title || '').slice(0, 60))}
+                      className="text-[11px] px-2 py-1 rounded border border-gray-700 text-gray-300 hover:bg-white/5"
+                    >
+                      Use as overlay
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+              </div>
+            ))}
           </div>
         </div>
       </div>
