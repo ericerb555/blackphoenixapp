@@ -776,6 +776,25 @@ phoenixChatRouter.post(BASE, async (c) => {
      * browser needs the route, and the model never sees one.
      */
     const opened: string[] = [];
+    /**
+     * Tokens, summed across every turn of the loop.
+     *
+     * This assistant reports on what the platform's AI costs. Until
+     * 2026-11-11 it was the one agent with no cost of its own on the ledger —
+     * 82 calls, `cost_cents` null on all of them — because it drives the
+     * Anthropic SDK directly rather than through `recordedAnthropic`, and
+     * nothing passed usage to `call.ok`. `close()` prices from tokens when it
+     * gets them, and claude-opus-5 has been in MODEL_PRICES all along, so the
+     * whole fault was the counting.
+     *
+     * Summed rather than taken from the last turn: a question answered over
+     * four tool turns costs four calls, and reporting only the last would
+     * under-report the expensive questions by exactly the most interesting
+     * amount. A `usage` the SDK does not return leaves these at zero and the
+     * column NULL, which reads as "not computed" rather than as free.
+     */
+    let tokensIn = 0;
+    let tokensOut = 0;
 
     while (turns < MAX_TURNS) {
       turns += 1;
@@ -795,6 +814,9 @@ phoenixChatRouter.post(BASE, async (c) => {
         tools: PHOENIX_TOOLS as any,
         messages,
       });
+
+      tokensIn += Number((reply as any)?.usage?.input_tokens) || 0;
+      tokensOut += Number((reply as any)?.usage?.output_tokens) || 0;
 
       const text = (reply.content || [])
         .filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
@@ -836,6 +858,7 @@ phoenixChatRouter.post(BASE, async (c) => {
     }
 
     await call.ok({
+      tokensIn, tokensOut,
       summary: toolsUsed.length
         ? `answered using ${[...new Set(toolsUsed)].join(', ')} over ${turns} turn(s)`
         : `answered from the conversation in ${turns} turn(s)`,
