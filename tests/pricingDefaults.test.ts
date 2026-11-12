@@ -129,3 +129,35 @@ test('calling it with one argument behaves exactly as it always did', () => {
   assert.equal(settings.materialMarkup, 25);
   assert.equal(settings.profitMargin, STANDARD_PRICING.profitMargin);
 });
+
+/* ── a company's own category table is the table ─────────────────────────── */
+
+test('a saved category table REPLACES the standards rather than extending them', () => {
+  // One category, deliberately below the platform standard of 25 for Lumber.
+  const { settings } = resolvePricing({ config: { materialMarkup: 100, materialMarkupByCategory: { Lumber: 10 } } }, null);
+  assert.equal(settings.materialMarkupByCategory.Lumber, 10);
+  // Countertops is gone from the table, so it falls back to the company's own
+  // flat rate — not to the platform's 40, which is the whole point.
+  assert.equal(settings.materialMarkupByCategory.Countertops, undefined);
+  assert.equal(settings.materialMarkup, 100);
+});
+
+test('a flat markup now reaches every category, which is what "flat" means', () => {
+  const { settings } = resolvePricing({ config: { materialMarkup: 100 } }, null);
+  // The lookup is `byCategory[cat] ?? materialMarkup`. With the standards
+  // merged underneath, 100% flat quietly became 25% on Lumber and 40% on
+  // Countertops on the same quote.
+  const rateFor = (cat: string) =>
+    Number(settings.materialMarkupByCategory?.[cat] ?? settings.materialMarkup) || 0;
+  assert.equal(rateFor('Lumber'), 25);
+  assert.equal(rateFor('Anything Uncategorised'), 100);
+});
+
+test('a company with no opinion about categories still gets the standards', () => {
+  const { settings } = resolvePricing({ config: { materialMarkup: 30 } }, null);
+  assert.equal(settings.materialMarkupByCategory.Lumber, 25);
+  // And an explicitly empty table is the same as not having one — a company
+  // handed zero rates would price its materials at cost.
+  const empty = resolvePricing({ config: { materialMarkup: 30, materialMarkupByCategory: {} } }, null);
+  assert.equal(empty.settings.materialMarkupByCategory.Lumber, 25);
+});

@@ -279,10 +279,36 @@ export function resolvePricing(
         // overrides them field by field rather than all or nothing.
         ...(fromRates || {}),
         ...(hasConfig ? config : {}),
-        materialMarkupByCategory: {
-          ...STANDARD_PRICING.materialMarkupByCategory,
-          ...((hasConfig && config.materialMarkupByCategory) || {}),
-        },
+        /**
+         * A COMPANY TABLE REPLACES THE STANDARD ONE. IT DOES NOT EXTEND IT.
+         *
+         * This spread the standards underneath whatever was saved, which
+         * meant the platform’s twelve category rates could never be removed —
+         * only individually overridden. Two consequences, both live:
+         *
+         *   a company could not set a category BELOW the standard by clearing
+         *   it, because clearing it restored the standard
+         *
+         *   a flat markup never reached those twelve categories at all.
+         *   `capitalPlanRules` reads `byCategory[category] ?? materialMarkup`,
+         *   so a company setting 100% flat got 100% on uncategorised
+         *   materials and 25-40% on Lumber, Drywall, Electrical and the rest,
+         *   on the same quote. Eric said "materials is 100% mark up" and the
+         *   only way to make that true was to restate all twelve by hand.
+         *
+         * So a saved table that has anything in it IS the table. A category
+         * it does not mention falls back to the company’s own flat
+         * `materialMarkup`, which is what "my settings" should mean.
+         *
+         * An EMPTY or absent table still takes the standards, because that is
+         * a company that has never expressed an opinion about categories, and
+         * handing it zero rates would price its materials at cost.
+         */
+        materialMarkupByCategory:
+          hasConfig && config.materialMarkupByCategory
+          && Object.keys(config.materialMarkupByCategory).length > 0
+            ? { ...config.materialMarkupByCategory }
+            : { ...STANDARD_PRICING.materialMarkupByCategory },
       },
       usingStandards: false,
     };
