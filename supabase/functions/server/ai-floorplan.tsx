@@ -161,7 +161,10 @@ async function analyzeWithOpenAI(
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      // gpt-4o refuses vision requests on this account — see the note in
+      // ai-blueprint-analysis.tsx. Same symptom here: "Failed to parse AI
+      // analysis" over a refusal nobody could see.
+      model: 'gpt-4.1-mini',
       messages,
       max_tokens: 4096,
       temperature: 0.2
@@ -475,7 +478,10 @@ All measurements in inches. Create a functional, realistic layout.`;
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        // gpt-4o refuses vision requests on this account — see the note in
+      // ai-blueprint-analysis.tsx. Same symptom here: "Failed to parse AI
+      // analysis" over a refusal nobody could see.
+      model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 4096,
         temperature: 0.7

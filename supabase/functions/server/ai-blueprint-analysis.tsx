@@ -152,7 +152,14 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o', // Latest GPT-4 with vision capabilities
+        // gpt-4o REFUSED these outright — "I'm sorry, I can't assist with that."
+        // on a 1933 magazine floor plan, in nine output tokens, while
+        // gpt-4.1-mini read the same image correctly on the same account and
+        // the same key. Measured 2026-11-11, both ways round. A model that
+        // declines is worth less than a lighter one that reads, so this is the
+        // one that reads. It is also the model /ai/vision already uses, and it
+        // is priced in modelPricing.ts so the cost lands on the ledger.
+        model: 'gpt-4.1-mini',
         messages: [
           {
             role: 'system',
@@ -170,7 +177,27 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
           }
         ],
         max_tokens: 4000,
-        temperature: 0.2 // Lower temperature for more precise analysis
+        temperature: 0.2, // Lower temperature for more precise analysis
+        /*
+         * JSON MODE, BECAUSE WITHOUT IT THIS ROUTE NEVER WORKED.
+         *
+         * Measured 2026-11-11. Given a real 1933 residence floor plan, gpt-4o
+         * answered "I'm unable to analyze the image directly" in nine output
+         * tokens — while `/ai/vision`, on the same account and the same image,
+         * read the rooms correctly. The image was arriving: ledger `tokens_in`
+         * moved with the picture (1495 blank, 2345 for the plan), so it was
+         * being seen and declined, not dropped.
+         *
+         * The difference between the two routes was this one line. Asked for
+         * free text the model can refuse in prose; required to answer as a
+         * JSON object it cannot, and it reads the drawing instead.
+         *
+         * The word "json" has to appear in the messages or OpenAI rejects the
+         * request outright with a 400 — the same trap `/ai/vision` hit. The
+         * prompt ends "Return ONLY the JSON object", so it is already there,
+         * and `createAnalysisPrompt` must keep saying so.
+         */
+        response_format: { type: 'json_object' },
       })
     });
 
@@ -181,7 +208,16 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
     }
 
     const aiResponse = await response.json();
-    const analysisText = aiResponse.choices[0].message.content;
+    /*
+     * `refusal` as well as `content`. In JSON mode a model that declines puts
+     * its reason in `message.refusal` and leaves `content` null — so reading
+     * only `content` turns a stated refusal into an empty string and loses the
+     * one sentence that says what went wrong. Found exactly that way on
+     * 2026-11-11: switching this route to JSON mode made the diagnostic go
+     * blank, which looked like a worse failure and was the same one.
+     */
+    const message = aiResponse?.choices?.[0]?.message || {};
+    const analysisText = message.content || message.refusal || '';
 
     console.log('[AI Blueprint] AI analysis received, parsing JSON...');
 
@@ -196,9 +232,28 @@ aiBlueprintRouter.post('/analyze-blueprints', async (c) => {
     } catch (parseError) {
       console.error('[AI Blueprint] Failed to parse AI response:', parseError);
       console.error('[AI Blueprint] Raw response:', analysisText);
-      
-      // Return a fallback analysis
-      analysis = createFallbackAnalysis();
+      /*
+       * REFUSE. This used to answer with `createFallbackAnalysis()`, which
+       * returned a 1,500 sq ft "Main Room", 450 linear feet and a $25,000
+       * materials line under `success: true` — invented numbers, in the exact
+       * shape of a reading, with the only hint buried in one item's `notes`.
+       *
+       * Proved on 2026-11-11 by sending a 1x1 blank PNG: the model correctly
+       * said it could not analyse the image, and this route answered 200 with
+       * a 1,500 sq ft house. Those numbers feed a takeoff, which becomes a
+       * quote, which becomes a contract and then an invoice, and nothing
+       * downstream could tell them from a measurement.
+       *
+       * 422 instead, with the model's own words. BlueprintImport already
+       * handles a non-OK response and says "That drawing could not be read."
+       * — which was true all along and is what should have been shown.
+       */
+      return c.json({
+        success: false,
+        error: 'That drawing could not be read. Nothing was measured, so no '
+          + 'figures are being returned — try a clearer scan or a larger image.',
+        modelSaid: String(analysisText || '').slice(0, 400),
+      }, 422);
     }
 
     // Validate and enhance the analysis
@@ -373,61 +428,16 @@ function createAnalysisPrompt(analysisType: string): string {
 Return ONLY the JSON object. No explanatory text before or after.`;
 }
 
-// Create fallback analysis if AI parsing fails
-function createFallbackAnalysis(): any {
-  return {
-    totalSquareFootage: 1500,
-    totalLinearFootage: 450,
-    rooms: [
-      {
-        name: 'Main Room',
-        type: 'general',
-        squareFootage: 1500,
-        dimensions: { length: 30, width: 50, height: 9 },
-        perimeterLinearFeet: 160,
-        features: ['Standard construction']
-      }
-    ],
-    materials: [
-      {
-        category: 'General Materials',
-        items: [
-          {
-            name: 'Construction Materials',
-            quantity: 1,
-            unit: 'lot',
-            estimatedCost: 25000,
-            notes: 'Detailed breakdown unavailable - manual review required'
-          }
-        ]
-      }
-    ],
-    constructionDetails: {
-      wallCount: 10,
-      doorCount: 5,
-      windowCount: 8,
-      electricalOutlets: 20,
-      plumbingFixtures: 4,
-      hvacVents: 6
-    },
-    costEstimates: {
-      materials: 25000,
-      labor: 35000,
-      total: 60000,
-      breakdown: [
-        { category: 'Materials', cost: 25000 },
-        { category: 'Labor', cost: 35000 }
-      ]
-    },
-    insights: {
-      complexity: 'medium',
-      estimatedDuration: '8-12 weeks',
-      specialRequirements: ['Manual blueprint review recommended'],
-      recommendations: ['Upload higher quality images for better analysis'],
-      potentialIssues: ['AI analysis incomplete - human review required']
-    }
-  };
-}
+/**
+ * createFallbackAnalysis() was here, and it is deliberately gone.
+ *
+ * It returned a 1,500 sq ft house, 450 linear feet and a $25,000 materials
+ * estimate whenever the reply would not parse — under success: true, shaped
+ * exactly like a measurement, on the path into a quote.
+ *
+ * If a future change wants a default again: a reading that did not happen has
+ * no numbers. The honest answer is the 422 at the parse site.
+ */
 
 // Validate and enhance the analysis
 function validateAndEnhanceAnalysis(analysis: any): any {
