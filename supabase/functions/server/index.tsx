@@ -6053,6 +6053,10 @@ app.post('/make-server-3eae23a6/pricing-config/save', async (c) => {
       laborMarkup: pct(incoming.laborMarkup),
       profitMargin: pct(incoming.profitMargin),
       overheadPercentage: pct(incoming.overheadPercentage),
+      // The company default a new quote seeds its own contingency from. It had
+      // no home here, so a per-quote contingency could be set by hand and
+      // never defaulted — see the note in pricingDefaults.ts.
+      contingencyPercentage: pct(incoming.contingencyPercentage),
       taxRate: pct(incoming.taxRate, 100),
       allowDiscounts: incoming.allowDiscounts !== false,
       maxDiscountPercentage: pct(incoming.maxDiscountPercentage, 100),

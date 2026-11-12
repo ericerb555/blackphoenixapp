@@ -86,6 +86,21 @@ export const STANDARD_PRICING = {
   laborMarkup: 0,
   profitMargin: 15,
   overheadPercentage: 10,
+  /**
+   * Zero on purpose, for the same reason as the tax line below.
+   *
+   * `applyMargins` and `quoteCustomerPrice` have read a per-quote
+   * `contingencyPercent` since they were written, and the settings record had
+   * nowhere to hold a company default for it — so a contingency could be set
+   * on one quote by hand and never on the next, and nothing said so. It has a
+   * home now.
+   *
+   * It defaults to nothing rather than to a number, because a contingency is a
+   * judgement about a particular job's risk and inventing one for every company
+   * on the platform would quietly raise prices nobody chose to raise. Eric's
+   * own 10% lives in his saved settings, not here.
+   */
+  contingencyPercentage: 0,
   // Zero on purpose: New Hampshire has no sales tax, and a wrong tax line is
   // worse than none. A job in Massachusetts needs this set deliberately.
   taxRate: 0,
@@ -180,11 +195,15 @@ function fromProfitSettings(profitSettings: any): Record<string, number> | null 
   const laborMarkup = num(profitSettings.laborMarkup);
   const overheadPercentage = num(profitSettings.overheadPercentage);
   const profitMargin = num(profitSettings.targetProfitMargin ?? profitSettings.profitMargin);
+  // Both spellings, because this record is written by a different screen than
+  // the one that reads it — which is the whole reason this translation exists.
+  const contingencyPercentage = num(profitSettings.contingencyPercentage ?? profitSettings.contingency);
 
   if (materialMarkup !== undefined) mapped.materialMarkup = materialMarkup;
   if (laborMarkup !== undefined) mapped.laborMarkup = laborMarkup;
   if (overheadPercentage !== undefined) mapped.overheadPercentage = overheadPercentage;
   if (profitMargin !== undefined) mapped.profitMargin = profitMargin;
+  if (contingencyPercentage !== undefined) mapped.contingencyPercentage = contingencyPercentage;
 
   return Object.keys(mapped).length ? mapped : null;
 }
