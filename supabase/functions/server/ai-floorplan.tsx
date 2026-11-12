@@ -189,7 +189,18 @@ async function analyzeWithOpenAI(
       // same sheet read 34x30, 32x26.7 and 30x28.3 feet on three consecutive
       // runs. Variety is a virtue when drafting copy and a defect when the
       // answer becomes a quantity on a quote.
-      temperature: 0
+      temperature: 0,
+      /*
+       * JSON mode, so the reply is structurally JSON whatever the prompt
+       * provoked. Asked to convert feet and inches, the model started
+       * writing the conversion into the fields — "width": 11 * 12 — which
+       * is arithmetic, not JSON, and threw away an otherwise good reading.
+       * The prompt now says to write the answer; this makes it so.
+       *
+       * The messages say "JSON object" already, which OpenAI requires before
+       * it will accept this — see the 400 the vision route hit without it.
+       */
+      response_format: { type: 'json_object' }
     })
   });
 
@@ -305,6 +316,18 @@ between a reading and a guess:
 - If a dimension is genuinely not legible, use null rather than a number taken
   from how big something looks. A null says somebody must measure it, which is
   true and useful; a guess cannot be told apart from a reading.
+- NEVER LEAVE A LABELLED SPACE OUT. If the plan names it — hall, vestibule,
+  porch, laundry, closet — it is a room, and it belongs in the list even when
+  its dimensions are null. Dropping it loses the fact that it exists, which is
+  worse than carrying it with no size: counting the rooms is how somebody
+  checks your reading against the drawing.
+- Where the same label appears more than once, number them in reading order:
+  "Bed Room 1", "Bed Room 2", "Bed Room 3". Three rooms all called "Bed Room"
+  cannot be told apart by anything downstream.
+- EVERY NUMERIC FIELD MUST BE ONE NUMBER, ALREADY WORKED OUT. Write 102, never
+  "8 * 12 + 6". An expression is not JSON and the whole reading is discarded
+  when one appears. Do the conversion, then write the answer. If you want to
+  record how you got there, put it in that item's "notes" as text.
 
 Measured on 2026-11-12: asked to judge by eye, one sheet came back as 34'x30',
 32'x26'8" and 30'x28'4" on three consecutive reads — of a drawing whose size
@@ -757,6 +780,18 @@ between a reading and a guess:
 - If a dimension is genuinely not legible, use null rather than a number taken
   from how big something looks. A null says somebody must measure it, which is
   true and useful; a guess cannot be told apart from a reading.
+- NEVER LEAVE A LABELLED SPACE OUT. If the plan names it — hall, vestibule,
+  porch, laundry, closet — it is a room, and it belongs in the list even when
+  its dimensions are null. Dropping it loses the fact that it exists, which is
+  worse than carrying it with no size: counting the rooms is how somebody
+  checks your reading against the drawing.
+- Where the same label appears more than once, number them in reading order:
+  "Bed Room 1", "Bed Room 2", "Bed Room 3". Three rooms all called "Bed Room"
+  cannot be told apart by anything downstream.
+- EVERY NUMERIC FIELD MUST BE ONE NUMBER, ALREADY WORKED OUT. Write 102, never
+  "8 * 12 + 6". An expression is not JSON and the whole reading is discarded
+  when one appears. Do the conversion, then write the answer. If you want to
+  record how you got there, put it in that item's "notes" as text.
 
 Measured on 2026-11-12: asked to judge by eye, one sheet came back as 34'x30',
 32'x26'8" and 30'x28'4" on three consecutive reads — of a drawing whose size

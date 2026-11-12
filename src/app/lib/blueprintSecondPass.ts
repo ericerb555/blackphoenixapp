@@ -199,6 +199,77 @@ export function mergeReadings(
 }
 
 /**
+ * The same second pass, for a reader that works in inches.
+ *
+ * `ai-floorplan` returns room elements as `{ label, width, height }` in
+ * INCHES, where the blueprint reader returns `{ name, squareFootage }` in feet
+ * and square feet. Rather than teach the rules two unit systems — and risk a
+ * threshold meaning 90 sq ft in one place and 90 sq inches in another — this
+ * converts to the shape the tested rules already use, runs them, and converts
+ * back. The arithmetic that decides anything stays in one place.
+ */
+const INCHES_PER_FOOT = 12;
+
+export interface InchRoom {
+  label?: string;
+  width?: number;
+  height?: number;
+  [key: string]: unknown;
+}
+
+export async function runSecondPassInches(
+  rooms: readonly InchRoom[],
+  sheets: readonly string[],
+  post: (path: string, body: unknown) => Promise<any>,
+  /* Injected so the rules can be tested without a canvas. */
+  cut: (dataUrl: string) => Promise<string[]> = cutTiles,
+): Promise<{ rooms: InchRoom[]; ran: boolean; changed: MergeOutcome['changed'] }> {
+  const asFeet: RoomLike[] = rooms.map((room) => {
+    const w = Number(room?.width);
+    const h = Number(room?.height);
+    const usable = Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0;
+    return {
+      name: String(room?.label ?? ''),
+      squareFootage: usable ? (w / INCHES_PER_FOOT) * (h / INCHES_PER_FOOT) : null,
+    };
+  });
+
+  const wanted = roomsNeedingSecondPass(asFeet);
+  if (!wanted.length || sheets.length !== 1) return { rooms: [...rooms], ran: false, changed: [] };
+
+  try {
+    const tiles = await cut(sheets[0]);
+    if (!tiles.length) return { rooms: [...rooms], ran: false, changed: [] };
+
+    const data = await post('/ai/measure-rooms', { tiles, rooms: wanted });
+    const readings: Reading[] = Array.isArray(data?.readings) ? data.readings : [];
+    if (!readings.length) return { rooms: [...rooms], ran: true, changed: [] };
+
+    const merged = mergeReadings(asFeet, readings);
+    const byName = new Map(merged.changed.map((c) => [c.name, c]));
+
+    // Only the rooms the merge actually accepted are written back, in inches.
+    const out = rooms.map((room, i) => {
+      const change = byName.get(String(room?.label ?? ''));
+      if (!change) return room;
+      const dims = merged.rooms[i]?.dimensions;
+      const l = Number(dims?.length);
+      const w = Number(dims?.width);
+      if (!Number.isFinite(l) || !Number.isFinite(w)) return room;
+      return {
+        ...room,
+        width: Math.round(l * INCHES_PER_FOOT),
+        height: Math.round(w * INCHES_PER_FOOT),
+        measuredBy: 'second-pass',
+      };
+    });
+    return { rooms: out, ran: true, changed: merged.changed };
+  } catch {
+    return { rooms: [...rooms], ran: false, changed: [] };
+  }
+}
+
+/**
  * Cut a sheet into its tiles, at native resolution.
  *
  * Browser only — it needs a canvas. The geometry it relies on is in
@@ -243,6 +314,8 @@ export async function runSecondPass(
   analysis: any,
   sheets: readonly string[],
   post: (path: string, body: unknown) => Promise<any>,
+  /* Injected so the rules can be tested without a canvas. */
+  cut: (dataUrl: string) => Promise<string[]> = cutTiles,
 ): Promise<{ analysis: any; ran: boolean; changed: MergeOutcome['changed']; reason?: string }> {
   const rooms: RoomLike[] = Array.isArray(analysis?.rooms) ? analysis.rooms : [];
   const wanted = roomsNeedingSecondPass(rooms);
@@ -251,7 +324,7 @@ export async function runSecondPass(
   if (sheets.length !== 1) return { analysis, ran: false, changed: [], reason: 'more than one sheet' };
 
   try {
-    const tiles = await cutTiles(sheets[0]);
+    const tiles = await cut(sheets[0]);
     if (!tiles.length) return { analysis, ran: false, changed: [], reason: 'sheet had no size' };
 
     const data = await post('/ai/measure-rooms', { tiles, rooms: wanted });

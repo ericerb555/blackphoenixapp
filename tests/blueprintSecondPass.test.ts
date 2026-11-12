@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   tileRegions, mergeReadings, roomsNeedingSecondPass,
-  SMALL_ROOM_SQFT, TILE_OVERLAP, type RoomLike, type Reading,
+  SMALL_ROOM_SQFT, TILE_OVERLAP, runSecondPassInches, type RoomLike, type Reading,
 } from '../src/app/lib/blueprintSecondPass.ts';
 
 /* ── tiling ──────────────────────────────────────────────────────────────── */
@@ -144,4 +144,39 @@ test('the threshold sits between the rooms that failed and the ones that did not
   // bedroom 93.5 were right. The line has to fall between those two groups.
   assert.ok(SMALL_ROOM_SQFT > 64, 'laundry would not be rechecked');
   assert.ok(SMALL_ROOM_SQFT <= 93.5, 'a correctly-read bedroom would be rechecked');
+});
+
+/* ── the inch-shaped adapter, for the floor-plan reader ──────────────────── */
+
+test('inch rooms convert, get re-read, and come back in inches', async () => {
+  // ai-floorplan returns 42x84 inches for a bathroom printed 7'9" x 7'.
+  // The tiles read 7.75 x 7 feet; back in inches that is 93 x 84.
+  const rooms = [
+    { label: 'Bath Room', width: 42, height: 84 },
+    { label: 'Lounge', width: 255, height: 144 },
+  ];
+  const out = await runSecondPassInches(rooms, ['data:image/jpeg;base64,x'], async () => ({
+    readings: [{ name: 'Bath Room', lengthFt: 7.75, widthFt: 7 }],
+  }), async () => ['tile1', 'tile2']);
+  assert.equal(out.rooms[0].width, 93);
+  assert.equal(out.rooms[0].height, 84);
+  // The lounge is 255 sq ft and must not be touched.
+  assert.equal(out.rooms[1].width, 255);
+  assert.equal(out.changed.length, 1);
+});
+
+test('a large inch room is never re-read, so the threshold means square FEET', () => {
+  // 255x144 inches is 255 sq ft, not 36,720 — if the units were confused the
+  // whole list would qualify as "small" and every room would be overwritten.
+  const asSmall = roomsNeedingSecondPass([
+    { name: 'Lounge', squareFootage: (255 / 12) * (144 / 12) },
+  ]);
+  assert.deepEqual(asSmall, []);
+});
+
+test('the adapter leaves everything alone when the tiles say nothing', async () => {
+  const rooms = [{ label: 'Vest', width: 54, height: 18 }];
+  const out = await runSecondPassInches(rooms, ['data:image/jpeg;base64,x'], async () => ({ readings: [] }), async () => ['tile1']);
+  assert.equal(out.rooms[0].width, 54);
+  assert.deepEqual(out.changed, []);
 });

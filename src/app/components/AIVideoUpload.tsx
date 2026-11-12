@@ -4,6 +4,7 @@ import { Upload, Camera, Video, Image as ImageIcon, Wand2, Loader2, CheckCircle,
 import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from '../utils/authHeaders';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { runSecondPassInches } from '../lib/blueprintSecondPass';
 
 interface CanvasElement {
   id: string;
@@ -115,12 +116,48 @@ export default function AIVideoUpload({
       console.log('✅ AI Analysis complete:', data);
 
       if (data.success && data.project) {
+        /*
+         * Re-read the small rooms at full resolution before anything uses them.
+         *
+         * The whole-sheet read is reliable on the envelope and the large rooms
+         * and was measured wrong on the small ones — a bathroom printed
+         * 7'9" x 7' came back 42x84 inches. Tiling the sheet and re-reading
+         * only those rooms is what fixes it; see blueprintSecondPass.ts.
+         *
+         * Elements here are in inches, so the inch-shaped adapter is used. It
+         * never fails the upload: no small rooms, or any error, and the first
+         * read stands.
+         */
+        const elements = data.project.elements || [];
+        const roomEls = elements.filter((e: any) => e?.type === 'room');
+        // A data URL, not the bare base64 sent to the reader above: cutTiles
+        // loads this into an <img> and bare base64 is not a usable src.
+        const sheetDataUrl = `data:${selectedFile.type || 'image/jpeg'};base64,${imageBase64}`;
+        const second = await runSecondPassInches(roomEls, [sheetDataUrl], async (path, body) => {
+          const r = await fetch(`${API_BASE_URL}/make-server-3eae23a6${path}`, {
+            method: 'POST',
+            headers: await authedHeadersOrAnon(publicAnonKey),
+            body: JSON.stringify(body),
+          });
+          return r.ok ? r.json() : null;
+        });
+
+        let finalElements = elements;
+        if (second.changed.length) {
+          // Rooms are replaced in place; everything else travels untouched.
+          let i = 0;
+          finalElements = elements.map((e: any) =>
+            (e?.type === 'room' ? second.rooms[i++] : e));
+          console.log(`✅ Second pass re-measured ${second.changed.length} small room(s)`);
+        }
+
         setSuccess(true);
         setTimeout(() => {
-          onFloorPlanGenerated(data.project.elements, {
+          onFloorPlanGenerated(finalElements, {
             source: 'ai-image',
             measurements: data.project.measurements,
-            rawAnalysis: data.rawAnalysis
+            rawAnalysis: data.rawAnalysis,
+            secondPass: second.changed.length,
           });
         }, 1000);
       } else {
