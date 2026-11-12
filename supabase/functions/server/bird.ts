@@ -128,7 +128,13 @@ export async function sendBirdSms(
 ): Promise<SmsResult> {
   if (!BIRD_CATEGORIES.includes(category as any)) category = 'transactional';
   const cfg = resolveBirdSms();
-  if (cfg.error) return { ok: false, error: cfg.error };
+  // Same reasoning as the failure log below: this is now the only SMS
+  // transport, so "not configured" has to be visible to somebody reading logs
+  // rather than only to whoever happened to make the request.
+  if (cfg.error) {
+    console.log(`[Bird][SMS NOT SENT] ${cfg.error}`);
+    return { ok: false, error: cfg.error };
+  }
 
   let res: Response;
   try {
@@ -141,12 +147,26 @@ export async function sendBirdSms(
       body: JSON.stringify({ to, from: cfg.from, text, category }),
     });
   } catch (e: any) {
-    return { ok: false, error: `Bird could not be reached: ${e?.message || e}` };
+    const error = `Bird could not be reached: ${e?.message || e}`;
+    console.log(`[Bird][SMS FAILED] ${error}`);
+    return { ok: false, error };
   }
 
   if (res.status !== 202 && !res.ok) {
     const body = await res.text().catch(() => '');
-    return { ok: false, error: describeBirdError(res.status, body) };
+    const error = describeBirdError(res.status, body);
+    /**
+     * Logged, not just returned.
+     *
+     * Found by reading production logs: four test sends failed with 502 on
+     * 2026-11-11 and the reason reached nobody — the caller got a string in a
+     * response body and the log recorded only the status code. Every SMS on
+     * this platform now leaves through here, so a failure nobody can read is a
+     * failure nobody can fix. The key is never in `error`; `describeBirdError`
+     * builds its message from the status and Bird's own body.
+     */
+    console.log(`[Bird][SMS FAILED] ${res.status} to ${to.slice(0, 6)}…: ${error}`);
+    return { ok: false, error };
   }
   const body = await res.json().catch(() => ({} as any));
   return { ok: true, id: body?.id || body?.messageId };
