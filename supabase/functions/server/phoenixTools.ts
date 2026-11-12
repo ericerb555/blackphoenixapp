@@ -270,6 +270,53 @@ export const PHOENIX_TOOLS = [
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
+    name: 'agent_registry',
+    description:
+      'Every AI agent on the platform, what each is for, and whether it has '
+      + 'actually run. Returns the declared list joined to the call ledger: '
+      + 'calls, failures and when each was last used, plus three things worth '
+      + 'raising unprompted — agents that are reachable but have been SILENT '
+      + 'for the whole window, agents on the ledger that nobody declared '
+      + '(somebody shipped one and told nobody), and agents built but UNWIRED. '
+      + 'Use for "what agents do we have", "what is not being used", "do we '
+      + 'need an agent for marketing / the store / social". Silence is a '
+      + 'question, not a verdict: an agent can be silent because it is broken '
+      + 'or because nobody opened that screen, and this cannot tell you which. '
+      + 'Say which it might be and offer to run it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        hours: { type: 'number', description: 'Window to judge silence over. Defaults to 168 (a week), max 720.' },
+      },
+      required: [], additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_answer',
+    description:
+      'The answer from one of the platform\'s other agents. Only agents marked '
+      + 'delegable in agent_registry are reachable this way — those that '
+      + 'GENERATE or ANALYSE and change nothing (ad copy, a social rewrite, '
+      + 'price suggestions, an Exchange answer, a permit question, a plan '
+      + 'draft, a reading of a drawing). Anything that captures a lead, raises '
+      + 'a quote, or puts a message in front of a customer is NOT reachable '
+      + 'here on purpose: propose those instead. Pass the fields agent_registry '
+      + 'lists under input for that agent — its example is a body known to '
+      + 'work. Use when the owner wants the thing itself rather than a '
+      + 'description of it — "write me an ad for the deck package", "what would '
+      + 'we price these at", "is that agent actually working". Costs a real '
+      + 'model call, so ask when the answer is wanted, not to explore. Report '
+      + 'what came back and say which agent produced it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', description: 'The agent name exactly as agent_registry gives it.' },
+        params: { type: 'object', description: 'The request body for that agent.' },
+      },
+      required: ['agent'], additionalProperties: false,
+    },
+  },
+  {
     name: 'find_module',
     description:
       'Search the application for the module that does a job — "where do I '
@@ -392,6 +439,26 @@ export const PHOENIX_SYSTEM = [
   'Lead with the thing that needs a decision. "Four quotes out, $18k, and two',
   'invoices overdue" is an answer; a list of every status is a report nobody',
   'asked for.',
+  '',
+  'THE OTHER AGENTS ARE YOURS TO WATCH, AND SOME ARE YOURS TO USE',
+  '',
+  'This platform runs sixteen other AI agents — marketing, social, the store,',
+  'the Exchange, permits, plans, blueprints. agent_registry lists them with',
+  'whether each has actually run. When asked what agents exist, or whether one',
+  'is needed for some job, check there first: the answer is usually that it',
+  'already exists and nobody has used it. Do not propose building an agent',
+  'without looking.',
+  '',
+  'An agent that has been silent for a week is a question, never a verdict. It',
+  'may be broken or it may just be a screen nobody opened, and the registry',
+  'cannot tell those apart. Say which it might be. For a delegable one you can',
+  'settle it yourself with agent_answer; for the rest, say what would settle it.',
+  '',
+  'agent_answer gets you a real answer from one of them — ad copy, a social',
+  'rewrite, price suggestions, a permit question, a reading of a drawing. It',
+  'costs a model call, so run one when the answer is wanted, not to look busy.',
+  'Say which agent produced what you are reporting. Anything that captures,',
+  'raises or notifies is deliberately not reachable: propose those.',
   '',
   'HOW YOU ANSWER',
   '',

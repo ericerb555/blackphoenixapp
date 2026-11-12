@@ -58,6 +58,7 @@ import { estimateTtsCostCents, estimateSttCostCents } from "./modelPricing.ts";
 import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
+import { AGENTS, findAgent, reconcile } from "./agentRegistry.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -89,7 +90,68 @@ const MAX_TURNS = 5;
 /** How much history the client may replay. Enough for a working exchange. */
 const MAX_HISTORY = 12;
 
-async function runTool(name: string, input: any, asker: string, opened?: string[]): Promise<unknown> {
+/**
+ * Phoenix calling another agent.
+ *
+ * Over HTTP to this same function rather than by importing the handler, which
+ * costs a hop and buys the thing that matters: the request goes through the
+ * auth gate, the IP reputation layer and the kill switch exactly as a browser's
+ * would. An in-process call would skip all three, and the first agent Phoenix
+ * delegated to would be the first route on the platform with no gate in front
+ * of it.
+ *
+ * The route comes from the registry, keyed by name. The model supplies the
+ * body and never the path — the same rule `open_module` follows, for the same
+ * reason: a model that can name its own route can reach anything the service
+ * can reach.
+ *
+ * The caller's own Authorization is forwarded, so a delegated call is bounded
+ * by what the person asking could have done themselves. Phoenix borrows their
+ * authority; he does not hold more than they do.
+ */
+async function callAgent(
+  name: unknown, params: unknown, authorization: string,
+): Promise<unknown> {
+  const declared = findAgent(name);
+  if (!declared) {
+    return { ok: false, error: `No agent is called "${String(name)}". Use agent_registry for the list.` };
+  }
+  if (!declared.delegable) {
+    return {
+      ok: false, error: `${declared.agent} is not delegable.`,
+      why: declared.note || 'It commits something, so it goes through the approval queue instead.',
+    };
+  }
+  if (!authorization) {
+    return { ok: false, error: 'No caller authority to pass on, so the call was not made.' };
+  }
+
+  const url = `${Deno.env.get('SUPABASE_URL')}/functions/v1/make-server-3eae23a6${declared.delegable.route}`;
+  const started = Date.now();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: JSON.stringify(params && typeof params === 'object' ? params : {}),
+    });
+    const text = await res.text();
+    let body: unknown; try { body = JSON.parse(text); } catch { body = text.slice(0, 2000); }
+    if (!res.ok) {
+      return {
+        ok: false, agent: declared.agent, status: res.status, body,
+        note: 'The agent refused this call. A 400 usually means the body was wrong rather than '
+          + 'the agent being broken — its expected input is ' + declared.delegable.input,
+      };
+    }
+    return { ok: true, agent: declared.agent, ms: Date.now() - started, result: body };
+  } catch (e: any) {
+    return { ok: false, agent: declared.agent, error: String(e?.message || e) };
+  }
+}
+
+async function runTool(
+  name: string, input: any, asker: string, opened?: string[], authorization = '',
+): Promise<unknown> {
   if (name === "find_module") {
     /**
      * Searched here, not by the model.
@@ -157,6 +219,35 @@ async function runTool(name: string, input: any, asker: string, opened?: string[
       risk: proposed.request!.risk,
       expiresAt: proposed.request!.expiresAt,
       note: "Nothing has happened. This is waiting for a person to approve it.",
+    };
+  }
+
+  if (name === 'agent_answer') {
+    return callAgent(input?.agent, input?.params, authorization);
+  }
+
+  if (name === 'agent_registry') {
+    /**
+     * A WEEK, not the 24 hours the Systems tab uses.
+     *
+     * A day of silence from an agent nobody had reason to open that day says
+     * nothing at all. A week of it is worth a question. This is the window
+     * that decides what lands in `silent`, so it is the whole judgement.
+     */
+    const windowHours = Math.min(720, Math.max(1, Number(input?.hours) || 168));
+    const { data, error } = await admin()
+      .from('ai_call_log')
+      .select('agent, outcome, started_at')
+      .gte('started_at', new Date(Date.now() - windowHours * 3600_000).toISOString())
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    const report = reconcile((data || []) as any[], windowHours);
+    return {
+      ...report,
+      declared: AGENTS.length,
+      note: 'Silence is not proof of a fault. An agent here with no calls may be broken or may '
+        + 'simply not have been opened — agent_answer on a delegable one settles it; anything else '
+        + 'needs somebody to use the screen. On 2026-11-11 ten of twelve silent agents were fine.',
     };
   }
 
@@ -731,7 +822,10 @@ phoenixChatRouter.post(BASE, async (c) => {
         }
         toolsUsed.push(t.name);
         try {
-          const out = await runTool(t.name, t.input || {}, askerEmail, opened);
+          const out = await runTool(
+            t.name, t.input || {}, askerEmail, opened,
+            c.req.header('Authorization') || '',
+          );
           results.push({ type: 'tool_result', tool_use_id: t.id, content: JSON.stringify(out) });
         } catch (e: any) {
           results.push({ type: 'tool_result', tool_use_id: t.id, is_error: true,

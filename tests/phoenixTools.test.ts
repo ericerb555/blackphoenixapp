@@ -30,6 +30,18 @@ test('no tool is named for an action', () => {
   // Pinned by name. A new tool appearing here should be a deliberate
   // decision somebody made, not something that arrived with a feature.
   assert.deepEqual([...TOOL_NAMES].sort(), [
+    // Added deliberately 2026-11-11. The platform runs seventeen agents and
+    // nothing could say so: the Systems tab shows what ran in 24 hours, so an
+    // agent that never runs was invisible — which hid two that had been
+    // failing on every call for weeks. `agent_registry` is the declared list
+    // joined to the ledger; `agent_answer` returns what one of them says.
+    //
+    // `agent_answer` is the first tool here that causes a model call
+    // elsewhere, so it is bounded twice over: only agents carrying a
+    // `delegable` block in agentRegistry.ts are reachable, and that block is
+    // absent from everything that captures, raises or notifies. The route
+    // comes from the registry and never from the model.
+    'agent_answer', 'agent_registry',
     'ai_activity_summary', 'ai_stop_status', 'alerts', 'automation_opportunities',
     'business_snapshot',
     // Added deliberately: what is failing anywhere in the application, which
