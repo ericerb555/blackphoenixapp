@@ -56,12 +56,14 @@ import {
   type DesignProjectSummary,
 } from '../lib/designProjectService';
 import { useNavigate } from '../hooks/useNavigate';
-import { constructionTax } from '../lib/constructionTax';
 import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInvoice';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import QuoteMarginControl from '../components/quotes/QuoteMarginControl';
 import { loadPricingConfigFromServer } from '../lib/pricingConfig';
+import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
+import { asFraction } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
+import { burdenFor, burdenOnSubtotal } from '../../../supabase/functions/server/laborBurden.ts';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -723,25 +725,81 @@ export default function UnifiedProjectPipeline() {
                 const credits = item.quote?.credits || [];
                 const creditsSubtotal = credits.reduce(
                   (sum: number, c: any) => sum + Math.abs(Number(c?.amount) || 0), 0);
-                /**
-                 * Materials only. Labour is a service and is not taxed, which
-                 * is what the quote generator and the quote editor have always
-                 * done — this screen was the one taxing labour as well, so the
-                 * same job came out at two totals depending on which screen
-                 * touched it last.
+                /*
+                 * The tax used to be worked out here, by constructionTax,
+                 * and then the total by something else. applyMargins below
+                 * does both from one set of inputs — it taxes MATERIALS AT
+                 * COST, which is the same rule this block had and the same
+                 * one the generator and the editor use. Leaving the old call
+                 * here unused would be a second authoritative-looking answer
+                 * for somebody to reach for later.
                  */
-                const taxAmount = constructionTax({
-                  materials: materialsSubtotal,
-                  credits: creditsSubtotal,
-                  rate: item.quote?.taxRate ?? 0.08,
+                /**
+                 * THE SAME ARITHMETIC THE REST OF THE APP PRICES WITH.
+                 *
+                 * This line used to be
+                 *
+                 *     materials + labour + tax - credits
+                 *
+                 * with no overhead, no profit, no contingency and no labour
+                 * burden. Every quote the estimator generates carries all
+                 * four, so re-pricing the materials on one silently knocked
+                 * about a third off the job — and it did it on the screen
+                 * whose whole purpose is updating material prices, so the
+                 * total moving was expected and the reason it moved was not.
+                 *
+                 * It is the fourth place this sum has been written. The other
+                 * three now go through `applyMargins`; this one making a
+                 * fourth guess is precisely what `quoteMargins.ts` exists to
+                 * stop, and its header says so at length.
+                 *
+                 * Rates are passed EXPLICITLY, zero when the quote has none,
+                 * so `applyMargins` cannot fall back to its 10/10/5 pricing
+                 * defaults and hand a hand-built quote a margin it never had.
+                 */
+                const burden = burdenFor(item.quote, companyBurden ?? null);
+                const laborBurdenAmount = burdenOnSubtotal(laborSubtotal, burden);
+                const margins = applyMargins({
+                  materialsSubtotal,
+                  laborSubtotal: Math.round((laborSubtotal + laborBurdenAmount) * 100) / 100,
+                  additionalCostsSubtotal: Number((item.quote as any)?.additionalCostsSubtotal) || 0,
+                  creditsSubtotal,
+                  overheadPercent: asFraction((item.quote as any)?.overheadPercent),
+                  profitPercent: asFraction((item.quote as any)?.profitPercent),
+                  contingencyPercent: asFraction((item.quote as any)?.contingencyPercent),
+                  taxRatePercent: asFraction(item.quote?.taxRate),
                 });
-                const totalCost = materialsSubtotal + laborSubtotal + taxAmount - creditsSubtotal;
-                
+                const totalCost = margins.totalCost;
+
                 toast.success(`Updated ${materials.length} materials in quote #${item.itemNumber}`);
                 
                 const updated = {
                   ...item,
-                  quote: item.quote ? { ...item.quote, materials, labor, materialsSubtotal, laborSubtotal, credits, creditsSubtotal, taxAmount, totalCost } : undefined,
+                  /**
+                   * Every figure from the ONE calculation above.
+                   *
+                   * `taxAmount` used to come from `constructionTax` here while
+                   * the total came from somewhere else — two sums of the same
+                   * quote, which is how the tax line and the total come to
+                   * disagree by a few pence and nobody can say which is right.
+                   * The amounts are written back for the same reason the
+                   * editor writes them: the panel explaining the price has to
+                   * add up to the price.
+                   */
+                  quote: item.quote ? {
+                    ...item.quote,
+                    materials, labor, credits,
+                    materialsSubtotal, laborSubtotal, creditsSubtotal,
+                    laborBurdenAmount,
+                    directCost: margins.directCost,
+                    overheadAmount: margins.overheadAmount,
+                    profitAmount: margins.profitAmount,
+                    contingencyAmount: margins.contingencyAmount,
+                    preTaxTotal: margins.preTaxTotal,
+                    taxAmount: margins.taxAmount,
+                    totalCost,
+                    total: totalCost,
+                  } : undefined,
                   lastModified: new Date().toISOString()
                 };
                 void saveItemToBackend(updated).catch((error) => toast.error(error.message || 'Unable to save materials to the quote.'));

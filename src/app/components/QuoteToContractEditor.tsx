@@ -94,6 +94,8 @@ import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '.
    the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
+import { burdenFor, burdenOnSubtotal } from '../../../supabase/functions/server/laborBurden.ts';
+import { loadPricingConfigFromServer } from '../lib/pricingConfig';
 import {
   customerPricingOf, preTaxTotalOf, allocate,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -639,6 +641,37 @@ export function QuoteToContractEditor({
   const [quoteEditTab, setQuoteEditTab] = useState<'phases' | 'materials' | 'labor' | 'process'>('phases');
   const [editMode, setEditMode] = useState(false);
   const [editedQuote, setEditedQuote] = useState<Quote | undefined>(normalizeQuote(workRequest.quote));
+  /**
+   * The company's labour burden, so a recalculation can resolve an INHERITED
+   * rate rather than silently dropping it.
+   *
+   * A quote generated today carries no `laborBurdenPercent` on purpose — it
+   * inherits, so that changing the company figure reaches work already
+   * quoted. Which means this editor cannot recompute that quote's total
+   * without knowing what the company is set to: it would price the labour at
+   * the bare wage and knock the burden straight back off, which is the same
+   * silent repricing the margins note below was written about.
+   */
+  const [companyBurden, setCompanyBurden] = useState<any>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const config = await loadPricingConfigFromServer(
+          fetch,
+          `${API_BASE_URL}/make-server-3eae23a6`,
+          { Authorization: `Bearer ${session.access_token}` },
+        );
+        if (!cancelled) setCompanyBurden((config as any)?.burden);
+      } catch {
+        /* Quotes that carry their own rate are unaffected; see recalculateTotals. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [loading, setLoading] = useState(false);
   // Optional: also invite the customer to join the app when sending the quote.
   const [inviteToApp, setInviteToApp] = useState(false);
@@ -2818,9 +2851,33 @@ export function QuoteToContractEditor({
      * `asFraction` normalises the two conventions in the codebase, so a
      * rate stored as 10 and one stored as 0.10 both mean ten per cent.
      */
+    /**
+     * BURDEN, AND WHY IT IS RESOLVED HERE RATHER THAN READ OFF THE QUOTE.
+     *
+     * `laborSubtotal` above is the WAGE bill — hours times rate, and
+     * `hourlyRate` means the wage everywhere by design. What the labour costs
+     * is that plus payroll tax, workers' comp, liability and benefits, and
+     * the margins belong on the cost rather than on the wage: a margin on a
+     * bare wage is a margin on an understated base, which reads profitable on
+     * the quote and is thinner in the bank.
+     *
+     * `burdenFor` answers with the quote's own rate when it has one and the
+     * company's otherwise — and a quote generated today deliberately has
+     * none, so that changing the company figure reaches work already quoted.
+     * That inheritance is exactly why this had to load the company settings:
+     * recomputing without them would price the labour bare and knock the
+     * burden off a quote that was generated with it, which is the same
+     * silent repricing the note below describes, in the other direction.
+     *
+     * Applied exactly once, and never written back: `laborSubtotal` goes on
+     * meaning wages, so recalculating twice cannot burden a burdened figure.
+     */
+    const burden = burdenFor(quote, companyBurden ?? null);
+    const laborBurdenAmount = burdenOnSubtotal(laborSubtotal, burden);
+
     const margins = applyMargins({
       materialsSubtotal,
-      laborSubtotal,
+      laborSubtotal: Math.round((laborSubtotal + laborBurdenAmount) * 100) / 100,
       additionalCostsSubtotal,
       creditsSubtotal,
       overheadPercent: asFraction((quote as any).overheadPercent),
@@ -2854,6 +2911,16 @@ export function QuoteToContractEditor({
        * one place a wrong number is certain to be noticed and believed.
        */
       directCost: margins.directCost,
+      /**
+       * What the burden came to, for the panel that explains the price.
+       *
+       * `laborSubtotal` above stays the WAGE bill, so without this the
+       * explanation would show wages and a direct cost that is larger than
+       * them with nothing naming the difference. The rate itself is
+       * deliberately not written — see the note where it is resolved: a
+       * stamped rate stops inheriting.
+       */
+      laborBurdenAmount,
       overheadAmount: margins.overheadAmount,
       profitAmount: margins.profitAmount,
       contingencyAmount: margins.contingencyAmount,
