@@ -93,6 +93,7 @@ import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '.
 /* The server's pricing arithmetic, imported rather than reimplemented — see
    the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
+import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import {
   customerPricingOf, preTaxTotalOf, allocate,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -810,7 +811,15 @@ export function QuoteToContractEditor({
         `${API_BASE_URL}/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}/convert-to-contract`,
         { method: 'POST', headers: await quoteAuthHeaders(true), body: JSON.stringify({
           title: currentQuote?.title || currentQuote?.name || workRequest.title || 'Service Contract',
-          amount: currentQuote?.total || currentQuote?.grandTotal || currentQuote?.totalCost || undefined,
+          /*
+            `total || grandTotal || totalCost` — the legacy field FIRST, and it
+            is the one nothing recalculates. On Q-2026-0003 it stood at
+            24,978.17 against a quote of 18,954.13, so converting that quote
+            would have written a contract six thousand dollars over the price
+            the customer was given. The server recomputes this from its own
+            copy anyway; sending the right figure means the two agree.
+          */
+          amount: quoteTotal(currentQuote) ?? undefined,
           customerEmail: workRequest.customerEmail || (workRequest as any).clientEmail,
           planId: (currentQuote as any)?.planId,
         }) }
@@ -2180,7 +2189,10 @@ export function QuoteToContractEditor({
     setPostingBid(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const total = Number((quote as any).grandTotal ?? (quote as any).total ?? 0) || null;
+      /* The same ordering problem: this knew only the two legacy spellings
+         and not `totalCost`, so a modern quote went out to subcontractors
+         with no budget on it at all. */
+      const total = quoteTotal(quote);
 
       const { data: created, error: reqErr } = await supabase.from('bid_requests').insert({
         org_id: postingOrgId,

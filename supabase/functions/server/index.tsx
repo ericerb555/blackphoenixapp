@@ -15,6 +15,7 @@ import {
   type Reputation, type Signal,
 } from "./ipReputation.ts";
 import { customerQuoteView } from "./customerQuoteView.ts";
+import { quoteTotal as quoteTotalOf } from "./quoteTotal.ts";
 import { customerInvoiceView } from "./customerInvoiceView.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import { buildInvoiceRecord } from "./invoiceDraft.ts";
@@ -13118,40 +13119,9 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
 });
 
 
-/**
- * What a quote actually comes to, read off the quote itself.
- *
- * Quotes are stored as whatever the screen that built them sent, and different
- * screens have used different names for the same figure over time. So the
- * spellings are tried in order, and when none of them is there the parts are
- * added up instead — materials plus labour plus tax is the same arithmetic the
- * quote screen does, so a quote with subtotals and no stored total still yields
- * a number rather than a null.
- *
- * Returns null when there is genuinely nothing to work from. A caller that gets
- * null must refuse rather than substitute zero: a contract for nothing and a
- * contract nobody priced are different, and only one of them is safe to send.
- */
-export function quoteTotal(quote: any): number | null {
-  const named = [
-    quote?.totalCost, quote?.total_amount, quote?.totalAmount,
-    quote?.grandTotal, quote?.total, quote?.quoteTotal,
-  ];
-  for (const v of named) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return Math.round(n * 100) / 100;
-  }
-
-  const parts = [quote?.materialsSubtotal, quote?.laborSubtotal, quote?.taxAmount]
-    .map((v) => Number(v))
-    .filter((n) => Number.isFinite(n));
-  if (parts.length) {
-    const summed = parts.reduce((a, b) => a + b, 0);
-    if (summed > 0) return Math.round(summed * 100) / 100;
-  }
-
-  return null;
-}
+/* `quoteTotal` moved to ./quoteTotal.ts so it could be tested. Re-exported
+   here because callers already import it from this module. */
+export { quoteTotal } from "./quoteTotal.ts";
 
 app.post('/make-server-3eae23a6/quotes/:id/convert-to-contract', async (c) => {
   try {
@@ -13172,7 +13142,7 @@ app.post('/make-server-3eae23a6/quotes/:id/convert-to-contract', async (c) => {
     // when the caller sent nothing the contract was written with a null amount,
     // silently, and it only ever looked correct because the browser happened to
     // send the right number.
-    const amount = quoteTotal(quote);
+    const amount = quoteTotalOf(quote);
     if (amount === null) {
       return c.json({
         success: false,
@@ -14214,7 +14184,17 @@ app.post('/make-server-3eae23a6/ai/vision', async (c) => {
     const body = await c.req.json(); const key = Deno.env.get('OPENAI_API_KEY') || '';
     if (!key) return c.json({ error: 'AI vision is not configured. Add OPENAI_API_KEY to the Edge Function secrets.' }, 503);
     const content = Array.isArray(body.messages?.[0]?.content) ? body.messages[0].content : [];
-    const image = content.find((item: any) => item?.type === 'image')?.source; const prompt = String(content.find((item: any) => item?.type === 'text')?.text || 'Analyze this construction blueprint.');
+    const image = content.find((item: any) => item?.type === 'image')?.source; const rawPrompt = String(content.find((item: any) => item?.type === 'text')?.text || 'Analyze this construction blueprint.');
+    /*
+     * `response_format: json_object` below is refused by OpenAI with a 400
+     * unless the word "json" appears somewhere in the messages. Neither the
+     * default prompt nor anything AIBlueprintAnalyzer sends contains it, so
+     * every call to this route failed — proved by request on 2026-11-11, which
+     * came back `'messages' must contain the word 'json'…`. Appending it is
+     * cheaper and less surprising than dropping JSON mode, which the caller
+     * relies on to parse the reply.
+     */
+    const prompt = /json/i.test(rawPrompt) ? rawPrompt : `${rawPrompt}\n\nRespond with a single JSON object.`;
     if (!image?.data || !image?.media_type) return c.json({ error: 'A blueprint image is required.' }, 400);
     const response = await recordedOpenAIFetch({ agent: 'vision-read', operation: 'read an image', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${image.media_type};base64,${image.data}` } }] }], max_tokens: Math.min(4096, Number(body.max_tokens || 2048)) }) });
     const data = await response.json(); if (!response.ok) return c.json({ error: data?.error?.message || 'AI vision request failed.' }, response.status);
@@ -16159,7 +16139,7 @@ app.post('/make-server-3eae23a6/quotes/by-token/:token/sign', async (c) => {
         const alerts = (await kv.get('admin_alerts') as any[]) || [];
         /* What they signed for. Reporting `totalCost` on a discounted job
            tells the office a number that will never be invoiced. */
-        const value = Number((updated as any).agreedTotal || quote.total || quote.totalCost || 0);
+        const value = quoteTotalOf(updated) ?? 0;
         alerts.unshift({
           id: `quote_approved_${crypto.randomUUID()}`,
           type: 'success',

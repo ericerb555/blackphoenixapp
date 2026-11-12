@@ -59,6 +59,7 @@ import { useNavigate } from '../hooks/useNavigate';
 import { constructionTax } from '../lib/constructionTax';
 import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInvoice';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -152,10 +153,8 @@ const STAGE_LOOK: Record<string, { spine: string; glow: string; text: string; ch
 };
 const lookFor = (stage: string) => STAGE_LOOK[stage] || STAGE_LOOK['quote-draft'];
 
-function quoteTotal(quote: any): number | null {
-  const value = Number(quote?.totalCost ?? quote?.total);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
+/* A third implementation of "what does this quote come to" lived here and
+   knew about two of the six spellings. It is one import now. */
 
 interface PipelineItem {
   id: string;

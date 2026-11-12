@@ -110,8 +110,9 @@ export const contractTotalOf = (quote: any): number => {
      */
     quote?.agreedTotal,
     quote?.totalCost,
-    quote?.total,
+    /* After the maintained fields, never before them — see quoteTotal.ts. */
     quote?.grandTotal,
+    quote?.total,
     quote?.totals?.grandTotal,
     quote?.totals?.total,
   ];

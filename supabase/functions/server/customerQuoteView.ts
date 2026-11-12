@@ -547,7 +547,13 @@ export function customerQuoteSummary(quote: any) {
     status: String(quote?.status || 'draft'),
     title: String(quote?.title || quote?.projectTitle || view.projectTitle || ''),
     project_name: String(quote?.project_name || quote?.projectName || ''),
-    total: num(quote?.total ?? view.totalCost),
+    /*
+     * `view.totalCost` FIRST. This read the stored `total` ahead of it, and
+     * that field is legacy and unmaintained — on Q-2026-0003 it was six
+     * thousand dollars above the quote. A customer reading their own list
+     * would have seen a figure no document of theirs carried.
+     */
+    total: num(view.totalCost ?? quote?.total),
     amount: num(quote?.amount ?? view.totalCost),
     createdAt: String(quote?.createdAt || view.generatedAt || ''),
     expiryDate: String(quote?.expiryDate || view.validUntil || ''),
