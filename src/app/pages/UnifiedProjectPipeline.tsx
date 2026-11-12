@@ -61,6 +61,7 @@ import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInv
 import { API_BASE_URL } from '../lib/apiConfig';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import QuoteMarginControl from '../components/quotes/QuoteMarginControl';
+import { loadPricingConfigFromServer } from '../lib/pricingConfig';
 
 // The Design Center is a separate published Figma Make app that shares this
 // app's Supabase backend (design_project:* KV records). We link to it by URL and
@@ -317,6 +318,33 @@ export default function UnifiedProjectPipeline() {
     return () => { cancelled = true; };
   }, []);
 
+  /**
+   * The company's labour burden, fetched once for the margin control.
+   *
+   * Failing to load it is not worth an error: the control renders "no burden
+   * set" and prices exactly as it does today, which is the same thing it does
+   * when none is configured. A toast here would be a warning about a figure
+   * most accounts have not set yet.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const config = await loadPricingConfigFromServer(
+          fetch,
+          `${API_BASE_URL}/make-server-3eae23a6`,
+          { Authorization: `Bearer ${session.access_token}` },
+        );
+        if (!cancelled) setCompanyBurden((config as any)?.burden);
+      } catch {
+        /* Priced as it is today; the control says so. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const [sortBy, setSortBy] = useState<'age' | 'value' | 'customer'>('age');
 
   /** Which attention flag the board is filtered to, if any. */
@@ -326,6 +354,16 @@ export default function UnifiedProjectPipeline() {
   const [filterSource, setFilterSource] = useState<'all' | 'camera' | 'design-studio' | 'other'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState<PipelineItem | null>(null);
+  /**
+   * The company's labour burden, for the margin control to inherit from.
+   *
+   * Loaded once rather than per quote: it is one company-wide figure and the
+   * control only needs it to answer "is the rate I am showing mine or the
+   * company's". Undefined while it loads and when nothing is configured, which
+   * the control already renders honestly as "no burden set" rather than as a
+   * zero somebody chose.
+   */
+  const [companyBurden, setCompanyBurden] = useState<any>(undefined);
   const [showQuoteEditor, setShowQuoteEditor] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
   const [showFullWorkRequest, setShowFullWorkRequest] = useState(false);
@@ -1841,6 +1879,7 @@ export default function UnifiedProjectPipeline() {
                 {selectedItem.quote && (Number(selectedItem.quote.materialsSubtotal) || Number(selectedItem.quote.laborSubtotal)) ? (
                   <QuoteMarginControl
                     quote={selectedItem.quote}
+                    companyBurden={companyBurden}
                     onApply={async (patch) => {
                       const updated = {
                         ...selectedItem,
