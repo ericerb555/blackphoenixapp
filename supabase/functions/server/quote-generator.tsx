@@ -22,6 +22,8 @@ import { applyMargins } from './quoteMargins.ts';
 import { reconcilePhases } from './quotePhasePlan.ts';
 import { ensureDisposal, ensureDisposalPhase } from './quoteDisposal.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
+import { burdenOf, burdenOnSubtotal } from './laborBurden.ts';
+import { marginRatesFor } from './quoteRates.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
 import { beginAiCall, ledgerContextFor, type LedgerContext } from './aiLedger.ts';
@@ -174,6 +176,7 @@ function round2(n: number): number {
 // are none.
 function assembleEstimate(
   raw: any, input: EstimatorInput, factors: Record<string, TradeFactor> = {},
+  settings?: any,
 ) {
   const rid = () => crypto.randomUUID();
 
@@ -407,15 +410,52 @@ function assembleEstimate(
    * Everything passed in is a FRACTION. The repricer converts the company's
    * percentages at its own boundary.
    */
+  /**
+   * THE COMPANY'S RATES BEAT THE MODEL'S, AND THAT IS THE POINT OF THIS BLOCK.
+   *
+   * `raw` is the model's reply, and the prompt asks it for `overheadPercent`,
+   * `profitPercent` and `contingencyPercent` among everything else. So until
+   * now a language model was choosing Eric's profit margin — or, when it left
+   * them out, a hardcoded 10/10/5 in the heuristic below was. Neither has ever
+   * read what the company actually charges.
+   *
+   * MEASURED: every quote in production carried no margin fields at all and
+   * went out at direct cost. Two faults stacked — the save dropped them, which
+   * is fixed in `quoteDoc.ts`, and the figures being dropped were a model's
+   * invention rather than the company's rates, which is this.
+   *
+   * `??` and not `||`, because ZERO IS AN ANSWER. New Hampshire has no sales
+   * tax and `taxRate: 0` is a decision; `||` would discard it and fall through
+   * to the model's habitual 8%, which is the exact wrong-tax-line fault the
+   * standards table already carries a comment about.
+   */
+  const rates = marginRatesFor(settings, raw);
+
+  /**
+   * What the labour actually costs, before anything is earned on it.
+   *
+   * The wage bill is what `laborSubtotal` holds and what it keeps holding —
+   * burden is never written back into it, nor into any line's `hourlyRate`,
+   * which goes on meaning the wage everywhere. It is added here, once, to the
+   * figure the margins are computed from, because a margin on a bare wage is a
+   * margin on an understated cost: the quote reads profitable and the job is
+   * thinner in the bank.
+   *
+   * With no burden configured this is zero and every figure comes out exactly
+   * as it does today.
+   */
+  const burden = burdenOf(settings?.burden);
+  const laborBurdenAmount = burdenOnSubtotal(laborSubtotal, burden);
+
   const margins = applyMargins({
     materialsSubtotal,
-    laborSubtotal,
+    laborSubtotal: round2(laborSubtotal + laborBurdenAmount),
     additionalCostsSubtotal,
     creditsSubtotal,
-    overheadPercent: raw?.overheadPercent,
-    profitPercent: raw?.profitPercent,
-    contingencyPercent: raw?.contingencyPercent,
-    taxRatePercent: raw?.taxRatePercent,
+    overheadPercent: rates.overheadPercent,
+    profitPercent: rates.profitPercent,
+    contingencyPercent: rates.contingencyPercent,
+    taxRatePercent: rates.taxRatePercent,
   });
 
   const {
@@ -444,7 +484,22 @@ function assembleEstimate(
     credits,
     creditsSubtotal,
     materialsSubtotal,
+    /** The WAGE bill. Burden is reported beside it, never folded into it. */
     laborSubtotal,
+    /**
+     * Reported so a screen can show what the labour actually costs, and
+     * deliberately NOT stamped as `laborBurdenPercent` on the quote.
+     *
+     * An absent override means the quote inherits the company rate and keeps
+     * inheriting it; freezing today's rate onto every new quote would mean
+     * changing the company figure reached nothing already built. The override
+     * exists for the job that genuinely differs, which is a decision somebody
+     * makes in the editor rather than one generation makes for them.
+     */
+    laborBurdenAmount,
+    laborBurdenRate: burden.rate,
+    /** Whose percentages priced this — the company's, or the model's. */
+    marginSource: rates.source,
     additionalCostsSubtotal,
     directCost,
     overheadPercent, overheadAmount,
@@ -465,8 +520,10 @@ function assembleEstimate(
 
 // Deterministic fallback used only when the model/API is unavailable so the app
 // never hands the user an empty quote.
-function heuristicEstimate(input: EstimatorInput, factors: Record<string, TradeFactor> = {}) {
-  return assembleEstimate(heuristicRaw(input), input, factors);
+function heuristicEstimate(
+  input: EstimatorInput, factors: Record<string, TradeFactor> = {}, settings?: any,
+) {
+  return assembleEstimate(heuristicRaw(input), input, factors, settings);
 }
 
 function heuristicRaw(input: EstimatorInput) {
@@ -519,6 +576,7 @@ export type Repricer = (estimate: any) => { estimate: any; summary?: any };
 export async function runEstimator(
   input: EstimatorInput, reprice?: Repricer, factors: Record<string, TradeFactor> = {},
   ledger: LedgerContext = {},
+  settings?: any,
 ) {
   /**
    * Opened before the model is called, closed on every path out.
@@ -553,7 +611,7 @@ export async function runEstimator(
   if (!Deno.env.get('OPENAI_API_KEY')) {
     console.log('[AI Quote Generator] No OPENAI_API_KEY — using heuristic fallback.');
     await call.refused('OPENAI_API_KEY is not set', { summary: 'fell back to the heuristic estimate' });
-    return { estimate: heuristicEstimate(input, factors), usedAI: false };
+    return { estimate: heuristicEstimate(input, factors, settings), usedAI: false };
   }
   try {
     const completion = await (await openai()).chat.completions.create({
@@ -602,7 +660,7 @@ export async function runEstimator(
       }
     }
 
-    const estimate = assembleEstimate(priced, input, factors);
+    const estimate = assembleEstimate(priced, input, factors, settings);
     const usage = (completion as any)?.usage || {};
     // If the model returned nothing usable, fall back rather than send an empty quote.
     if (estimate.materials.length === 0 && estimate.labor.length === 0) {
@@ -617,7 +675,7 @@ export async function runEstimator(
         summary: 'fell back to the heuristic estimate',
         tokensIn: usage.prompt_tokens, tokensOut: usage.completion_tokens,
       });
-      return { estimate: heuristicEstimate(input, factors), usedAI: false };
+      return { estimate: heuristicEstimate(input, factors, settings), usedAI: false };
     }
     await call.ok({
       summary: `${estimate.materials.length} material and ${estimate.labor.length} labour lines`
@@ -628,7 +686,7 @@ export async function runEstimator(
   } catch (error: any) {
     console.error('[AI Quote Generator] Estimator error, falling back:', error?.message || error);
     await call.failed(error, { summary: 'fell back to the heuristic estimate' });
-    return { estimate: heuristicEstimate(input, factors), usedAI: false };
+    return { estimate: heuristicEstimate(input, factors, settings), usedAI: false };
   }
 }
 
@@ -675,6 +733,7 @@ quoteRouter.post('/generate-quote', async (c) => {
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
       ledgerContextFor(c),
+      ctx.settings,
     );
 
     // Legacy-compatible field names for older callers.
@@ -741,6 +800,7 @@ quoteRouter.post('/make-server-3eae23a6/auto-generate-quote', async (c) => {
       (raw) => repriceEstimate(raw, repricerDeps(ctx)),
       ctx.factors,
       ledgerContextFor(c),
+      ctx.settings,
     );
 
     console.log('[AI Quote Generator] Auto-generated quote:', {
