@@ -86,24 +86,75 @@ new way to spend money nobody can see or stop.
 - [x] **F. Reporting.** Call history, dispatch status, transcript and recording
       on the same panel.
 
-## What is yours — nothing answers until these are done
+## The provider changed under this — 2026-11-11
 
-1. **Set `TWILIO_AUTH_TOKEN`** (with `TWILIO_ACCOUNT_SID` and
-   `TWILIO_PHONE_NUMBER`, which paging already needs). Until it is set, every
-   inbound call is refused with a 404 — deliberately: an unauthenticated
-   endpoint that creates emergencies is worse than no endpoint.
-2. **Point a Twilio number at the webhook.** In the Twilio console, that
-   number's *A call comes in*, HTTP POST:
+**The account is on Bird, not Twilio, and Twilio has been removed entirely.**
+All SMS now leaves through `bird.ts` (`BIRD_API_SMS_KEY` + `BIRD_SMS_FROM`);
+`twilio.ts` is deleted and nothing reads a `TWILIO_*` secret except this
+attendant's own signature check, which is therefore inert.
 
-       https://<your edge host>/make-server-3eae23a6/voice/incoming
+### What this cost, exactly
 
-   The status callback, if you want one, is `/voice/status`. `/voice/gather` is
-   reached by the TwiML itself and needs no configuration.
-3. **Assign that number in the portal** — Emergency Line → Numbers. A number
-   pointed at us that no account has claimed is answered with "this number is
-   not set up", which is the right answer and not a useful one.
-4. **Test it on your own account before a tenant does.** Your own number as the
-   rota, at a time you choose. Nothing here has had a real emergency through it.
+| | Before | Now |
+|---|---|---|
+| On-call SMS page | Twilio | **Bird — works** |
+| On-call voice page (the ring) | Twilio Calls.json + inline TwiML | **not sent**, recorded as `skipped` with its reason |
+| AI attendant inbound line | Twilio webhooks + TwiML | **inert**, webhooks 404, panel says why |
+| Everything the rota decides | unchanged | unchanged |
+
+Routing, the escalation ladder, contracted-vendor exclusivity, the exchange
+hand-off and the whole portal are untouched. So is the attendant's thinking:
+`onCallAttendant.ts` and `onCallNumbers.ts` are provider-agnostic and still
+pinned by 38 tests that know nothing about any telephone company. What is
+provider-specific is `onCallVoice.tsx`'s TwiML and its signature check.
+
+### Why it cannot simply be ported
+
+Bird's voice product is not TwiML by another name. An inbound call is routed to
+a SIP trunk, a **published sequence** built in Bird's console, a verified
+forwarding number, a ring group, or rejected. Bird's webhooks are *events* —
+`voice_call.initiated` / `.answered` / `.ended`, signed per the Standard
+Webhooks spec with HMAC-SHA256 — reporting what a call did rather than asking
+what should happen next. There is no per-turn "say this, now listen" exchange,
+so the attendant's conversation loop has nothing to attach to.
+
+## What is yours — Eric's call, 2026-11-11: ask Bird first
+
+**Decision: nothing gets built against a guessed API.** Put these to your Bird
+account contact:
+
+1. Can a Bird **AI voice agent** answer an inbound call, hold a spoken
+   conversation, and POST the fields it collected to our own webhook?
+2. If yes — what is the per-minute cost, and is there a sandbox number to test
+   on before it carries a real emergency?
+3. If no — can a **sequence** capture speech, or is keypad-plus-recording the
+   ceiling?
+
+The answer picks the build:
+
+- **Agent posts to a webhook** → `onCallVoice.tsx` keeps its shape; swap the
+  TwiML for the agent's payload and the HMAC-SHA1 check for Standard Webhooks
+  HMAC-SHA256. The conversation module is already what the agent's prompt
+  should be built from.
+- **Keypad plus recording only** → a Bird sequence does greeting → keypad
+  category → record; `voice_call.ended` hands us the recording; transcribe it
+  and run `classifyEmergency` exactly as it stands. Keypad instead of
+  conversation, everything downstream unchanged.
+- **Neither** → the number forwards to a voice-AI vendor, or the voice line
+  alone goes back on Twilio. Both were offered and neither was chosen.
+
+### Also outstanding, and unrelated to the provider
+
+- **Confirm `BIRD_SMS_FROM` is set.** `bird.ts` needs the sender as well as the
+  key, and without it every SMS on the platform — invites, order updates,
+  on-call pages — reports "not configured" and sends nothing.
+- **The ring is currently missing from on-call paging.** The text goes; the
+  phone does not ring. Until the question above is answered, an emergency page
+  is a text message only, and anyone who sleeps through a text is not woken.
+  `BIRD_VOICE_SEQUENCE_ID` is the switch the code is already watching for.
+- **Test it on your own account before a tenant does**, whatever shape it ends
+  up. Your own number as the rota, at a time you choose. Nothing here has had a
+  real emergency through it.
 
 ## Deliberately not built yet, and why
 
