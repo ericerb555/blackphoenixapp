@@ -27,6 +27,7 @@ import {
   type BlueprintRead, type MergeResult,
   readBlueprint, mergeIntoPlan, mergeNote, readWarnings,
 } from '../lib/blueprintRecord';
+import { runSecondPass } from '../lib/blueprintSecondPass';
 import type { FloorPlan } from '../lib/floorPlanModel';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { supabase } from '../lib/supabase';
@@ -64,7 +65,34 @@ export default function BlueprintImport({ plan, onChange }: {
       const data = await res.json().catch(() => null);
       if (!res.ok) { toast.error(data?.error || 'That drawing could not be read.'); return; }
 
-      const parsed = readBlueprint(data?.analysis || data);
+      /*
+       * A second look at the small rooms before any of this becomes geometry.
+       *
+       * The whole-sheet read is reliable on gross area and large rooms and was
+       * measured wrong by up to 65% on small ones — a bathroom printed
+       * 7'9" x 7' came back 7 x 3. Tiling the sheet and re-reading just those
+       * rooms brought the same bathroom to 7 x 7. See blueprintSecondPass.ts.
+       *
+       * It never fails the import: if there is nothing small to re-read, more
+       * than one sheet, or the second call errors, the first pass stands.
+       */
+      const second = await runSecondPass(data?.analysis || data, images, async (path, body) => {
+        const r = await fetch(`${SERVER}${path}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || ''}`,
+          },
+          body: JSON.stringify(body),
+        });
+        return r.ok ? r.json() : null;
+      });
+      if (second.changed.length) {
+        const n = second.changed.length;
+        toast.success(`Re-measured ${n} small room${n === 1 ? '' : 's'} at full resolution.`);
+      }
+
+      const parsed = readBlueprint(second.analysis);
       if (!parsed.rooms.length) {
         toast.error('No rooms with usable dimensions came back. A room with no size cannot become geometry.');
       }

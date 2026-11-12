@@ -556,6 +556,148 @@ function validateAndEnhanceAnalysis(analysis: any): any {
   return validated;
 }
 
+/**
+ * POST /ai/measure-rooms — a second look at the rooms the sheet read missed.
+ *
+ * WHAT IT IS FOR
+ *
+ * Measured 2026-11-11: the whole-sheet read is good on gross area, perimeter
+ * and large rooms, and unreliable on small ones — a bathroom printed
+ * 7'9" x 7' came back 7 x 3. The lettering on a small room is a few pixels
+ * tall once a whole sheet has been scaled to what the model actually looks at,
+ * so no prompt fixes it. More pixels do.
+ *
+ * The client cuts the sheet into overlapping tiles and posts them here; this
+ * reads the dimension text off them. The cutting is in the browser because
+ * this runtime has no image decoder and decoding multi-megapixel JPEGs in an
+ * edge function to crop them would be a poor trade — see
+ * `src/app/lib/blueprintSecondPass.ts`.
+ *
+ * IT ONLY READS. The merge is the client's, and it is deliberately
+ * conservative: a tile never overwrites a large room the sheet read got right.
+ *
+ * COST. One vision call per request carrying every tile, metered per tile
+ * against the same `blueprint` allowance as the first read, because that is
+ * what it costs. Four tiles doubles the price of reading a sheet, which is why
+ * the client only asks when there are rooms worth asking about.
+ */
+const MAX_TILES = 6;
+
+aiBlueprintRouter.post('/measure-rooms', async (c) => {
+  let reserved = 0;
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const tiles = (Array.isArray(body?.tiles) ? body.tiles : [])
+      .map((t: unknown) => String(t || ''))
+      .filter((t: string) => t.startsWith('data:'));
+    const wanted = (Array.isArray(body?.rooms) ? body.rooms : [])
+      .map((r: unknown) => String(r || '').trim())
+      .filter(Boolean)
+      .slice(0, 40);
+
+    if (!tiles.length) {
+      return c.json({ success: false, error: 'No tiles to read.' }, 400);
+    }
+    if (tiles.length > MAX_TILES) {
+      return c.json({
+        success: false,
+        error: `That is ${tiles.length} tiles. Send up to ${MAX_TILES} — each one is a read.`,
+      }, 400);
+    }
+    if (!wanted.length) {
+      // Nothing to look for means nothing to spend. Refusing here rather than
+      // reading four tiles and discarding the answer.
+      return c.json({ success: true, readings: [], note: 'No rooms were asked about.' });
+    }
+
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openaiApiKey) return c.json({ success: false, error: 'AI service not configured' }, 500);
+
+    const refused = await reserve(c.get('actor'), 'blueprint', tiles.length, 'blueprint reads');
+    if (refused) return c.json({ success: false, ...refused }, 429);
+    reserved = tiles.length;
+
+    const prompt = `These images are overlapping tiles cut from one architectural floor plan, at full resolution.
+
+Find the printed dimension text for each of these rooms and read it exactly:
+${wanted.map((r: string) => `- ${r}`).join('\n')}
+
+Rules:
+- Read what is PRINTED on the drawing. Do not estimate from how big a room looks.
+- Inches count: 7'-9" is 7.75 feet, 8'6" is 8.5. Never round to whole feet.
+- The same room may appear on more than one tile. Read it once.
+- If a room's dimensions are not legible on any tile, return null for both
+  numbers. A null is a useful answer; a guess is not.
+- Ignore any room not on the list.
+
+Return json of this shape and nothing else:
+{"readings":[{"name":"<room as listed above>","lengthFt":<number or null>,"widthFt":<number or null>}]}`;
+
+    const response = await recordedOpenAIFetch(
+      { agent: 'blueprint-analysis', operation: 'second pass on small rooms' },
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${openaiApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4.1-mini',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              ...tiles.map((t: string) => ({
+                type: 'image_url', image_url: { url: t, detail: 'high' },
+              })),
+            ],
+          }],
+          max_tokens: 1500,
+          temperature: 0,
+          response_format: { type: 'json_object' },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      await refund(c.get('actor'), 'blueprint', reserved);
+      reserved = 0;
+      return c.json({ success: false, error: 'The tiles could not be read.' }, 502);
+    }
+
+    const data = await response.json();
+    const msg = data?.choices?.[0]?.message || {};
+    const text = msg.content || msg.refusal || '';
+    let parsed: any = null;
+    try { parsed = JSON.parse(text); } catch { parsed = null; }
+
+    if (!parsed) {
+      // No fabricated fallback here either. Same rule as the first pass.
+      return c.json({
+        success: false,
+        error: 'The tiles could not be read.',
+        modelSaid: String(text).slice(0, 300),
+      }, 422);
+    }
+
+    const num = (v: unknown): number | null => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const readings = (Array.isArray(parsed?.readings) ? parsed.readings : [])
+      .map((r: any) => ({
+        name: String(r?.name ?? '').trim(),
+        lengthFt: num(r?.lengthFt),
+        widthFt: num(r?.widthFt),
+      }))
+      .filter((r: any) => r.name);
+
+    return c.json({ success: true, readings, tilesRead: tiles.length });
+  } catch (error: any) {
+    if (reserved) await refund(c.get('actor'), 'blueprint', reserved).catch(() => {});
+    console.log('[AI Blueprint] measure-rooms error:', error?.message || error);
+    return c.json({ success: false, error: 'The tiles could not be read.' }, 500);
+  }
+});
+
 // GET /ai/test - Test endpoint
 aiBlueprintRouter.get('/test', (c) => {
   console.log('[AI Blueprint] Test endpoint hit');
