@@ -175,11 +175,26 @@ The answer picks the build:
 - **Confirm `BIRD_SMS_FROM` is set.** `bird.ts` needs the sender as well as the
   key, and without it every SMS on the platform — invites, order updates,
   on-call pages — reports "not configured" and sends nothing.
-- **Set `BIRD_VOICE_FROM`** — a voice-capable Bird number in E.164. The ring is
-  wired again but it cannot place a call without a dialable caller ID, and
-  `BIRD_SMS_FROM` is deliberately not reused: an alphanumeric sender id is
-  valid for a text and cannot place a call. If your Bird key does not carry
-  voice scope, set `BIRD_API_VOICE_KEY` as well; otherwise the SMS key is used.
+- **Set the two senders.** Confirmed with Eric on 2026-11-12:
+
+      BIRD_SMS_FROM   = +16038108010
+      BIRD_VOICE_FROM = +16033331918
+
+  Supabase dashboard → Project Settings → Edge Functions → Secrets, or
+  `supabase secrets set …`. Either spelling works — `normalizeSender` accepts
+  `6038108010` and normalises it — but the `+1` form is what Bird stores.
+
+  The voice number arrived first as `603331918`, nine digits. It was refused
+  rather than accepted, which is the only reason the typo was caught: prefixing
+  `+` to it yields a valid Portuguese number. See `tests/birdSender.test.ts`.
+
+  `BIRD_SMS_FROM` is deliberately not reused for voice — an alphanumeric sender
+  id is valid for a text and cannot place a call. If the Bird key does not
+  carry voice scope, set `BIRD_API_VOICE_KEY` too; otherwise the SMS key is
+  used and voice calls will 403.
+
+- **Confirm +16033331918 is voice-capable on the Bird account.** An SMS-only
+  number cannot place a call, and that failure arrives as a vague rejection.
 - **Place one test call before trusting the ring.** `birdVoice.ts` is written
   against Bird's documentation and has never been run against the live API. Its
   sequence graph is pinned by 10 tests — connected end to end, speaks twice,

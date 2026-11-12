@@ -3,17 +3,19 @@
  *
  * WHY THIS FILE EXISTS AT ALL
  *
- * Eric gave two numbers on 2026-11-12: 6038108010 for SMS and 603331918 for
- * voice. The second has nine digits. Nine is not a US number, and the obvious
- * thing for software to do with it — prefix "+" and send it — produces
- * "+603331918", which is not an error anybody would notice: it is a
- * syntactically valid number in Portugal. Bird would take the configuration,
- * the call would fail somewhere a long way from here, and nothing in the
- * message would mention the missing digit.
+ * Because the nine-digit case was not hypothetical. On 2026-11-12 the voice
+ * number arrived as "603331918" — nine digits, one short — and was corrected
+ * to 6033331918 only because it was counted and refused rather than accepted.
+ *
+ * The obvious thing for software to do with nine digits is prefix "+" and send
+ * it. That produces "+603331918", which is not an error anybody would notice:
+ * it is a syntactically valid number in Portugal. Bird would have taken the
+ * configuration, the call would have failed somewhere a long way from here,
+ * and nothing in the message would have mentioned the missing digit. The guard
+ * paid for itself the day it was written.
  *
  * So the rule is: normalise what is unambiguous, refuse what is not, and never
- * guess. These tests are that rule, and the nine-digit case is the one they
- * exist for.
+ * guess. These tests are that rule.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,9 +23,12 @@ import { normalizeSender } from '../supabase/functions/server/bird.ts';
 
 /* ── what gets normalised ────────────────────────────────────────────────── */
 
-test('the SMS number Eric gave becomes E.164', () => {
-  assert.equal(normalizeSender('6038108010').sender, '+16038108010');
+test('both of the real numbers become E.164', () => {
+  // The two senders this account actually uses, in the form Bird wants.
+  assert.equal(normalizeSender('6038108010').sender, '+16038108010');   // SMS
+  assert.equal(normalizeSender('6033331918').sender, '+16033331918');   // voice
   assert.equal(normalizeSender('6038108010').error, undefined);
+  assert.equal(normalizeSender('6033331918').error, undefined);
 });
 
 test('a number typed the way a person types it is still accepted', () => {
@@ -44,7 +49,8 @@ test('a number already in E.164 is left as it is', () => {
 
 /* ── the case this file was written for ──────────────────────────────────── */
 
-test('nine digits is REFUSED, not prefixed into a Portuguese number', () => {
+test('the nine-digit typo is REFUSED, not prefixed into a Portuguese number', () => {
+  // The voice number as first given, one digit short of 6033331918.
   const result = normalizeSender('603331918');
   assert.equal(result.sender, '');
   assert.ok(result.error);
