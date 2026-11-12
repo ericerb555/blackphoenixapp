@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  readJsonReply, unreadableReply,
+  readJsonReply, unreadableReply, floorArea,
 } from '../supabase/functions/server/floorPlanReply.ts';
 
 const reply = (content: string, finish = 'stop') => ({
@@ -108,4 +108,26 @@ test('the two failures read differently to a person', () => {
   assert.match(unreadableReply(true), /nothing has been measured/);
   assert.match(unreadableReply(false), /could not be read/);
   assert.notEqual(unreadableReply(true), unreadableReply(false));
+});
+
+/* ── the area, which must not be taken on trust ──────────────────────────── */
+
+test('the envelope product beats the reported total, because it can be checked', () => {
+  // Observed: a reply whose own width and length said one thing while its
+  // totalArea said another. Two numbers multiplied is not a judgement call.
+  const area = floorArea({ totalWidth: 408, totalLength: 366, totalArea: 122880 });
+  assert.equal(area, 149328);   // 34'0" x 30'6", the printed size
+});
+
+test('a reported total is used only when there is no envelope to check it against', () => {
+  // A sheet that prints its floor area gives the architect's own figure, which
+  // beats anything derived — it just cannot be verified, so it goes second.
+  assert.equal(floorArea({ totalArea: 147888 }), 147888);
+  assert.equal(floorArea({ totalWidth: 0, totalLength: 0, totalArea: 147888 }), 147888);
+});
+
+test('nothing usable yields 0 rather than a number', () => {
+  for (const bad of [undefined, null, {}, { totalArea: -1 }, { totalWidth: 'x', totalLength: 10 }]) {
+    assert.equal(floorArea(bad as any), 0, JSON.stringify(bad));
+  }
 });

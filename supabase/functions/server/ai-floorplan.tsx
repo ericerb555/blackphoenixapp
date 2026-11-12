@@ -14,7 +14,7 @@
 
 import { Hono } from 'npm:hono@4';
 import { recordedOpenAIFetch } from "./aiLedger.ts";
-import { MAX_READING_TOKENS, readJsonReply, unreadableReply } from "./floorPlanReply.ts";
+import { MAX_READING_TOKENS, readJsonReply, unreadableReply, floorArea } from "./floorPlanReply.ts";
 
 const app = new Hono();
 
@@ -185,7 +185,11 @@ async function analyzeWithOpenAI(
       model: 'gpt-4.1-mini',
       messages,
       max_tokens: MAX_READING_TOKENS,
-      temperature: 0.2
+      // Zero, because this is a measurement and not a composition. At 0.2 the
+      // same sheet read 34x30, 32x26.7 and 30x28.3 feet on three consecutive
+      // runs. Variety is a virtue when drafting copy and a defect when the
+      // answer becomes a quantity on a quote.
+      temperature: 0
     })
   });
 
@@ -284,7 +288,27 @@ Return your analysis as a JSON object with this structure:
   "notes": "Any additional observations about the space"
 }
 
-All measurements should be in inches. Be as precise as possible based on visible reference points.`;
+All measurements should be in inches.
+
+READ THE NUMBERS, DO NOT JUDGE THEM BY EYE. This is the whole difference
+between a reading and a guess:
+
+- Architectural drawings print their dimensions. Find that text and read it.
+  A room marked 12'-6" is 150 inches. Estimate from the picture only where
+  nothing is printed, and say so in that item's notes when you do.
+- Inches are part of the dimension. 8'6" is 102 inches, not 96. Dropping them
+  makes every figure low, and the error compounds through the areas.
+- For "measurements": read the overall width and length off the dimension
+  lines at the edges of the plan. If the sheet prints a total floor area
+  anywhere, convert it to square inches and use it for totalArea — a printed
+  area is the architect's own figure and beats anything measured off pixels.
+- If a dimension is genuinely not legible, use null rather than a number taken
+  from how big something looks. A null says somebody must measure it, which is
+  true and useful; a guess cannot be told apart from a reading.
+
+Measured on 2026-11-12: asked to judge by eye, one sheet came back as 34'x30',
+32'x26'8" and 30'x28'4" on three consecutive reads — of a drawing whose size
+is printed on it as 34'0" x 30'6".`;
 
     const aiResponse = await analyzeWithOpenAI(imageUrl, imageBase64, prompt);
     const analysisText = aiResponse.choices[0]?.message?.content || '';
@@ -387,7 +411,7 @@ All measurements should be in inches. Be as precise as possible based on visible
       name: `AI Generated - ${new Date().toLocaleDateString()}`,
       elements,
       measurements: {
-        totalArea: floorPlanData.measurements?.totalArea || 0,
+        totalArea: floorArea(floorPlanData.measurements),
         roomCount: floorPlanData.rooms?.length || 0,
         wallCount: floorPlanData.walls?.length || 0
       },
@@ -597,7 +621,7 @@ All measurements in inches. Create a functional, realistic layout.`;
       name: `AI Generated - ${new Date().toLocaleDateString()}`,
       elements,
       measurements: {
-        totalArea: floorPlanData.measurements?.totalArea || 0,
+        totalArea: floorArea(floorPlanData.measurements),
         roomCount: floorPlanData.rooms?.length || 0,
         wallCount: floorPlanData.walls?.length || 0
       },
@@ -716,7 +740,27 @@ Return your analysis as a JSON object with this structure:
   "totalCost": 1150
 }
 
-All measurements should be in inches. Be as precise as possible based on visible reference points.`;
+All measurements should be in inches.
+
+READ THE NUMBERS, DO NOT JUDGE THEM BY EYE. This is the whole difference
+between a reading and a guess:
+
+- Architectural drawings print their dimensions. Find that text and read it.
+  A room marked 12'-6" is 150 inches. Estimate from the picture only where
+  nothing is printed, and say so in that item's notes when you do.
+- Inches are part of the dimension. 8'6" is 102 inches, not 96. Dropping them
+  makes every figure low, and the error compounds through the areas.
+- For "measurements": read the overall width and length off the dimension
+  lines at the edges of the plan. If the sheet prints a total floor area
+  anywhere, convert it to square inches and use it for totalArea — a printed
+  area is the architect's own figure and beats anything measured off pixels.
+- If a dimension is genuinely not legible, use null rather than a number taken
+  from how big something looks. A null says somebody must measure it, which is
+  true and useful; a guess cannot be told apart from a reading.
+
+Measured on 2026-11-12: asked to judge by eye, one sheet came back as 34'x30',
+32'x26'8" and 30'x28'4" on three consecutive reads — of a drawing whose size
+is printed on it as 34'0" x 30'6".`;
 
     const aiResponse = await analyzeWithOpenAI(imageUrl, imageBase64, prompt);
     const analysisText = aiResponse.choices[0]?.message?.content || '';

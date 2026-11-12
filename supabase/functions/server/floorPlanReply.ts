@@ -106,6 +106,33 @@ export function readJsonReply(aiResponse: any): {
   return { data: null, truncated, text };
 }
 
+/**
+ * The floor area, preferring the one arithmetic can check.
+ *
+ * The model reports `totalArea` alongside `totalWidth` and `totalLength`, and
+ * the three do not always agree — the same sheet produced totals of 1020, 853
+ * and 850 sq ft on consecutive reads while its own envelope figures said
+ * otherwise. Multiplying two numbers is not something to delegate, so where
+ * the envelope is present the product wins and the reported total is ignored.
+ *
+ * The reported figure is kept as the fallback rather than dropped: on a sheet
+ * that prints its floor area, that printed number is the architect's own and
+ * is better than anything derived. It just cannot be checked, so it goes
+ * second.
+ *
+ * Returns 0 when there is nothing usable, which is what the field held before
+ * and reads as "not computed" to everything downstream.
+ */
+export function floorArea(measurements: any): number {
+  const w = Number(measurements?.totalWidth);
+  const l = Number(measurements?.totalLength);
+  if (Number.isFinite(w) && Number.isFinite(l) && w > 0 && l > 0) {
+    return Math.round(w * l);
+  }
+  const reported = Number(measurements?.totalArea);
+  return Number.isFinite(reported) && reported > 0 ? Math.round(reported) : 0;
+}
+
 /** What to tell a caller whose reading did not come back. */
 export function unreadableReply(truncated: boolean): string {
   return truncated
