@@ -28,7 +28,7 @@ import { groupLinesByPhase } from './invoicePhases';
 import { selectQuoteLines } from './quotePdfSelection';
 import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup';
 import {
-  customerPricingOf, preTaxTotalOf, atCustomerPrice,
+  customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
 import { companyInfo } from './config/companyInfo';
 import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
@@ -86,6 +86,34 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
      */
     for (const line of lines) line.unit_price = line.unit_price * pricing.factor;
     for (const [name, cost] of trueCost) trueCost.set(name, atCustomerPrice(cost, pricing));
+
+    /**
+     * AND THEN THE ROUNDING REMAINDER IS PLACED, OR THE COLUMN STILL MISSES.
+     *
+     * Scaling each rate and rounding each amount independently leaves the
+     * column a cent or two from the footer: on Sherry Ducharme's quote,
+     * twenty-one lines came to 15,474.17 under a subtotal of 15,474.15. Two
+     * cents is not a pricing error, but it is the same sentence from the
+     * customer either way — "your lines do not add up to your total" — and
+     * this document exists to stop that sentence.
+     *
+     * `allocate` apportions the printed subtotal across the printed lines and
+     * puts the remainder on the largest one, which is what
+     * `customerQuoteView` already does on the web copy. That agreement is the
+     * real reason to do it here: the PDF and the page a customer approves
+     * from must show the same figures, and before this they could differ by
+     * the rounding alone.
+     *
+     * The cost of it: one line's amount may sit a cent off its own rate times
+     * quantity. That is the lesser of the two, and it is the line most able to
+     * absorb it.
+     */
+    const printedSubtotal = preTaxTotalOf(quote, pricing);
+    const amounts = allocate(
+      lines.map((l: any) => (Number(l.quantity) || 0) * (Number(l.unit_price) || 0)),
+      printedSubtotal,
+    );
+    lines.forEach((line: any, i: number) => { line.priced_amount = amounts[i]; });
   }
 
   const grouped = groupLinesByPhase(lines, steps);
@@ -107,11 +135,22 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
 
+  /**
+   * What one line's amount IS — resolved once, because two callers need it.
+   *
+   * `toPdfLine` draws it and the per-kind group subtotal below sums it. When
+   * those two disagreed the group subtotal was right about rate x quantity and
+   * wrong about the column printed underneath it, which is the same complaint
+   * in a smaller box.
+   */
+  const amountOf = (l: any) =>
+    Number.isFinite(l?.priced_amount) ? (l.priced_amount as number) : round2(l.quantity * l.unit_price);
+
   const toPdfLine = (l: any) => ({
     description: l.description,
     quantity: l.quantity,
     rate: l.unit_price,
-    amount: round2(l.quantity * l.unit_price),
+    amount: amountOf(l),
   });
 
   const phases: QuotePdfPhase[] = grouped.map((g) => {
@@ -139,14 +178,13 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     for (const [kind, label] of [['material', 'Materials'], ['labor', 'Labour']] as const) {
       const of = g.lines.filter((l: any) => l.kind === kind);
       if (!of.length) continue;
-      const groupSubtotal = round2(of.reduce((sum: number, l: any) => sum + l.quantity * l.unit_price, 0));
+      const groupSubtotal = round2(of.reduce((sum: number, l: any) => sum + amountOf(l), 0));
       groups.push({
         label,
         lines: of.map(toPdfLine),
         subtotal: groupSubtotal,
-        /* The amounts are still computed from quantity x rate — they have
-           to be, or the subtotals would be wrong. What changes is whether
-           those two numbers are DRAWN. */
+        /* The subtotal sums the SAME amounts the lines print — see `amountOf`.
+           What changes is whether the quantity and rate are DRAWN. */
         showRates: kind === 'material' ? rateVisibility.materials : rateVisibility.labor,
         markup: showMarkup
           ? { total: markupOn(groupSubtotal, rates!).total, label: rateLabel }
