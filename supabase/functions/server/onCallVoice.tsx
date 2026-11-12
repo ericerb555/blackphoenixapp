@@ -26,11 +26,32 @@
  *
  * AUTHENTICATION
  *
- * Twilio carries no session, so these paths are exempt at the auth gate and at
- * the origin lock, and authenticated instead by `X-Twilio-Signature` — an HMAC
- * over the exact URL and the posted fields, keyed by the Twilio auth token.
- * With `TWILIO_AUTH_TOKEN` unset the routes answer 404: an unauthenticated
- * endpoint that creates emergencies is worse than no endpoint at all.
+ * A telephone company carries no session, so these paths are exempt at the auth
+ * gate and at the origin lock, and authenticated instead by a signature over
+ * the exact URL and the posted fields. With the signing secret unset the routes
+ * answer 404: an unauthenticated endpoint that creates emergencies is worse
+ * than no endpoint at all.
+ *
+ * THE PROVIDER QUESTION IS OPEN — READ THIS BEFORE RELYING ON THIS FILE
+ *
+ * The call-control below is Twilio's shape: TwiML returned per turn, and an
+ * `X-Twilio-Signature` HMAC-SHA1 over the request. The account has since moved
+ * to Bird, and Bird's voice product is NOT a drop-in: an inbound call runs a
+ * published SEQUENCE built in Bird's console, and Bird's webhooks report what a
+ * call did (`voice_call.initiated` / `.answered` / `.ended`, signed per the
+ * Standard Webhooks spec with HMAC-SHA256) rather than being asked what should
+ * happen next. There is no per-turn "say this, now listen" exchange to port
+ * onto.
+ *
+ * So this file is currently INERT — `TWILIO_AUTH_TOKEN` is unset, every webhook
+ * answers 404, and the settings panel says so in plain words. It is kept rather
+ * than deleted because the parts that took the thinking are provider-agnostic
+ * and all live elsewhere: the conversation, the classifier and the safety rules
+ * are in `onCallAttendant.ts`, the directory in `onCallNumbers.ts`, and both
+ * are pinned by 38 tests that know nothing about any telephone company. What is
+ * Twilio-specific is this file's TwiML and its signature check.
+ *
+ * `tasks/ai-emergency-attendant.md` holds the options and what each costs.
  */
 
 import { Hono } from "npm:hono@4";
@@ -466,7 +487,11 @@ onCallVoiceRouter.get(`${PREFIX}/on-call-attendant`, async (c) => {
       configured: Boolean(Deno.env.get("TWILIO_AUTH_TOKEN")),
       problems: [
         !Deno.env.get("TWILIO_AUTH_TOKEN")
-          ? "Twilio is not configured on the server, so inbound calls are refused."
+          ? "The attendant cannot answer calls yet: these webhooks speak Twilio's "
+            + "call-control format, and this account has moved to Bird, whose voice "
+            + "product works differently. Everything above is saved and the rota, "
+            + "the escalation and the SMS paging all work — only the inbound phone "
+            + "line is waiting on that decision."
           : "",
         settings.enabled && numbers.length === 0
           ? "The attendant is on but no phone number is assigned to it, so nothing can reach it."

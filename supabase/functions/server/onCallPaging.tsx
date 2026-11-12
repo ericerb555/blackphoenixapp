@@ -25,14 +25,22 @@
  *
  * CREDENTIALS
  *
- * `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_PHONE_NUMBER` — the
- * same three the SMS invite and the marketing sender already use, deliberately,
- * so there is one Twilio account to configure rather than a second set of
- * secrets that mean the same thing. With none of them set, this records that it
- * could not page and says so loudly rather than failing quietly.
+ * `BIRD_API_SMS_KEY` and `BIRD_SMS_FROM`, through `bird.ts` — the same two the
+ * invite and the marketing sender use, deliberately, so there is one account to
+ * configure rather than a second set of secrets meaning the same thing. With
+ * them unset this records that it could not page and says so loudly rather than
+ * failing quietly.
+ *
+ * THE PHONE CALL IS CURRENTLY MISSING, AND THAT IS STATED RATHER THAN HIDDEN
+ *
+ * The account moved off Twilio. Bird's voice product is not a TwiML
+ * equivalent — see the note on VOICE_NOT_WIRED below — so the text is sent and
+ * the ring is recorded as skipped with its reason, on the record and in the
+ * log. Read `tasks/ai-emergency-attendant.md` for what closing that needs.
  */
 
 import { e164, pageText, pageSpeech } from "./onCallMessage.ts";
+import { resolveBirdSms, sendBirdSms } from "./bird.ts";
 
 export { e164, pageText, pageSpeech };
 
@@ -53,32 +61,32 @@ export interface PageOutcome {
   reason: string | null;
 }
 
-function credentials() {
-  return {
-    sid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
-    token: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
-    from: Deno.env.get("TWILIO_PHONE_NUMBER") || "",
-  };
-}
-
 export function pagingConfigured(): boolean {
-  const { sid, token, from } = credentials();
-  return Boolean(sid && token && from);
+  return !resolveBirdSms().error;
 }
 
-async function twilioPost(path: string, body: URLSearchParams): Promise<any> {
-  const { sid, token } = credentials();
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${btoa(`${sid}:${token}`)}`,
-    },
-    body,
-  });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(payload?.message || `Twilio responded ${res.status}`);
-  return payload;
+/**
+ * Why the phone no longer rings, and why that is said rather than hidden.
+ *
+ * This used to place a voice call through Twilio with inline TwiML. The
+ * account has moved to Bird, whose voice product is not a TwiML-equivalent:
+ * an inbound or outbound call runs a *published sequence* built in Bird's
+ * console, and Bird's webhooks report what a call did rather than being asked
+ * what it should do next. So the voice leg cannot be ported by swapping a URL,
+ * and a guess written into the one code path whose job is to wake somebody at
+ * three in the morning is worse than an honest gap.
+ *
+ * Until a Bird sequence exists and its id is in `BIRD_VOICE_SEQUENCE_ID`, the
+ * text is sent and the voice attempt is recorded as `skipped` with this reason
+ * attached — which is visible on the call record and in the log, because the
+ * whole point of this file is that a page which did not happen must never look
+ * like one that did.
+ */
+const VOICE_NOT_WIRED =
+  "voice paging is not configured — Bird needs a published call sequence (set BIRD_VOICE_SEQUENCE_ID)";
+
+function voiceConfigured(): boolean {
+  return Boolean((Deno.env.get("BIRD_VOICE_SEQUENCE_ID") || "").trim());
 }
 
 /**
@@ -88,9 +96,10 @@ async function twilioPost(path: string, body: URLSearchParams): Promise<any> {
  * what wakes them. Sending the text second would mean a phone ringing about
  * something with no detail attached.
  *
- * The TwiML is inline rather than fetched from a URL, so this needs no public
- * callback endpoint — one less thing to host, secure and keep reachable, and a
- * callback URL that is unreachable at 3am is a phone call that never happens.
+ * Only the text is sent today. `pageSpeech` is still exported and still the
+ * right words — it is what a Bird sequence will read out — and keeping it here
+ * rather than deleting it is deliberate: the words were the part that took
+ * thought, and the gap is the transport.
  */
 export async function pageContacts(
   call: any,
@@ -101,19 +110,17 @@ export async function pageContacts(
   if (reachable.length === 0) {
     return { paged: false, attempts: [], reason: "nobody on this rung has a usable number" };
   }
-  if (!pagingConfigured()) {
+  const sms = resolveBirdSms();
+  if (sms.error) {
     // Said loudly. A rota that cannot be paged looks identical to one that was.
     console.log(
-      `[OnCall][NOT PAGED] call ${call?.id}: Twilio is not configured `
-      + `(TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER). `
+      `[OnCall][NOT PAGED] call ${call?.id}: ${sms.error} `
       + `${reachable.length} contact(s) were NOT rung.`,
     );
-    return { paged: false, attempts: [], reason: "Twilio is not configured on this server" };
+    return { paged: false, attempts: [], reason: sms.error };
   }
 
-  const { from } = credentials();
   const text = pageText(call);
-  const speech = pageSpeech(call);
   const attempts: PageAttempt[] = [];
 
   for (const contact of reachable) {
@@ -127,28 +134,29 @@ export async function pageContacts(
       at: new Date().toISOString(),
     };
 
-    try {
-      await twilioPost("Messages.json", new URLSearchParams({ To: to, From: from, Body: text }));
+    /**
+     * `service` rather than `transactional`.
+     *
+     * Bird's category is a closed set and it is what the carrier sees. An
+     * emergency page is operational service traffic, not a receipt, and
+     * classifying it honestly is what keeps it out of the filtering that
+     * marketing-adjacent categories attract — on the one message that must
+     * arrive.
+     */
+    const result = await sendBirdSms(to, text, "service");
+    if (result.ok) {
       attempt.sms = "sent";
-    } catch (e: any) {
+    } else {
       attempt.sms = "failed";
-      attempt.detail = String(e?.message || e).slice(0, 300);
+      attempt.detail = String(result.error || "").slice(0, 300);
       console.log(`[OnCall] SMS to ${to} failed for call ${call?.id}: ${attempt.detail}`);
     }
 
-    if (opts.voice !== false) {
-      try {
-        await twilioPost("Calls.json", new URLSearchParams({
-          To: to,
-          From: from,
-          Twiml: `<Response><Say voice="alice">${speech}</Say><Pause length="1"/><Say voice="alice">${speech}</Say></Response>`,
-        }));
-        attempt.voice = "called";
-      } catch (e: any) {
-        attempt.voice = "failed";
-        attempt.detail = [attempt.detail, String(e?.message || e).slice(0, 300)].filter(Boolean).join(" | ");
-        console.log(`[OnCall] call to ${to} failed for call ${call?.id}: ${e?.message || e}`);
-      }
+    if (opts.voice !== false && !voiceConfigured()) {
+      // Recorded on the attempt, not swallowed: somebody reading this call
+      // record has to be able to see that the phone never rang.
+      attempt.voice = "skipped";
+      attempt.detail = [attempt.detail, VOICE_NOT_WIRED].filter(Boolean).join(" | ");
     }
 
     attempts.push(attempt);

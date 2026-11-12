@@ -42,6 +42,7 @@ import { isStaffRequest } from "./requireStaff.ts";
 import { ingestTerritory } from "./exchangeIngestRun.ts";
 import { trialEndFor, TRIAL_MONTHS } from "./exchangeTrials.ts";
 import { safeFetch } from "./outboundGuard.ts";
+import { sendBirdSms } from "./bird.ts";
 import {
   FACTORS,
   enabledFactor,
@@ -131,24 +132,11 @@ async function sendEmail(to: string, subject: string, html: string) {
 }
 
 async function sendSms(to: string, body: string) {
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID");
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN");
-  const from = Deno.env.get("TWILIO_PHONE_NUMBER");
-  if (!sid || !token || !from || !to) return { sent: false, reason: "texting is not configured" };
-  try {
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${btoa(`${sid}:${token}`)}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: body }),
-    });
-    if (!res.ok) return { sent: false, reason: `the text provider refused it (${res.status})` };
-    return { sent: true };
-  } catch {
-    return { sent: false, reason: "the text provider could not be reached" };
-  }
+  if (!to) return { sent: false, reason: "texting is not configured" };
+  // Bird's own resolver answers "not configured" in the same shape, so the
+  // caller's branch for that case is unchanged by the move off Twilio.
+  const result = await sendBirdSms(to, body, "transactional");
+  return result.ok ? { sent: true } : { sent: false, reason: result.error };
 }
 
 /** The claim and its challenges, or null when it is not this caller's. */

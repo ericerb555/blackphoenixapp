@@ -13,6 +13,7 @@
 
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { sendBirdSms } from "./bird.ts";
 
 const router = new Hono();
 
@@ -28,23 +29,23 @@ const RANK_SETTINGS = "ranking_settings:default";
 const uid = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 // ── Provider helpers ────────────────────────────────────────────────────────
-async function sendSMSViaTwilio(to: string, message: string) {
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID");
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN");
-  const from = Deno.env.get("TWILIO_PHONE_NUMBER");
-  if (!sid || !token || !from) throw new Error("Twilio credentials not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER)");
-
-  const auth = btoa(`${sid}:${token}`);
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${auth}` },
-    body: new URLSearchParams({ To: to, From: from, Body: message }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Twilio API failed for ${to}: ${err}`);
-  }
-  return await res.json();
+/**
+ * Marketing SMS, classified as marketing.
+ *
+ * Bird's category is a closed set and it is what the carrier sees. This sender
+ * is campaigns and abandoned-cart nudges, so calling it 'transactional' to
+ * dodge filtering would be a lie told to a carrier about the one thing they
+ * police — and the cost of being caught is the number, which every
+ * transactional message also depends on.
+ *
+ * Still throws rather than returning a result: the campaign runner above
+ * counts failures per recipient by catching, and changing that contract here
+ * would silently turn every failed send into a success.
+ */
+async function sendSMSViaBird(to: string, message: string) {
+  const result = await sendBirdSms(to, message, "marketing");
+  if (!result.ok) throw new Error(`Bird SMS failed for ${to}: ${result.error}`);
+  return result;
 }
 
 async function sendEmailViaResend(to: string[], subject: string, html: string) {
@@ -140,7 +141,7 @@ router.post("/make-server-3eae23a6/sms/send", async (c) => {
     for (const r of recipients) {
       const personalized = message.replace(/\{name\}/g, (r.name || "there").split(" ")[0]);
       try {
-        await sendSMSViaTwilio(r.phone, personalized);
+        await sendSMSViaBird(r.phone, personalized);
         sent++;
         await kv.set(SMS_CONTACT(r.id), { ...r, lastTexted: new Date().toISOString() });
       } catch (err: any) {

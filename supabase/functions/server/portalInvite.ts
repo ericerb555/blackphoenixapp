@@ -31,7 +31,7 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { APP_URL, resolveCompanyName, toE164 } from "./serverPrimitives.ts";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
-import { resolveTwilioCreds, describeTwilioError } from "./twilio.ts";
+import { resolveBirdSms, sendBirdSms } from "./bird.ts";
 import {
   buildPortalInviteEmail, buildPortalInviteSms, effectiveInviteFields,
   type InviteFields,
@@ -191,16 +191,17 @@ export async function deliverPortalInvite(opts: { name: string; email: string; p
     }
   }
   if (sendSms) {
-    const twilio = resolveTwilioCreds();
-    if (twilio.error) { smsNotice = twilio.error; }
+    const bird = resolveBirdSms();
+    if (bird.error) { smsNotice = bird.error; }
     else if (!phone) { smsNotice = 'No phone number provided for SMS.'; }
     else if (!toE164(phone)) { smsNotice = `The phone number "${phone}" is not a valid number for SMS.`; }
     else {
       try {
         const toNumber = toE164(phone);
         const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
-        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, { method: 'POST', headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ From: twilio.from, To: toNumber, Body: smsBody }) });
-        if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = describeTwilioError(res.status, err, twilio); } else { smsSent = true; }
+        // Transactional: somebody here asked for this person to be invited.
+        const res = await sendBirdSms(toNumber, smsBody, 'transactional');
+        if (!res.ok) { smsNotice = res.error; } else { smsSent = true; }
       } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
     }
   }

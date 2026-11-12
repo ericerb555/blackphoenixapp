@@ -13,6 +13,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
+import { sendBirdSms } from "./bird.ts";
 
 const fulfillmentRouter = new Hono();
 
@@ -45,22 +46,11 @@ async function sendEmail(to: string, subject: string, html: string) {
 }
 
 async function sendSMS(to: string, body: string) {
-  const sid = Deno.env.get("TWILIO_ACCOUNT_SID");
-  const token = Deno.env.get("TWILIO_AUTH_TOKEN");
-  const from = Deno.env.get("TWILIO_PHONE_NUMBER");
-  if (!sid || !token || !from || !to) return { sent: false, reason: "missing twilio config or recipient" };
-  try {
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-      method: "POST",
-      headers: { Authorization: `Basic ${btoa(`${sid}:${token}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ To: to, From: from, Body: body }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { sent: false, reason: `Twilio error: ${JSON.stringify(data)}` };
-    return { sent: true, sid: data.sid };
-  } catch (err) {
-    return { sent: false, reason: `Twilio exception: ${err}` };
-  }
+  if (!to) return { sent: false, reason: "no recipient" };
+  // An order update is transactional: the customer asked for the thing this
+  // message is about. Category is a closed set Bird enforces — see bird.ts.
+  const result = await sendBirdSms(to, body, "transactional");
+  return result.ok ? { sent: true, sid: result.id } : { sent: false, reason: result.error };
 }
 
 // Customer-friendly copy per status.

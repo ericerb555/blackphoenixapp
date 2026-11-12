@@ -3,11 +3,19 @@
  *
  * WHY THIS EXISTS
  *
- * Every SMS on this platform went through Twilio — one resolver in twilio.ts
- * and a dozen inline call sites. The account is moving to Bird: the secret
- * BIRD_API_SMS_KEY is set, and nothing reads it yet. This is the Bird half of
- * twilio.ts, so a caller gets the same shape — resolve, send, a readable error
- * — without learning Bird's request format.
+ * Every SMS on this platform used to go through Twilio — one resolver and a
+ * dozen inline call sites. The account has moved to Bird and twilio.ts is
+ * deleted: this is now the only SMS transport, and every caller goes through
+ * resolveBirdSms/sendBirdSms rather than learning Bird's request format.
+ *
+ * VOICE IS NOT HERE, AND THAT IS NOT AN OVERSIGHT
+ *
+ * Bird voice is not a drop-in for Twilio's: an inbound or outbound call runs a
+ * published SEQUENCE built in Bird's console, and Bird's webhooks report what
+ * a call did rather than being asked what it should do next. So there is no
+ * sendBirdVoice() to pair with sendBirdSms(), and writing one against a guessed
+ * endpoint would put a guess in the path that wakes somebody at 3am. See
+ * tasks/ai-emergency-attendant.md.
  *
  * WHICH BIRD API
  *

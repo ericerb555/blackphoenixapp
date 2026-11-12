@@ -278,7 +278,7 @@ import {
   generateInviteActionLink, deliverPortalInvite,
   PORTAL_APPLICATION_ROUTE, buildDirectOnboardingLink, mintInviteToken,
 } from "./portalInvite.ts";
-import { resolveTwilioCreds, describeTwilioError } from "./twilio.ts";
+import { resolveBirdSms, sendBirdSms } from "./bird.ts";
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
 import crmContentRouter from "./crm-content.tsx";
@@ -4816,9 +4816,6 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
   try {
     const body = await c.req.json();
     const RESEND_API_KEY    = Deno.env.get('RESEND_API_KEY')    || '';
-    const TWILIO_SID        = Deno.env.get('TWILIO_ACCOUNT_SID')|| '';
-    const TWILIO_AUTH       = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-    const TWILIO_FROM       = Deno.env.get('TWILIO_PHONE_NUMBER')|| '';
     const ADMIN_PHONES      = Deno.env.get('ADMIN_NOTIFICATION_PHONES') || '';
     const COMPANY_NAME      = resolveCompanyName();
     // Comma-separated list in ADMIN_NOTIFICATION_EMAILS; falls back to the owner address.
@@ -4859,27 +4856,20 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
     results.emailRecipients = emailResult.recipients;
     if (emailResult.error) results.emailError = emailResult.error;
 
-    // ── SMS via Twilio ────────────────────────────────────────────────
-    if (TWILIO_SID && TWILIO_AUTH && TWILIO_FROM && ADMIN_PHONES) {
+    // ── SMS via Bird ──────────────────────────────────────────────────
+    if (!resolveBirdSms().error && ADMIN_PHONES) {
       const phones = ADMIN_PHONES.split(',').map((p: string) => p.trim()).filter(Boolean);
       const smsText = `🚨 New Work Request!\n${clientName} | ${serviceType || title || 'Service'} | ${budgetRange || ''}\nPhone: ${clientPhone || clientEmail}\nLog in to review.`;
 
       for (const phone of phones) {
         try {
-          const smsRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: smsText }),
-          });
+          const smsRes = await sendBirdSms(toE164(phone), smsText, 'service');
           if (smsRes.ok) { results.smsSent = true; results.smsRecipients.push(phone); }
-          else { const e = await smsRes.json(); console.error('[Notify] SMS error:', e); }
+          else console.error('[Notify] SMS error:', smsRes.error);
         } catch (e) { console.error('[Notify] SMS exception:', e); }
       }
     } else {
-      console.log('ℹ️ [Notify] Twilio not configured — skipping SMS');
+      console.log('ℹ️ [Notify] Bird SMS not configured — skipping SMS');
     }
 
     // Store as admin alert
@@ -5125,17 +5115,17 @@ app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const phone = String(body.phone || '').trim();
     if (!phone) return c.json({ success: false, error: 'Enter a phone number to test.' }, 400);
-    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
     const COMPANY_NAME = resolveCompanyName();
-    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: `${COMPANY_NAME}: test SMS — your text notifications are working.` }),
-    });
-    if (!res.ok) { const err = await res.text(); console.error('[test-sms] error:', err); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
+    const cfg = resolveBirdSms();
+    // The resolver's message already names the missing secret, so it is passed
+    // through rather than flattened into "not configured".
+    if (cfg.error) return c.json({ success: false, error: cfg.error }, 400);
+    const res = await sendBirdSms(
+      toE164(phone),
+      `${COMPANY_NAME}: test SMS — your text notifications are working.`,
+      'service',
+    );
+    if (!res.ok) { console.error('[test-sms] error:', res.error); return c.json({ success: false, error: res.error }, 502); }
     return c.json({ success: true });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
 });
@@ -5599,10 +5589,7 @@ app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
     }
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
-    const TWILIO_SID     = Deno.env.get('TWILIO_ACCOUNT_SID')  || '';
-    const TWILIO_AUTH    = Deno.env.get('TWILIO_AUTH_TOKEN')   || '';
-    const TWILIO_FROM    = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-    const smsConfigured  = Boolean(TWILIO_SID && TWILIO_AUTH && TWILIO_FROM);
+    const smsConfigured  = !resolveBirdSms().error;
     const COMPANY_NAME = resolveCompanyName();
     const APP_URL = Deno.env.get('APP_PUBLIC_URL') || 'https://www.theblackphoenixcompany.com';
 
@@ -5689,16 +5676,10 @@ app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
         row.smsReason = 'SMS is not configured on the server';
       } else {
         try {
-          const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`,
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: smsText }),
-          });
+          // A bid invitation is service traffic about work they asked to see.
+          const res = await sendBirdSms(toE164(phone), smsText, 'service');
           if (!res.ok) {
-            console.error('[bid-room/notify-invites] twilio error:', await res.text());
+            console.error('[bid-room/notify-invites] bird error:', res.error);
             row.smsReason = 'carrier rejected the message';
           } else {
             row.sms = true;
@@ -7137,18 +7118,11 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
         if (!res.ok) console.log('market-alerts email error:', await res.text());
       } catch (e) { console.log('market-alerts email exception:', e); }
     }
-    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-    const TWILIO_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
-    if (prefs.phone && TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
+    if (prefs.phone && !resolveBirdSms().error) {
       try {
-        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-          method: 'POST',
-          headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ To: toE164(prefs.phone), From: TWILIO_FROM, Body: `${subject}\n${text}`.slice(0, 1500) }),
-        });
+        const res = await sendBirdSms(toE164(prefs.phone), `${subject}\n${text}`.slice(0, 1500), 'service');
         smsSent = res.ok;
-        if (!res.ok) console.log('market-alerts sms error:', await res.text());
+        if (!res.ok) console.log('market-alerts sms error:', res.error);
       } catch (e) { console.log('market-alerts sms exception:', e); }
     }
     return c.json({ success: true, emailSent, smsSent });
@@ -12046,11 +12020,11 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       }
     }
 
-    // SMS: same template, delivered via Twilio to the invitee's phone.
+    // SMS: same template, delivered via Bird to the invitee's phone.
     if (sendSms) {
-      const twilio = resolveTwilioCreds();
-      if (twilio.error) {
-        smsNotice = twilio.error;
+      const bird = resolveBirdSms();
+      if (bird.error) {
+        smsNotice = bird.error;
       } else if (!phone) {
         smsNotice = 'No phone number provided for SMS.';
       } else if (!toE164(phone)) {
@@ -12059,12 +12033,9 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
         try {
           const toNumber = toE164(phone);
           const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
-          const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`, {
-            method: 'POST',
-            headers: { Authorization: `Basic ${btoa(`${twilio.authUser}:${twilio.authPass}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ From: twilio.from, To: toNumber, Body: smsBody }),
-          });
-          if (!res.ok) { const err = await res.text().catch(() => ''); smsNotice = describeTwilioError(res.status, err, twilio); } else { smsSent = true; }
+          // An invitation somebody asked us to send them is transactional.
+          const res = await sendBirdSms(toNumber, smsBody, 'transactional');
+          if (!res.ok) { smsNotice = res.error; } else { smsSent = true; }
         } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
       }
     }
@@ -12316,23 +12287,17 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test-sms', async (c) =
     const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
     const overrides = (body.overrides && typeof body.overrides === 'object') ? body.overrides as InviteFields : undefined;
 
-    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
     const COMPANY_NAME = resolveCompanyName();
-    if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) return c.json({ success: false, error: 'SMS is not configured (Twilio env vars missing).' }, 400);
+    const cfg = resolveBirdSms();
+    if (cfg.error) return c.json({ success: false, error: cfg.error }, 400);
 
     const sms = buildPortalInviteSms({
       name: 'there', portalType,
       signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
       companyName: COMPANY_NAME, fullAccess, trialMonths, overrides,
     });
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(to), Body: `[TEST] ${sms}` }),
-    });
-    if (!res.ok) { const err = await res.text().catch(() => ''); return c.json({ success: false, error: `Twilio rejected the message: ${err}` }, 502); }
+    const res = await sendBirdSms(toE164(to), `[TEST] ${sms}`, 'transactional');
+    if (!res.ok) return c.json({ success: false, error: res.error }, 502);
     return c.json({ success: true, to });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
 });

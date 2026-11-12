@@ -31,6 +31,7 @@
  */
 import * as kv from "./kv_store.tsx";
 import { toE164, resolveCompanyName } from "./serverPrimitives.ts";
+import { sendBirdSms } from "./bird.ts";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
 
 export const NOTIF_EVENTS = [
@@ -110,18 +111,13 @@ export async function notifyRecipient(email: string, event: NotifEvent, opts: { 
       } catch (e) { console.error(`[notifyRecipient] email exception for ${lower} (${event}):`, e); }
     }
 
-    const TWILIO_SID = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
-    const TWILIO_AUTH = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-    const TWILIO_FROM = Deno.env.get('TWILIO_PHONE_NUMBER') || '';
     const phone = String(prefs?.phone || '').trim();
-    if (evt.sms && phone && TWILIO_SID && TWILIO_AUTH && TWILIO_FROM) {
+    if (evt.sms && phone) {
       try {
-        const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
-          method: 'POST',
-          headers: { Authorization: `Basic ${btoa(`${TWILIO_SID}:${TWILIO_AUTH}`)}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ From: TWILIO_FROM, To: toE164(phone), Body: (opts.sms || opts.text).slice(0, 320) }),
-        });
-        if (!res.ok) console.error(`[notifyRecipient] sms error for ${lower} (${event}):`, await res.text());
+        // 'service' — these are operational notices about something the
+        // recipient already has with us, not receipts and not marketing.
+        const result = await sendBirdSms(toE164(phone), (opts.sms || opts.text).slice(0, 320), 'service');
+        if (!result.ok) console.error(`[notifyRecipient] sms error for ${lower} (${event}):`, result.error);
       } catch (e) { console.error(`[notifyRecipient] sms exception for ${lower} (${event}):`, e); }
     }
   } catch (e) { console.error(`[notifyRecipient] fatal for ${email} (${event}):`, e); }
