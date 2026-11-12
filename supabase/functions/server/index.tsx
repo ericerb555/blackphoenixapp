@@ -372,7 +372,7 @@ import { safeFetch } from "./outboundGuard.ts";
 import { summarise as summariseComplianceRecords, COMPLIANCE_LABELS, validExpiry, remindersDue } from "./compliance.ts";
 import { deliverablePurchaseOrder, alreadyDelivered, deliveryFromResponse, purchaseOrderEmailText } from "./purchaseOrderDelivery.ts";
 import { repriceEstimate, matchCatalogItem } from "./repriceEstimate.ts";
-import { resolveLaborRates, resolvePricing, normaliseLaborRates } from './pricingDefaults.ts';
+import { resolveLaborRates, resolvePricing, resolveBurden, normaliseLaborRates } from './pricingDefaults.ts';
 import {
   buildReport, reportRefusal, reportView, transitionRefusal, applyTransition,
   isFullyPriced, tenantCopy, workRequestScope,
@@ -6023,7 +6023,17 @@ app.get('/make-server-3eae23a6/pricing-config/get', async (c) => {
     // Same reasoning as the rates: standards until the company sets its own, and
     // the caller is told which it received.
     const { settings, usingStandards } = resolvePricing(stored, ratesRecord);
-    return c.json({ success: true, config: settings, usingStandards, lastSaved: stored?.lastSaved || null });
+    /**
+     * The burden travels beside the settings rather than inside them,
+     * because it is the one figure with no standard to fall back on — see
+     * `resolveBurden`. An empty object here means nobody has set one, and
+     * every labour figure in the system is a bare wage.
+     */
+    const burden = resolveBurden(stored, ratesRecord);
+    return c.json({
+      success: true, config: settings, usingStandards, burden,
+      lastSaved: stored?.lastSaved || null,
+    });
   } catch (error: any) {
     return c.json({ success: false, error: error.message || 'Unable to load pricing settings.' }, 500);
   }
@@ -6037,6 +6047,7 @@ app.post('/make-server-3eae23a6/pricing-config/save', async (c) => {
     }
     const body = await c.req.json().catch(() => ({}));
     const incoming = body?.config && typeof body.config === 'object' ? body.config : {};
+    const stored_ = await kv.get('pricing_config:global').catch(() => null) as any;
 
     // Bounded field by field. These percentages multiply into every customer's
     // price, so a negative margin or a string where a rate belongs must not
@@ -6045,6 +6056,20 @@ app.post('/make-server-3eae23a6/pricing-config/save', async (c) => {
     const byCategory: Record<string, number> = {};
     for (const [k, v] of Object.entries(incoming.materialMarkupByCategory || {})) {
       if (typeof k === 'string' && k.length <= 60) byCategory[k.slice(0, 60)] = pct(v);
+    }
+
+    const priorBurden = (stored_?.config?.burden && typeof stored_.config.burden === 'object')
+      ? stored_.config.burden as Record<string, unknown> : {};
+    const sentBurden = (incoming.burden && typeof incoming.burden === 'object')
+      ? incoming.burden as Record<string, unknown> : null;
+    const mergedBurden: Record<string, number> = { ...priorBurden } as Record<string, number>;
+    if (sentBurden) {
+      for (const field of [
+        'burdenPercent', 'payrollTaxPercent', 'workersCompPercent',
+        'liabilityPercent', 'benefitsPercent',
+      ]) {
+        if (field in sentBurden) mergedBurden[field] = pct(sentBurden[field], 100);
+      }
     }
 
     const config = {
@@ -6060,6 +6085,20 @@ app.post('/make-server-3eae23a6/pricing-config/save', async (c) => {
       taxRate: pct(incoming.taxRate, 100),
       allowDiscounts: incoming.allowDiscounts !== false,
       maxDiscountPercentage: pct(incoming.maxDiscountPercentage, 100),
+      /**
+       * THE BURDEN IS MERGED, NOT REBUILT.
+       *
+       * Every other field above reads `Number(v) || 0`, so a caller that
+       * omits one saves a zero over whatever was there. That is survivable
+       * for a markup with a standard behind it and not survivable for the
+       * burden: a save from any screen that does not yet know about it —
+       * and none of them did until today — would wipe the rate and put
+       * every quote back to costing labour at a bare wage, silently.
+       *
+       * So an absent `burden` leaves the stored one exactly as it was, and
+       * only the keys actually sent are written.
+       */
+      burden: mergedBurden,
     };
 
     const lastSaved = new Date().toISOString();

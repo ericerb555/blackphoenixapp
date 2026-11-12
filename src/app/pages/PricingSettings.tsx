@@ -17,6 +17,34 @@ const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 export default function PricingSettings() {
   const [config, setConfig] = useState<PricingConfig>(loadPricingConfig());
   const [hasChanges, setHasChanges] = useState(false);
+
+  /**
+   * An EMPTY box and a typed 0 are different, so the value is cleared to
+   * undefined rather than coerced to zero. `Number("")` is 0, which is
+   * exactly how the two would collapse into each other — and a stored zero
+   * is a decision that must survive, while an empty field is no decision at
+   * all. The per-quote override makes the same distinction.
+   */
+  const setBurdenField = (field: string, raw: string) => {
+    const next = { ...(config.burden || {}) } as Record<string, number | undefined>;
+    if (raw.trim() === '') delete next[field];
+    else {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) next[field] = n;
+    }
+    setConfig({ ...config, burden: Object.keys(next).length ? next as any : undefined });
+    setHasChanges(true);
+  };
+
+  /* Blended wins over the components, matching `laborBurden.burdenOf`. */
+  const burdenBlended = Number(config.burden?.burdenPercent) > 0;
+  const burdenRate = Math.min(1, burdenBlended
+    ? Number(config.burden?.burdenPercent) / 100
+    : ((Number(config.burden?.payrollTaxPercent) || 0)
+      + (Number(config.burden?.workersCompPercent) || 0)
+      + (Number(config.burden?.liabilityPercent) || 0)
+      + (Number(config.burden?.benefitsPercent) || 0)) / 100);
+  const burdenedExample = (70 * (1 + burdenRate)).toFixed(2);
   const [saving, setSaving] = useState(false);
 
   // The server copy is what prices quotes, so it wins over the local cache.
@@ -256,6 +284,106 @@ export default function PricingSettings() {
               />
               <p className="text-sm text-gray-500 mt-2">Percentage added for business overhead costs</p>
             </div>
+          </div>
+        </div>
+
+        {/*
+          LABOUR BURDEN — what an hour COSTS, as opposed to what it pays.
+
+          Every labour figure in this application was hours x hourlyRate, and
+          hourlyRate is a wage. What it costs to put somebody on site is larger
+          than that by payroll taxes, comp, liability and benefits — in
+          construction commonly a quarter to a half again — so every quote
+          understated its own labour and took its margin on a short base.
+
+          There is deliberately NO DEFAULT. Burden depends on the state, the
+          trade and the comp classification, and a plausible-looking 30% here
+          would quietly add a third to the price of every job. Empty means
+          zero, and zero means quotes price exactly as they do today.
+        */}
+        <div className="bg-gradient-to-br from-[#1A1A1A] to-[#151515] border border-gray-700 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-3 bg-amber-500/20 rounded-lg">
+              <Wrench className="w-6 h-6 text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Labour Burden</h2>
+              <p className="text-sm text-gray-500">What an hour costs you on top of the wage</p>
+            </div>
+          </div>
+
+          {burdenRate > 0 ? (
+            <p className="mb-4 text-sm text-amber-300/90">
+              A $70 wage costs you <span className="font-semibold">${burdenedExample}</span> an hour
+              {burdenBlended ? ' — blended rate' : ' — ' + Math.round(burdenRate * 1000) / 10 + '%'}.
+            </p>
+          ) : (
+            <p className="mb-4 text-sm text-gray-500">
+              Nothing set, so wages are being costed bare — every quote is pricing labour
+              at what it pays rather than at what it costs. Quotes are unchanged until you
+              put a number here.
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1">Payroll tax (%)</label>
+                <input
+                  type="number"
+                  value={config.burden?.payrollTaxPercent ?? ''}
+                  onChange={(e) => setBurdenField('payrollTaxPercent', e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder="12"
+                />
+                <p className="text-[11px] text-gray-600 mt-1">FICA, FUTA, SUTA</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1">Workers' comp (%)</label>
+                <input
+                  type="number"
+                  value={config.burden?.workersCompPercent ?? ''}
+                  onChange={(e) => setBurdenField('workersCompPercent', e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder="9"
+                />
+                <p className="text-[11px] text-gray-600 mt-1">From your policy</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1">Liability (%)</label>
+                <input
+                  type="number"
+                  value={config.burden?.liabilityPercent ?? ''}
+                  onChange={(e) => setBurdenField('liabilityPercent', e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder="4"
+                />
+                <p className="text-[11px] text-gray-600 mt-1">GL attributable to payroll</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 mb-1">Benefits (%)</label>
+                <input
+                  type="number"
+                  value={config.burden?.benefitsPercent ?? ''}
+                  onChange={(e) => setBurdenField('benefitsPercent', e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder="10"
+                />
+                <p className="text-[11px] text-gray-600 mt-1">Health, retirement, holiday</p>
+              </div>
+          </div>
+
+          <div className="mt-4 p-4 bg-[#0A0A0A] rounded-lg border border-gray-700">
+            <label className="block text-sm font-semibold text-gray-400 mb-2">Or one blended rate (%)</label>
+            <input
+              type="number"
+              value={config.burden?.burdenPercent ?? ''}
+              onChange={(e) => setBurdenField('burdenPercent', e.target.value)}
+              className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              placeholder="35"
+            />
+            <p className="text-sm text-gray-500 mt-2">
+              Used <em>instead of</em> the four above, never added to them. Leave empty to use the breakdown.
+            </p>
           </div>
         </div>
 

@@ -1,3 +1,5 @@
+import type { BurdenSettings } from "./laborBurden.ts";
+
 /**
  * Standard figures, used until the company saves its own.
  *
@@ -216,6 +218,48 @@ function fromProfitSettings(profitSettings: any): Record<string, number> | null 
  * gaps the first does not cover — the dedicated settings record wins wherever
  * it has an opinion, because that is the screen built for the purpose.
  */
+/**
+ * THE COMPANY LABOUR BURDEN, AND WHY IT IS NOT IN `STANDARD_PRICING`.
+ *
+ * Every other number in this file has a standard: a sensible markup exists
+ * for lumber whether or not this company has set one. Burden has no such
+ * figure. It depends on the state, the trade, the comp classification and
+ * what the company actually pays its people, and a plausible-looking default
+ * would silently add twenty or thirty per cent to the cost of every job.
+ *
+ * So this is the one setting that returns NOTHING when nothing is stored, and
+ * `laborBurden.burdenOf` turns nothing into a rate of zero. Until somebody
+ * types a real number, labour costs exactly what it costs today.
+ *
+ * Read from both records, the dedicated one winning, for the same reason
+ * `resolvePricing` does: the margins were saved on the rates screen while the
+ * settings screen reported the standards, and the screen whose job is to say
+ * what the settings are was the one place that did not know.
+ */
+export function resolveBurden(saved: any, savedRates?: any): BurdenSettings {
+  const num = (value: unknown) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+
+  const out: BurdenSettings = {};
+  /* Rates record first, dedicated settings record over the top of it. */
+  for (const src of [savedRates?.profitSettings, saved?.config?.burden, saved?.config]) {
+    if (!src || typeof src !== 'object') continue;
+    const blended = num((src as any).burdenPercent ?? (src as any).laborBurdenPercent);
+    const payroll = num((src as any).payrollTaxPercent);
+    const comp = num((src as any).workersCompPercent);
+    const liability = num((src as any).liabilityPercent);
+    const benefits = num((src as any).benefitsPercent);
+    if (blended !== undefined) out.burdenPercent = blended;
+    if (payroll !== undefined) out.payrollTaxPercent = payroll;
+    if (comp !== undefined) out.workersCompPercent = comp;
+    if (liability !== undefined) out.liabilityPercent = liability;
+    if (benefits !== undefined) out.benefitsPercent = benefits;
+  }
+  return out;
+}
+
 export function resolvePricing(
   saved: any,
   savedRates?: any,

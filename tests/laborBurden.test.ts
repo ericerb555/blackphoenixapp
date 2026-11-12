@@ -29,6 +29,7 @@ import {
 } from '../supabase/functions/server/laborBurden.ts';
 import { applyMargins } from '../supabase/functions/server/quoteMargins.ts';
 import { normalizeQuoteDoc } from '../supabase/functions/server/quoteDoc.ts';
+import { resolveBurden } from '../supabase/functions/server/pricingDefaults.ts';
 
 /* ── inert until configured, which is what makes it safe to ship ─────────── */
 
@@ -264,4 +265,40 @@ test('a saved quote resolves to the same burden it had before saving', () => {
   const settings = { burdenPercent: 35 };
   const quote = { id: 'q', laborBurdenPercent: 18 };
   assert.equal(burdenFor(normalizeQuoteDoc(quote), settings).rate, burdenFor(quote, settings).rate);
+});
+
+/* ── the company setting, which has no standard to fall back on ──────────── */
+
+test('nothing stored means no burden — not a plausible default', () => {
+  assert.deepEqual(resolveBurden(null, null), {});
+  assert.equal(burdenOf(resolveBurden(null, null)).rate, 0);
+  // The whole reason burden is absent from STANDARD_PRICING: a sensible-looking
+  // 30% would have added a third to the cost of every job in the system.
+  assert.equal(burdenOf(resolveBurden({ config: {} }, {})).rate, 0);
+});
+
+test('the rates screen can hold it, and the settings screen overrides it', () => {
+  const fromRates = resolveBurden(null, { profitSettings: { burdenPercent: 28 } });
+  assert.equal(burdenOf(fromRates).rate, 0.28);
+
+  const both = resolveBurden(
+    { config: { burden: { burdenPercent: 35 } } },
+    { profitSettings: { burdenPercent: 28 } },
+  );
+  assert.equal(burdenOf(both).rate, 0.35);
+});
+
+test('the four components survive the trip out of storage', () => {
+  const b = burdenOf(resolveBurden({
+    config: { burden: { payrollTaxPercent: 12, workersCompPercent: 9, liabilityPercent: 4, benefitsPercent: 10 } },
+  }, null));
+  assert.equal(Math.round(b.rate * 100) / 100, 0.35);
+  assert.equal(describeBurden(b), "12% payroll tax + 9% workers' comp + 4% liability + 10% benefits");
+});
+
+test('a company rate and a quote override resolve together', () => {
+  const settings = resolveBurden({ config: { burden: { burdenPercent: 35 } } }, null);
+  assert.equal(burdenFor({}, settings).rate, 0.35);
+  assert.equal(burdenFor({ laborBurdenPercent: 18 }, settings).rate, 0.18);
+  assert.equal(burdenFor({ laborBurdenPercent: 0 }, settings).rate, 0);
 });

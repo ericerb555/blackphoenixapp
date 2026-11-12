@@ -26,6 +26,25 @@ export interface PricingConfig {
   // Profit & Overhead
   profitMargin: number; // Overall profit margin percentage
   overheadPercentage: number; // Overhead percentage
+
+  /**
+   * What an hour of labour COSTS on top of the wage.
+   *
+   * Optional, and absent on purpose. Every other field here has a standard
+   * behind it; burden has none — it depends on the state, the trade and the
+   * comp classification — so an unset burden is nothing at all rather than a
+   * plausible-looking default that would add a third to every job.
+   *
+   * A blended `burdenPercent` is used INSTEAD of the four components when it
+   * is set, never added to them.
+   */
+  burden?: {
+    burdenPercent?: number;
+    payrollTaxPercent?: number;
+    workersCompPercent?: number;
+    liabilityPercent?: number;
+    benefitsPercent?: number;
+  };
   
   // Tax
   taxRate: number; // Sales tax rate
@@ -147,6 +166,9 @@ export async function loadPricingConfigFromServer(
       const merged: PricingConfig = {
         ...defaultPricingConfig,
         ...data.config,
+        /* The server returns the burden alongside the settings rather than
+           inside them — it resolves from two records and has no standard. */
+        ...(data.burden && Object.keys(data.burden).length ? { burden: data.burden } : {}),
         laborRates: { ...defaultPricingConfig.laborRates, ...(data.config.laborRates || {}) },
         materialMarkupByCategory: {
           ...defaultPricingConfig.materialMarkupByCategory,
