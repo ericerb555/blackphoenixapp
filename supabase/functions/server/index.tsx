@@ -299,6 +299,7 @@ import { labourDiscountAmount } from "./discounts.ts";
 import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import propertyReportsRouter from "./property-reports.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
+import { onCallVoiceRouter } from "./onCallVoice.tsx";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { unitsCovered, unitsForAudience } from "./unitsCovered.tsx";
@@ -522,6 +523,14 @@ const ORIGIN_LOCK_EXEMPT = [
   '/compliance/run-reminders',
   '/on-call/escalate-due',
   '/cron/screening/expire-invitations',
+  /**
+   * Twilio rings these from its own network rather than through Cloudflare, so
+   * the origin lock would refuse every inbound emergency call. Each one still
+   * authenticates — see the signature check in `onCallVoice.tsx`.
+   */
+  '/voice/incoming',
+  '/voice/gather',
+  '/voice/status',
 ];
 
 /** Cached so the common path is not a database read per request. */
@@ -1311,6 +1320,24 @@ const PUBLIC_POST_PATHS = [
    * the policy stops being report-only.
    */
   '/csp-report',
+  /**
+   * The AI emergency attendant's three Twilio webhooks.
+   *
+   * Twilio carries no session and never will — it is a telephone company
+   * ringing a URL — so behind this gate every inbound emergency call would be
+   * answered "Sign in required." by a wall the caller cannot see, on the one
+   * line in this product where silence is the worst possible failure.
+   *
+   * They meet the bar this list sets, and the proof is in `onCallVoice.tsx`:
+   * each one verifies `X-Twilio-Signature`, an HMAC over the exact URL and the
+   * posted fields keyed by `TWILIO_AUTH_TOKEN`, before reading anything, and
+   * answers 404 to an unsigned request AND to every request while that token
+   * is unset. Listing them here hands the call past the session check to that
+   * signature, which is a stronger door than a session would have been.
+   */
+  '/voice/incoming',
+  '/voice/gather',
+  '/voice/status',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
@@ -1850,6 +1877,13 @@ app.route("/", discountGrantsRouter);
 app.route("/", inspectionsRouter);
 app.route("/", propertyReportsRouter);
 app.route("/", onCallRouter);
+/**
+ * The AI emergency attendant's telephone. Mounted beside the on-call router
+ * rather than inside it, because these three webhooks are rung by a telephone
+ * company with no session and their auth exemption should be narrow enough to
+ * read in one place.
+ */
+app.route("/", onCallVoiceRouter);
 app.route("/", onCallRatesRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
