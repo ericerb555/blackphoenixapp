@@ -147,7 +147,23 @@ async function analyzeWithOpenAI(
         {
           type: 'image_url',
           image_url: {
-            url: imageUrl || `data:image/jpeg;base64,${imageBase64}`
+            /*
+             * Callers disagree about the shape, and this used to assume one.
+             *
+             * `imageBase64` arrives both ways: bare base64 from some callers,
+             * and an already-formed `data:` URL from others. Prefixing
+             * unconditionally turned the second into
+             * `data:image/jpeg;base64,data:image/jpeg;base64,...` and OpenAI
+             * answered 400 — proved by request on 2026-11-12. The identical
+             * trap is recorded in ai-blueprint-analysis.tsx, where it was
+             * fixed; this copy was missed.
+             */
+            url: (() => {
+              const raw = String(imageUrl || imageBase64 || '');
+              return raw.startsWith('data:') || raw.startsWith('http')
+                ? raw
+                : `data:image/jpeg;base64,${raw}`;
+            })(),
           }
         }
       ]
@@ -174,7 +190,17 @@ async function analyzeWithOpenAI(
   if (!response.ok) {
     const error = await response.text();
     console.error('OpenAI API error:', error);
-    throw new Error(`OpenAI API error: ${response.status}`);
+    /*
+     * Carry the provider's own sentence, not just the number.
+     *
+     * "OpenAI API error: 400" is a status code and a shrug; the body says
+     * which field was wrong. Chasing a 400 here took a round trip that the
+     * message would have answered on sight, which is the same lesson the
+     * blueprint route learned about reading `message.refusal`.
+     */
+    let detail = '';
+    try { detail = String(JSON.parse(error)?.error?.message || '').slice(0, 300); } catch { /* not json */ }
+    throw new Error(`OpenAI API error: ${response.status}${detail ? ` — ${detail}` : ''}`);
   }
 
   return await response.json();
