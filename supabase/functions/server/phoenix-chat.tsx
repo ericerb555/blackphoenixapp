@@ -61,6 +61,7 @@ import {
 import { AGENTS, findAgent, reconcile } from "./agentRegistry.ts";
 import { assess } from "./securityPosture.ts";
 import { lastProbeReport } from "./securityPostureStore.ts";
+import { loadDigest, summariseWork } from "./taskDigest.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -222,6 +223,26 @@ async function runTool(
       expiresAt: proposed.request!.expiresAt,
       note: "Nothing has happened. This is waiting for a person to approve it.",
     };
+  }
+
+  if (name === 'unfinished_work') {
+    /**
+     * A snapshot taken at deploy time, not a live read.
+     *
+     * Phoenix has no filesystem and no repository — see taskDigest.ts. The
+     * lists matter and the total does not, which is why summariseWork returns
+     * the four states rather than a count.
+     */
+    const { generatedAt, plans } = await loadDigest();
+    if (!plans.length) {
+      return {
+        generatedAt, plans: [],
+        note: 'The task digest was not generated into this deployment, so there is nothing to '
+          + 'report. That is a gap in the build, not an absence of unfinished work — the two '
+          + 'look identical from here and only one of them is ever true.',
+      };
+    }
+    return summariseWork(plans, generatedAt, Date.now());
   }
 
   if (name === 'security_posture') {

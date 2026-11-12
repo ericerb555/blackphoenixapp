@@ -270,6 +270,22 @@ export const PHOENIX_TOOLS = [
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
+    name: 'unfinished_work',
+    description:
+      'The plans in this project and how far through each one we are, sorted '
+      + 'into four states: STALLED (part-done, untouched for a month — work '
+      + 'already paid for and not finished), NEARLY-DONE (most boxes ticked, '
+      + 'the cheapest remaining wins), NOT-STARTED (written, nothing ticked — '
+      + 'either next or a dead end, and only a person can say which), and '
+      + 'ACTIVE (touched recently, somebody is on it). Use for "what is '
+      + 'unfinished", "what have we abandoned", "what should I pick up", "what '
+      + 'is nearly done". Lead with the stalled and nearly-done lists; the '
+      + 'total number of open items is the one figure here nobody can act on, '
+      + 'so do not open with it. A ticked box means somebody ticked a box, not '
+      + 'that the work shipped — never report these as delivered features.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+  },
+  {
     name: 'security_posture',
     description:
       'What the last security probe found, and how long ago. Returns the pass '

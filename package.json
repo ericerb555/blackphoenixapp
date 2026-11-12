@@ -22,7 +22,8 @@
     "hooks:install": "node scripts/installHooks.mjs",
     "precommit": "node scripts/precommit.mjs",
     "build:server": "node scripts/build-server.mjs",
-    "deploy:server": "node scripts/build-server.mjs && supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm"
+    "deploy:server": "node scripts/build-task-digest.mjs && node scripts/build-server.mjs && supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm",
+    "build:digest": "node scripts/build-task-digest.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

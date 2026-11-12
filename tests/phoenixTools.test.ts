@@ -61,6 +61,11 @@ test('no tool is named for an action', () => {
     // nothing: a control checked by the thing reporting on it is a control
     // reporting on itself.
     'security_posture',
+    // Added deliberately 2026-11-11. The plans live in tasks/*.md and this
+    // assistant has no filesystem, so "what is unfinished" was unanswerable.
+    // Reports four states rather than a total: the total is the one figure
+    // here nobody can act on.
+    'unfinished_work',
     'work_requests',
   ]);
 });
