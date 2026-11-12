@@ -311,6 +311,19 @@ function createAnalysisPrompt(analysisType: string): string {
    room, omit x and y for that room rather than guessing.
 7. Read the scale off the sheet if it is printed, and the overall building
    width and depth. Say what you actually see; omit anything you do not.
+8. INCHES ARE PART OF THE DIMENSION. A room marked 12'-6" is 12.5 feet, not
+   12. A building 30'-6" deep is 30.5, not 30. Convert every dimension to
+   decimal feet and keep the inches — dropping them makes every figure on the
+   sheet read low, and the error compounds through areas and quantities.
+9. If you cannot actually READ a room's dimensions, set its squareFootage and
+   its length and width to null. Do not estimate them from how big the room
+   looks on the page. A null says "somebody must measure this", which is true
+   and useful; a guess is indistinguishable from a reading and is not. Name
+   the room anyway — knowing a laundry exists is worth having even with no
+   size against it.
+10. If the sheet prints a total floor area, report that number as
+   totalSquareFootage. A printed area is the architect's own figure and beats
+   anything derived from adding rooms up.
 
 **REQUIRED JSON STRUCTURE:**
 {
@@ -326,10 +339,10 @@ function createAnalysisPrompt(analysisType: string): string {
     {
       "name": "<room name>",
       "type": "<room type: kitchen, bathroom, bedroom, etc>",
-      "squareFootage": <number>,
+      "squareFootage": <number, or null if the dimensions cannot be read>,
       "dimensions": {
-        "length": <number in feet>,
-        "width": <number in feet>,
+        "length": <number in decimal feet, inches included, or null>,
+        "width": <number in decimal feet, inches included, or null>,
         "height": <number in feet or null>
       },
       "perimeterLinearFeet": <number>,
@@ -478,12 +491,53 @@ function validateAndEnhanceAnalysis(analysis: any): any {
     }
   };
 
+  /*
+   * How many rooms came back with no size, and what that does to the total.
+   *
+   * The model is now told to answer null rather than estimate a room it cannot
+   * read, which is the honest answer — but it makes the fallback below
+   * dangerous. Adding up rooms when some of them are null produces a confident
+   * number that is quietly short by however much was unreadable, which is the
+   * same failure as the invented 1,500 sq ft, arrived at from the other
+   * direction. So the shortfall is declared rather than absorbed.
+   */
+  /*
+   * Area is arithmetic, so it is done here rather than trusted.
+   *
+   * Measured 2026-11-11: a room came back as 88 sq ft carrying its own
+   * dimensions of 11 x 8.5, which is 93.5. The dimensions were read correctly
+   * off the sheet and the multiplication was not — the model had rounded 8'6"
+   * to 8 for the area while reporting the right figure beside it. Multiplying
+   * two numbers is the one part of this a computer should never delegate.
+   *
+   * Only when both sides are present. A room the model declined to measure
+   * stays null; this corrects arithmetic, it does not fill gaps.
+   */
+  for (const room of validated.rooms as any[]) {
+    const l = Number(room?.dimensions?.length);
+    const w = Number(room?.dimensions?.width);
+    if (Number.isFinite(l) && Number.isFinite(w) && l > 0 && w > 0) {
+      room.squareFootage = Math.round(l * w * 10) / 10;
+    }
+  }
+
+  const unmeasured = validated.rooms.filter(
+    (room: any) => room?.squareFootage === null || room?.squareFootage === undefined,
+  ).length;
+  (validated as any).unmeasuredRooms = unmeasured;
+  (validated as any).totalIsPartial = false;
+
   // Calculate totals if missing
   if (validated.totalSquareFootage === 0 && validated.rooms.length > 0) {
     validated.totalSquareFootage = validated.rooms.reduce(
-      (sum, room) => sum + (room.squareFootage || 0),
+      (sum: number, room: any) => sum + (room.squareFootage || 0),
       0
     );
+    if (unmeasured > 0) {
+      (validated as any).totalIsPartial = true;
+      (validated as any).totalNote = `Added up from the rooms, and ${unmeasured} of them `
+        + 'could not be measured — so this total is a floor, not the floor area.';
+    }
   }
 
   if (validated.totalLinearFootage === 0 && validated.rooms.length > 0) {
