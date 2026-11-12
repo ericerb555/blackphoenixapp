@@ -305,10 +305,47 @@ export function resolvePricing(
          * handing it zero rates would price its materials at cost.
          */
         materialMarkupByCategory:
-          hasConfig && config.materialMarkupByCategory
-          && Object.keys(config.materialMarkupByCategory).length > 0
+          /**
+           * ONLY THE SETTINGS SCREEN CAN BE SILENT ON PURPOSE.
+           *
+           * The rates screen has no category fields at all, so a record from
+           * it that does not mention them is not a company saying "charge my
+           * flat rate everywhere" — it is a screen that cannot say anything
+           * either way. Reading silence as an opinion there would wipe twelve
+           * rates off a company that never saw a control for them.
+           *
+           * `pricing_config:global` is the screen built for the purpose. Its
+           * silence IS an answer.
+           */
+          !hasConfig
+            ? { ...STANDARD_PRICING.materialMarkupByCategory }
+            : config.materialMarkupByCategory
+              && Object.keys(config.materialMarkupByCategory).length > 0
             ? { ...config.materialMarkupByCategory }
-            : { ...STANDARD_PRICING.materialMarkupByCategory },
+            /**
+             * NO TABLE MEANS THE FLAT RATE GOVERNS EVERYTHING.
+             *
+             * Eric, asked whether an explicit flat rate should outrank the
+             * platform categories: "yes make the flat rate outrank the
+             * standards."
+             *
+             * We are already inside the branch where this company has saved
+             * pricing of its own, so its `materialMarkup` is an opinion and
+             * not an absence. Handing back the standard table here would
+             * override that opinion on twelve categories — which is how a
+             * flat 100% quietly became 25% on Lumber and 40% on Countertops
+             * on the same quote.
+             *
+             * An empty table is the right answer rather than a missing one:
+             * `byCategory[cat] ?? materialMarkup` then resolves every
+             * category to the company figure, including ones nobody has
+             * thought of yet.
+             *
+             * The standards still apply in full to a company that has saved
+             * NOTHING — that is the `usingStandards` branch below, and a
+             * company with no settings at all should not price at cost.
+             */
+            : {},
       },
       usingStandards: false,
     };

@@ -142,22 +142,46 @@ test('a saved category table REPLACES the standards rather than extending them',
   assert.equal(settings.materialMarkup, 100);
 });
 
-test('a flat markup now reaches every category, which is what "flat" means', () => {
+test('a flat markup reaches every category, which is what "flat" means', () => {
   const { settings } = resolvePricing({ config: { materialMarkup: 100 } }, null);
   // The lookup is `byCategory[cat] ?? materialMarkup`. With the standards
   // merged underneath, 100% flat quietly became 25% on Lumber and 40% on
-  // Countertops on the same quote.
+  // Countertops on the same quote. A company that has saved its own pricing
+  // has an opinion, and the platform table must not overrule it.
   const rateFor = (cat: string) =>
     Number(settings.materialMarkupByCategory?.[cat] ?? settings.materialMarkup) || 0;
-  assert.equal(rateFor('Lumber'), 25);
+  assert.equal(rateFor('Lumber'), 100);
+  assert.equal(rateFor('Countertops'), 100);
   assert.equal(rateFor('Anything Uncategorised'), 100);
 });
 
-test('a company with no opinion about categories still gets the standards', () => {
-  const { settings } = resolvePricing({ config: { materialMarkup: 30 } }, null);
+test('a company that has saved NOTHING still gets the standards in full', () => {
+  // The only branch where the platform table survives: no config, no rates.
+  const { settings, usingStandards } = resolvePricing(null, null);
+  assert.equal(usingStandards, true);
   assert.equal(settings.materialMarkupByCategory.Lumber, 25);
-  // And an explicitly empty table is the same as not having one — a company
-  // handed zero rates would price its materials at cost.
+  assert.equal(settings.materialMarkupByCategory.Countertops, 40);
+});
+
+test('a saved company falls to its own flat rate, never to ours', () => {
+  const { settings } = resolvePricing({ config: { materialMarkup: 30 } }, null);
+  assert.equal(settings.materialMarkupByCategory.Lumber, undefined);
+  assert.equal(settings.materialMarkup, 30);
+  // An explicitly empty table reads the same as not having sent one: the
+  // company has no per-category opinion, so its flat rate covers them all.
   const empty = resolvePricing({ config: { materialMarkup: 30, materialMarkupByCategory: {} } }, null);
-  assert.equal(empty.settings.materialMarkupByCategory.Lumber, 25);
+  assert.equal(empty.settings.materialMarkupByCategory.Lumber, undefined);
+  assert.equal(empty.settings.materialMarkup, 30);
+});
+
+test('silence from the rates screen is not an opinion about categories', () => {
+  // It has no category fields, so a record from it that does not mention them
+  // cannot mean "charge my flat rate everywhere". The standards survive.
+  const { settings } = resolvePricing(null, SAVED_RATES_RECORD);
+  assert.equal(settings.materialMarkupByCategory.Lumber, 25);
+  // But the settings screen DOES have those controls, so its silence is an
+  // answer, and the company's flat rate governs every category.
+  const { settings: fromConfig } = resolvePricing({ config: { materialMarkup: 100 } }, SAVED_RATES_RECORD);
+  assert.equal(fromConfig.materialMarkupByCategory.Lumber, undefined);
+  assert.equal(fromConfig.materialMarkup, 100);
 });
