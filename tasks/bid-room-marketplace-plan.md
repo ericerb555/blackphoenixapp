@@ -216,3 +216,81 @@ the module list now read the same string.
 unreachable dead code. It is the only duplicate route key in the file. Left
 alone deliberately: changing which component answers the route is a behaviour
 change, not a rename, and worth deciding on its own.
+
+## Decided 2026-11-12 — the routing rules, and what the database says about them
+
+Eric: *"if some is looking for services i offer then the requests will come
+through me first then if i dont want it i will kick it to the open exchange. if
+its not on the list for things i do then it will just go to the exchange for
+bids."*
+
+So the fork is **the list of things he does**, and everything else follows:
+
+```
+  a request arrives
+        |
+  is its category on the list of things we do?
+        |
+   yes  |  no
+        |   \
+        |    \__ straight to the exchange for bids
+        |
+  held for Black Phoenix, 24 hours
+        |
+   take it  /  decline  /  24h elapses
+        |          \_________|
+        |                    \__ opens to every PAID SUB in that trade, in radius
+        |
+  becomes a work request, as today
+```
+
+**Answered by Eric, 2026-11-12:**
+
+| question | answer |
+|---|---|
+| how long is first refusal held | **24 hours**, then it releases itself |
+| who sees it on release | **every paid subscriber in that trade, within radius** — not an invite list |
+| what decides "mine first" | the category being on the list of things we do |
+| what vendors and advertisers buy | **ads in the Exchange, by subscription** — see `exchange-find-assistant.md` |
+
+The timer matters more than it looks. Without it a request nobody opened is a
+customer who hears nothing, which is worse than a job going to a competitor —
+so the release is automatic and the absence of a decision is itself a decision.
+
+### What the database actually has, measured 2026-11-12
+
+| | |
+|---|---|
+| `organizations` | **1,109** rows — the directory is real and populated |
+| `exchange_category` / `_alias` | **180** categories, **235** aliases |
+| `exchange_territory` | **5** towns |
+| `exchange_demand_event` | **415** recorded asks |
+| `bid_requests` | **0**. The pipe has never carried a single job |
+| service area | already configured: Salem NH 03079, **55 mile** radius |
+| **the list of things we do** | **0 rows.** `service:` in KV is empty |
+
+### The keystone is the list, and it does not exist
+
+Every rule above forks on "is this something we do", and nothing can answer
+that today. The services catalogue route (`services-catalog.tsx`) is built and
+its store is empty, so the first build step is not the status flow or the
+geography — it is deciding which of the 180 categories Black Phoenix wants
+first refusal on. That is a afternoon of ticking boxes, and every other rule is
+blocked behind it.
+
+Build order, cheapest-first and each one useful alone:
+
+1. **The list.** Which exchange categories we claim. Nothing else works without it.
+2. **The held state.** `bid_request_status` gains a step before `open`, with the
+   24-hour release. Small migration; the status enum already exists.
+3. **Geography.** lat/lng on `bid_requests`, service centre and radius on
+   `organizations`. The 55-mile setting already exists and the app already
+   geocodes elsewhere — this is wiring, not inventing.
+4. **The subscription gate.** Link an org to its subscription so "may this org
+   bid" is answerable inside an RLS policy rather than in the client.
+
+Note on where the traffic actually is: of the 415 recorded asks, the top ones
+are Restaurants (51), Clothing & Shoes (34), Auto Repair (19) and Lawyers (17).
+Trades are a minority so far — Roofing 9, Heating & Cooling 8. The bid room is
+being built for the smaller half of current demand, which is fine if it is
+deliberate and worth knowing if it is not.

@@ -249,7 +249,33 @@ the businesses one by one underneath cards that already showed them. It is now
 told never to print an id, and to say what the set is *like* rather than
 enumerate it. The first has a test.
 
-### Still open
+### Answered 2026-11-12 — it was the advertiser reading
+
+Eric: *"my venders and advitisers will have the abilty to run ads in the
+exchange with a subscription through my app."*
+
+So "items from paying vendors come first" means **advertising**, bought as a
+subscription, by vendors and advertisers who already have an account here. It
+is not the vendor catalogue, and the materials-hub boundary is unchanged: those
+products still never reach a storefront, selecting from a catalogue still
+produces a purchase-order list, and a customer still never sees a negotiated
+rate.
+
+What that permits, and what it does not:
+
+| | |
+|---|---|
+| a paying advertiser’s offer, in its own labelled block | **yes** — same shape as the marquee strip already running across the portals |
+| Black Phoenix’s own services, labelled as ours | **yes** — unchanged from the answer shape above |
+| a paying business ranked above a better-matched one in the directory list | **no** — still the one thing a directory cannot sell |
+| vendor catalogue products shown to residents | **no** — crosses three standing rulings |
+
+The ranking rule survives intact because advertising is a *block*, not a
+position: the neutral list underneath is still ordered by match and distance
+alone, and a resident can always tell which is which. That distinction is the
+whole reason this was worth waiting on an answer for.
+
+### Superseded — the question as it stood
 
 **"Items from paying vendors come first"** — unchanged from the section above.
 The advertiser reading is buildable and breaks nothing; the vendor-catalogue
