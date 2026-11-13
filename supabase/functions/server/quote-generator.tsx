@@ -24,6 +24,7 @@ import { ensureDisposal, ensureDisposalPhase } from './quoteDisposal.ts';
 import { repriceEstimate } from './repriceEstimate.ts';
 import { burdenOf, burdenOnSubtotal } from './laborBurden.ts';
 import { marginRatesFor } from './quoteRates.ts';
+import { syncQuotePhases } from './quotePhaseSync.ts';
 import { loadQuotePricingContext, repricerDeps } from './quotePricingContext.ts';
 import { composeEstimatorContext } from './quoteBrief.ts';
 import { beginAiCall, ledgerContextFor, type LedgerContext } from './aiLedger.ts';
@@ -473,12 +474,46 @@ function assembleEstimate(
     totalCost,
   } = margins;
 
+  /**
+   * EVERY PHASE A LINE NAMES BECOMES A STEP, HERE, WHERE THE MISMATCH IS MADE.
+   *
+   * The model is asked for `processSteps` and for a `phase` on every line,
+   * and it does not always put the second in the first. Nothing downstream
+   * complains, because every consumer copes: an unlisted phase is appended
+   * after the listed ones, the subtotals reconcile and the money is right.
+   *
+   * MEASURED on Q-2026-0002: two phases worth $2,633.19 were on the lines and
+   * on neither step, so they were drawn after the six that had steps, landed
+   * past a page break, and the first page added up to $10,032.94 against a
+   * total of $12,666.13. Eric: "they still only add up to 10,032.94 not
+   * 12666.13 why?"
+   *
+   * `normalizeQuoteDoc` repairs this on every save, which is the right safety
+   * net and should not also be the only fix — a record is correct from the
+   * moment it is made or there is a window in which it is not. Doing it here
+   * means a quote that is generated and read before it is ever saved is
+   * already right.
+   *
+   * It is idempotent and returns the ORIGINAL array when nothing is missing,
+   * so the save-time repair finds nothing to do rather than disagreeing with
+   * this. It moves no money: the steps are headings, and every subtotal above
+   * was computed from the lines.
+   *
+   * Last, after `reconcilePhases` and `ensureDisposalPhase` have both had
+   * their say — anything that adds a phase before this point is covered, and
+   * anything after would not be.
+   */
+  const phaseSync = syncQuotePhases({ processSteps, materials: phasedMaterials, labor: phasedLabor });
+  if (phaseSync.changed) {
+    console.log(`[AI Quote Generator] phases added from lines: ${phaseSync.added.join(', ')}`);
+  }
+
   return {
     // The reconciled lines, not the raw ones — these are what gets stored,
     // grouped and invoiced, so the repair has to be what travels.
     materials: phasedMaterials,
     labor: phasedLabor,
-    processSteps,
+    processSteps: phaseSync.steps,
     // With disposal guaranteed — see the note above the check.
     additionalCosts: softCosts,
     credits,
