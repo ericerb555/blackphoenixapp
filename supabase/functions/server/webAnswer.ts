@@ -36,11 +36,35 @@
 import { fence, UNTRUSTED_PREAMBLE } from './untrustedContent.ts';
 import { assertAiAllowed } from './aiKillSwitch.ts';
 
-/** Sonnet reads the pages; Opus never sees them. See the header. */
-export const WEB_READER_MODEL = 'claude-sonnet-5';
+/**
+ * Who reads the pages, and which search tool that model can hold.
+ *
+ * Haiku at $1/MTok against Sonnet's $2, on the input that dominates this
+ * call. The pairing is not free choice: `web_search_20260209` — the dated
+ * variant with dynamic filtering — runs on Opus 4.6+ and Sonnet 4.6+ only,
+ * and Haiku 4.5 is not on that list, so it takes the basic
+ * `web_search_20250305`. Keeping the two together in one constant is what
+ * stops somebody changing the model and leaving a tool type it cannot hold.
+ *
+ * Reverting to Sonnet is this one object.
+ */
+export const WEB_READER = {
+  model: 'claude-haiku-4-5',
+  searchTool: 'web_search_20250305',
+} as const;
 
-/** How many searches one question may cost. */
-export const MAX_SEARCHES = 4;
+/** Kept for callers that only want to record which model read. */
+export const WEB_READER_MODEL = WEB_READER.model;
+
+/**
+ * How many searches one question may cost.
+ *
+ * Was four. A measured run used three and pulled 35,000 tokens of pages for a
+ * question two would have answered — the searches are the bill, so this is the
+ * single biggest lever on it. Two is enough to cross-check one source against
+ * another, which is the point of more than one.
+ */
+export const MAX_SEARCHES = 2;
 
 export interface WebAnswer {
   ok: boolean;
@@ -114,11 +138,16 @@ export async function webAnswer(
   await assertAiAllowed('phoenix-web');
 
   const reply = await client.messages.create({
-    model: WEB_READER_MODEL,
-    max_tokens: 1200,
+    model: WEB_READER.model,
+    /*
+     * 700, down from 1200. The brief asks for 150 words and a measured run
+     * produced 1,108 tokens of them — about 800. Every one of those is a token
+     * Opus then pays to read, so the ceiling does what the instruction did not.
+     */
+    max_tokens: 700,
     system: READER_SYSTEM,
     tools: [{
-      type: 'web_search_20260209',
+      type: WEB_READER.searchTool,
       name: 'web_search',
       max_uses: Math.max(1, Math.min(6, maxSearches)),
     }],

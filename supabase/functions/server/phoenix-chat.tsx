@@ -878,6 +878,21 @@ phoenixChatRouter.post(BASE, async (c) => {
         max_tokens: 4000,
         thinking: { type: 'adaptive' },
         /*
+         * Medium, not the default high.
+         *
+         * Output was 1.4 cents of a 3.2 cent turn — nearly half, at $25 per
+         * million against $5 for input. Effort is what moves that: lower means
+         * less preamble, fewer and more consolidated tool calls, terser
+         * answers.
+         *
+         * Medium rather than low because this one does read a business and is
+         * asked to judge things — "where are we losing deals" is not a lookup.
+         * Low is for subagents and simple extraction, which is what the web
+         * reader is, and it has no thinking to speak of anyway. If an answer
+         * ever reads thin, this line is the first thing to put back.
+         */
+        output_config: { effort: 'medium' },
+        /*
          * The action list is spliced in here, from the catalogue, so that
          * an action added to aiActions.ts is usable the moment it exists —
          * name, risk tier and parameters — without a second edit to the
