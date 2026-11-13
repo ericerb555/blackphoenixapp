@@ -94,31 +94,54 @@ and find their town.
 - [x] Deduplication and category assignment on ingest
 - [ ] Generic industry marks — one designed icon per category, good enough
       that a map made entirely of them looks finished
-- [ ] Public business profile page in three states — listed, claimed,
+- [x] Public business profile page in three states — listed, claimed,
       subscribed — where the listed state looks deliberate rather than broken
-- [ ] Listed state shows exactly: name, type, address, phone, website if
+- [x] Listed state shows exactly: name, type, address, phone, website if
       public record has one. Nothing invented
-- [ ] Outbound website redirect, with the click counted
+- [x] Outbound website redirect, with the click counted
 - [ ] Public section and category pages, indexable, with a sitemap
 - [ ] Google Maps: static image preview on the main page, interactive map
       loaded only on engagement, logo markers, clustering, pin correction
-- [ ] "Can't find someone? Tell us who" feeding the demand ledger
+- [x] "Can't find someone? Tell us who" feeding the demand ledger
 - [ ] Removal requests honoured quickly; "suggest an edit" from residents
+
+**Audited against the code 2026-11-13.** Four of the nine were built and
+unticked; the other five are genuinely outstanding, and what exists of each is
+recorded here so nobody has to work it out again:
+
+- **Registry ingestion** — `exchangeIngest.ts` handles a registry row
+  generically (licence number, the registry's own category words, the
+  don't-resurrect-a-stale-address rule). What is NOT verified is a live NH
+  connector actually pulling from a named registry; that is the separate
+  ingestion-runner section below.
+- **Industry marks** — nothing for the Exchange. The only `CATEGORY_ICONS` in
+  the tree is in `VendorPortalView` and belongs to a different feature.
+- **Section and category pages** — `ExchangeCategory.tsx` exists; there is no
+  sitemap anywhere in the tree, so this is half done.
+- **Maps** — `ExchangeMap.tsx` is the interactive one. No static image preview
+  on the listing page.
+- **Removal requests and "suggest an edit"** — no trace of either.
+
+The four ticked were verified individually: the listing page documents and
+gates all three states on `listing.claimed`; the contact route records a
+`website` lead and returns the destination from the stored record rather than
+echoing the request, so it cannot be used as an open redirect; and
+`recordDemand` is called from both the directory and the Exchange assistant.
 
 ---
 
 ## Phase 3 — Claim, verification, and the business portal core
 
-- [ ] **Multi-factor ownership proof** — at least two from different
+- [x] **Multi-factor ownership proof** — at least two from different
       categories: code to the public-record phone, domain-matched email, DNS
       or file proof, code posted to the premises, licence-board match,
       reviewed documents. Server-side, failing closed
-- [ ] Notify the public-record contact on every successful claim, whether or
+- [x] Notify the public-record contact on every successful claim, whether or
       not it was used
-- [ ] Disputed and second claims: notify the incumbent, wait, review. Never
+- [x] Disputed and second claims: notify the incumbent, wait, review. Never
       silent
 - [ ] Re-verification when the contact email or phone changes
-- [ ] Claim starts the six-month trial as a cohort row
+- [x] Claim starts the six-month trial as a cohort row
 - [ ] **Business portal core** — profile, credentials with real expiry,
       inbox, requests, calendar, reputation, performance, billing and trial
       status, team and roles
@@ -127,6 +150,20 @@ and find their town.
 - [ ] Link validation on the server: http and https only;
       `rel="noopener noreferrer nofollow ugc"` on render
 - [ ] Access to the ecommerce store from the Exchange portals
+
+**Audited 2026-11-13.** The four ticked above are the same work proved in
+"Phase 3, part one" further down — multi-factor proof, the backstop
+notification, disputes with the incumbent told and a person deciding, and the
+trial written inside `grantClaim` so a claimed listing without a trial cannot
+exist. They were written twice in this plan, as a phase summary and as an
+implementation section, and ticking one did not tick the other.
+
+The five left are genuinely absent — searched for and not found:
+re-verification when a contact changes, the business portal core with
+credential expiry, a publish approval queue naming its reviewer (the one in
+`publishApproval.ts` serves advertising and does not cover Exchange content),
+server-side link validation for the Exchange, and store access from the
+Exchange portals.
 
 ---
 
@@ -685,32 +722,32 @@ unlucky, and not auto-denied because then those businesses can never join.
 
 ### Items
 
-- [ ] 1. `20261002140000_exchange_claim.sql` — `exchange_claim` and
+- [x] 1. `20261002140000_exchange_claim.sql` — `exchange_claim` and
       `exchange_claim_challenge`. RLS on with no policies, like the ledgers:
       a claim in progress is reached only by the service role. Challenge
       **codes and tokens are stored hashed**, never in plaintext, so a leak of
       the table is not a pile of live claim codes.
-- [ ] 2. `exchangeClaim.ts` — the pure rules, with tests and no database:
+- [x] 2. `exchangeClaim.ts` — the pure rules, with tests and no database:
       which factors are satisfied, whether they span two categories, what is
       still outstanding, whether a challenge is usable (expiry, attempts
       spent, already used), and the decision — granted, needs review, or
       refused — with the reason recorded either way.
-- [ ] 3. Codes and tokens, reusing what exists: `mintShareToken` and
+- [x] 3. Codes and tokens, reusing what exists: `mintShareToken` and
       `hashToken` from `shareToken.ts`. Six digits for a phone, a link for an
       email. Ten-minute expiry, **five attempts then the challenge is burned**,
       and a cap on how many can be issued per listing per day — otherwise the
       code route is a way to make us text a stranger thirty times.
-- [ ] 4. The routes: start a claim, request a factor, answer a factor, and
+- [x] 4. The routes: start a claim, request a factor, answer a factor, and
       read the state of my own claim. Every decision in the handler, never in
       which button renders.
-- [ ] 5. **Notify the public-record contact on every successful claim**,
+- [x] 5. **Notify the public-record contact on every successful claim**,
       whether or not that contact was one of the factors used. This is the
       backstop that makes the whole thing recoverable: if a claim is ever
       wrongly granted, the real owner hears about it.
-- [ ] 6. A second claim on a claimed listing opens a **dispute** and changes
+- [x] 6. A second claim on a claimed listing opens a **dispute** and changes
       nothing. The incumbent is told, there is a waiting period, and a person
       decides. Never silent, and never first-come.
-- [ ] 7. Granting a claim sets `claim_state = 'claimed'`, links the owner, and
+- [x] 7. Granting a claim sets `claim_state = 'claimed'`, links the owner, and
       starts the six-month trial through `exchangeTrials.ts` — one action, so
       a claimed listing without a trial cannot exist.
 
