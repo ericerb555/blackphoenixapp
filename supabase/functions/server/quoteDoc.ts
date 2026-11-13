@@ -88,8 +88,36 @@ export function normalizeQuoteDoc(input: any) {
      * the invoice raised against it.
      */
     jobId: input.jobId ? String(input.jobId) : "",
-    /** Also sent by the pipeline and also silently discarded until now. */
-    total: Number(input.total) || 0,
+    /**
+     * THE LEGACY TOTAL, WHICH MAY NEVER AGAIN DISAGREE WITH `totalCost`.
+     *
+     * Also sent by the pipeline and silently discarded until recently. The
+     * deeper fault was that it is UNMAINTAINED: nothing recalculates it, so
+     * once written it drifts as the lines change while `totalCost` is
+     * recomputed on every edit.
+     *
+     * MEASURED 2026-11-11 on the three live quotes — every `totalCost`
+     * reconciled to its own line items and not one `total` did:
+     *
+     *   Q-2026-0002   totalCost 12,978.98   total 11,193.40
+     *   Q-2026-0003   totalCost 18,954.13   total 24,978.17
+     *   Q-2026-0004   totalCost 11,508.66   total 11,301.55
+     *
+     * `handleConvertToContract` read `total || grandTotal || totalCost`, so
+     * Q-2026-0003 would have been put on a contract six thousand dollars
+     * over its own price. Every reader now prefers `totalCost` — but a
+     * reader-side fix leaves the drift in the DATA, where the next caller
+     * that reaches for the old spelling finds a wrong number waiting.
+     *
+     * So the two are pinned together at the point of writing: when there is
+     * a maintained total, the legacy field IS it. Only a record with no
+     * `totalCost` at all keeps whatever `total` it arrived with, because
+     * that is a quote old enough that the legacy field is the only figure
+     * it has and dropping it would leave nothing.
+     */
+    total: Number(input.totalCost) > 0
+      ? Math.round(Number(input.totalCost) * 100) / 100
+      : Number(input.total) || 0,
     /**
      * `approved` and `rejected` are the customer's decision, written by the
      * public signing route in index.tsx. They were missing from this list, so

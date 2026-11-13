@@ -171,3 +171,41 @@ test('a quote whose phases are all listed is saved unchanged', () => {
   });
   assert.deepEqual(doc.processSteps, steps);
 });
+
+/* ── the legacy total can no longer drift from the maintained one ────────── */
+
+test('a stale `total` is corrected on the way in, not carried', () => {
+  // Q-2026-0003 as it actually sat in production: six thousand dollars of
+  // disagreement, which `handleConvertToContract` would have put on a contract.
+  const doc: any = normalizeQuoteDoc({
+    id: 'q-drift', totalCost: 18954.13, total: 24978.17,
+    materials: [], labor: [],
+  });
+  assert.equal(doc.totalCost, 18954.13);
+  assert.equal(doc.total, 18954.13, 'the legacy field IS the maintained one');
+});
+
+test('the drift cannot come back on a later save', () => {
+  // The shape that produced it: an edit recomputes totalCost and sends the
+  // OLD total alongside it.
+  const first: any = normalizeQuoteDoc({ id: 'q', totalCost: 10000, total: 10000, materials: [], labor: [] });
+  const edited: any = normalizeQuoteDoc({ ...first, totalCost: 12666.13 });
+  assert.equal(edited.total, 12666.13);
+  assert.equal(quoteTotal(edited), 12666.13);
+});
+
+test('a quote old enough to have only `total` keeps it', () => {
+  // Pinning it to zero would leave such a record with no figure at all.
+  const doc: any = normalizeQuoteDoc({ id: 'q-old', total: 7400, materials: [], labor: [] });
+  assert.equal(doc.total, 7400);
+  assert.equal(quoteTotal(doc), 7400);
+});
+
+test('a signed quote still reports what was agreed, not the list price', () => {
+  const doc: any = normalizeQuoteDoc({
+    id: 'q-signed', totalCost: 12500, total: 12500, agreedTotal: 11750,
+    materials: [], labor: [],
+  });
+  assert.equal(doc.total, 12500, 'the legacy field tracks totalCost');
+  assert.equal(quoteTotal(doc), 11750, 'and the agreed total still wins over both');
+});
