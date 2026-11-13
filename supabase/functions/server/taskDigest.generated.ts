@@ -12,7 +12,7 @@
  * PlanSnapshot type and casts on load.
  */
 
-export const GENERATED_AT = "2026-11-13T20:06:01.911Z";
+export const GENERATED_AT = "2026-11-13T20:31:23.967Z";
 export const PLANS = [
   {
     "file": "todo.md",
@@ -24,8 +24,8 @@ export const PLANS = [
   {
     "file": "phoenix-exchange-build.md",
     "title": "BUILD PLAN — Phoenix Exchange",
-    "open": 92,
-    "done": 16,
+    "open": 86,
+    "done": 22,
     "lastTouched": "2026-10-15T20:47:04-04:00"
   },
   {
@@ -131,7 +131,7 @@ export const PLANS = [
     "title": "Must-dos before the app is ready for use",
     "open": 6,
     "done": 19,
-    "lastTouched": "2026-10-16T19:28:40-04:00"
+    "lastTouched": "2026-11-13T15:06:40-05:00"
   },
   {
     "file": "pricing-in-one-place.md",
@@ -148,13 +148,6 @@ export const PLANS = [
     "lastTouched": "2026-09-21T20:46:09-04:00"
   },
   {
-    "file": "conditions-report.md",
-    "title": "The property conditions report",
-    "open": 3,
-    "done": 6,
-    "lastTouched": "2026-10-02T09:31:10-04:00"
-  },
-  {
     "file": "job-purchase-orders.md",
     "title": "Sending a job's purchase orders",
     "open": 1,
@@ -167,6 +160,13 @@ export const PLANS = [
     "open": 0,
     "done": 6,
     "lastTouched": "2026-11-13T13:02:30-05:00"
+  },
+  {
+    "file": "conditions-report.md",
+    "title": "The property conditions report",
+    "open": 0,
+    "done": 9,
+    "lastTouched": "2026-11-13T15:18:28-05:00"
   },
   {
     "file": "exchange-manchester.md",
@@ -201,7 +201,7 @@ export const PLANS = [
     "title": "On-call, the portals and Phoenix Exchange — one path",
     "open": 0,
     "done": 10,
-    "lastTouched": "2026-09-22T21:08:18-04:00"
+    "lastTouched": "2026-11-13T15:06:40-05:00"
   },
   {
     "file": "one-job-identity.md",

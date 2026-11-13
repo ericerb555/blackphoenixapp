@@ -28,6 +28,21 @@
  * shipped, and this file must never be reported as though it were — the same
  * caution the agent registry needs about silence. It also says nothing about
  * plans that were finished and deleted, or work done without a plan at all.
+ *
+ * AND THE INVERSE, WHICH IS THE ONE THAT ACTUALLY BITES
+ *
+ * An UNTICKED box is not evidence the work is outstanding. Three plans were
+ * checked against the code on 2026-11-13 and all three were further along than
+ * their boxes said: `conditions-report` C8 was built, routed and guarded;
+ * `ready-for-use` carried an either/or where the better half had shipped and
+ * the other box stayed open; the Exchange review queue was complete to all six
+ * of its items. An unticked box inflates a plan by exactly as much as real
+ * work would, and nothing here can tell them apart.
+ *
+ * So these counts are where to START looking, never what to report as
+ * remaining. "92 open" means 92 boxes nobody ticked. The only way to know what
+ * is actually left is to read the code — which is cheap for one plan and is
+ * the reason this digest points at plans rather than at totals.
  */
 
 export interface PlanSnapshot {
@@ -132,7 +147,10 @@ export function summariseWork(
     nearlyDone: pick('nearly-done'),
     notStarted: pick('not-started'),
     note: 'A ticked box means somebody ticked a box, not that the work shipped — '
-      + 'say so rather than reporting these as delivered features. The digest is a '
+      + 'and an UNTICKED one is not evidence the work is outstanding. Three plans '
+      + 'checked against the code on 2026-11-13 were all further along than their '
+      + 'boxes said. Treat these as where to start looking, never as what is left; '
+      + 'say so rather than reporting a count as remaining work. The digest is a '
       + 'snapshot taken when the server was last deployed, so a plan edited since '
       + 'then will not show here yet.',
   };

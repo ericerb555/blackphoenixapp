@@ -896,7 +896,7 @@ suspend a wrongly granted claim, and now there is a control that does that.
 
 ### Items
 
-- [ ] 1. Three staff-only routes, **gated inside each handler** rather than by
+- [x] 1. Three staff-only routes, **gated inside each handler** rather than by
       router middleware. `requireStaffOn` exists for this, but these routers
       mount at a prefix and a `use("*")` on one runs on every request under it
       — which once took the whole API staff-only for a deploy. Four handlers
@@ -904,19 +904,40 @@ suspend a wrongly granted claim, and now there is a control that does that.
           GET  /exchange/review/claims              the queue, with context
           POST /exchange/review/claims/:id/decide   grant or refuse, with a note
           POST /exchange/review/listing/:id/suspend  back to unclaimed
-- [ ] 2. The queue route returns what a decision actually needs: the business,
+- [x] 2. The queue route returns what a decision actually needs: the business,
       what was proven and by which category, who is asking, how old the claim
       is, and for a dispute the seven-day clock and who holds it now.
-- [ ] 3. Granting from review goes through **the same `grantClaim` path** as an
+- [x] 3. Granting from review goes through **the same `grantClaim` path** as an
       automatic grant, so a reviewed claim cannot end up with a claimed listing
       and no trial. The decision is recorded against the reviewer.
-- [ ] 4. Suspending un-claims the listing, revokes the trial, and moves any
+- [x] 4. Suspending un-claims the listing, revokes the trial, and moves any
       dispute on it back to `open` so the challenger can finish proving it the
       ordinary way. The incumbent is told.
-- [ ] 5. `ExchangeClaimReview.tsx` — the screen. Oldest first, because the
+- [x] 5. `ExchangeClaimReview.tsx` — the screen. Oldest first, because the
       promise being kept is that somebody looks, and the one waiting longest is
       the one being let down. Dispute clocks shown as time remaining.
-- [ ] 6. Routed, and **not** in the public route list.
+- [x] 6. Routed, and **not** in the public route list.
+
+      **All six verified built and ticked 2026-11-13 — none of this was
+      missing.** Checked against the code rather than assumed, because a box
+      nobody ticked looks identical to work nobody did:
+
+      1. `isStaffRequest(c)` → 403 inside each of the three handlers, not
+         router middleware, exactly as the item asked.
+      2. The queue returns the claim, the organisation, and the factor
+         evidence — `factor, category, satisfied_at, burned_at, attempts,
+         target_masked`.
+      3. Review grants call `grantClaim` at `exchangeClaimRoutes.tsx:940`, the
+         same function the automatic path calls at `:570`.
+      4. Suspend guards on `claim_state`, un-claims, and revokes the trial
+         rather than deleting it.
+      5. `.order("created_at", { ascending: true })` — oldest first.
+      6. One entry in the component map, in no public list.
+
+      This is the third plan this week found reading as more outstanding than
+      it is. The digest in `taskDigest.ts` counts boxes, so an unticked box
+      inflates a plan by exactly as much as real work would — worth knowing
+      before reading 92 open items here as 92 jobs.
 
 ### What this deliberately leaves alone
 
