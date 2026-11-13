@@ -40,8 +40,24 @@
 import { e164, pageText, pageSpeech } from "./onCallMessage.ts";
 import { resolveBirdSms, sendBirdSms } from "./bird.ts";
 import { placeBirdVoiceCall } from "./birdVoice.ts";
+import { sendCompanyEmail } from "./email-center.tsx";
 
 export { e164, pageText, pageSpeech };
+
+/**
+ * Escaped, not trusted.
+ *
+ * The address, the trade and the title on a call come from whatever a tenant
+ * typed into a work request. They are about to be interpolated into an HTML
+ * email, which is the one place in this file where untrusted text becomes
+ * markup somebody's mail client will render.
+ */
+const escapeHtml = (value: unknown): string => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#39;");
 
 export interface PageAttempt {
   contactId: string;
@@ -49,6 +65,8 @@ export interface PageAttempt {
   phone: string;
   sms: "sent" | "failed" | "skipped";
   voice: "called" | "failed" | "skipped";
+  /** The stopgap. See the note on EMAIL IS NOT A PAGE. */
+  email: "sent" | "failed" | "skipped";
   detail?: string;
   at: string;
 }
@@ -93,21 +111,24 @@ export function pagingConfigured(): boolean {
  */
 export async function pageContacts(
   call: any,
-  contacts: Array<{ id?: string; name?: string; phone?: string }>,
+  contacts: Array<{ id?: string; name?: string; phone?: string; email?: string }>,
   opts: { voice?: boolean } = {},
 ): Promise<PageOutcome> {
   const reachable = (contacts || []).filter((c) => e164(String(c?.phone || "")));
   if (reachable.length === 0) {
     return { paged: false, attempts: [], reason: "nobody on this rung has a usable number" };
   }
+  /**
+   * A broken SMS config no longer ends this function.
+   *
+   * It used to return here, which meant that when texting was unavailable
+   * nothing else was tried either. That was defensible while SMS was the
+   * channel; it is not now that there is a second one. The reason is recorded
+   * per attempt and the email below still goes.
+   */
   const sms = resolveBirdSms();
   if (sms.error) {
-    // Said loudly. A rota that cannot be paged looks identical to one that was.
-    console.log(
-      `[OnCall][NOT PAGED] call ${call?.id}: ${sms.error} `
-      + `${reachable.length} contact(s) were NOT rung.`,
-    );
-    return { paged: false, attempts: [], reason: sms.error };
+    console.log(`[OnCall] SMS unavailable for call ${call?.id}: ${sms.error}`);
   }
 
   const text = pageText(call);
@@ -122,6 +143,7 @@ export async function pageContacts(
       phone: to,
       sms: "skipped",
       voice: "skipped",
+      email: "skipped",
       at: new Date().toISOString(),
     };
 
@@ -134,13 +156,72 @@ export async function pageContacts(
      * marketing-adjacent categories attract — on the one message that must
      * arrive.
      */
-    const result = await sendBirdSms(to, text, "service");
-    if (result.ok) {
-      attempt.sms = "sent";
-    } else {
+    if (sms.error) {
       attempt.sms = "failed";
-      attempt.detail = String(result.error || "").slice(0, 300);
-      console.log(`[OnCall] SMS to ${to} failed for call ${call?.id}: ${attempt.detail}`);
+      attempt.detail = sms.error.slice(0, 300);
+    } else {
+      const result = await sendBirdSms(to, text, "service");
+      if (result.ok) {
+        attempt.sms = "sent";
+      } else {
+        attempt.sms = "failed";
+        attempt.detail = String(result.error || "").slice(0, 300);
+        console.log(`[OnCall] SMS to ${to} failed for call ${call?.id}: ${attempt.detail}`);
+      }
+    }
+
+    /**
+     * EMAIL IS NOT A PAGE, AND IT DOES NOT COUNT AS ONE.
+     *
+     * This file opens by saying nobody reads email at three in the morning,
+     * and that is still true. It is here because on 2026-11-13 Bird refused
+     * every text with E12014 — the sender is not registered to send to the
+     * US, which is 10DLC registration and takes days — and the Bird ring has
+     * never been proven against the live API. So the rota had NO working
+     * channel at all, and an emergency would have been logged and nobody
+     * woken. An email somebody reads in the morning is worse than a phone
+     * ringing and far better than silence.
+     *
+     * Deliberately NOT counted in `paged` below. If it were, the loud
+     * NOT PAGED line would stop firing and the escalation would believe
+     * somebody had been reached — turning a visible failure into exactly the
+     * silent one this file exists to prevent. A page means a person was
+     * woken. This is a message in an inbox.
+     *
+     * REMOVE THIS once 10DLC is approved and the ring is proven. It is a
+     * stopgap with a date on it, not a third channel.
+     */
+    const emailTo = String(contact.email || "").trim();
+    if (emailTo) {
+      try {
+        const sent = await sendCompanyEmail({
+          to: emailTo,
+          subject: `EMERGENCY — ${call?.trade || "call-out"}${call?.siteAddress ? ` at ${call.siteAddress}` : ""}`,
+          html: `<div style="font-family:sans-serif;max-width:600px;line-height:1.5">
+            <p style="font-size:18px;font-weight:bold;color:#b91c1c;margin:0 0 12px">Emergency call-out</p>
+            <p style="margin:0 0 12px">${escapeHtml(text)}</p>
+            <table style="font-size:14px;border-collapse:collapse">
+              <tr><td style="padding:2px 12px 2px 0;color:#666">Trade</td><td>${escapeHtml(call?.trade || "—")}</td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:#666">Where</td><td>${escapeHtml(call?.siteAddress || "—")}</td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:#666">Job</td><td>${escapeHtml(call?.jobId || "—")}</td></tr>
+            </table>
+            <p style="margin:16px 0 0;font-size:13px;color:#666">
+              You are being emailed because text messaging is awaiting carrier
+              registration. This is not a reliable way to reach you out of
+              hours — if you are on call, please check your phone.
+            </p>
+          </div>`,
+          templateKey: "on-call-emergency",
+        });
+        attempt.email = sent.ok ? "sent" : "failed";
+        if (!sent.ok) {
+          attempt.detail = [attempt.detail, String(sent.error || "").slice(0, 200)].filter(Boolean).join(" | ");
+        }
+      } catch (e: any) {
+        // Never throws into the caller — see the header.
+        attempt.email = "failed";
+        console.log(`[OnCall] email to ${emailTo} failed for call ${call?.id}: ${e?.message || e}`);
+      }
     }
 
     if (opts.voice !== false) {
@@ -170,13 +251,22 @@ export async function pageContacts(
     attempts.push(attempt);
   }
 
+  /** A page woke somebody. Email did not — see the note above. */
   const paged = attempts.some((a) => a.sms === "sent" || a.voice === "called");
+  const emailed = attempts.filter((a) => a.email === "sent").length;
   if (!paged) {
-    console.log(`[OnCall][NOT PAGED] call ${call?.id}: every attempt failed`);
+    console.log(
+      `[OnCall][NOT PAGED] call ${call?.id}: every attempt failed`
+      + (emailed ? ` — ${emailed} email(s) sent as a stopgap, which wakes nobody` : ""),
+    );
   }
   return {
     paged,
     attempts,
-    reason: paged ? null : "every attempt failed",
+    reason: paged
+      ? null
+      : emailed
+        ? `nobody could be rung; ${emailed} email(s) sent instead, which wakes nobody`
+        : "every attempt failed",
   };
 }
