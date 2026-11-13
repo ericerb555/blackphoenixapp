@@ -145,6 +145,48 @@ If that transcript is reachable from the `voice_call.ended` webhook, the
 keypad-plus-recording attendant needs no separate transcription vendor —
 `classifyEmergency` can read it as it stands.
 
+## Where the provider question stands — 2026-11-13, PARKED
+
+Eric: "ok we will finish that later." Nothing below is decided. This is here so
+the research does not have to be done twice.
+
+**The split, which is clean.** Bird is right for SMS and for the outbound ring,
+and wrong for the inbound attendant. SMS is a commodity and `bird.ts` is built.
+Outbound works within Bird's documented model — `POST /v1/voice/calls` with an
+inline `voice.say` sequence, which is `birdVoice.ts`. Only the INBOUND
+emergency number is in question, and only because Bird has no per-turn
+call-control exchange: a call runs a published console sequence, and its
+webhooks report what a call did rather than asking what to say next.
+
+**Two families of answer.**
+
+*Twilio-compatible carriers.* `onCallVoice.tsx` is TwiML-shaped and would mostly
+survive; the work is the signature check and porting a number, not a rebuild.
+Roughly half to two-thirds of Twilio's per-minute cost.
+
+| | |
+|---|---|
+| **Telnyx** (TeXML) | accepts TwiML documents directly — least disruptive |
+| **SignalWire** (Compatibility API) | near drop-in; SWML also wires LLMs to PSTN natively |
+| **Plivo** | mirrors Twilio's endpoints and webhooks closely |
+
+*AI-native voice agents*, which hold the conversation and post structured data
+to a webhook: ElevenLabs Agents ~$0.08/min, Vapi ~$0.09-0.14, Retell
+~$0.11-0.15 all-in (Oct 2026 figures).
+
+**The recommendation on the table was SignalWire or Telnyx**, for a reason
+specific to this codebase rather than to the vendors: the attendant is already
+built and pinned by 38 tests that know nothing about any telephone company —
+the categories, the safety-cue precedence, the question cap, the handoff. A
+compatible carrier keeps all of it. An AI-agent platform replaces the piece
+that exists and puts a vendor's model in the driver's seat of an emergency
+call, which is the thing the deterministic classifier was written to make
+impossible.
+
+Whichever is chosen, `onCallVoice.tsx` needs its signature verification
+swapped — every provider signs differently — and SMS and the outbound ring do
+not move.
+
 ## What is yours — Eric's call, 2026-11-11: ask Bird first
 
 **Decision: nothing gets built against a guessed API.** Put these to your Bird
