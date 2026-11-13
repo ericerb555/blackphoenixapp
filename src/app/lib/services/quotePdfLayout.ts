@@ -282,8 +282,28 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
      Each phase is its own table so the heading row can carry the phase name,
      how long it runs and what it costs — which is the whole point of the
      grouping, and the only thing shown at all when the breakdown is withheld. */
+  /**
+   * WHAT THE PHASES ADD UP TO, counted as they are drawn.
+   *
+   * Eric added the phase subtotals up and got 10,032.94 against a total of
+   * 12,666.13. Nothing was missing from the document — but two phases had no
+   * matching process step, so they were appended AFTER the six that did and
+   * landed past a page break. Six phases on page one come to exactly the
+   * figure he reported.
+   *
+   * The document was right and unprovable, which on a quote is the same as
+   * being wrong: a customer who cannot follow the arithmetic does not pay
+   * more carefully, they ring up and ask. So the totals block now states
+   * what the work above comes to, and a reader who stopped at a page break
+   * can see at once that they have not seen all of it.
+   */
+  let phasesDrawn = 0;
+  let phaseTotal = 0;
+
   for (const phase of data.phases) {
     y = pageBreak(doc, y, 30);
+    phasesDrawn += 1;
+    phaseTotal = Math.round((phaseTotal + (Number(phase.subtotal) || 0)) * 100) / 100;
 
     doc.setFillColor(248, 248, 248);
     doc.rect(MARGIN, y, right - MARGIN, 9, 'F');
@@ -460,6 +480,16 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
     y += bold ? 7 : 5.4;
   };
 
+  /**
+   * Only when there is more than one phase, and only when it actually
+   * matches the subtotal. A document that asserts its own sum and gets it
+   * wrong is worse than one that stays quiet — and the two differ whenever
+   * a line is withheld from the customer, which is a deliberate feature and
+   * not something to advertise a discrepancy about.
+   */
+  if (phasesDrawn > 1 && Math.abs(phaseTotal - data.subtotal) < 0.02) {
+    totalRow(`The ${phasesDrawn} stages above`, money(phaseTotal));
+  }
   totalRow('Subtotal', money(data.subtotal));
   /**
    * The deduction, restated in the totals so the sum can be followed.
