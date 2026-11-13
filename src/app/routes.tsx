@@ -184,6 +184,7 @@ const ExchangeListing = lazy(() => import("./pages/ExchangeListing"));
 const ExchangeDirectory = lazy(() => import("./pages/ExchangeDirectory"));
 const ExchangeCategory = lazy(() => import("./pages/ExchangeCategory"));
 const ExchangeClaim = lazy(() => import("./pages/ExchangeClaim"));
+const ExchangeServicesClaim = lazy(() => import("./pages/ExchangeServicesClaim"));
 const ExchangeAccount = lazy(() => import("./pages/ExchangeAccount"));
 const ExchangePlaces = lazy(() => import("./pages/ExchangePlaces"));
 const ExchangeTowns = lazy(() => import("./pages/ExchangeTowns"));
@@ -661,6 +662,8 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
    * Every claim route refuses an unidentified caller server-side.
    */
   "exchange-claim":          ExchangeClaim,
+  "exchange-services":       ExchangeServicesClaim,
+  "first-refusal":           ExchangeServicesClaim,
   /**
    * A resident's own account: what they saved and who they contacted.
    *
