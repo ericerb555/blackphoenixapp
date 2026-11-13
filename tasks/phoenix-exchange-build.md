@@ -169,7 +169,7 @@ Exchange portals.
 
 ## Phase 4 — The customer side
 
-- [ ] Exchange customer sign-up and portal — free, not anonymous
+- [x] Exchange customer sign-up and portal — free, not anonymous
 - [ ] Public pages stay readable without an account; acting requires one
 - [ ] Search: aliases first, filters, per-category default radius
 - [ ] The criteria sheet — common core plus per-category fields, appearing as
@@ -268,6 +268,41 @@ Exchange portals.
 - [ ] Duplicate, stale-listing and dead-link hygiene
 - [ ] The three rules enforced: never invent a fact about a real business,
       drafting is not publishing, meter the cost
+
+**Phases 4 to 9 audited against the code 2026-11-13, and the finding is the
+opposite of Phases 2 and 3: almost all of this is genuinely outstanding.**
+
+The claim machinery was built and under-ticked. The customer side was not
+built, and the plan was telling the truth about it. Searched for and absent:
+the criteria sheet, saved searches and alerts, quote slots, the 48-hour request
+window, and the "might be ours" queue — zero occurrences of any of them
+anywhere in the tree.
+
+One tick: `ExchangeAccount.tsx` is the resident's account — their saved
+businesses and who they contacted — so sign-up and portal exists.
+
+Three things that are half-built, recorded so the next person starts from the
+right place rather than from zero:
+
+- **`exchangeCoverage.ts` has the matching primitives** — `covers`,
+  `matchingOrgs`, `allowanceFor`, distance and category tests. What it does
+  not have is the routing the phase asks for. "Contracted vendor → first
+  refusal → territory" and "supplier of last resort" appear in that file's
+  header as design statements, not as functions.
+- **The find assistant is real and two of Phase 9's three rules are enforced
+  in it.** `keepKnownIds` drops any business id the model did not retrieve —
+  the strongest anti-invention control on the platform and the one the AI
+  audit says the rest should copy — and `withinDailyCap` meters it. The third,
+  "drafting is not publishing", has nothing to apply to yet because none of
+  the drafting in Phase 9 exists.
+- **The alias table exists** in `exchangeAssistant.ts` and answers "plumber",
+  "roofer", "drafty windows" without a model. Phase 4's search item asks for
+  aliases *first*, then filters and a per-category radius; the aliases are
+  there, the filters and radius are not.
+
+`ExchangeDirectory.tsx` says in its own header that the main page — business
+count, Happening Now, map preview — is Phase 4 and deliberately left alone.
+That is the plan being honest with itself and is worth trusting.
 
 ---
 
