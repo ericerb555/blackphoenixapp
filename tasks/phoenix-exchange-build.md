@@ -311,9 +311,62 @@ That is the plan being honest with itself and is worth trusting.
 - [ ] Seed and verify the three towns; do not market until searches return
       real results
 - [ ] Community events in Pelham, Salem and Manchester, with sponsors
-- [ ] Recruitment from the demand ledger: the gaps, ranked, with real numbers
+- [x] Recruitment from the demand ledger: the gaps, ranked, with real numbers
 - [ ] Founding cohort with founder pricing and the ten founder slots
 
+**Phases 6, 7, 8 and 10 audited against the code 2026-11-13.** One tick in
+Phase 10, nothing in 6, 7 or 8, and four half-built things in 8 worth writing
+down so nobody starts them from zero.
+
+Phases 6 and 7 are flat zeros, and the searches were not close calls: no happy
+hour, no deal window, no event, no menu listing, no rating, no moderation
+queue, no licence expiry anywhere in the tree. The plan is telling the truth
+about both.
+
+The Phase 10 tick is **recruitment from the demand ledger**, which is built and
+routed: `rankDemandGaps` in `exchangeLedger.ts` groups unmatched searches by
+territory and category, most wanted first, and `exchangeUpkeepRoutes.tsx`
+resolves the ids into real town and category names before showing the counts —
+"47 people asked for this in Pelham" with two of their actual phrases beside
+it. That is the recruitment list the phase asks for.
+
+The other three Phase 10 items are blocked on things that are not code.
+**The three towns are seeded** — `20261002133000_exchange_taxonomy_seed.sql`
+carries Pelham, Salem and Manchester with their postcodes and centroids — but
+the item says *seed and verify*, and verification needs the production ingest
+that is still waiting on Eric's two decisions in the ingestion-runner section
+below: the new `org_type` enum value, and permission to write hundreds of rows
+into `organizations`. Until that runs, Salem and Manchester are named
+territories with nothing in them, so the box stays open. Community events need
+Phase 6, which does not exist. Founder pricing needs tiers, which do not exist.
+
+Phase 8's four partials:
+
+- **Territory is already a fixed named unit, not a radius.** The territory row
+  is `slug, name, state, postcodes, center_lat, center_lng`, and
+  `exchangeTerritoryRoutes.tsx` refuses a county, state or region as an
+  ingest target for exactly the reason the item gives. What is missing is
+  everything after the dash: slots per category, incumbent first refusal at
+  renewal, and the waiting list — zero occurrences of any of the three.
+- **The Exchange's advertising inventory is fed from the main app**, as of
+  today: `ExchangeSponsored.tsx` serves from
+  `/advertising/serve?placement=exchange`, the same inventory the rest of the
+  app uses. The fill order is not what this item describes. There is a house
+  ad and there are direct adverts; `mixHouseAd` reserves the house slot at the
+  **end** rather than filling house first, and programmatic remnant does not
+  exist at all. Whether house-first is still wanted is a product question —
+  the end slot was chosen deliberately so a paid advert leads.
+- **The trial checkpoints are built to the month.** `exchangeTrials.ts` has
+  `CHECKPOINT_MONTHS = [1, 3, 5]` and is wired into `exchangeClaimRoutes.tsx`.
+  The second half of the item — a conversion flow where the business chooses
+  what to keep — has nothing to choose from until the three tiers exist.
+- **The category ceiling exists as constants** — `INCLUDED_CATEGORIES = 5` and
+  `MAX_CATEGORIES = 10` in `exchangeCoverage.ts`, enforced in matching. The
+  item asks for the counter to be *shown* from day one of the trial, and no
+  surface renders it.
+
+Everything else in Phase 8 — the three tiers, the add-on catalogue, category
+exclusions, third-party tag placement, the sponsors portal — is absent.
 ---
 
 ## Standing rules for every phase
@@ -663,21 +716,32 @@ category page.
 
 ### Items
 
-- [ ] 1. `ExchangeDirectory.tsx` — the front door. The four sections, each
+- [x] 1. `ExchangeDirectory.tsx` — the front door. The four sections, each
       with its categories, from `/exchange/taxonomy`. Plain browse only: no
       search box, no map, no counts. Search and the real main page are Phase
       4, and building half of them here is exactly the "build on the whim"
       failure.
-- [ ] 2. `ExchangeCategory.tsx` — the businesses in one category, each
+- [x] 2. `ExchangeCategory.tsx` — the businesses in one category, each
       linking to its listing page. Listed and claimed states visibly
       distinct, the same way the listing page distinguishes them, so a
       resident can tell who stands behind their own details.
-- [ ] 3. The empty state carries the "tell us who you were looking for" form,
+- [x] 3. The empty state carries the "tell us who you were looking for" form,
       posting to `/exchange/missing`. The most damaging moment in a directory
       becomes the most useful row in the database — and that route currently
       has no caller, so the gap is invisible to us.
-- [ ] 4. Wire both into `routes.tsx` and the public route list in `App.tsx`,
+- [x] 4. Wire both into `routes.tsx` and the public route list in `App.tsx`,
       with the reasoning written where the listing page's is.
+
+**All four verified against the code and ticked 2026-11-13.** The section
+heading still says DEFERRED and the prose under it already said BUILT, which
+is exactly the trap the task digest warns about: four unticked boxes sat here
+inflating the plan while the work had shipped. `ExchangeDirectory.tsx` (754
+lines) and `ExchangeCategory.tsx` (489) both exist, both are lazy-loaded in
+`routes.tsx`, both are in the public route list in `App.tsx` as `exchange` and
+`exchange-category`, and the empty state carries the question out loud —
+"Who were you looking for?" at `ExchangeCategory.tsx:462`. The ODbL credit is
+on both pages, so the obligation recorded in the ingestion section below is
+met where it needed to be.
 
 ### Deliberately NOT in this step
 
@@ -1634,12 +1698,27 @@ organisation to the whole platform.
 
 ### What is being built now, and what is not
 
-- [ ] `exchangeOsm.ts` — pure: an Overpass element into a `RegistryRecord`, the
+- [x] `exchangeOsm.ts` — pure: an Overpass element into a `RegistryRecord`, the
       tag-to-category map, and the query builder. No network, fully tested.
-- [ ] Tests for it.
-- [ ] `exchangeIngestRun.ts` — the runner: per-town fetch through `safeFetch`
+- [x] Tests for it.
+- [x] `exchangeIngestRun.ts` — the runner: per-town fetch through `safeFetch`
       with backoff, normalise through the existing `exchangeIngest`, dedupe,
       then report. **Writes nothing until the enum question is settled.**
+
+**All three verified against the code and ticked 2026-11-13** — and like the
+browse surface above, this section's own prose already recorded the build
+("The OSM adapter, built — and two leaks the dry run caught") while the boxes
+stayed open. `exchangeOsm.ts` is 638 lines with `tests/exchangeOsm.test.ts`
+beside it; `exchangeIngestRun.ts` is 539 lines and its `ingestTerritory` is
+imported by both `exchangeClaimRoutes.tsx` and `exchangeUpkeepRoutes.tsx`.
+
+**The two things held for Eric are still held, and they now block Phase 10.**
+The `org_type` enum value and running the ingest against production are
+unchanged above. The consequence is worth stating in one place: until that
+ingest runs, Salem and Manchester are seeded territories with no businesses
+in them, which is why "seed and verify the three towns" cannot be ticked and
+why the plan's own rule — do not market until searches return real results —
+is still the correct instruction.
 
 **NOT done without Eric's say-so:** the new `org_type` value, and running the
 ingest against production. The second would insert hundreds of rows into
