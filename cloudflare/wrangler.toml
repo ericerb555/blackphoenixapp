@@ -6,6 +6,32 @@
 # twice: the thing you cannot do from a dashboard is prove that what is running
 # is what is in the repository.
 #
+# THE ORDER MATTERS, AND THE WRONG ONE IS AN OUTAGE.
+#
+# api.theblackphoenixcompany.com serves the API TODAY. The moment a Worker
+# route exists on that hostname without EDGE_ORIGIN_SECRET bound to it, this
+# Worker answers 503 to everything — by design, because forwarding without the
+# header would work now and fail silently the hour the lock is enforced. But
+# 503 on that hostname is the whole application.
+#
+# So the secret goes on BEFORE the route does:
+#
+#   1. npx wrangler login
+#   2. comment out the [[routes]] block below
+#   3. npx wrangler deploy --config cloudflare/wrangler.toml
+#      (the Worker now exists and no traffic reaches it)
+#   4. npx wrangler secret put EDGE_ORIGIN_SECRET --config cloudflare/wrangler.toml
+#      (prompts; the value is not echoed and not stored here)
+#   5. put the [[routes]] block back and deploy again
+#      (traffic now flows through a Worker that is configured)
+#
+# Rolling back is one command if anything looks wrong at step 5:
+#
+#   npx wrangler delete --config cloudflare/wrangler.toml
+#
+# which removes the route with it and puts the hostname back exactly as it is
+# today.
+#
 #   npx wrangler login                 (once, opens a browser)
 #   npx wrangler secret put EDGE_ORIGIN_SECRET --config cloudflare/wrangler.toml
 #   npx wrangler deploy --config cloudflare/wrangler.toml
