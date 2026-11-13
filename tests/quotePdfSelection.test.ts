@@ -13,6 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { selectQuoteLines, sectionsOf, isIncluded } from '../src/app/lib/quotePdfSelection.ts';
+import { groupLinesByPhase } from '../src/app/lib/invoicePhases.ts';
 
 const quote = {
   materials: [
@@ -556,4 +557,148 @@ test('a line with no stored total still falls back to quantity times rate', () =
     labor: [],
   }, true);
   assert.equal(lines[0].amount, 75);
+});
+
+/* ── nothing a quote is charging for may fall off the document ───────────── */
+
+/**
+ * Eric: "make sure all line items show up even when added after."
+ *
+ * The case that prompted it: Q-2026-0002 carried `Fixture Installation` and
+ * `Wall Modifications` on its LINES and in neither case on its process steps,
+ * so both were appended after the six phases that had steps. Nothing was
+ * dropped — the phase subtotals still came to the quote total — but they
+ * landed past a page break and read as an appendix, and adding up what was on
+ * the first page gave 10,032.94 against a total of 12,666.13.
+ *
+ * So this is the invariant, asserted rather than assumed: EVERY INCLUDED LINE
+ * REACHES A DRAWN PHASE. Hiding a line from the customer folds its money into
+ * the phase total and is deliberate; losing a line does not and is not.
+ */
+const PHASED_BASE = {
+  customerSections: { materials: true, labor: true, processDetail: true },
+  processSteps: [
+    { title: 'Site Setup', stepNumber: 1 },
+    { title: 'Framing', stepNumber: 2 },
+    { title: 'Clean up', stepNumber: 3 },
+  ],
+  materials: [
+    { name: 'Protection', phase: 'Site Setup', quantity: 1, unitCost: 120, totalCost: 120 },
+    { name: 'Timber', phase: 'Framing', quantity: 10, unitCost: 40, totalCost: 400 },
+  ],
+  labor: [
+    { role: 'Carpenter', phase: 'Framing', hours: 10, hourlyRate: 70, totalCost: 700 },
+    { role: 'Cleaner', phase: 'Clean up', hours: 2, hourlyRate: 50, totalCost: 100 },
+  ],
+};
+
+const drawnTotal = (quote: any, forCustomer = true) => {
+  const sel = selectQuoteLines(quote, forCustomer);
+  const groups = groupLinesByPhase(sel.lines, sel.steps);
+  /* What the document prints per phase: the TRUE cost when it knows one,
+     which is what keeps a withheld line's money on the page. */
+  const total = groups.reduce((sum, g) => {
+    const known = g.phase && sel.phaseCost.has(g.phase)
+      ? (sel.phaseCost.get(g.phase) as number)
+      : g.lines.reduce((t, l: any) => t + (Number.isFinite(l.amount) ? l.amount : l.quantity * l.unit_price), 0);
+    return sum + known;
+  }, 0);
+  return { total: Math.round(total * 100) / 100, groups, sel };
+};
+
+const chargedTotal = (quote: any) => Math.round(
+  [...quote.materials, ...quote.labor]
+    .filter((l: any) => l?.included !== false)
+    .reduce((t: number, l: any) => t + Number(l.totalCost || 0), 0) * 100,
+) / 100;
+
+test('a line added later, under a phase the process never listed, still appears', () => {
+  const quote = {
+    ...PHASED_BASE,
+    labor: [
+      ...PHASED_BASE.labor,
+      // Added by hand afterwards, with a phase nobody put in processSteps.
+      { role: 'Bench install', phase: 'Fixture Installation', hours: 4, hourlyRate: 65, totalCost: 260 },
+    ],
+  };
+  const { groups, total } = drawnTotal(quote);
+  const names = groups.map((g) => g.label);
+  assert.ok(names.includes('Fixture Installation'), 'the new phase must be drawn');
+  assert.equal(total, chargedTotal(quote));
+  assert.equal(total, 1580);
+});
+
+test('a line added with NO phase at all is still drawn and still counted', () => {
+  const quote = {
+    ...PHASED_BASE,
+    materials: [
+      ...PHASED_BASE.materials,
+      { name: 'Skip hire', quantity: 1, unitCost: 125, totalCost: 125 },
+    ],
+  };
+  const { groups, total } = drawnTotal(quote);
+  assert.ok(groups.some((g) => g.phase === null), 'an untagged line needs a home');
+  assert.equal(total, chargedTotal(quote));
+});
+
+test('several late additions, several new phases, nothing lost', () => {
+  const quote = {
+    ...PHASED_BASE,
+    materials: [
+      ...PHASED_BASE.materials,
+      { name: 'Tiles', phase: 'Tiling', quantity: 40, unitCost: 12, totalCost: 480 },
+      { name: 'Grout', phase: 'Tiling', quantity: 2, unitCost: 18, totalCost: 36 },
+      { name: 'Hair dryers', phase: 'Fixture Installation', quantity: 3, unitCost: 202.5, totalCost: 607.5 },
+    ],
+    labor: [
+      ...PHASED_BASE.labor,
+      { role: 'Tiler', phase: 'Tiling', hours: 12, hourlyRate: 65, totalCost: 780 },
+    ],
+  };
+  const { groups, total } = drawnTotal(quote);
+  for (const expected of ['Tiling', 'Fixture Installation']) {
+    assert.ok(groups.some((g) => g.label === expected), `${expected} must be drawn`);
+  }
+  assert.equal(total, chargedTotal(quote));
+});
+
+test('a line hidden from the customer keeps its money on the page', () => {
+  // Deliberate: hiding removes the detail, not the charge. The phase total
+  // still carries it, which is what makes the document reconcile.
+  const quote = {
+    ...PHASED_BASE,
+    materials: [
+      ...PHASED_BASE.materials,
+      { name: 'Dump run', phase: 'Clean up', quantity: 1, unitCost: 200, totalCost: 200, visible: false },
+    ],
+  };
+  const { total, sel } = drawnTotal(quote);
+  assert.equal(sel.lines.some((l) => l.description.startsWith('Dump run')), false, 'not itemised');
+  assert.equal(total, chargedTotal(quote), 'but still charged for, and still on the page');
+});
+
+test('a line taken OFF the quote is not drawn and not charged', () => {
+  const quote = {
+    ...PHASED_BASE,
+    materials: [
+      ...PHASED_BASE.materials,
+      { name: 'Dropped extra', phase: 'Framing', quantity: 1, unitCost: 900, totalCost: 900, included: false },
+    ],
+  };
+  const { total } = drawnTotal(quote);
+  assert.equal(total, chargedTotal(quote));
+  assert.equal(total, 1320, 'the excluded line is in neither figure');
+});
+
+test('the office copy accounts for every line too', () => {
+  const quote = {
+    ...PHASED_BASE,
+    labor: [
+      ...PHASED_BASE.labor,
+      { role: 'Late add', phase: 'Snagging', hours: 3, hourlyRate: 60, totalCost: 180, visible: false },
+    ],
+  };
+  const { total, groups } = drawnTotal(quote, false);
+  assert.ok(groups.some((g) => g.label === 'Snagging'));
+  assert.equal(total, chargedTotal(quote));
 });
