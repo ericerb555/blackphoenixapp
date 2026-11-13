@@ -29,6 +29,7 @@ import {
   CheckCircle2, Camera, Lock, ArrowRight, Wallet, ShieldAlert,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import ConditionsReportPrint from './ConditionsReportPrint';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -73,6 +74,8 @@ export default function ConditionsReports({ session }: Props) {
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  /* Which report is open as a document. See ConditionsReportPrint. */
+  const [printId, setPrintId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ moveOutFormId: '', deposit: '' });
   const [depositEdit, setDepositEdit] = useState<Record<string, string>>({});
 
@@ -508,6 +511,19 @@ export default function ConditionsReports({ session }: Props) {
                       </button>
                     )}
 
+                    {/*
+                      The document, available at every status.
+                      A landlord wants to read the thing before sending it for
+                      pricing as much as after, and the version a tenant will
+                      eventually hold is the one worth checking early.
+                    */}
+                    <button
+                      onClick={() => setPrintId(r.id)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#363636] px-4 py-2.5 text-sm font-bold text-gray-300 transition hover:border-gray-500"
+                    >
+                      <FileText className="h-4 w-4" /> View / print
+                    </button>
+
                     {status !== 'shared' && (
                       <button
                         onClick={() => patch(r.id, { status: 'shared' }, 'Given to the tenant.')}
@@ -540,6 +556,25 @@ export default function ConditionsReports({ session }: Props) {
           );
         })}
       </div>
+
+      {/*
+        The document, rendered from the same view the row above reads.
+
+        One modal for the whole list rather than one per row: the markup is a
+        full page of print styles and mounting it fifty times to show one is
+        the kind of thing that makes a list of reports slow to open.
+      */}
+      {printId && (() => {
+        const view = views.find((v) => v.record?.id === printId);
+        if (!view) return null;
+        return (
+          <ConditionsReportPrint
+            isOpen
+            onClose={() => setPrintId(null)}
+            view={view as any}
+          />
+        );
+      })()}
     </div>
   );
 }

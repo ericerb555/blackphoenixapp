@@ -159,14 +159,43 @@ else asks the landlord to confirm the figure.
 - [x] **C6. The quote's numbers back onto the report.** Per-area totals from the
       quote, so the deposit arithmetic is backed by a real priced job and the
       report can say which quote each figure came from.
-- [ ] **C7. View and print.** Itemised per area with both sides' evidence, dated,
+- [x] **C7. View and print.** Itemised per area with both sides' evidence, dated,
       the deposit arithmetic shown, each cost naming the quote behind it. Reuses
       `DocumentPreviewModal` and its `printElementId`.
-- [ ] **C8. Share with the tenant.** Landlord-triggered, never automatic, and only
+
+      **Done 2026-11-13** — `ConditionsReportPrint.tsx`. Not the screen with a
+      print button: the screen is a working view with override controls and
+      status chips, and this is the version handed to somebody who was not
+      there. Three things it does that the screen does not need to:
+
+      - **Both sides in adjacent columns**, so a claim about how a room changed
+        can be checked rather than taken on trust. A line where the landlord
+        recorded something different from what the tenant signed says so on its
+        face — the most important thing on the page for anyone adjudicating.
+        An unsigned move-in record is marked: still evidence, weaker evidence,
+        and the reader weighs it.
+      - **The arithmetic as a sum, not a result.** Deposit, minus each named and
+        quoted line, equals what is returned. "We are keeping $740" is an
+        assertion; this is a document.
+      - **The caveats at the top, not in a footnote.** A report with no move-in
+        baseline is weaker, and the reader should know before they read the
+        deductions rather than after. An unpriced area says the total is not
+        final on the face of it.
+
+- [x] **C8. Share with the tenant.** Landlord-triggered, never automatic, and only
       once priced — an unpriced report shared with a tenant makes a claim with no
       number behind it. Once shared, the tenant sees exactly what the landlord
       sees.
-- [ ] **C9. Tests, typecheck, smoke, build, deploy.**
+
+      **Already done, found unticked 2026-11-13.** The server carries
+      `shareable`, `shareBlockedBecause`, the `shared` transition and
+      `tenantCopy`; the screen's "Give to tenant" button is gated on
+      `view.shareable` with the reason as its tooltip, and
+      `transitionRefusal` refuses to reopen a report the tenant is already
+      holding. Ticked rather than rebuilt.
+
+- [x] **C9. Tests, typecheck, smoke, build, deploy.** 3435 pass, typecheck at
+      its 306/82 baseline, clean build, deployed.
 
 C1 and C2 first and on their own, because they can be fully tested before any
 screen exists and everything else is presentation over them.
