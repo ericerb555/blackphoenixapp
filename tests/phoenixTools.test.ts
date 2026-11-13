@@ -66,6 +66,10 @@ test('no tool is named for an action', () => {
     // Reports four states rather than a total: the total is the one figure
     // here nobody can act on.
     'unfinished_work',
+    // Added deliberately 2026-11-13. The web, read by a cheaper model that
+    // holds no tools, so the pages never enter this transcript — see
+    // webAnswer.ts for the cost measurement and the isolation it buys.
+    'web_answer',
     'work_requests',
   ]);
 });

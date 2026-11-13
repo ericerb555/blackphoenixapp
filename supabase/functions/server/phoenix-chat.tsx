@@ -54,7 +54,7 @@ import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } 
 import { actionCatalogue } from "./aiActions.ts";
 import { allLeads } from "./leadsStore.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
-import { estimateTtsCostCents, estimateSttCostCents } from "./modelPricing.ts";
+import { estimateTtsCostCents, estimateSttCostCents, estimateCostCents } from "./modelPricing.ts";
 import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
@@ -62,6 +62,7 @@ import { AGENTS, findAgent, reconcile } from "./agentRegistry.ts";
 import { assess } from "./securityPosture.ts";
 import { lastProbeReport } from "./securityPostureStore.ts";
 import { loadDigest, summariseWork } from "./taskDigest.ts";
+import { webAnswer, fencedWebAnswer, WEB_READER_MODEL } from "./webAnswer.ts";
 
 export const phoenixChatRouter = new Hono();
 
@@ -256,6 +257,40 @@ async function runTool(
      * that keeps passing.
      */
     return assess(await lastProbeReport(), Date.now());
+  }
+
+  if (name === 'web_answer') {
+    /**
+     * The web, read by a cheaper model that holds no tools.
+     *
+     * Metered and recorded as its own agent so the cost of asking the
+     * internet something is visible next to everything else rather than
+     * hidden inside a phoenix-chat row. The kill switch covers it by the
+     * same name, so the web can be switched off without switching him off.
+     */
+    await assertAiAllowed('phoenix-web');
+    const key = Deno.env.get('ANTHROPIC_API_KEY');
+    if (!key) return { ok: false, error: 'Web lookup is not configured.' };
+    const q = String(input?.question || '').trim();
+    const call = await beginAiCall({
+      agent: 'phoenix-web', operation: 'look something up on the web',
+      model: WEB_READER_MODEL, provider: 'anthropic', bucket: 'ai', input: q,
+    });
+    try {
+      const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+      const result = await webAnswer(client, q);
+      await call.ok({
+        tokensIn: result.usage?.tokensIn,
+        tokensOut: result.usage?.tokensOut,
+        summary: result.ok
+          ? `${result.searches} search(es), ${result.sources?.length || 0} source(s)`
+          : `no answer: ${result.error}`,
+      });
+      return fencedWebAnswer(result);
+    } catch (e: any) {
+      await call.failed(e);
+      return { ok: false, error: `The web lookup failed: ${e?.message || e}` };
+    }
   }
 
   if (name === 'agent_answer') {
@@ -829,10 +864,9 @@ phoenixChatRouter.post(BASE, async (c) => {
      * amount. A `usage` the SDK does not return leaves these at zero and the
      * column NULL, which reads as "not computed" rather than as free.
      */
-    /* What the web turned up this turn, for the summary and the ledger. */
-    let searches = 0;
-    let sources = 0;
-    const searchErrors: string[] = [];
+    /* Cached tokens are billed differently and are not in input_tokens. */
+    let cacheRead = 0;
+    let cacheWrite = 0;
 
     let tokensIn = 0;
     let tokensOut = 0;
@@ -849,64 +883,54 @@ phoenixChatRouter.post(BASE, async (c) => {
          * name, risk tier and parameters — without a second edit to the
          * brief that somebody has to remember.
          */
-        system: `${phoenixSystem(actionCatalogue().map(
-          (a) => `  ${a.action} (${a.risk}) — ${a.what} params: ${a.params}`,
-        ))}\n\n${UNTRUSTED_PREAMBLE}`,
         /*
-         * The platform's own tools, plus the web.
+         * The breakpoint goes HERE, not on the request.
          *
-         * WEB SEARCH IS A SERVER TOOL AND IS DELIBERATELY NOT IN PHOENIX_TOOLS.
+         * Caching is a prefix match and `tools` render before `system`, so a
+         * marker on this block covers both — about 8,000 tokens of brief,
+         * twenty tool definitions and the action catalogue, none of which
+         * changes between questions. The messages sit after it and are what
+         * varies.
          *
-         * Anthropic runs it; we never execute it and never return a result for
-         * it. Putting it in that array would be wrong twice over: `isKnownTool`
-         * derives from it, so the loop below would try to dispatch a tool it
-         * has no handler for, and the pinned list in phoenixTools.test.ts
-         * exists to make adding a tool WE run a deliberate act. This is a
-         * different kind of thing and is declared in a different place to say
-         * so.
-         *
-         * `web_search_20260209` rather than the older `web_search_20250305`:
-         * the dated type carries dynamic filtering and is the variant this
-         * model takes. It runs code execution internally, which is why
-         * `code_execution` must NOT also be declared — two execution
-         * environments confuse the model.
-         *
-         * max_uses is the cost ceiling. Each search is billed, and a question
-         * that genuinely needs more than five is a question that wants a
-         * person reading sources rather than an assistant summarising them.
+         * A top-level `cache_control` was tried first and caches the LAST
+         * cacheable block, which swept the question in with it: every question
+         * wrote a fresh cache and read almost nothing from the previous one.
+         * The bill said so — 16,488 tokens for an ordinary question that
+         * should have been mostly cache reads.
          */
-        tools: [
-          ...PHOENIX_TOOLS,
-          { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
-        ] as any,
+        system: [{
+          type: 'text',
+          text: `${phoenixSystem(actionCatalogue().map(
+            (a) => `  ${a.action} (${a.risk}) — ${a.what} params: ${a.params}`,
+          ))}\n\n${UNTRUSTED_PREAMBLE}`,
+          cache_control: { type: 'ephemeral', ttl: '1h' },
+        }] as any,
+        /*
+         * NO WEB SEARCH TOOL HERE ANY MORE, AND THAT IS THE COST FIX.
+         *
+         * He had `web_search_20260209` declared on this request. It worked and
+         * it cost 34.5 cents a question against about 4 for one with no search
+         * in it — 61,176 input tokens against 8,080, because twenty sources of
+         * somebody else's prose landed in this conversation and were re-read
+         * on every remaining turn at Opus prices.
+         *
+         * `web_answer` does the reading on Sonnet and hands back a paragraph:
+         * roughly 53,000 tokens become roughly 600. See webAnswer.ts, which
+         * also explains why that isolation fixes the injection problem the
+         * server tool could not.
+         */
+        tools: PHOENIX_TOOLS as any,
         messages,
       });
 
       tokensIn += Number((reply as any)?.usage?.input_tokens) || 0;
       tokensOut += Number((reply as any)?.usage?.output_tokens) || 0;
+      cacheRead += Number((reply as any)?.usage?.cache_read_input_tokens) || 0;
+      cacheWrite += Number((reply as any)?.usage?.cache_creation_input_tokens) || 0;
 
       const text = (reply.content || [])
         .filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
       if (text) answer = text;
-
-      /*
-       * What the web search actually did, counted from the blocks.
-       *
-       * A server tool's errors do not throw: the turn comes back 200 with a
-       * `web_search_tool_result` whose `content` is an ERROR OBJECT where a
-       * success is an ARRAY. Branching on that is the only way to tell "found
-       * nothing" from "could not search", and the two must not be reported the
-       * same way to somebody deciding something.
-       */
-      for (const block of (reply.content || []) as any[]) {
-        if (block?.type !== 'web_search_tool_result') continue;
-        if (Array.isArray(block.content)) {
-          searches += 1;
-          sources += block.content.length;
-        } else {
-          searchErrors.push(String(block?.content?.error_code || 'unknown'));
-        }
-      }
 
       /*
        * A paused turn is not a finished one.
@@ -958,14 +982,29 @@ phoenixChatRouter.post(BASE, async (c) => {
       messages.push({ role: 'user', content: results });
     }
 
-    const webNote = searches
-      ? `, ${searches} web search(es) over ${sources} source(s)`
-      : (searchErrors.length ? `, web search failed (${searchErrors.join(', ')})` : '');
+    /*
+     * Cached tokens cost real money and are not in `input_tokens`.
+     *
+     * Turning caching on made this row read `tokens_in: 4` and about 1.7
+     * cents, because everything else came from the cache and the ledger could
+     * not see it. An assistant that reports on AI spend must not be the one
+     * agent whose own figure is wrong, so the cost is computed here rather
+     * than derived from a count that no longer means what it used to.
+     *
+     * Cache reads bill at a tenth of the input rate and writes at one and a
+     * quarter, so an effective-input figure prices it exactly through the same
+     * table everything else uses — no prices duplicated into this file. The
+     * token count stays truthful: all the tokens actually read.
+     */
+    const effectiveIn = Math.round(tokensIn + cacheRead * 0.1 + cacheWrite * 1.25);
+    const priced = estimateCostCents('claude-opus-5', effectiveIn, tokensOut);
     await call.ok({
-      tokensIn, tokensOut,
-      summary: (toolsUsed.length
+      tokensIn: tokensIn + cacheRead + cacheWrite,
+      tokensOut,
+      costCents: priced?.cents,
+      summary: toolsUsed.length
         ? `answered using ${[...new Set(toolsUsed)].join(', ')} over ${turns} turn(s)`
-        : `answered from the conversation in ${turns} turn(s)`) + webNote,
+        : `answered from the conversation in ${turns} turn(s)`,
     });
 
     return c.json({
