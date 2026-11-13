@@ -42,6 +42,8 @@
  * ADDING A FIELD TO A QUOTE? ADD IT HERE TOO, or it will not be there
  * tomorrow.
  */
+import { syncQuotePhases } from "./quotePhaseSync.ts";
+
 export function normalizeQuoteDoc(input: any) {
   return {
     id: String(input.id || `Q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`),
@@ -184,7 +186,24 @@ export function normalizeQuoteDoc(input: any) {
     aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],
     aiRegionalNote: String(input.aiRegionalNote || ""),
     aiConfidence: String(input.aiConfidence || ""),
-    processSteps: Array.isArray(input.processSteps) ? input.processSteps : [],
+    /**
+     * EVERY PHASE A LINE NAMES IS A STAGE OF THE JOB.
+     *
+     * The estimator writes a `phase` onto a line without always adding it to
+     * the steps. Nothing breaks — every consumer copes by appending the
+     * unlisted phase after the listed ones — but it lands at the END of the
+     * document, past a page break, reading as an appendix to work it is in
+     * the middle of. On Q-2026-0002 that put $2,633.19 of real work after the
+     * story, and adding up the first page came to $10,032.94 against a total
+     * of $12,666.13.
+     *
+     * Fixing it HERE means every save repairs the record rather than every
+     * reader working around it. `syncQuotePhases` adds nothing but the name,
+     * removes and reorders nothing that was already there, and moves no money
+     * — the draws come from the lines, so a phase that had a draw still has
+     * the same one.
+     */
+    processSteps: syncQuotePhases(input).steps,
     intake: input.intake ?? null,
     /**
      * What the home owner is supplying themselves.

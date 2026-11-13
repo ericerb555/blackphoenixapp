@@ -141,3 +141,33 @@ test('the whitelist is still a whitelist', () => {
   assert.equal(doc.ourCost, undefined);
   assert.equal(doc.margin, undefined);
 });
+
+test('saving a quote gives every phase its stage', () => {
+  // The Q-2026-0002 shape: a line tagged to a phase the steps never listed.
+  const doc: any = normalizeQuoteDoc({
+    id: 'q-phases',
+    processSteps: [{ title: 'Framing', stepNumber: 1 }, { title: 'Painting', stepNumber: 2 }],
+    materials: [
+      { name: 'Timber', phase: 'Framing', totalCost: 900 },
+      { name: 'Drywall', phase: 'Boarding', totalCost: 240 },
+    ],
+    labor: [{ role: 'Painter', phase: 'Painting', hours: 8, hourlyRate: 60, totalCost: 480 }],
+  });
+  const titles = doc.processSteps.map((s: any) => s.title);
+  // Inserted where its own line puts it, not appended after everything.
+  assert.deepEqual(titles, ['Framing', 'Boarding', 'Painting']);
+  // And the money is untouched by any of it.
+  assert.equal(doc.materials.length, 2);
+  assert.equal(doc.labor.length, 1);
+});
+
+test('a quote whose phases are all listed is saved unchanged', () => {
+  const steps = [{ title: 'Framing', stepNumber: 1 }];
+  const doc: any = normalizeQuoteDoc({
+    id: 'q-tidy',
+    processSteps: steps,
+    materials: [{ name: 'Timber', phase: 'Framing', totalCost: 900 }],
+    labor: [],
+  });
+  assert.deepEqual(doc.processSteps, steps);
+});
