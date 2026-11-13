@@ -35,7 +35,7 @@ import * as kv from "./kv_store.tsx";
 import { runsOurOnCall } from "./addOnAccess.tsx";
 import {
   normalizeConfig, emptyConfig, readiness, isOnCallNow, ladderMinutes,
-  hoursFor, afterTheRota,
+  hoursFor, afterTheRota, serviceFor,
   type OnCallConfig,
 } from "./onCallConfig.ts";
 import { routeEmergency, goesToExchange, escalateAfterMinutes } from "./onCallRouting.ts";
@@ -45,6 +45,7 @@ import { pageContacts, pagingConfigured } from "./onCallPaging.tsx";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 import { dueAction, escalationGoesToExchange, isStale } from "./onCallEscalation.ts";
 import { platformRates } from "./onCallPlatformRates.tsx";
+import { callChargeLines } from "./onCallCharges.ts";
 
 export const onCallRouter = new Hono();
 const PREFIX = "/make-server-3eae23a6";
@@ -476,12 +477,77 @@ onCallRouter.post(`${PREFIX}/on-call-calls/:id/close`, async (c) => {
 
     const body = await c.req.json().catch(() => ({}));
     const now = new Date().toISOString();
+
+    /*
+     * What the callout costs, priced here from the stored rates.
+     *
+     * `tasks/on-call-system.md` item 6. The caller says how long the work took
+     * — that is a fact about the world and a person reports it — and nothing
+     * else. The callout fee, the out-of-hours addition, the minimum hours and
+     * every total come from the account's own record. A browser may say "two
+     * hours"; it may not say "$190".
+     *
+     * AFTER HOURS IS JUDGED FROM WHEN THEY TURNED OUT, NOT FROM NOW.
+     *
+     * `createdAt`, not the close time. A plumber paged at 2am who writes the
+     * job up at nine the next morning turned out at 2am, and asking the clock
+     * at the moment somebody fills in a form would quietly drop the
+     * out-of-hours charge on exactly the calls that earned it.
+     *
+     * Whose rates applies the same rule as routing: ours only when the
+     * subscription says we answer, read from the subscription and never from
+     * the call record.
+     */
+    let charges: ReturnType<typeof callChargeLines> | null = null;
+    try {
+      const address = String(call.accountEmail || '').trim().toLowerCase();
+      const stored = address ? ((await kv.get(KEY(address))) as any) : null;
+      const config = stored
+        ? normalizeConfig(stored, { email: address, audience: stored.audience || '' })
+        : emptyConfig(address, '');
+      const service = serviceFor(config, call.trade);
+      const ours = await runsOurOnCall(address);
+      const turnedOutAt = new Date(call.createdAt || now);
+      charges = callChargeLines(config, {
+        service,
+        weAnswer: ours.held,
+        platform: ours.held ? await platformRates() : null,
+        work: {
+          hours: Number(body?.hoursWorked),
+          afterHours: isOnCallNow(config, service, turnedOutAt),
+          workDescription: String(body?.workDescription || '').slice(0, 120) || undefined,
+        },
+      });
+    } catch (err) {
+      /*
+       * A call that cannot be priced still closes.
+       *
+       * The point of closing is that the emergency is over, and refusing to
+       * record that because a rate card would not load would leave a resolved
+       * call sitting open on somebody's screen at midnight. The charges are
+       * recomputed from the same stored record whenever they are next asked
+       * for, so nothing is lost but the convenience.
+       */
+      console.log('[on-call] could not price call', call.id, (err as any)?.message || err);
+    }
+
     const updated = {
       ...call,
       status: "closed",
       closedBy: who.email,
       closedAt: now,
       resolution: String(body?.resolution || "").slice(0, 1000) || call.resolution || "",
+      /** Hours as reported, kept beside the lines they produced. */
+      hoursWorked: Number.isFinite(Number(body?.hoursWorked)) ? Number(body.hoursWorked) : null,
+      charges: charges
+        ? {
+            lines: charges.lines,
+            totalCents: charges.totalCents,
+            chargedBy: charges.chargedBy,
+            billedHours: charges.billedHours,
+            pricedAt: now,
+          }
+        : call.charges ?? null,
       updatedAt: now,
     };
     await kv.set(CALL(call.id), updated);

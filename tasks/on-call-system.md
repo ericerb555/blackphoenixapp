@@ -223,9 +223,41 @@ the quote, the purchase orders and the invoice all sit on one job.
 
       Still nothing rings. A call is routed, recorded and logged — `nobody`
       logged loudly — and no phone is dialled.
-- [ ] **6. Per-call extras that reach the pipeline.** Callout fee, after-hours
+- [x] **6. Per-call extras that reach the pipeline.** Callout fee, after-hours
       rate and the work done, as real lines on the job, priced on the server
       from the account's own rates — never a total posted by a browser.
+
+      **Done 2026-11-13 — and less than half of it was missing.** `calloutCents`
+      had priced a callout correctly since it was written, and `routeEmergency`
+      parked the result on the routing plan. The money was computed and never
+      reached the job, so every callout had to be retyped onto an invoice from
+      a figure inside a JSON blob — which is how the hourly rate on an invoice
+      comes to disagree with the hourly rate on the account.
+
+      `onCallCharges.ts` turns a finished call into `InvoiceLineItem`s and the
+      close route stores them. Two things it does that `calloutCents` could
+      not, both about the customer reading it afterwards:
+
+      - **The labour line keeps the rate and the hours apart.** "Labour 2 hrs @
+        $95.00" can be checked by the person paying it; "Labour — 2 hours …
+        $190.00" cannot. The collapsed form is right for a routing plan and
+        wrong on an invoice.
+      - **An account that charges nothing produces no lines at all**, not zero
+        ones. A $0.00 row reads as a mistake and generates the phone call it
+        was meant to save.
+
+      **After hours is judged from `createdAt`, not from the close time.** A
+      plumber paged at 2am who writes the job up at nine turned out at 2am.
+      Asking the clock when somebody fills in a form would quietly drop the
+      out-of-hours charge on precisely the calls that earned it.
+
+      Hours worked are reported by a person — that is a fact about the world.
+      Everything after that is computed from the stored record. A browser may
+      say "two hours"; it may not say "$190". 14 tests.
+
+      **Not done:** the lines sit on the closed call, which carries `jobId`.
+      Nothing yet pulls them onto an invoice automatically — that is the
+      invoice builder's side of the join and wants its own change.
 - [x] **7. Paging.** An `emergency` event in the notification engine that
       already works, then Twilio SMS and voice behind one send function.
 

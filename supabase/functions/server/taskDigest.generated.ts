@@ -12,7 +12,7 @@
  * PlanSnapshot type and casts on load.
  */
 
-export const GENERATED_AT = "2026-11-13T19:47:47.205Z";
+export const GENERATED_AT = "2026-11-13T20:06:01.911Z";
 export const PLANS = [
   {
     "file": "todo.md",
@@ -113,13 +113,6 @@ export const PLANS = [
     "lastTouched": "2026-10-03T22:05:06-04:00"
   },
   {
-    "file": "ready-for-use.md",
-    "title": "Must-dos before the app is ready for use",
-    "open": 7,
-    "done": 18,
-    "lastTouched": "2026-10-16T19:28:40-04:00"
-  },
-  {
     "file": "employees-and-companies.md",
     "title": "PLAN — employees belong to a company, and a W-2 hour costs what it costs",
     "open": 6,
@@ -132,6 +125,13 @@ export const PLANS = [
     "open": 6,
     "done": 4,
     "lastTouched": "2026-09-21T16:17:11-04:00"
+  },
+  {
+    "file": "ready-for-use.md",
+    "title": "Must-dos before the app is ready for use",
+    "open": 6,
+    "done": 19,
+    "lastTouched": "2026-10-16T19:28:40-04:00"
   },
   {
     "file": "pricing-in-one-place.md",
@@ -160,13 +160,6 @@ export const PLANS = [
     "open": 1,
     "done": 2,
     "lastTouched": "2026-09-21T22:20:21-04:00"
-  },
-  {
-    "file": "on-call-system.md",
-    "title": "On-call, the portals and Phoenix Exchange — one path",
-    "open": 1,
-    "done": 9,
-    "lastTouched": "2026-09-22T21:08:18-04:00"
   },
   {
     "file": "ai-emergency-attendant.md",
@@ -202,6 +195,13 @@ export const PLANS = [
     "open": 0,
     "done": 5,
     "lastTouched": "2026-10-06T18:55:45-04:00"
+  },
+  {
+    "file": "on-call-system.md",
+    "title": "On-call, the portals and Phoenix Exchange — one path",
+    "open": 0,
+    "done": 10,
+    "lastTouched": "2026-09-22T21:08:18-04:00"
   },
   {
     "file": "one-job-identity.md",

@@ -131,8 +131,11 @@ touches the landlord portal:
 - [x] **Refuse to order at all when the resolved provider is not live**, with a
       message saying screening is not yet available. One guard in the order
       route, before `chargeFor` is consulted.
-- [ ] Or set `enabled: false` on the pricing record until a real provider is
-      configured.
+- [x] ~~Or set `enabled: false` on the pricing record until a real provider is
+      configured.~~ **Not needed — the alternative above was taken, 2026-11-13.**
+      The two were offered as either/or and the better one shipped, but this
+      box stayed unticked, so the plan has been reading as seven items
+      outstanding when it is six. Ticked to stop it being counted again.
 
 The first is better because it cannot be undone by somebody re-enabling the fee.
 
