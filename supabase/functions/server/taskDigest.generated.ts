@@ -12,7 +12,7 @@
  * PlanSnapshot type and casts on load.
  */
 
-export const GENERATED_AT = "2026-11-13T16:55:57.235Z";
+export const GENERATED_AT = "2026-11-13T18:03:34.929Z";
 export const PLANS = [
   {
     "file": "todo.md",
@@ -173,7 +173,7 @@ export const PLANS = [
     "title": "AI Emergency On-Call Attendant — audit, and where it joins on",
     "open": 0,
     "done": 6,
-    "lastTouched": "2026-11-11T20:49:09-05:00"
+    "lastTouched": "2026-11-13T13:02:30-05:00"
   },
   {
     "file": "exchange-manchester.md",

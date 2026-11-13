@@ -50,6 +50,14 @@ interface Ad {
   content: string;
   linkUrl: string | null;
   imageUrl: string | null;
+  /**
+   * True for the directory's own ad, which nobody paid for.
+   *
+   * The heading below says "paid for". That is the disclosure the whole block
+   * rests on, and it is false of this one, so a house ad carries its own label
+   * instead of borrowing that one.
+   */
+  house?: boolean;
   /** A reel to play in place of the picture. Only ever a file we host. */
   videoUrl?: string | null;
 }
@@ -134,9 +142,19 @@ export default function ExchangeSponsored({ limit = 2 }: { limit?: number }) {
           and both are vaguer than the truth.
         */}
         <div className="bpxb-section-name">Advertisement</div>
+        {/*
+          The heading has to be true of everything under it.
+
+          With only paid ads it reads as it always did. Once the directory's
+          own ad is in the mix, "paid for" would be false of one of them, so
+          the wording covers both and each row carries its own label. Saying
+          "paid for" over our own promotion is exactly the small lie that makes
+          a reader stop believing the listings underneath.
+        */}
         <div className="bpxb-section-tag">
-          paid for — it is not a search result, and nothing here affects the
-          listings
+          {ads.some((ad) => ad.house)
+            ? 'not search results — nothing here affects the listings'
+            : 'paid for — it is not a search result, and nothing here affects the listings'}
         </div>
       </div>
 
@@ -184,6 +202,12 @@ export default function ExchangeSponsored({ limit = 2 }: { limit?: number }) {
             ) : null}
             <div className="bpxb-door-text">
               <div className="bpxb-door-title">{ad.title}</div>
+              {/*
+                Said on the row, not only in the heading. A reader who reads
+                one row and not the heading above it should still know which
+                of these the directory owns.
+              */}
+              {ad.house && <div className="bpxb-ad-house">Our own — we run this directory</div>}
               {ad.content && <div className="bpxb-note">{ad.content}</div>}
             </div>
             {href && <ExternalLink size={16} />}

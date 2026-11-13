@@ -35,6 +35,7 @@ import { mirrorVendorImage, storeImageBytes, AD_IMAGE_BUCKET } from "./productIm
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { imageModel } from "./imageModel.ts";
+import { HOUSE_KEY, mixHouseAd, houseAdIsShowable } from "./houseAd.ts";
 
 export const advertisingRouter = new Hono();
 
@@ -104,6 +105,71 @@ async function actor(c: any): Promise<{ email: string; isAdmin: boolean } | null
     isAdmin: ["owner", "admin", "master_admin", "management"].includes(role),
   };
 }
+
+/**
+ * The directory's own advertisement — read it, or set it.
+ *
+ * Administrators only. This is the one ad on the platform that answers to
+ * nobody's approval queue, because it belongs to the people who run the
+ * queue; that is exactly why it must not be writable by an advertiser.
+ *
+ * Media follows the same two rules as any other creative: an image we do not
+ * already hold is mirrored, and a video that is not ours is refused rather
+ * than fetched. A house ad pointing at somebody else's server would put that
+ * request into every visitor's browser just as surely as a paid one.
+ */
+advertisingRouter.get("/advertising/house", async (c) => {
+  const who = await actor(c);
+  if (!who?.isAdmin) return c.json({ success: false, error: "Administrators only." }, 403);
+  const placement = String(c.req.query("placement") || "exchange");
+  const stored = (await kv.get(HOUSE_KEY(placement))) as any;
+  return c.json({ success: true, house: stored || null, showable: houseAdIsShowable(stored) });
+});
+
+advertisingRouter.post("/advertising/house", async (c) => {
+  const who = await actor(c);
+  if (!who?.isAdmin) return c.json({ success: false, error: "Administrators only." }, 403);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const placement = ["marquee", "banner", "reel", "exchange"].includes(String(body.placement))
+      ? String(body.placement) : "exchange";
+    const existing = (await kv.get(HOUSE_KEY(placement))) as any;
+
+    const house = {
+      id: `house-${placement}`,
+      placement,
+      title: String(body.title ?? existing?.title ?? "").slice(0, 120),
+      content: String(body.content ?? existing?.content ?? "").slice(0, 300),
+      linkUrl: safeUrl(body.linkUrl ?? existing?.linkUrl),
+      imageUrl: await ourImageUrl(who.email, safeUrl(body.imageUrl ?? existing?.imageUrl)),
+      videoUrl: ourVideoUrl(who.email, String(body.videoUrl ?? existing?.videoUrl ?? "")),
+      isActive: body.isActive === undefined ? (existing?.isActive !== false) : Boolean(body.isActive),
+      updatedAt: new Date().toISOString(),
+      updatedBy: who.email,
+    };
+
+    /*
+     * The placeholder check applies here too, and especially here.
+     *
+     * `companyInfo`'s defaults carry seed contact details — a 555 number and a
+     * probuild-enterprise.com address — and two example.com advertisements
+     * once ran for nineteen days because nothing stopped them. The directory's
+     * own ad pointing at a placeholder would be the most embarrassing version
+     * of that, so it is refused at the door rather than filtered at serve.
+     */
+    if (house.linkUrl && isPlaceholderLink(house.linkUrl)) {
+      return c.json({
+        success: false,
+        error: "That link is a placeholder. Use the real address the ad should send people to.",
+      }, 400);
+    }
+
+    await kv.set(HOUSE_KEY(placement), house);
+    return c.json({ success: true, house, showable: houseAdIsShowable(house) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not save it." }, 500);
+  }
+});
 
 /** An advertiser only ever sees their own campaigns; staff see everything. */
 const mine = (rows: any[], who: { email: string; isAdmin: boolean }) =>
@@ -592,10 +658,53 @@ advertisingRouter.get("/advertising/serve", async (c) => {
       return true;
     });
 
+    /*
+     * The directory's own ad, always in the mix. See houseAd.ts for why it
+     * takes a reserved slot at the END rather than a place in the queue, and
+     * why it must travel flagged.
+     */
+    const stored = (await kv.get(HOUSE_KEY(placement))) as any;
+    let house = houseAdIsShowable(stored) ? stored : null;
+
+    /*
+     * No video set on the house ad? Use the newest reel we have published.
+     *
+     * Eric asked for "a ad and reel of my company", and at the time of asking
+     * there was no reel to point at — the store reel pipeline works and had
+     * never been used. Rather than leave a field for somebody to remember to
+     * fill in later, the house ad picks up the most recent published reel on
+     * its own, so publishing one in Reel Studio is the only step.
+     *
+     * Newest by createdAt, active only, and only ever a file we host — the
+     * same rule every other video on this route obeys. An explicit videoUrl on
+     * the house ad still wins: choosing a specific reel has to be possible.
+     */
+    if (house && !String(house.videoUrl || '').trim()) {
+      try {
+        const reels = ((await kv.getByPrefix('reel:')) as any[] || [])
+          .filter((r) => r && r.active !== false && isOurCopy(safeUrl(r.videoUrl || '')))
+          .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+        if (reels.length) {
+          house = { ...house, videoUrl: safeUrl(reels[0].videoUrl), imageUrl: house.imageUrl || safeUrl(reels[0].posterUrl || '') };
+        }
+      } catch {
+        // A reel we cannot read is a house ad without a video, not a failure
+        // to serve the block.
+      }
+    }
+
     return c.json({
       success: true,
-      ads: live.slice(0, limit).map((cr: any) => ({
+      ads: mixHouseAd(live, house, limit).map((cr: any) => ({
         id: cr.id,
+        /*
+         * Flagged so the page can say what this is.
+         *
+         * The block is headed "Advertisement — paid for". A house ad is not,
+         * and rendering it under that heading would make the one piece of
+         * disclosure on the screen untrue. The client labels on this.
+         */
+        house: cr.house === true,
         campaignId: cr.campaignId || null,
         title: cr.title,
         content: cr.content,

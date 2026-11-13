@@ -295,6 +295,13 @@ export const BROWSE_CSS = `
   display:flex; align-items:center; justify-content:center; background:#fff; }
 .bpxb-ad-image img { max-width:100%; max-height:100%; object-fit:contain; }
 
+/* ── the directory's own ad, said on the row ─────────────────────────────── */
+/* Small and quiet, but not hidden: it sits above the body copy where the eye
+   reaches it before the pitch. Muted colour rather than the orange accent,
+   because this is a disclosure and not a badge to be proud of. */
+.bpxb-ad-house { font-size:11px; letter-spacing:.02em; color:var(--bpx-faint);
+  text-transform:uppercase; margin-bottom:2px; }
+
 /* ── a reel, which needs a frame the 56px thumbnail cannot give it ──────── */
 /* A reel is shot portrait. Dropped into the square above it would play at
    56px, which is not an advertisement anybody is going to watch — so a video
