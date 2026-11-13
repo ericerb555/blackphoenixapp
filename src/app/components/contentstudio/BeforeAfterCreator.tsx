@@ -37,6 +37,7 @@ import { renderBeforeAfter, loadImage, canvasToBlob, type Brand } from '../../li
 import { companyInfo } from '../../lib/config/companyInfo';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import { screenChannel, describeFindings } from '../../lib/captionFacts';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -260,8 +261,48 @@ export default function BeforeAfterCreator() {
       }
       const got: Variant[] = Array.isArray(data.variants) ? data.variants : [];
       if (!got.length) throw new Error('Nothing came back to use.');
-      setVariants(got);
-      setBestIndex(Number.isInteger(data.bestVariantIndex) ? Math.max(0, Math.min(got.length - 1, data.bestVariantIndex)) : 0);
+
+      /*
+       * The prohibition above is a request until something reads the answer.
+       *
+       * The context tells the writer to invent nothing, and on this platform a
+       * prompt instruction has repeatedly turned out not to be a control — a
+       * reader told "return ONLY JSON" answered in prose, another told to be
+       * precise guessed a building's size three ways. The screen beside the
+       * box promises "if it is not written here it will not appear", and this
+       * is what makes that true rather than hopeful.
+       *
+       * A variant with anything invented in it is DROPPED, not shown with a
+       * warning: a caption on screen is a caption somebody pastes.
+       */
+      const judged = got.map((v) => ({
+        variant: v,
+        faults: Object.values(v?.channels || {})
+          .flatMap((ch) => screenChannel(ch, facts)),
+      }));
+      const clean = judged.filter((j) => !j.faults.length).map((j) => j.variant);
+      const struck = judged.filter((j) => j.faults.length);
+
+      if (!clean.length) {
+        throw new Error(
+          `Every version invented something, so none is being shown. `
+          + describeFindings(struck.flatMap((j) => j.faults))
+          + ' Add those details to the job notes if they are true, then write again.',
+        );
+      }
+      if (struck.length) {
+        toast.warning(
+          `${struck.length} of ${got.length} dropped. `
+          + describeFindings(struck.flatMap((j) => j.faults)),
+        );
+      }
+
+      setVariants(clean);
+      // The model's pick is an index into the list it returned, which is not
+      // the list being shown once anything has been dropped.
+      const picked = Number.isInteger(data.bestVariantIndex) ? data.bestVariantIndex : 0;
+      const keptPick = clean.indexOf(got[picked]);
+      setBestIndex(keptPick >= 0 ? keptPick : 0);
     } catch (err: any) {
       toast.error(err?.message || 'The captions could not be written.');
     } finally {
