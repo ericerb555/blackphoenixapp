@@ -43,7 +43,7 @@ jobs:
       # seconds before anything is installed, which is what this job was
       # doing. package.json says pnpm@8.15.6 and that is the one true place;
       # pinning it twice is how the two drift apart later anyway.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -120,7 +120,7 @@ jobs:
       # seconds before anything is installed, which is what this job was
       # doing. package.json says pnpm@8.15.6 and that is the one true place;
       # pinning it twice is how the two drift apart later anyway.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 24
