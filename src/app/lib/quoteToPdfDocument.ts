@@ -84,7 +84,14 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
      * rate for the amount, so lifting the rate lifts the amount with it and
      * the line still multiplies out for anyone who checks it.
      */
-    for (const line of lines) line.unit_price = line.unit_price * pricing.factor;
+    for (const line of lines) {
+      line.unit_price = line.unit_price * pricing.factor;
+      /* The amount is the authoritative figure, so it is priced too — not
+         left behind at cost while the rate beside it moves. */
+      if (Number.isFinite((line as any).amount)) {
+        (line as any).amount = Math.round((line as any).amount * pricing.factor * 100) / 100;
+      }
+    }
     for (const [name, cost] of trueCost) trueCost.set(name, atCustomerPrice(cost, pricing));
 
     /**
@@ -143,8 +150,17 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * wrong about the column printed underneath it, which is the same complaint
    * in a smaller box.
    */
-  const amountOf = (l: any) =>
-    Number.isFinite(l?.priced_amount) ? (l.priced_amount as number) : round2(l.quantity * l.unit_price);
+  const amountOf = (l: any) => {
+    if (Number.isFinite(l?.priced_amount)) return l.priced_amount as number;
+    /**
+     * The selection now carries the line’s OWN total, which is not always
+     * quantity x rate — a waste factor lives in the stored figure and not
+     * in the unit price. Recomputing it here is what put Q-2026-0002’s
+     * column $23.04 under its own footer.
+     */
+    if (Number.isFinite(l?.amount)) return round2(l.amount as number);
+    return round2(l.quantity * l.unit_price);
+  };
 
   const toPdfLine = (l: any) => ({
     description: l.description,

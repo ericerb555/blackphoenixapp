@@ -93,6 +93,21 @@ export interface SelectedLine {
   description: string;
   quantity: number;
   unit_price: number;
+  /**
+   * WHAT THE LINE ACTUALLY COMES TO, which is not always quantity x rate.
+   *
+   * MEASURED 2026-11-13 on Q-2026-0002: a plywood line read 6 x $38.40 and
+   * was stored at $253.44, because the estimator folds a 10% WASTE FACTOR
+   * into the line total and leaves the unit rate at what the supplier
+   * charges. The PDF printed quantity x rate, so the column came to
+   * $12,643.09 under a total of $12,666.13 — out by exactly the waste, on
+   * one line out of sixteen.
+   *
+   * Eric found it by adding the column up, which is the only way anyone was
+   * ever going to. Every subtotal in the system already uses the stored
+   * figure; the document was the one place computing its own.
+   */
+  amount: number;
   phase?: string;
   /**
    * Material or labour, carried so the document can split a phase into the
@@ -173,6 +188,42 @@ export function rateVisibilityOf(quote: any): { materials: boolean; labor: boole
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * The line’s own total when it has one, quantity x rate when it does not.
+ *
+ * The stored figure WINS, because it is the one every subtotal in the
+ * system already sums: the quote total, the phase total, the draw, the
+ * invoice. Recomputing it here is how the document ended up disagreeing
+ * with its own footer.
+ */
+export function amountOfLine(line: any, quantity: number, rate: number): number {
+  const stored = Number(line?.totalCost);
+  if (Number.isFinite(stored) && stored > 0) return round2(stored);
+  return round2(quantity * rate);
+}
+
+/**
+ * Say so when a line comes to more than its own quantity times its rate.
+ *
+ * Without this the fix trades one unanswerable question for another: the
+ * column would add up, and a customer multiplying 6 x $38.40 would get
+ * $230.40 against a printed $253.44 and have no way to know why. Waste is a
+ * real and ordinary cost — you buy ten sheets to cut nine — and naming it
+ * is better than hiding it in a rate nobody can check.
+ */
+export function describeLine(description: string, line: any, quantity: number, rate: number): string {
+  const amount = amountOfLine(line, quantity, rate);
+  const bare = round2(quantity * rate);
+  if (!(amount > bare + 0.01) || bare <= 0) return description;
+
+  const stated = Number(line?.wasteFactor);
+  const pct = Number.isFinite(stated) && stated > 0
+    ? stated * 100
+    : ((amount - bare) / bare) * 100;
+  if (!(pct > 0.5)) return description;
+  return `${description} (incl. ${Math.round(pct)}% waste)`;
+}
+
 export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelection {
   const sections = forCustomer
     ? sectionsOf(quote)
@@ -193,9 +244,13 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
       if (!keep(m)) continue;
       lines.push({
-        description: mark([m?.name, m?.description].filter(Boolean).join(' — ') || 'Material', m),
+        description: describeLine(
+          mark([m?.name, m?.description].filter(Boolean).join(' — ') || 'Material', m),
+          m, Number(m?.quantity) || 0, Number(m?.unitCost) || 0,
+        ),
         quantity: Number(m?.quantity) || 0,
         unit_price: Number(m?.unitCost) || 0,
+        amount: amountOfLine(m, Number(m?.quantity) || 0, Number(m?.unitCost) || 0),
         phase: String(m?.phase || '').trim() || undefined,
         kind: 'material',
       });
@@ -208,6 +263,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
         description: mark([l?.role, l?.description].filter(Boolean).join(' — ') || 'Labour', l),
         quantity: Number(l?.hours) || 0,
         unit_price: Number(l?.hourlyRate) || 0,
+        amount: amountOfLine(l, Number(l?.hours) || 0, Number(l?.hourlyRate) || 0),
         phase: String(l?.phase || '').trim() || undefined,
         kind: 'labor',
       });
@@ -240,6 +296,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
       description: mark([a?.name, a?.description].filter(Boolean).join(" — ") || "Additional cost", a),
       quantity: 0,
       unit_price: 0,
+      amount: round2(Number(a?.amount) || 0),
       phase,
       kind: "material",
     });

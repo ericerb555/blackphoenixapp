@@ -488,3 +488,72 @@ test('a soft cost hidden from the customer is withheld from them and kept on our
   // Hidden removes the detail and keeps the money — the phase total stands.
   assert.equal(selectQuoteLines(quote, true).phaseCost.get('Trash removal and disposal'), 125);
 });
+
+/* ── the waste factor, which is not in the unit price ────────────────────── */
+
+/**
+ * MEASURED on Q-2026-0002, 2026-11-13. A plywood line read 6 × $38.40 and was
+ * stored at $253.44 — the estimator folds a 10% waste factor into the line
+ * total and leaves the rate at what the supplier charges. The PDF printed
+ * quantity × rate, so sixteen lines came to $12,643.09 under a total of
+ * $12,666.13. Out by exactly the waste, on one line.
+ *
+ * Eric found it by adding the column up, which was the only way anyone would.
+ */
+const WASTED_QUOTE = {
+  customerSections: { materials: true, labor: true, processDetail: true },
+  materials: [
+    { name: 'Plywood Sheets', quantity: 6, unitCost: 38.4, wasteFactor: 0.1, totalCost: 253.44, phase: 'Bench Construction' },
+    { name: '2x4 Lumber', quantity: 25, unitCost: 4.38, totalCost: 109.5, phase: 'Bench Construction' },
+  ],
+  labor: [
+    { role: 'Carpenter', hours: 30, hourlyRate: 80.5, totalCost: 2415, phase: 'Bench Construction' },
+  ],
+};
+
+test('a line carries what it actually comes to, not quantity times rate', () => {
+  const { lines } = selectQuoteLines(WASTED_QUOTE, true);
+  const plywood = lines.find((l) => l.description.startsWith('Plywood'));
+  assert.ok(plywood);
+  assert.equal(plywood.amount, 253.44, 'the stored total wins');
+  // The rate is still the supplier's, because that is what it is.
+  assert.equal(plywood.unit_price, 38.4);
+  assert.equal(plywood.quantity, 6);
+});
+
+test('the column adds up to the quote it came from', () => {
+  const { lines } = selectQuoteLines(WASTED_QUOTE, true);
+  const summed = Math.round(lines.reduce((t, l) => t + l.amount, 0) * 100) / 100;
+  assert.equal(summed, 2777.94, 'what the three lines are stored at');
+  // And emphatically not the figure the document used to print.
+  const bare = Math.round(lines.reduce((t, l) => t + l.quantity * l.unit_price, 0) * 100) / 100;
+  assert.equal(bare, 2754.9);
+  assert.equal(Math.round((summed - bare) * 100) / 100, 23.04);
+});
+
+test('a line that comes to more than its own maths says why', () => {
+  const { lines } = selectQuoteLines(WASTED_QUOTE, true);
+  const plywood = lines.find((l) => l.description.startsWith('Plywood'))!;
+  // Otherwise the fix trades one unanswerable question for another: a customer
+  // multiplying 6 × $38.40 gets $230.40 against a printed $253.44.
+  assert.match(plywood.description, /incl\. 10% waste/);
+});
+
+test('an ordinary line is not annotated and is unchanged', () => {
+  const { lines } = selectQuoteLines(WASTED_QUOTE, true);
+  const lumber = lines.find((l) => l.description.startsWith('2x4'))!;
+  assert.equal(lumber.amount, 109.5);
+  assert.equal(lumber.description, '2x4 Lumber');
+  const carpenter = lines.find((l) => l.description.startsWith('Carpenter'))!;
+  assert.equal(carpenter.amount, 2415);
+  assert.ok(!/waste/.test(carpenter.description));
+});
+
+test('a line with no stored total still falls back to quantity times rate', () => {
+  const { lines } = selectQuoteLines({
+    customerSections: { materials: true, labor: true, processDetail: true },
+    materials: [{ name: 'Hand built', quantity: 3, unitCost: 25 }],
+    labor: [],
+  }, true);
+  assert.equal(lines[0].amount, 75);
+});
