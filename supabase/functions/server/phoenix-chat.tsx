@@ -829,6 +829,11 @@ phoenixChatRouter.post(BASE, async (c) => {
      * amount. A `usage` the SDK does not return leaves these at zero and the
      * column NULL, which reads as "not computed" rather than as free.
      */
+    /* What the web turned up this turn, for the summary and the ledger. */
+    let searches = 0;
+    let sources = 0;
+    const searchErrors: string[] = [];
+
     let tokensIn = 0;
     let tokensOut = 0;
 
@@ -847,7 +852,33 @@ phoenixChatRouter.post(BASE, async (c) => {
         system: `${phoenixSystem(actionCatalogue().map(
           (a) => `  ${a.action} (${a.risk}) — ${a.what} params: ${a.params}`,
         ))}\n\n${UNTRUSTED_PREAMBLE}`,
-        tools: PHOENIX_TOOLS as any,
+        /*
+         * The platform's own tools, plus the web.
+         *
+         * WEB SEARCH IS A SERVER TOOL AND IS DELIBERATELY NOT IN PHOENIX_TOOLS.
+         *
+         * Anthropic runs it; we never execute it and never return a result for
+         * it. Putting it in that array would be wrong twice over: `isKnownTool`
+         * derives from it, so the loop below would try to dispatch a tool it
+         * has no handler for, and the pinned list in phoenixTools.test.ts
+         * exists to make adding a tool WE run a deliberate act. This is a
+         * different kind of thing and is declared in a different place to say
+         * so.
+         *
+         * `web_search_20260209` rather than the older `web_search_20250305`:
+         * the dated type carries dynamic filtering and is the variant this
+         * model takes. It runs code execution internally, which is why
+         * `code_execution` must NOT also be declared — two execution
+         * environments confuse the model.
+         *
+         * max_uses is the cost ceiling. Each search is billed, and a question
+         * that genuinely needs more than five is a question that wants a
+         * person reading sources rather than an assistant summarising them.
+         */
+        tools: [
+          ...PHOENIX_TOOLS,
+          { type: 'web_search_20260209', name: 'web_search', max_uses: 5 },
+        ] as any,
         messages,
       });
 
@@ -857,6 +888,40 @@ phoenixChatRouter.post(BASE, async (c) => {
       const text = (reply.content || [])
         .filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
       if (text) answer = text;
+
+      /*
+       * What the web search actually did, counted from the blocks.
+       *
+       * A server tool's errors do not throw: the turn comes back 200 with a
+       * `web_search_tool_result` whose `content` is an ERROR OBJECT where a
+       * success is an ARRAY. Branching on that is the only way to tell "found
+       * nothing" from "could not search", and the two must not be reported the
+       * same way to somebody deciding something.
+       */
+      for (const block of (reply.content || []) as any[]) {
+        if (block?.type !== 'web_search_tool_result') continue;
+        if (Array.isArray(block.content)) {
+          searches += 1;
+          sources += block.content.length;
+        } else {
+          searchErrors.push(String(block?.content?.error_code || 'unknown'));
+        }
+      }
+
+      /*
+       * A paused turn is not a finished one.
+       *
+       * Long-running server tools can hand the turn back with
+       * `stop_reason: "pause_turn"` and no tool call for us to answer. The
+       * loop's exit test is "no tool_use blocks", which that satisfies — so
+       * without this, a search that paused would end the conversation mid-
+       * thought and Phoenix would appear to answer from nothing. Hand the
+       * content straight back and let him carry on.
+       */
+      if ((reply as any).stop_reason === 'pause_turn') {
+        messages.push({ role: 'assistant', content: reply.content });
+        continue;
+      }
 
       const calls = (reply.content || []).filter((b: any) => b.type === 'tool_use');
       if (!calls.length) break;
@@ -893,11 +958,14 @@ phoenixChatRouter.post(BASE, async (c) => {
       messages.push({ role: 'user', content: results });
     }
 
+    const webNote = searches
+      ? `, ${searches} web search(es) over ${sources} source(s)`
+      : (searchErrors.length ? `, web search failed (${searchErrors.join(', ')})` : '');
     await call.ok({
       tokensIn, tokensOut,
-      summary: toolsUsed.length
+      summary: (toolsUsed.length
         ? `answered using ${[...new Set(toolsUsed)].join(', ')} over ${turns} turn(s)`
-        : `answered from the conversation in ${turns} turn(s)`,
+        : `answered from the conversation in ${turns} turn(s)`) + webNote,
     });
 
     return c.json({
