@@ -517,7 +517,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
       if (data.emailSent || data.smsSent) {
         toast.success(`📬 Alert sent! Email: ${data.emailSent ? '✅' : '❌'} SMS: ${data.smsSent ? '✅' : '❌'}`);
       } else {
-        toast.success('Alert queued — once Resend & Twilio are configured you\'ll receive it instantly.');
+        toast.success('Alert queued — once Resend & Bird are configured you\'ll receive it instantly.');
       }
     } catch {
       toast.error('Could not reach server. Push latest code to GitHub to activate alerts.');

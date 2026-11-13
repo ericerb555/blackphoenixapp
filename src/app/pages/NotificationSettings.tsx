@@ -170,7 +170,7 @@ export default function NotificationSettings() {
       } else {
         const error = await response.json();
         toast.error('SMS test failed', {
-          description: error.error || 'Please check your Twilio configuration'
+          description: error.error || 'Please check the Bird SMS configuration'
         });
       }
     } catch (error: any) {
@@ -265,10 +265,9 @@ export default function NotificationSettings() {
               <div>
                 <h4 className="text-white font-semibold mb-2">📱 SMS Configuration:</h4>
                 <div className="ml-4 space-y-1 text-gray-300">
-                  <div><code className="bg-black/50 px-2 py-0.5 rounded">TWILIO_ACCOUNT_SID</code> - Your Twilio Account SID</div>
-                  <div><code className="bg-black/50 px-2 py-0.5 rounded">TWILIO_AUTH_TOKEN</code> - Your Twilio Auth Token</div>
-                  <div><code className="bg-black/50 px-2 py-0.5 rounded">TWILIO_PHONE_NUMBER</code> - Your Twilio phone number (e.g., +15551234567)</div>
-                  <div className="mt-2">Get credentials from <a href="https://www.twilio.com/console" target="_blank" className="text-blue-400 hover:underline">twilio.com/console</a></div>
+                  <div><code className="bg-black/50 px-2 py-0.5 rounded">BIRD_API_SMS_KEY</code> - Your Bird v1 API key (starts bk_&lt;region&gt;_…; the region in the key chooses the host)</div>
+                  <div><code className="bg-black/50 px-2 py-0.5 rounded">BIRD_SMS_FROM</code> - The number texts are sent FROM, e.g. +16038108010, or a registered sender id</div>
+                  <div className="mt-2">Get credentials from <a href="https://bird.com" target="_blank" className="text-blue-400 hover:underline">bird.com</a></div>
                 </div>
               </div>
               <div>

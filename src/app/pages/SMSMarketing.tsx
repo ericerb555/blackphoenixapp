@@ -206,8 +206,8 @@ export default function SMSMarketing() {
       <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
         <Zap className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
         <div>
-          <p className="text-xs font-bold text-blue-300">Live — sending real SMS via Twilio</p>
-          <p className="text-xs text-gray-500 mt-0.5">Contacts and campaigns are saved to your database and texts are delivered through your connected Twilio number. Standard carrier rates apply per message.</p>
+          <p className="text-xs font-bold text-blue-300">Live — sending real SMS via Bird</p>
+          <p className="text-xs text-gray-500 mt-0.5">Contacts and campaigns are saved to your database and texts are delivered through your connected Bird number. Standard carrier rates apply per message.</p>
         </div>
       </div>
 

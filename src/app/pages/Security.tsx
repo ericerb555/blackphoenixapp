@@ -136,7 +136,7 @@ const SUBPROCESSORS: Array<{ name: string; purpose: string; region: string; offs
   { name: 'Stripe', purpose: 'Payment processing and payouts', region: 'United States' },
   { name: 'OpenAI, Anthropic', purpose: 'AI features — estimates, drafting, assistants', region: 'United States' },
   { name: 'Resend', purpose: 'Transactional email', region: 'United States' },
-  { name: 'Twilio', purpose: 'SMS notifications', region: 'United States' },
+  { name: 'Bird', purpose: 'SMS notifications', region: 'United States' },
   { name: 'CJ Dropshipping', purpose: 'Store order fulfilment — receives the recipient name and shipping address for physical orders only', region: 'China', offshore: true },
   { name: 'MapTiler', purpose: 'Directory maps', region: 'European Union' },
   { name: 'Regrid', purpose: 'Public property parcel records', region: 'United States' },
