@@ -1,0 +1,46 @@
+# Deploying the origin proxy — one command instead of a dashboard walkthrough.
+#
+# The Worker itself is `origin-proxy.js` and has been in this repository since
+# the WAF work; what was missing was this file, so deploying it meant pasting
+# code into a web editor and setting a route by hand. That is fine once and bad
+# twice: the thing you cannot do from a dashboard is prove that what is running
+# is what is in the repository.
+#
+#   npx wrangler login                 (once, opens a browser)
+#   npx wrangler secret put EDGE_ORIGIN_SECRET --config cloudflare/wrangler.toml
+#   npx wrangler deploy --config cloudflare/wrangler.toml
+#
+# THE SECRET IS THE PART TO GET EXACTLY RIGHT. It must be byte-identical to the
+# one Supabase holds:
+#
+#   supabase secrets list --project-ref plzsvzwwcdopnawtiwzm   # names + digests
+#
+# A mismatch is invisible today — the server fails open while the lock is not
+# enforced — and takes the entire API down the hour somebody enforces it. Set
+# both from the same clipboard, or generate a fresh one and set it in both
+# places together:
+#
+#   openssl rand -hex 32
+#
+# NOT COMMITTED, EVER. `wrangler secret put` stores it in Cloudflare and prints
+# nothing; it does not belong in this file, which is tracked.
+
+name = "blackphoenix-origin-proxy"
+main = "origin-proxy.js"
+compatibility_date = "2026-11-13"
+
+# The hostname the browser talks to. `zone_name` is the zone it lives in, which
+# is the apex rather than the subdomain — Cloudflare resolves the route within
+# that zone.
+#
+# The DNS record for `api` must be PROXIED (orange cloud) for this route to be
+# reached at all. A grey-cloud record resolves straight to the origin and the
+# Worker never runs, which looks exactly like it working until the day the lock
+# is enforced.
+[[routes]]
+pattern = "api.theblackphoenixcompany.com/*"
+zone_name = "theblackphoenixcompany.com"
+
+# No observability block, no KV, no D1, no queues. This Worker forwards a
+# request and adds one header; anything else here would be surface it does not
+# need.
