@@ -248,6 +248,34 @@ export interface CostEstimate {
 }
 
 /**
+ * Cached tokens, converted into the input tokens they cost the same as.
+ *
+ * Prompt caching bills a cache READ at a tenth of the input rate and a cache
+ * WRITE at one and a quarter, and neither appears in `input_tokens`. A caller
+ * that prices `input_tokens` alone therefore reports almost nothing for a
+ * cached call: turning caching on made Phoenix's own ledger row read
+ * `tokens_in: 4` for a question that really cost about 1.7 cents.
+ *
+ * Converting to an effective input count prices cached calls through the same
+ * table as everything else, so no rate is written down twice. The TOKEN count
+ * a caller records should still be the real one — all the tokens actually
+ * read — because that is a fact about the call rather than a billing
+ * convenience. This number is only for the money.
+ *
+ * It lives here, beside the rates, because the first copy of it lived in
+ * `phoenix-chat.tsx` and the second copy would have been the one that drifted.
+ */
+export function effectiveInputTokens(
+  tokensIn: unknown, cacheRead: unknown, cacheWrite: unknown,
+): number {
+  const n = (v: unknown) => {
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0 ? x : 0;
+  };
+  return Math.round(n(tokensIn) + n(cacheRead) * 0.1 + n(cacheWrite) * 1.25);
+}
+
+/**
  * What one call cost, in cents, or null when it cannot be said.
  *
  * Null rather than zero for an unknown model, and null rather than zero when

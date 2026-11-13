@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   priceFor, estimateCostCents, estimateTtsCostCents, unverifiedModels, MODEL_PRICES,
+  effectiveInputTokens,
 } from '../supabase/functions/server/modelPricing.ts';
 
 /* ── the prefix trap ─────────────────────────────────────────────────────── */
@@ -217,4 +218,62 @@ test('every speech price carries its provenance', () => {
     assert.match(p.source, /openai/i, `${id} must say where the number came from`);
     assert.match(p.asOf, /^\d{4}-\d{2}-\d{2}$/, `${id} must say when`);
   }
+});
+
+/* ── cached tokens, which are billed and invisible ───────────────────────── */
+
+/**
+ * The bug this exists to stop coming back: prompt caching made Phoenix's own
+ * ledger row read `tokens_in: 4` for a question that really cost about 1.7
+ * cents, because cache reads and writes are billed but are not in
+ * `input_tokens`. Pricing the raw count under-reports a cached call by
+ * roughly everything.
+ */
+test('a cache read costs a tenth of an input token', () => {
+  assert.equal(effectiveInputTokens(0, 1000, 0), 100);
+});
+
+test('a cache write costs one and a quarter', () => {
+  assert.equal(effectiveInputTokens(0, 0, 1000), 1250);
+});
+
+test('uncached input is itself', () => {
+  assert.equal(effectiveInputTokens(500, 0, 0), 500);
+});
+
+test('the three are summed, not chosen between', () => {
+  assert.equal(effectiveInputTokens(4, 16000, 400), 4 + 1600 + 500);
+});
+
+test('a warm call prices an order of magnitude under a cold one', () => {
+  const cold = effectiveInputTokens(0, 0, 16000);
+  const warm = effectiveInputTokens(0, 16000, 0);
+  assert.ok(warm * 10 <= cold, 'a cache read must be far under a write');
+});
+
+test('nothing read is nothing owed', () => {
+  assert.equal(effectiveInputTokens(0, 0, 0), 0);
+});
+
+/** Rubbish in must not become a charge, and must never go negative. */
+test('missing or absurd counts are treated as zero', () => {
+  assert.equal(effectiveInputTokens(null, undefined, NaN), 0);
+  assert.equal(effectiveInputTokens(-500, -100, -100), 0);
+  assert.equal(effectiveInputTokens('120', 0, 0), 120);
+});
+
+test('the result is a whole number of tokens', () => {
+  assert.equal(effectiveInputTokens(1, 7, 3), Math.round(1 + 0.7 + 3.75));
+  assert.ok(Number.isInteger(effectiveInputTokens(3, 33, 7)));
+});
+
+/**
+ * The two halves must not be confused for each other. The ledger records the
+ * REAL token count and prices the effective one; if this number were ever
+ * written into the token column, every cached call would look smaller than it
+ * was in the figure people actually read.
+ */
+test('the effective count is a billing figure, under the tokens truly read', () => {
+  const read = 16000, written = 400, plain = 4;
+  assert.ok(effectiveInputTokens(plain, read, written) < plain + read + written);
 });

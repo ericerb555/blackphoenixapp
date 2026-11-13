@@ -54,7 +54,9 @@ import { proposeAction, listActions, expireStale, approveAndRun, rejectAction } 
 import { actionCatalogue } from "./aiActions.ts";
 import { allLeads } from "./leadsStore.ts";
 import { PLATFORM_OWNER_EMAILS } from "./identity.ts";
-import { estimateTtsCostCents, estimateSttCostCents, estimateCostCents } from "./modelPricing.ts";
+import {
+  estimateTtsCostCents, estimateSttCostCents, estimateCostCents, effectiveInputTokens,
+} from "./modelPricing.ts";
 import {
   searchCapabilities, openDirective, publicCapability, visibleTo,
 } from "./capabilityRegistry.ts";
@@ -792,6 +794,26 @@ async function runTool(
 
 phoenixChatRouter.post(BASE, async (c) => {
   let call: any = null;
+  /*
+   * The token counters live OUT here, beside `call`, and that is the whole
+   * point of them being here.
+   *
+   * They used to be declared inside the try. A failure on turn four of a
+   * six-turn conversation therefore recorded `tokens_in: null, cost: null`,
+   * because the numbers the catch needed had gone out of scope — while
+   * Anthropic had already billed every one of the first three turns. The
+   * ledger then showed the cheapest-looking rows for the most expensive
+   * calls, since a long conversation is both the likeliest to fail and the
+   * dearest to have failed.
+   *
+   * The agent that reports on AI spend must not be the one whose own failures
+   * are invisible in it.
+   */
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let turns = 0;
   try {
     const body = await c.req.json().catch(() => ({}));
     const message = String(body?.message || '').trim().slice(0, 4000);
@@ -838,7 +860,6 @@ phoenixChatRouter.post(BASE, async (c) => {
     const messages: any[] = [...history, { role: 'user', content: asked.text }];
 
     let answer = '';
-    let turns = 0;
     const toolsUsed: string[] = [];
     /**
      * Modules the model asked to put on screen, in the order it asked.
@@ -863,13 +884,11 @@ phoenixChatRouter.post(BASE, async (c) => {
      * under-report the expensive questions by exactly the most interesting
      * amount. A `usage` the SDK does not return leaves these at zero and the
      * column NULL, which reads as "not computed" rather than as free.
+     *
+     * Cached tokens are billed differently and are not in input_tokens, so
+     * all four counters are declared at the top of the handler — see the note
+     * there for why the catch has to be able to read them.
      */
-    /* Cached tokens are billed differently and are not in input_tokens. */
-    let cacheRead = 0;
-    let cacheWrite = 0;
-
-    let tokensIn = 0;
-    let tokensOut = 0;
 
     while (turns < MAX_TURNS) {
       turns += 1;
@@ -1011,8 +1030,9 @@ phoenixChatRouter.post(BASE, async (c) => {
      * table everything else uses — no prices duplicated into this file. The
      * token count stays truthful: all the tokens actually read.
      */
-    const effectiveIn = Math.round(tokensIn + cacheRead * 0.1 + cacheWrite * 1.25);
-    const priced = estimateCostCents('claude-opus-5', effectiveIn, tokensOut);
+    const priced = estimateCostCents(
+      'claude-opus-5', effectiveInputTokens(tokensIn, cacheRead, cacheWrite), tokensOut,
+    );
     await call.ok({
       tokensIn: tokensIn + cacheRead + cacheWrite,
       tokensOut,
@@ -1037,11 +1057,42 @@ phoenixChatRouter.post(BASE, async (c) => {
       truncated: turns >= MAX_TURNS && !answer,
     });
   } catch (error: any) {
+    /*
+     * What the attempt cost before it fell over, which is rarely nothing.
+     *
+     * A conversation that fails on turn four has already been billed for
+     * turns one to three. Recording null there told the ledger those turns
+     * were free and made the failures — the long, tool-heavy questions that
+     * are both the likeliest to break and the dearest to have broken — the
+     * cheapest-looking rows on it.
+     *
+     * Zero tokens stays NULL rather than becoming a zero cost: a request that
+     * failed before the model answered genuinely spent nothing, and "we were
+     * not told" must not be written down as "it was free".
+     */
+    const spent = tokensIn + tokensOut + cacheRead + cacheWrite > 0
+      ? {
+          tokensIn: tokensIn + cacheRead + cacheWrite,
+          tokensOut,
+          costCents: estimateCostCents(
+            'claude-opus-5', effectiveInputTokens(tokensIn, cacheRead, cacheWrite), tokensOut,
+          )?.cents,
+        }
+      : {};
+
     if (error instanceof AiStopped) {
-      await call?.refused?.(error.message);
+      /*
+       * The kill switch can trip BETWEEN turns, so a stopped conversation may
+       * have spent real money before it was stopped. It is recorded against
+       * the refusal for the same reason as above.
+       */
+      await call?.refused?.(error.message, spent);
       return c.json({ success: false, error: error.message, stopped: true }, 503);
     }
-    await call?.failed?.(error);
+    await call?.failed?.(error, {
+      ...spent,
+      summary: turns > 1 ? `failed on turn ${turns}` : 'failed before the first answer',
+    });
     return c.json({ success: false, error: error?.message || 'The assistant could not answer.' }, 500);
   }
 });
