@@ -144,6 +144,7 @@ const CompanyDataRestoration = lazy(() => import("./pages/CompanyDataRestoration
 const CompanyRecovery = lazy(() => import("./pages/CompanyRecovery"));
 const CompanySetup = lazy(() => import("./pages/CompanySetup"));
 const NotificationSettings = lazy(() => import("./pages/NotificationSettings"));
+const SmsOptOut = lazy(() => import("./pages/SmsOptOut"));
 const UnifiedPaymentCenter = lazy(() => import("./pages/UnifiedPaymentCenter"));
 const CompanyPaymentRouting = lazy(() => import("./pages/CompanyPaymentRouting"));
 const StripeCheckout = lazy(() => import("./pages/StripeCheckout"));
@@ -295,6 +296,13 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // Prototype. Lazy, so three.js only loads for whoever opens it.
   "phoenix-prototype":          PhoenixBrainPrototype,
   "notification-settings":      NotificationSettings,
+  /**
+   * Public by necessity. Somebody who wants the texts to stop has no account
+   * and is not going to make one, and an opt-out behind a sign-in is the same
+   * as no opt-out at all — which is the thing a carrier checks for.
+   */
+  "sms-opt-out":                SmsOptOut,
+  "stop":                       SmsOptOut,
 
   // Core Business
   "customers":    CustomersNew,

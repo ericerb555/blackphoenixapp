@@ -4,6 +4,12 @@
  */
 
 import { useState } from 'react';
+/**
+ * The sentence that makes a tick mean something, taken from the server so the
+ * form and the stored record cannot drift apart — the record is only evidence
+ * if it says what this person actually read.
+ */
+import { CONSENT_WORDING as SMS_CONSENT_WORDING } from '../../../supabase/functions/server/smsConsent.ts';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, User, Mail, Phone, MapPin, Building, Briefcase, Calendar,
@@ -35,6 +41,10 @@ interface SignupData {
     zip: string;
   };
   additionalInfo?: Record<string, any>;
+  /** Explicit tick only. Absent and false both mean nobody agreed. */
+  smsConsent?: boolean;
+  /** The exact sentence shown, stored with the consent as the evidence of it. */
+  smsConsentWording?: string;
 }
 
 interface UniversalSignupFlowProps {
@@ -452,6 +462,43 @@ export default function UniversalSignupFlow({
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/*
+                SMS CONSENT — ONLY ON THE LAST STEP, AND NEVER PRE-TICKED.
+
+                US carriers approve a 10DLC campaign on the strength of a
+                described opt-in, and what they ask to see is the sentence the
+                person was shown. So the exact wording is sent with the form
+                and stored on the consent record — the sentence here will
+                change, and what matters in a complaint is what THIS person
+                read on the day.
+
+                Unticked by default, deliberately. A pre-ticked box is not
+                consent in any regime that has looked at the question, and the
+                whole value of the record is that it is evidence.
+
+                Signing up without ticking is completely normal and costs them
+                nothing: operational texts about their own account are a
+                different category and do not depend on this. What this gates
+                is marketing.
+              */}
+              {currentStep === totalSteps && (
+                <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4">
+                  <input
+                    type="checkbox"
+                    checked={data.smsConsent === true}
+                    onChange={(e) => setData({
+                      ...data,
+                      smsConsent: e.target.checked,
+                      smsConsentWording: e.target.checked ? SMS_CONSENT_WORDING : undefined,
+                    })}
+                    className="mt-0.5 h-4 w-4 rounded border-[#2A2A2A] text-[#ea580c] focus:ring-[#ea580c]"
+                  />
+                  <span className="text-xs leading-relaxed text-gray-400">
+                    {SMS_CONSENT_WORDING}
+                  </span>
+                </label>
+              )}
 
               {/* Navigation Buttons */}
               <div className="mt-8 flex items-center justify-between">
