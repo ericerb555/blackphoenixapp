@@ -42,7 +42,7 @@ import { isStaffRequest } from "./requireStaff.ts";
 import { ingestTerritory } from "./exchangeIngestRun.ts";
 import { trialEndFor, TRIAL_MONTHS } from "./exchangeTrials.ts";
 import { safeFetch } from "./outboundGuard.ts";
-import { sendBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 import {
   FACTORS,
   enabledFactor,
@@ -135,7 +135,16 @@ async function sendSms(to: string, body: string) {
   if (!to) return { sent: false, reason: "texting is not configured" };
   // Bird's own resolver answers "not configured" in the same shape, so the
   // caller's branch for that case is unchanged by the move off Twilio.
-  const result = await sendBirdSms(to, body, "transactional");
+  /**
+   * `authentication`, not `transactional`.
+   *
+   * This wrapper exists for ONE thing: the six-digit code that proves somebody
+   * controls the number on a business listing. Bird's categories are what the
+   * carrier sees, and a one-time code routed as ordinary transactional traffic
+   * is the message most likely to be delayed by filtering — on the one message
+   * whose whole value is arriving within ten minutes.
+   */
+  const result = await sendTextMessage(to, body, "authentication");
   return result.ok ? { sent: true } : { sent: false, reason: result.error };
 }
 

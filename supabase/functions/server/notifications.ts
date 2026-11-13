@@ -31,7 +31,7 @@
  */
 import * as kv from "./kv_store.tsx";
 import { toE164, resolveCompanyName } from "./serverPrimitives.ts";
-import { sendBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
 
 export const NOTIF_EVENTS = [
@@ -116,7 +116,7 @@ export async function notifyRecipient(email: string, event: NotifEvent, opts: { 
       try {
         // 'service' — these are operational notices about something the
         // recipient already has with us, not receipts and not marketing.
-        const result = await sendBirdSms(toE164(phone), (opts.sms || opts.text).slice(0, 320), 'service');
+        const result = await sendTextMessage(toE164(phone), (opts.sms || opts.text).slice(0, 320), 'service');
         if (!result.ok) console.error(`[notifyRecipient] sms error for ${lower} (${event}):`, result.error);
       } catch (e) { console.error(`[notifyRecipient] sms exception for ${lower} (${event}):`, e); }
     }

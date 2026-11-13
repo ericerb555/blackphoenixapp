@@ -13,7 +13,7 @@
 
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
-import { sendBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 
 const router = new Hono();
 
@@ -43,7 +43,7 @@ const uid = (p: string) => `${p}_${Date.now()}_${Math.random().toString(36).slic
  * would silently turn every failed send into a success.
  */
 async function sendSMSViaBird(to: string, message: string) {
-  const result = await sendBirdSms(to, message, "marketing");
+  const result = await sendTextMessage(to, message, "marketing");
   if (!result.ok) throw new Error(`Bird SMS failed for ${to}: ${result.error}`);
   return result;
 }

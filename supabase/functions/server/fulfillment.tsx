@@ -13,7 +13,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
-import { sendBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 
 const fulfillmentRouter = new Hono();
 
@@ -49,7 +49,7 @@ async function sendSMS(to: string, body: string) {
   if (!to) return { sent: false, reason: "no recipient" };
   // An order update is transactional: the customer asked for the thing this
   // message is about. Category is a closed set Bird enforces — see bird.ts.
-  const result = await sendBirdSms(to, body, "transactional");
+  const result = await sendTextMessage(to, body, "transactional");
   return result.ok ? { sent: true, sid: result.id } : { sent: false, reason: result.error };
 }
 

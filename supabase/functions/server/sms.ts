@@ -20,7 +20,8 @@
  *                      verified.
  */
 import { Hono } from 'npm:hono@4';
-import { resolveBirdSms, sendBirdSms } from './bird.ts';
+import { resolveBirdSms } from './bird.ts';
+import { sendTextMessage } from './sendSms.ts';
 
 export const smsRouter = new Hono();
 
@@ -71,7 +72,7 @@ smsRouter.post(TEST, async (c) => {
   }
   const text = String(body?.text || 'Black Phoenix test message via Bird.').slice(0, 320);
 
-  const result = await sendBirdSms(to, text, 'transactional');
+  const result = await sendTextMessage(to, text, 'transactional');
   return c.json(result, result.ok ? 200 : 502);
 });
 

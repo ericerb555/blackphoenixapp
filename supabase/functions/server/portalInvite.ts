@@ -31,7 +31,8 @@ import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { APP_URL, resolveCompanyName, toE164 } from "./serverPrimitives.ts";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
-import { resolveBirdSms, sendBirdSms } from "./bird.ts";
+import { resolveBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 import {
   buildPortalInviteEmail, buildPortalInviteSms, effectiveInviteFields,
   type InviteFields,
@@ -200,7 +201,7 @@ export async function deliverPortalInvite(opts: { name: string; email: string; p
         const toNumber = toE164(phone);
         const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
         // Transactional: somebody here asked for this person to be invited.
-        const res = await sendBirdSms(toNumber, smsBody, 'transactional');
+        const res = await sendTextMessage(toNumber, smsBody, 'transactional');
         if (!res.ok) { smsNotice = res.error; } else { smsSent = true; }
       } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
     }

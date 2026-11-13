@@ -38,7 +38,8 @@
  */
 
 import { e164, pageText, pageSpeech } from "./onCallMessage.ts";
-import { resolveBirdSms, sendBirdSms } from "./bird.ts";
+import { resolveBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 import { placeBirdVoiceCall } from "./birdVoice.ts";
 import { sendCompanyEmail } from "./email-center.tsx";
 
@@ -160,7 +161,7 @@ export async function pageContacts(
       attempt.sms = "failed";
       attempt.detail = sms.error.slice(0, 300);
     } else {
-      const result = await sendBirdSms(to, text, "service");
+      const result = await sendTextMessage(to, text, "service");
       if (result.ok) {
         attempt.sms = "sent";
       } else {

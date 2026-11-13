@@ -47,6 +47,7 @@
  * resolver says so rather than letting Bird reject the send with a vaguer code.
  */
 
+
 /**
  * The sender, in the form Bird will accept — or a refusal that says why.
  *
@@ -170,6 +171,14 @@ export interface SmsResult {
   ok: boolean;
   id?: string;
   error?: string;
+  /**
+   * Refused by consent rather than by Bird.
+   *
+   * Distinguished because a caller counting failures should not raise an
+   * alert about a message it was right not to send — and because the on-call
+   * paging needs to tell "could not reach them" apart from "must not".
+   */
+  blocked?: boolean;
 }
 
 /**
@@ -189,6 +198,7 @@ export async function sendBirdSms(
   to: string, text: string, category: string = 'transactional',
 ): Promise<SmsResult> {
   if (!BIRD_CATEGORIES.includes(category as any)) category = 'transactional';
+
   const cfg = resolveBirdSms();
   // Same reasoning as the failure log below: this is now the only SMS
   // transport, so "not configured" has to be visible to somebody reading logs

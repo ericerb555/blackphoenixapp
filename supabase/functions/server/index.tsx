@@ -279,7 +279,8 @@ import {
   generateInviteActionLink, deliverPortalInvite,
   PORTAL_APPLICATION_ROUTE, buildDirectOnboardingLink, mintInviteToken,
 } from "./portalInvite.ts";
-import { resolveBirdSms, sendBirdSms } from "./bird.ts";
+import { resolveBirdSms } from "./bird.ts";
+import { sendTextMessage } from "./sendSms.ts";
 import { cartRouter } from "./ecommerce-cart.tsx";
 import { ordersRouter } from "./ecommerce-orders.tsx";
 import crmContentRouter from "./crm-content.tsx";
@@ -301,6 +302,9 @@ import { inspectionsRouter, PLAN_KEY } from "./property-inspections.tsx";
 import propertyReportsRouter from "./property-reports.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { onCallVoiceRouter } from "./onCallVoice.tsx";
+import { smsConsentRouter } from "./smsConsentRoutes.ts";
+import { recordConsent } from "./smsConsentStore.ts";
+import { CONSENT_WORDING } from "./smsConsent.ts";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
 import { ensureOrganization, orgTypeFor, orgSlug } from "./organizations.tsx";
 import { unitsCovered, unitsForAudience } from "./unitsCovered.tsx";
@@ -540,6 +544,14 @@ const ORIGIN_LOCK_EXEMPT = [
   '/voice/incoming',
   '/voice/gather',
   '/voice/status',
+  /**
+   * Bird posts an inbound text from its own network, not through Cloudflare,
+   * so the origin lock would refuse every STOP the day it starts enforcing —
+   * and the symptom would be opt-outs silently not registering, which is the
+   * one failure a carrier suspends a number for. It authenticates by its own
+   * webhook signature instead.
+   */
+  '/sms/inbound',
 ];
 
 /** Cached so the common path is not a database read per request. */
@@ -1363,6 +1375,21 @@ const PUBLIC_POST_PATHS = [
   '/voice/incoming',
   '/voice/gather',
   '/voice/status',
+  /**
+   * Opting out of texts.
+   *
+   * Behind the gate these answer "Sign in required." to somebody trying to
+   * stop being texted, which is the same as not offering an opt-out at all —
+   * and it is the one thing a carrier checks for.
+   *
+   * /sms/inbound is Bird's webhook and verifies a Standard Webhooks
+   * HMAC-SHA256 before reading anything, refusing everything while
+   * BIRD_WEBHOOK_SECRET is unset. /sms/opt-out is unauthenticated by design
+   * and can only ever REVOKE — it cannot grant, so a stranger cannot use it
+   * to re-subscribe a number whose owner said no.
+   */
+  '/sms/inbound',
+  '/sms/opt-out',
 ];
 
 const startsWithAny = (path: string, list: string[]) =>
@@ -1916,6 +1943,12 @@ app.route("/", onCallRouter);
  * read in one place.
  */
 app.route("/", onCallVoiceRouter);
+/**
+ * Opting out of texts. Two of its three paths are PUBLIC and must be: a
+ * person who wants to stop being texted has no account and is not going to
+ * make one. See the note in smsConsentRoutes.ts for what that grants.
+ */
+app.route("/", smsConsentRouter);
 app.route("/", onCallRatesRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
@@ -3228,6 +3261,42 @@ async function saveApplicationAndCrm(data: Record<string, unknown>) {
   if (existingIndex >= 0) applications[existingIndex] = application;
   else applications.unshift(application);
   await kv.set(APPLICATIONS_KEY, applications);
+
+  /**
+   * SMS consent, recorded here because here is where every signup lands.
+   *
+   * Both the universal signup and the five application forms go through this
+   * function, so one hook covers them all — the same reasoning that put the
+   * on-call hook inside `persistWorkRequest`.
+   *
+   * ONLY AN EXPLICIT TICK COUNTS. `smsConsent === true` and nothing else:
+   * absent, "false", undefined or a missing field all mean nobody agreed. The
+   * old `sms_contact.optedIn` defaulted the other way — `b.optedIn !== false`
+   * on a contact somebody typed in by hand — which is an assumption recorded
+   * as a fact, and it is exactly the thing a carrier asks you to produce and
+   * you cannot.
+   *
+   * The WORDING they were shown is stored rather than referenced. The form's
+   * sentence will change; what matters in a complaint is what this person saw
+   * on the day.
+   *
+   * Never throws into the signup. Somebody completing a form must not be told
+   * their application failed because a consent record would not write — the
+   * application is the thing they care about, and an unrecorded consent fails
+   * safely to `unknown`, which refuses marketing.
+   */
+  try {
+    if (data.smsConsent === true && applicant.phone) {
+      await recordConsent(applicant.phone, {
+        status: 'granted',
+        method: 'signup-form',
+        wording: cleanApplicationText(data.smsConsentWording) || CONSENT_WORDING,
+        source: `signup:${applicationType}`,
+      });
+    }
+  } catch (error: any) {
+    console.log(`[SMS consent] could not record for ${applicant.email}: ${error?.message || error}`);
+  }
 
   /**
    * Tell somebody an application arrived.
@@ -4895,7 +4964,7 @@ app.post('/make-server-3eae23a6/notifications/work-request', async (c) => {
 
       for (const phone of phones) {
         try {
-          const smsRes = await sendBirdSms(toE164(phone), smsText, 'service');
+          const smsRes = await sendTextMessage(toE164(phone), smsText, 'service');
           if (smsRes.ok) { results.smsSent = true; results.smsRecipients.push(phone); }
           else console.error('[Notify] SMS error:', smsRes.error);
         } catch (e) { console.error('[Notify] SMS exception:', e); }
@@ -5152,7 +5221,7 @@ app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
     // The resolver's message already names the missing secret, so it is passed
     // through rather than flattened into "not configured".
     if (cfg.error) return c.json({ success: false, error: cfg.error }, 400);
-    const res = await sendBirdSms(
+    const res = await sendTextMessage(
       toE164(phone),
       `${COMPANY_NAME}: test SMS — your text notifications are working.`,
       'service',
@@ -5709,7 +5778,7 @@ app.post('/make-server-3eae23a6/bid-room/notify-invites', async (c) => {
       } else {
         try {
           // A bid invitation is service traffic about work they asked to see.
-          const res = await sendBirdSms(toE164(phone), smsText, 'service');
+          const res = await sendTextMessage(toE164(phone), smsText, 'service');
           if (!res.ok) {
             console.error('[bid-room/notify-invites] bird error:', res.error);
             row.smsReason = 'carrier rejected the message';
@@ -7195,7 +7264,7 @@ app.post('/make-server-3eae23a6/market-alerts/send', async (c) => {
     }
     if (prefs.phone && !resolveBirdSms().error) {
       try {
-        const res = await sendBirdSms(toE164(prefs.phone), `${subject}\n${text}`.slice(0, 1500), 'service');
+        const res = await sendTextMessage(toE164(prefs.phone), `${subject}\n${text}`.slice(0, 1500), 'service');
         smsSent = res.ok;
         if (!res.ok) console.log('market-alerts sms error:', res.error);
       } catch (e) { console.log('market-alerts sms exception:', e); }
@@ -12109,7 +12178,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
           const toNumber = toE164(phone);
           const smsBody = buildPortalInviteSms({ name, portalType, signInUrl: buttonLink, companyName: COMPANY_NAME, fullAccess: grantFullAccess, trialMonths, overrides: inviteOverrides || undefined });
           // An invitation somebody asked us to send them is transactional.
-          const res = await sendBirdSms(toNumber, smsBody, 'transactional');
+          const res = await sendTextMessage(toNumber, smsBody, 'transactional');
           if (!res.ok) { smsNotice = res.error; } else { smsSent = true; }
         } catch (e: any) { smsNotice = e?.message || 'SMS could not be sent.'; }
       }
@@ -12371,7 +12440,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invite-test-sms', async (c) =
       signInUrl: 'https://www.theblackphoenixcompany.com/portal-onboarding#sample-secure-link',
       companyName: COMPANY_NAME, fullAccess, trialMonths, overrides,
     });
-    const res = await sendBirdSms(toE164(to), `[TEST] ${sms}`, 'transactional');
+    const res = await sendTextMessage(toE164(to), `[TEST] ${sms}`, 'transactional');
     if (!res.ok) return c.json({ success: false, error: res.error }, 502);
     return c.json({ success: true, to });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to send test SMS.' }, 500); }
