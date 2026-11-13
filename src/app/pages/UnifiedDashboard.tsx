@@ -616,6 +616,17 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         // deleted; see the commit for the list, which is worth reading if
         // somebody ever builds a real sidebar.
         { label: 'Tenant Screening Fee', path: '/screening-settings', icon: DollarSign, color: 'teal', description: 'What a tenant screening costs and who pays it', badge: 'NEW' },
+        /**
+         * The page that proves email and SMS actually send.
+         *
+         * It has existed as a route the whole time and NOTHING linked to it,
+         * which the comment above predicts exactly: a module added anywhere
+         * else reaches nobody. Found by going to answer "where in my app do I
+         * go to test SMS" and discovering the honest answer was "you type the
+         * URL" — on the one screen whose entire purpose is diagnosing a
+         * channel that is not working.
+         */
+        { label: 'Email & SMS Test', path: '/notification-settings', icon: Bell, color: 'orange', description: 'Send a test email or text and see the provider’s real error', badge: 'NEW' },
       ]
     }
   ];
