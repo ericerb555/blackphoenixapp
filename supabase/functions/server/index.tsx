@@ -111,6 +111,7 @@ import deliverablesRouter from "./deliverables.tsx";
 import designProjectsRouter from "./design-projects.tsx";
 import projectVisionRouter from "./project-vision.tsx";
 import aiFloorplanRouter from "./ai-floorplan.tsx";
+import { readJsonReply, unreadableReply } from "./floorPlanReply.ts";
 import aiBlueprintRouter from "./ai-blueprint-analysis.tsx";
 import maintenanceConfigRouter from "./maintenance-config.tsx";
 import { storeAutonomyRouter, registerStoreJob } from "./storeAutonomy.ts";
@@ -303,6 +304,7 @@ import propertyReportsRouter from "./property-reports.tsx";
 import { onCallRouter, openCallFor } from "./on-call.tsx";
 import { onCallVoiceRouter } from "./onCallVoice.tsx";
 import { smsConsentRouter } from "./smsConsentRoutes.ts";
+import { exchangeServicesRouter } from "./exchangeServicesRoutes.ts";
 import { recordConsent } from "./smsConsentStore.ts";
 import { CONSENT_WORDING } from "./smsConsent.ts";
 import { onCallRatesRouter } from "./onCallPlatformRates.tsx";
@@ -1949,6 +1951,16 @@ app.route("/", onCallVoiceRouter);
  * make one. See the note in smsConsentRoutes.ts for what that grants.
  */
 app.route("/", smsConsentRouter);
+
+/**
+ * The list of Exchange categories Black Phoenix takes first refusal on.
+ *
+ * Staff only on BOTH routes — the read as much as the write. Which work we
+ * intend to take before anybody else sees it is commercial information, and a
+ * competitor on this platform reading it learns which jobs never reach them
+ * untouched.
+ */
+app.route("/", exchangeServicesRouter);
 app.route("/", onCallRatesRouter);
 app.route("/make-server-3eae23a6", vendorBillingRouter);
 // The condo master account. Its dependencies are injected rather than
@@ -14337,11 +14349,45 @@ app.post('/make-server-3eae23a6/ai/vision', async (c) => {
      * cheaper and less surprising than dropping JSON mode, which the caller
      * relies on to parse the reply.
      */
-    const prompt = /json/i.test(rawPrompt) ? rawPrompt : `${rawPrompt}\n\nRespond with a single JSON object.`;
+    /*
+     * The model is given a way to say it cannot read the drawing.
+     *
+     * Without one it has no option but to answer, and what a vision model
+     * produces for a photograph of a wall or a 40MB sheet scaled to mush is a
+     * confident, plausible, entirely invented house. That reading then becomes
+     * materials and a quote. An appended instruction is the cheapest possible
+     * escape hatch and it is the difference between "no answer" and "a wrong
+     * answer nobody can tell from a right one".
+     */
+    const honesty = '\n\nIf the image is not a readable drawing — too blurry, not a '
+      + 'floor plan, or you cannot make out the rooms — respond with exactly '
+      + '{"unreadable": true, "why": "<one short sentence>"} and nothing else. '
+      + 'Do not estimate or invent dimensions you cannot see.';
+    const prompt = (/json/i.test(rawPrompt) ? rawPrompt : `${rawPrompt}\n\nRespond with a single JSON object.`) + honesty;
     if (!image?.data || !image?.media_type) return c.json({ error: 'A blueprint image is required.' }, 400);
     const response = await recordedOpenAIFetch({ agent: 'vision-read', operation: 'read an image', ...ledgerContextFor(c) }, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4.1-mini', response_format: { type: 'json_object' }, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${image.media_type};base64,${image.data}` } }] }], max_tokens: Math.min(4096, Number(body.max_tokens || 2048)) }) });
     const data = await response.json(); if (!response.ok) return c.json({ error: data?.error?.message || 'AI vision request failed.' }, response.status);
-    const text = data?.choices?.[0]?.message?.content || ''; return c.json({ content: [{ type: 'text', text }], text });
+    /*
+     * A reading that did not happen is reported as one that did not happen.
+     *
+     * This used to pass `message.content` straight through. Three ways that
+     * went wrong, and all three ended with the caller showing numbers:
+     * a refusal leaves content null and the model's stated reason in
+     * `refusal`, which was dropped; a reply cut off at max_tokens is partial
+     * JSON that the caller's greedy brace match would parse into a fragment;
+     * and an unreadable image produced an invented house. `readJsonReply`
+     * already handles the first two — it was written for exactly this and
+     * `ai-floorplan` has used it since 2026-11-12.
+     */
+    const read = readJsonReply(data);
+    if (!read.data || read.truncated) {
+      return c.json({ error: read.text?.trim() || unreadableReply(read.truncated), unreadable: true }, 422);
+    }
+    if (read.data?.unreadable === true) {
+      const why = String(read.data?.why || '').trim();
+      return c.json({ error: why || unreadableReply(false), unreadable: true }, 422);
+    }
+    const text = read.text; return c.json({ content: [{ type: 'text', text }], text });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to analyze blueprint.' }, 500); }
 });
 

@@ -84,52 +84,6 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-// ─── Simulated fallback analysis ──────────────────────────────────────────────
-
-function generateMockAnalysis(fileName: string): BlueprintAnalysis {
-  return {
-    summary: `AI analysis of "${fileName}" — standard residential floor plan detected. 3-bedroom, 2-bathroom layout with open-concept kitchen/living area.`,
-    overallDimensions: { width: 45, height: 38, totalSqft: 1710 },
-    rooms: [
-      { name: 'Living Room',     width: 18, height: 15, sqft: 270 },
-      { name: 'Kitchen/Dining',  width: 16, height: 14, sqft: 224 },
-      { name: 'Master Bedroom',  width: 14, height: 13, sqft: 182 },
-      { name: 'Bedroom 2',       width: 12, height: 11, sqft: 132 },
-      { name: 'Bedroom 3',       width: 11, height: 10, sqft: 110 },
-      { name: 'Bathroom (Master)', width: 10, height: 8, sqft: 80 },
-      { name: 'Bathroom 2',      width: 8,  height: 7,  sqft: 56  },
-      { name: 'Laundry',         width: 8,  height: 6,  sqft: 48  },
-      { name: 'Garage',          width: 22, height: 22, sqft: 484 },
-    ],
-    features: {
-      doors: 14,
-      windows: 20,
-      electrical: { outlets: 48, switches: 24, lights: 30 },
-      plumbing: { sinks: 3, toilets: 2, showers: 2, bathtubs: 1 },
-    },
-    materials: {
-      walls: { linearFeet: 312, sqft: 2496 },
-      flooring: { sqft: 1226 },
-      ceiling: { sqft: 1226 },
-      framing: '2×6 exterior, 2×4 interior — standard NH residential',
-    },
-    estimatedCost: { low: 185000, high: 245000 },
-    constructionNotes: [
-      '2×6 exterior wall framing detected — good for NH climate (insulation value)',
-      'Electrical panel appears in utility room — NEC 2020 compliant layout',
-      'Main plumbing stack runs center of structure',
-      'Attic access hatch visible in hallway ceiling',
-      'Egress windows required in all bedrooms (NH RSA 155-A)',
-    ],
-    permitNotes: [
-      'NH building permit required (RSA 674:51) — estimated $650–$1,200',
-      'Electrical permit required for any new circuits',
-      'Plumbing permit required — contact local municipality',
-      'Energy code compliance required (IECC 2021 adopted in NH 2023)',
-    ],
-  };
-}
-
 function deriveExtractedMaterials(analysis: BlueprintAnalysis): ExtractedMaterial[] {
   const { materials, features, rooms, overallDimensions } = analysis;
   return [
@@ -222,7 +176,9 @@ Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
   "permitNotes": ["string — include NH-specific permit info where relevant"]
 }
 
-Be accurate. If you cannot determine a value precisely, make a reasonable estimate based on what's visible. All numbers should be integers.`;
+Be accurate. All numbers should be integers, and every one of them must come from something you can actually see on the drawing.
+
+If you cannot read the drawing — it is too blurry, it is not a floor plan, or you cannot make out the rooms — respond with exactly {"unreadable": true, "why": "<one short sentence>"} and nothing else. A reading that is partly guessed is worse than no reading: these numbers become a materials list and a price quoted to a customer.`;
 
         const res = await fetch(`${SERVER}/ai/vision`, {
           method: 'POST',
@@ -240,21 +196,46 @@ Be accurate. If you cannot determine a value precisely, make a reasonable estima
           }),
         });
 
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.content?.[0]?.text || data?.text || '';
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            result = JSON.parse(jsonMatch[0]);
-            setUsedAI(true);
-          }
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          // The server says why — an unreadable drawing, a refusal, a reading
+          // cut off part way. All of them are reasons, and a reason is the
+          // thing worth showing.
+          throw new Error(String(data?.error || 'The blueprint could not be read.'));
         }
-      }
-
-      // Fallback: simulated analysis
-      if (!result) {
-        await new Promise(r => setTimeout(r, 2000));
-        result = generateMockAnalysis(file.name);
+        const text = data?.content?.[0]?.text || data?.text || '';
+        /*
+         * The whole reply, parsed as the JSON it was asked for.
+         *
+         * This used to be `text.match(/\{[\s\S]*\}/)`, which runs from the
+         * first brace to the last one anywhere in the reply. On a reply cut
+         * off part way that finds some inner brace and hands over a fragment,
+         * which parses into a reading with rooms missing and nothing saying
+         * so. If the reply is not a single object, there is no reading.
+         */
+        try {
+          result = JSON.parse(text.trim());
+        } catch {
+          throw new Error('The reading came back in a form that could not be read, so nothing has been measured.');
+        }
+        if (!result || typeof result !== 'object' || (result as any).unreadable === true) {
+          throw new Error(String((result as any)?.why || 'That drawing could not be read, so nothing has been measured.'));
+        }
+        if (!Array.isArray((result as any).rooms) || !(result as any).overallDimensions) {
+          throw new Error('The reading came back without rooms or dimensions, so there is nothing to show.');
+        }
+        setUsedAI(true);
+      } else {
+        /*
+         * A PDF is not sent anywhere.
+         *
+         * It used to be answered with the invented house below, which meant
+         * the most common blueprint format on this platform produced a
+         * confident 1,710 sq ft reading of a drawing nobody had looked at.
+         * Saying what to do instead costs the user one step and tells them
+         * the truth.
+         */
+        throw new Error('PDF blueprints cannot be read yet. Export the sheet as a PNG or JPG and upload that.');
       }
 
       const extracted = deriveExtractedMaterials(result);
@@ -271,16 +252,23 @@ Be accurate. If you cannot determine a value precisely, make a reasonable estima
       toast.success('Blueprint analyzed!', {
         description: `${result.rooms.length} rooms · ${fmt(result.overallDimensions.totalSqft)} sqft · est. ${fmtMoney(result.estimatedCost.low)}–${fmtMoney(result.estimatedCost.high)}`,
       });
-    } catch (e) {
+    } catch (e: any) {
+      /*
+       * Nothing is set, and nothing is claimed.
+       *
+       * This used to fall back to an invented 1,710 sq ft three-bedroom house
+       * and announce "Blueprint analyzed (offline mode)" over it — a success
+       * toast, a room list, a $185,000–$245,000 estimate, and materials
+       * derived from all of it, for a drawing that had never been read. Those
+       * numbers were also written to localStorage for the auto-quote, so an
+       * invented reading could reach a customer's price.
+       *
+       * An analysis that did not happen leaves the screen empty and says why.
+       */
       console.error('Blueprint analysis error:', e);
-      // Fallback to mock
-      const result = generateMockAnalysis(file.name);
-      const extracted = deriveExtractedMaterials(result);
-      setAnalysis(result);
-      setMaterials(extracted);
-      onAnalysisComplete?.(result);
-      onMaterialsExtracted?.(extracted);
-      toast.success('Blueprint analyzed (offline mode)');
+      toast.error('The blueprint was not analyzed', {
+        description: String(e?.message || 'Something went wrong reading that drawing.'),
+      });
     } finally {
       setAnalyzing(false);
     }
@@ -292,7 +280,9 @@ Be accurate. If you cannot determine a value precisely, make a reasonable estima
       '=== AI BLUEPRINT ANALYSIS REPORT ===',
       `File: ${file.name}`,
       `Date: ${new Date().toLocaleDateString()}`,
-      `AI Analysis: ${usedAI ? 'Yes (Claude Vision)' : 'Simulated'}`,
+      // There is no longer a simulated reading to distinguish from a real one:
+      // an analysis exists only when a model actually read the drawing.
+      'AI Analysis: read from the uploaded image',
       workRequestId ? `Work Request: ${workRequestId}` : '',
       '',
       '--- SUMMARY ---',
