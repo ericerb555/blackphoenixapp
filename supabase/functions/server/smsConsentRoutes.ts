@@ -1,11 +1,12 @@
 /**
  * Opting out, and being heard the first time.
  *
- * THREE DOORS, BECAUSE PEOPLE USE DIFFERENT ONES
+ * FOUR DOORS, BECAUSE PEOPLE REACH FOR DIFFERENT ONES
  *
  *   POST /sms/inbound     Bird forwards a received text. STOP lands here.
  *   POST /sms/opt-out     The web form, for somebody who deleted the text.
  *   GET  /sms/consent     Staff: what does this number say?
+ *   POST /sms/consent     Staff: put a number back on, with a reason.
  *
  * The first two are PUBLIC and must be. A person who wants to stop being
  * texted does not have an account, has not signed in, and is not going to.
@@ -14,18 +15,30 @@
  * WHAT THEY GRANT A STRANGER
  *
  * Only the ability to STOP a number from being texted. `/sms/opt-out` writes
- * `revoked` and nothing else — it cannot grant consent, so the worst a
- * malicious caller achieves is unsubscribing somebody else's phone from
- * messages that person can resume with one reply. That is a far smaller harm
- * than an opt-out somebody cannot reach, and it is why opting back IN is
- * deliberately not possible from the open web: that direction would let a
- * stranger re-subscribe a number whose owner had said no.
+ * `revoked` and nothing else — it cannot grant consent, so a stranger cannot
+ * use it to re-subscribe a number whose owner said no.
  *
- * `/sms/inbound` is different — it is signed, because it is the one that can
- * grant (START) as well as revoke.
+ * THE ASYMMETRY THAT CREATES, AND WHY THE FOURTH DOOR EXISTS
+ *
+ * Found in review, and it was the real hole. Revoke-only is correct, but it
+ * meant anybody could revoke any number and NOTHING could undo it except an
+ * inbound START — which needs working SMS to arrive. On a platform whose
+ * emergency paging is SMS-only, posting a rota's numbers to the open opt-out
+ * form silenced the on-call system until somebody edited the database by
+ * hand.
+ *
+ * So: the web form is rate limited per IP and logs the address it came from,
+ * and `POST /sms/consent` lets staff put a number back, recording who did it
+ * and on what basis. A reason is required to GRANT and not to revoke,
+ * because writing consent for somebody who is not here to give it needs an
+ * answer to "on what grounds", while stopping never does.
+ *
+ * `/sms/inbound` is signed, because it is the one PUBLIC door that can grant
+ * (START) as well as revoke.
  */
 
 import { Hono } from "npm:hono@4";
+import * as kv from "./kv_store.tsx";
 import { e164 } from "./onCallMessage.ts";
 import { readConsent, recordConsent } from "./smsConsentStore.ts";
 import { readKeyword, STOP_CONFIRMATION } from "./smsConsent.ts";
@@ -157,11 +170,99 @@ smsConsentRouter.post(`${PREFIX}/sms/opt-out`, async (c) => {
   if (!phone) {
     return c.json({ success: false, error: "Enter the mobile number you want to stop texts to." }, 400);
   }
-  await recordConsent(phone, { status: "revoked", method: "web-form", source: "opt-out-page" });
+
+  /**
+   * RATE LIMITED, BECAUSE REVOKING IS A DENIAL OF SERVICE ON THE ON-CALL ROTA.
+   *
+   * Found in review: this route is public, takes any number, and until the
+   * staff grant below existed NOTHING could undo it except an inbound START,
+   * which needs working SMS to arrive. So somebody posting a rota's numbers
+   * here silences emergency paging, and on a platform where paging is
+   * SMS-only that is the whole channel.
+   *
+   * The limit is per IP and generous — a person opting out their own two
+   * numbers, or retrying after a typo, never meets it. Twenty in an hour is
+   * somebody working through a list.
+   *
+   * It is NOT a reason to refuse a genuine opt-out, so the cap is high and
+   * the failure is a 429 asking them to reply STOP instead, which always
+   * works and is handled at the carrier.
+   */
+  const ip = String(
+    c.req.header("cf-connecting-ip")
+    || c.req.header("x-forwarded-for")?.split(",")[0]
+    || "unknown",
+  ).trim().slice(0, 64);
+  const bucket = `sms_optout_rate:${ip}`;
+  let recent: number[] = [];
+  try {
+    recent = ((await kv.get(bucket)) as number[]) || [];
+  } catch { /* a store that will not read must not block an opt-out */ }
+  const hourAgo = Date.now() - 3_600_000;
+  recent = recent.filter((t) => t > hourAgo);
+  if (recent.length >= 20) {
+    console.log(`[SMS consent] rate-limited opt-out burst from ${ip} (${recent.length} in the hour)`);
+    return c.json({
+      success: false,
+      error: "Too many requests from this connection. Reply STOP to any text from us — that always works.",
+    }, 429);
+  }
+  try { await kv.set(bucket, [...recent, Date.now()]); } catch { /* best effort */ }
+
+  await recordConsent(phone, { status: "revoked", method: "web-form", source: `opt-out-page ip=${ip}` });
   return c.json({
     success: true,
     message: "That number has been unsubscribed. It can take a few minutes for messages already queued to stop.",
   });
+});
+
+/**
+ * POST /sms/consent — staff put a number back on.
+ *
+ * THE ASYMMETRY THIS CLOSES. Before it existed, anybody could revoke any
+ * number from the open web and the only route back was an inbound START,
+ * which needs working SMS to arrive — so a malicious or mistaken opt-out of
+ * an on-call engineer's number silenced emergency paging until somebody
+ * edited the database.
+ *
+ * Staff only, behind the global auth gate, and it records WHO restored it and
+ * on what grounds. That matters: this writes consent on somebody else's
+ * behalf, which is only defensible when there is a real agreement behind it
+ * and a name against the claim.
+ */
+smsConsentRouter.post(`${PREFIX}/sms/consent`, async (c) => {
+  const actor = c.get("actor");
+  if (!actor?.email) return c.json({ success: false, error: "Sign in required." }, 401);
+
+  const body = await c.req.json().catch(() => ({}));
+  const phone = e164(String((body as any)?.phone ?? ""));
+  if (!phone) return c.json({ success: false, error: "A phone number is required." }, 400);
+
+  const status = (body as any)?.status === "revoked" ? "revoked" : "granted";
+  const note = String((body as any)?.note ?? "").trim().slice(0, 300);
+  if (status === "granted" && !note) {
+    /**
+     * A reason is required to GRANT and not to revoke, deliberately.
+     *
+     * Recording consent for somebody who is not here to give it needs an
+     * answer to "on what basis" — a signed contract, a phone call, an
+     * engineer confirming it was not them. Revoking needs no justification
+     * because stopping is always allowed.
+     */
+    return c.json({
+      success: false,
+      error: "Say on what basis this number is being opted back in — a contract, a call, or who confirmed it.",
+    }, 400);
+  }
+
+  const record = await recordConsent(phone, {
+    status,
+    method: "staff",
+    wording: status === "granted" ? note : undefined,
+    source: `staff:${actor.email}`,
+  });
+  console.log(`[SMS consent] ${actor.email} set ${phone.slice(0, 6)}… to ${status}`);
+  return c.json({ success: true, consent: record });
 });
 
 /** GET /sms/consent?phone= — staff only, behind the global auth gate. */
