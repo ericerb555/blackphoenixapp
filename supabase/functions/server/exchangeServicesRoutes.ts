@@ -12,7 +12,10 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { claimedSlugs, isConfigured, type ClaimRecord } from "./exchangeServices.ts";
+import {
+  claimedSlugs, isConfigured, weOffer,
+  type ClaimRecord, type CategoryFacts,
+} from "./exchangeServices.ts";
 
 export const exchangeServicesRouter = new Hono();
 
@@ -165,3 +168,74 @@ exchangeServicesRouter.put(`${PREFIX}/exchange/services`, async (c) => {
 });
 
 export default exchangeServicesRouter;
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * THE READ, FOR CALLERS OUTSIDE THIS FILE.
+ *
+ * `exchangeAssistantRoutes` needs the same answer this file stores, and the
+ * alternative to exporting it is a second place that knows the KV key — which
+ * is precisely what a single-record design exists to prevent.
+ *
+ * `readClaim` deliberately returns null for TWO different situations: nobody
+ * has decided yet, and the store would not read. `weOffer` cannot tell them
+ * apart, so anything built on it has to choose a behaviour for the second one,
+ * and the right choice depends on what the caller does with the answer.
+ *
+ *   ROUTING a real request    a wrong answer sends somebody's job to the
+ *                             wrong place for a day. Read the result, and if
+ *                             the store failed, FAIL THE OPERATION rather
+ *                             than route on a guess.
+ *
+ *   LABELLING an assistant    a wrong answer is a missing "we do this too"
+ *   reply                     block, or one shown where it should not be.
+ *                             Cheap either way, and the thing that must not
+ *                             happen is the reply changing shape because a
+ *                             database blip. So it falls back to the flag —
+ *                             which is exactly what production does today.
+ *
+ * Both policies are available. `claimResult` reports which happened;
+ * `weOfferFor` applies the labelling policy and says so in its name.
+ */
+
+/**
+ * One shape with optional halves rather than a discriminated union.
+ *
+ * The union reads better and does not work here: `strictNullChecks` is off
+ * for this half of the build, and without it TypeScript will not narrow
+ * `{ok: true} | {ok: false}` on a truthiness test — the error branch keeps the
+ * record type and reaching for `.error` is a compile error. Writing the union
+ * and casting around it would be the same thing with more words.
+ */
+export interface ClaimResult {
+  ok: boolean;
+  /** Set when ok. Null means nobody has decided yet. */
+  record?: ClaimRecord | null;
+  /** Set when the store would not read. */
+  error?: string;
+}
+
+/** The stored list, with "could not read" distinguished from "not set". */
+export async function claimResult(): Promise<ClaimResult> {
+  try {
+    const record = (await kv.get(KEY)) as ClaimRecord | null;
+    return { ok: true, record: record ?? null };
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
+/**
+ * Do we offer this — for a caller that would rather be consistent than right.
+ *
+ * On a store failure this returns what the system returned before the list
+ * existed, and logs. No caller of this should be moving money or work.
+ */
+export async function weOfferFor(category: CategoryFacts | null | undefined): Promise<boolean> {
+  const result = await claimResult();
+  if (!result.ok) {
+    console.log(`[Exchange services] list unreadable, falling back to the construction flag: ${result.error}`);
+    return category?.isConstruction === true;
+  }
+  return weOffer(category, result.record ?? null);
+}

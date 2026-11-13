@@ -30,9 +30,10 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { recordDemand } from "./exchangeLedger.ts";
 import {
-  resolveFromAliases, weOfferSomething, fenceRows, holdingCategoryOf,
+  resolveFromAliases, fenceRows, holdingCategoryOf,
   withinDailyCap, assistantSystemPrompt, DAILY_MODEL_ASKS,
 } from "./exchangeAssistant.ts";
+import { weOfferFor } from "./exchangeServicesRoutes.ts";
 import { recordedAnthropic } from "./aiLedger.ts";
 /*
  * `keepKnownIds` is deliberately NOT imported yet.
@@ -316,9 +317,29 @@ exchangeAssistantRoutes.post("/exchange/assistant", async (c) => {
     }
 
     /* ── ours, where we have something ───────────────────────────────── */
-    const ours = weOfferSomething({
+    /**
+     * THE SAVED LIST, NOT THE HEURISTIC.
+     *
+     * This read `weOfferSomething`, whose section test named three slugs that
+     * do not exist in this database — home-construction, construction and
+     * trades, against the real home-property, services, shops-retail, food
+     * and entertainment. It had never once returned true on the section half
+     * and resolved purely on `is_construction`, so all 41 categories under
+     * Services read as not ours, including the ones Black Phoenix does.
+     *
+     * `weOfferFor` consults the list Eric ticks on /exchange-services and
+     * falls back to that same construction flag while nobody has decided —
+     * so this changes nothing until a decision exists, and then it changes to
+     * whatever he actually said.
+     *
+     * A store that will not read also falls back rather than failing the
+     * answer: being wrong here costs one missing "we do this too" block,
+     * while failing costs the resident their answer. That policy is argued at
+     * the foot of exchangeServicesRoutes.ts and is deliberately NOT the one
+     * routing should use.
+     */
+    const ours = await weOfferFor({
       slug: resolution.categorySlug,
-      sectionSlug: holding?.section_slug,
       isConstruction: holding?.is_construction,
     });
 
