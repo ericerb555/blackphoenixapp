@@ -559,6 +559,74 @@ onCallRouter.post(`${PREFIX}/on-call-calls/:id/close`, async (c) => {
 
 
 /**
+ * Record that a closed call has been put on an invoice.
+ *
+ * WHY A SEPARATE REQUEST, AND WHY THAT IS ACCEPTABLE
+ *
+ * The invoice is saved first; this is called after. That ordering is the right
+ * way round — an invoice that fails to save must not leave a call marked as
+ * billed, because the marked call would never be billed by anyone — but it
+ * does mean this request can be lost. The browser closes, the network drops,
+ * and a call that is genuinely on an invoice carries no marker.
+ *
+ * It is acceptable because the marker is not the defence. `callsToInvoice.ts`
+ * refuses a call if the marker is set OR if its `sourceCallId` appears on an
+ * invoice that already exists, and the line on a saved invoice cannot go
+ * missing. The marker saves a lookup; the line is the evidence.
+ *
+ * IT WILL NOT QUIETLY REPOINT A CALL AT A SECOND INVOICE
+ *
+ * A call already marked for one invoice and claimed by another is the exact
+ * shape of a double billing. Overwriting would hide it, so it is refused with
+ * the invoice already holding it named in the reply, and a person decides.
+ * Re-marking for the SAME invoice is fine and does nothing — a retry after a
+ * timeout must not look like a conflict.
+ */
+onCallRouter.post(`${PREFIX}/on-call-calls/:id/invoiced`, async (c) => {
+  const who = await actor(c);
+  if (!who) return c.json({ success: false, error: "Sign in first." }, 401);
+  try {
+    const call = await readCall(c.req.param("id"));
+    if (!call) return c.json({ success: false, error: "No such call." }, 404);
+    if (!mayTouch(call, who)) return c.json({ success: false, error: "That is not your call." }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const invoiceId = String(body?.invoiceId || "").trim().slice(0, 120);
+    if (!invoiceId) {
+      return c.json({ success: false, error: "Which invoice? Send invoiceId." }, 400);
+    }
+    if (String(call.status || "") !== "closed") {
+      return c.json({ success: false, error: "That call is not closed yet." }, 409);
+    }
+
+    const held = String(call.charges?.invoicedOn || "").trim();
+    if (held && held !== invoiceId) {
+      return c.json({
+        success: false,
+        error: `That call is already on ${held}.`,
+        invoicedOn: held,
+      }, 409);
+    }
+    if (held === invoiceId) {
+      return c.json({ success: true, call, alreadyRecorded: true });
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...call,
+      charges: { ...(call.charges || {}), invoicedOn: invoiceId, invoicedAt: now },
+      updatedAt: now,
+    };
+    await kv.set(CALL(call.id), updated);
+    console.log(`[on-call] call ${call.id} billed on ${invoiceId} by ${who.email}`);
+    return c.json({ success: true, call: updated });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Could not record that." }, 500);
+  }
+});
+
+
+/**
  * Post one call to Phoenix Exchange, and record that it went.
  *
  * Extracted so the button and the scheduler do the same thing. Two copies of

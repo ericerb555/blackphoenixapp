@@ -7,6 +7,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { supabase } from '../../lib/supabase';
 import CompanyHeader from '../branding/CompanyHeader';
 import AttachablesSearchPanel from './AttachablesSearchPanel';
+import UnbilledCallsPanel from './UnbilledCallsPanel';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '../../lib/apiConfig';
 
@@ -296,6 +297,22 @@ export default function CreateInvoiceModal({
   };
 
   /**
+   * Emergency callouts, already priced when the call was closed.
+   *
+   * The ids are held until the invoice saves. Marking a call as billed before
+   * there is an invoice to bill it on would strand it: an invoice that fails
+   * to save would leave the call marked, and a marked call is one nobody ever
+   * bills. So the marker is written afterwards, and `sourceCallId` on the line
+   * is what makes the billing detectable even if that write never happens.
+   */
+  const [callsToMark, setCallsToMark] = useState<string[]>([]);
+
+  const addCallLines = (lines: any[], callIds: string[]) => {
+    setLineItems((prev) => [...prev, ...lines]);
+    setCallsToMark((prev) => [...new Set([...prev, ...callIds])]);
+  };
+
+  /**
    * A credit: something the customer paid for themselves, coming off the bill.
    *
    * Negative, and taxable. The tax part is not an oversight — a credit against
@@ -468,13 +485,48 @@ export default function CreateInvoiceModal({
       };
 
       let error: any;
+      let saved: any = null;
       if (isEditMode && invoice?.id) {
-        ({ error } = await InvoiceService.updateInvoice(invoice.id, invoiceData));
+        ({ data: saved, error } = await InvoiceService.updateInvoice(invoice.id, invoiceData));
       } else {
-        ({ error } = await InvoiceService.createInvoice(invoiceData));
+        ({ data: saved, error } = await InvoiceService.createInvoice(invoiceData));
       }
 
       if (error) throw error;
+
+      /*
+       * Record which callouts this invoice billed, now that it exists.
+       *
+       * After the save, never before — see `addCallLines`. A failure here is
+       * logged and not raised: the invoice is already saved and correct, and
+       * the line on it carries the call id, so a lost marker costs a lookup
+       * rather than a double billing.
+       */
+      if (callsToMark.length) {
+        const invoiceRef = String(saved?.invoice_number || saved?.id || invoice?.id || '').trim();
+        if (invoiceRef) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (token) {
+            await Promise.all(callsToMark.map(async (callId) => {
+              try {
+                const res = await fetch(`${SERVER}/on-call-calls/${encodeURIComponent(callId)}/invoiced`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ invoiceId: invoiceRef }),
+                });
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}));
+                  console.log('[invoice] could not mark call', callId, body?.error || res.status);
+                }
+              } catch (err: any) {
+                console.log('[invoice] could not mark call', callId, err?.message || err);
+              }
+            }));
+          }
+        }
+        setCallsToMark([]);
+      }
 
       // Fire the portal invite after the invoice is safely saved.
       if (useManualRecipient && inviteToApp && formData.customer_name.trim() && formData.customer_email.trim()) {
@@ -1042,6 +1094,25 @@ export default function CreateInvoiceModal({
                   return { ...prev, discount_amount: Math.max(0, Math.round((prev.discount_amount + worth) * 100) / 100) };
                 })}
                 onApplied={onSuccess}
+              />
+
+              {/*
+                Callouts already done on this job and not yet billed.
+
+                It is scoped by the job rather than by the customer, because
+                that is what a call carries — the call, the quote and the
+                invoice being one piece of work is the whole reason the job id
+                exists. Where neither the job nor the work request is known the
+                panel renders nothing, which is the right failure: showing a
+                call that might belong to somebody else's job would put another
+                customer's emergency on this bill.
+              */}
+              <UnbilledCallsPanel
+                jobId={invoice?.jobId || projectData?.jobId || formData.project_id}
+                workRequestId={invoice?.workRequestId || projectData?.workRequestId || projectData?.id}
+                currentLines={lineItems as any}
+                nextLineNumber={lineItems.length + 1}
+                onAdd={addCallLines}
               />
 
               {/*
