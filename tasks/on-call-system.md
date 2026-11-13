@@ -255,9 +255,28 @@ the quote, the purchase orders and the invoice all sit on one job.
       Everything after that is computed from the stored record. A browser may
       say "two hours"; it may not say "$190". 14 tests.
 
-      **Not done:** the lines sit on the closed call, which carries `jobId`.
+      ~~**Not done:** the lines sit on the closed call, which carries `jobId`.
       Nothing yet pulls them onto an invoice automatically — that is the
-      invoice builder's side of the join and wants its own change.
+      invoice builder's side of the join and wants its own change.~~
+
+      **Done 2026-11-13.** `src/app/lib/callsToInvoice.ts` joins the two by
+      `jobId`, and `UnbilledCallsPanel` offers the calls in the invoice modal
+      with the arithmetic shown. Not automatic on purpose: a callout is the
+      most disputed line on any invoice, and whether a particular night is
+      charged in full, discounted or waived as a return visit is a decision a
+      person makes, not one to take silently.
+
+      Most of the module is about not billing a night twice. A call is
+      excluded if its record is marked billed OR if its `sourceCallId` appears
+      on an invoice that already exists; the second is the durable check,
+      because the marker is written by a request made after the invoice saves
+      and can be lost, while a line on a saved invoice cannot be. The two
+      states that must not vanish do not: a call closed without a price is
+      shown as needing attention rather than dropped — the close route
+      tolerates a pricing failure on purpose, so those are exactly the calls
+      that would otherwise go unbilled forever — and a call the account
+      charges nothing for is reported as free rather than becoming a $0.00
+      row. 19 tests.
 - [x] **7. Paging.** An `emergency` event in the notification engine that
       already works, then Twilio SMS and voice behind one send function.
 
