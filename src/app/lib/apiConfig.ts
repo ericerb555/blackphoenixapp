@@ -69,26 +69,42 @@ import { projectId, publicAnonKey } from '../utils/supabase/info';
  * keeps working, with no firewall in front of it.
  */
 /**
- * ROLLED BACK 2026-11-11: the hostname does not serve the API yet.
+ * BACK BEHIND THE FIREWALL, 2026-11-13 — and this time it answers.
  *
- * `api.theblackphoenixcompany.com` still resolves to Vercel — the stale
- * record docs/security/cloudflare-cutover.md §2.1 exists to delete — and Vercel
- * answers every request on it with 404 DEPLOYMENT_NOT_FOUND. The nameservers
- * are still ns1/ns2.vercel-dns.com, so Phase 1 of the cutover has not run and
- * there is no Worker in front of anything.
+ * The note this replaces was a rollback: on 11 November the bundle was
+ * pointed at `api.theblackphoenixcompany.com` on the strength of the plan
+ * rather than the hostname. The cutover had not run — the nameservers were
+ * still Vercel’s and `api.` was a stale A record answering 404 — so every
+ * one of the call sites that import this hit a Vercel
+ * DEPLOYMENT_NOT_FOUND. The board, the quotes, the invoices, all of it.
  *
- * Pointing the bundle at it (8e03150, 10 Nov) therefore did not put the app
- * behind a firewall; it pointed every one of the 504 call sites at a 404. The
- * pipeline board, work requests, quotes and invoices all fetch and fail.
+ * That note set one condition for putting it back: the health check must
+ * answer 200 through the hostname, and not before. It does now. Measured
+ * before this edit, 2026-11-13:
  *
- * Verified 2026-11-11:
- *   api.theblackphoenixcompany.com/functions/v1/.../health -> 404 (Server: Vercel)
- *   plzsvzwwcdopnawtiwzm.supabase.co/functions/v1/.../health -> 200
+ *   nameservers        rosalie.ns / nick.ns.cloudflare.com
+ *   api.               104.21.69.244, 172.67.216.16 — Cloudflare, proxied
+ *   .../health         200, Server: cloudflare, CF-Ray present
+ *   CORS preflight     204, with the allow-headers the app actually sends
+ *   .../quotes         401 — the auth gate, not a routing failure
+ *   .../exchange/assistant  200 — a real model-backed route, end to end
  *
- * PUT THE LINE BELOW BACK TO `https://api.theblackphoenixcompany.com` once that
- * first curl answers 200 — and not before.
+ * So browser traffic now passes through Cloudflare’s WAF, rate limiting and
+ * bot rules, none of which could see a single request while the app
+ * addressed <ref>.supabase.co directly.
+ *
+ * WHAT THIS STILL DOES NOT DO. The origin stays reachable — the project ref
+ * is compiled into this bundle for anyone to read — so a request sent
+ * straight to `<ref>.supabase.co` bypasses the firewall entirely. Closing
+ * that is the ORIGIN LOCK in index.tsx, which refuses anything arriving
+ * without the header Cloudflare stamps on. It is configured and evaluating
+ * and NOT yet enforcing, and it must not be enforced until somebody has
+ * confirmed the header is actually arriving — see docs/security/waf.md.
+ *
+ * TO ROLL BACK: put `https://${projectId}.supabase.co` back. Everything
+ * keeps working, with no firewall in front of it.
  */
-export const SUPABASE_ORIGIN = `https://${projectId}.supabase.co`;
+export const SUPABASE_ORIGIN = 'https://api.theblackphoenixcompany.com';
 
 /**
  * The functions root. Every caller appends the function slug itself —
