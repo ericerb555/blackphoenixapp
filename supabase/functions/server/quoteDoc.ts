@@ -58,6 +58,16 @@ export function normalizeQuoteDoc(input: any) {
     customerId: input.customerId ? String(input.customerId) : "",
     issueDate: String(input.issueDate || ""),
     dueDate: String(input.dueDate || ""),
+    /**
+     * When this stops being good for.
+     *
+     * `quoteToPdfDocument` reads it and the PDF prints "Valid until" from it —
+     * and this whitelist did not name it, so every save dropped it and the line
+     * never appeared on a document in its life. Found while planning the photo
+     * estimator, which needs an expiry for a real reason: disposal rates and
+     * fuel move, and a price with no end date is a promise nobody made.
+     */
+    validUntil: String(input.validUntil || ""),
     items: Array.isArray(input.items) ? input.items : [],
     // Subcontractor quotes folded into this quote — kept on OUR side (internal record).
     subQuotes: Array.isArray(input.subQuotes) ? input.subQuotes : [],
@@ -145,11 +155,18 @@ export function normalizeQuoteDoc(input: any) {
      *   estimator         the model's takeoff, repriced against the catalogue
      *   server-heuristic  the server's deterministic fallback, not repriced
      *   offline-demo      the local demo generator; demo figures
+     *   photo-takeoff     read off the customer's own photographs and video by
+     *                     `trash-estimator`, priced by `trashTakeoff.ts`
+     *
+     * `photo-takeoff` is deliberately NOT folded into `estimator`. A takeoff
+     * read off photographs carries a different uncertainty from one read off a
+     * drawing — nobody was in the room — and six months from now the two must
+     * not be indistinguishable in the record.
      *
      * Absent is a real and permitted value: every quote saved before this
      * existed has none, and absence means unknown rather than unpriced.
      */
-    pricingBasis: ["estimator", "server-heuristic", "offline-demo"].includes(input.pricingBasis)
+    pricingBasis: ["estimator", "server-heuristic", "offline-demo", "photo-takeoff"].includes(input.pricingBasis)
       ? input.pricingBasis
       : "",
     priceSummary: input.priceSummary ?? null,

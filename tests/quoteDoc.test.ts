@@ -209,3 +209,20 @@ test('a signed quote still reports what was agreed, not the list price', () => {
   assert.equal(doc.total, 12500, 'the legacy field tracks totalCost');
   assert.equal(quoteTotal(doc), 11750, 'and the agreed total still wins over both');
 });
+
+/*
+ * Two more fields the whitelist was dropping, found while planning the photo
+ * estimator. Same failure as the money above: named nowhere, so saved never.
+ */
+
+test('an expiry survives being saved, because the PDF prints it', () => {
+  const doc: any = normalizeQuoteDoc({ validUntil: '2026-12-14', materials: [], labor: [] });
+  assert.equal(doc.validUntil, '2026-12-14');
+});
+
+test('a photo takeoff keeps its own basis and is not folded into the estimator', () => {
+  assert.equal(normalizeQuoteDoc({ pricingBasis: 'photo-takeoff' } as any).pricingBasis, 'photo-takeoff');
+  assert.equal(normalizeQuoteDoc({ pricingBasis: 'estimator' } as any).pricingBasis, 'estimator');
+  assert.equal(normalizeQuoteDoc({ pricingBasis: 'invented' } as any).pricingBasis, '',
+    'an unknown basis is still absent rather than trusted');
+});
