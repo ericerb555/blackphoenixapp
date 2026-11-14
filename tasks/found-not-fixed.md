@@ -15,6 +15,35 @@ accident.
 
 ---
 
+## DECIDED AND DEFERRED — DO NOT RE-PITCH
+
+### Point-in-Time Recovery: Eric's call, 2026-11-14, "not right now"
+He asked what it would take, got the facts, and decided to turn it on later.
+Recorded so the next session does not sell it to him again.
+
+**What he has meanwhile:** the org is on **Pro**, which includes the last
+**7 days of daily backups**. So the worst case is losing up to a day of
+writes, not the database.
+
+**What it would add:** WAL-G archives write-ahead log files roughly every two
+minutes on top of a daily physical snapshot, so the worst-case RPO becomes
+about two minutes rather than a day. "Any second" is close but not literal —
+the archive interval is the floor, and it tightens under write load.
+
+**What it costs:** ~$100/month for 7-day retention, ~$200 for 14, ~$400 for
+28. Billed hourly, and NOT covered by the Spend Cap. Enabling it also replaces
+daily backups rather than adding to them.
+
+**Prerequisite to check when he does want it:** at least a Small compute
+add-on, which PITR requires.
+
+**The gap PITR would NOT close, and the reason to say so when it is enabled:**
+it covers the database only. Storage objects are excluded — job photos, logos
+and uploaded documents. Restoring the database to Tuesday does not bring back
+a photograph deleted on Wednesday. That needs its own answer either way.
+
+---
+
 ## WAITING ON A BUSY ENDPOINT, NOT ON ANYBODY
 
 ### The frontend does NOT build on Cloudflare, and that pipeline is dead
