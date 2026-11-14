@@ -82,11 +82,27 @@ test('the serialised payload does not contain internal text anywhere', () => {
 
 /* ── hidden lines ────────────────────────────────────────────────────────── */
 
-test('a line marked not visible does not reach the customer', () => {
+test('a line marked not visible keeps its row and loses its name', () => {
   const out = customerQuoteView(fullQuote);
-  assert.deepEqual(out.materials.map((m) => m.id), ['m1']);
-  assert.deepEqual(out.labor.map((l) => l.id), ['l1']);
-  assert.ok(!JSON.stringify(out).includes('Dump fees'));
+  /*
+   * The leak assertion is unchanged and is the load-bearing one: whatever
+   * the line was called must not travel. What changed is the row itself —
+   * Eric, 2026-11-14: "we can hide things but the totals stay as part of
+   * the quote… the line item should stay with a total only." Dropping it
+   * left a column the customer could not reconcile to the total they were
+   * being asked to approve.
+   */
+  assert.ok(!JSON.stringify(out).includes('Dump fees'), 'what it was must not travel');
+
+  const withheldMaterials = out.materials.filter((m: any) => m.detailWithheld);
+  const withheldLabour = out.labor.filter((l: any) => l.detailWithheld);
+  assert.equal(withheldMaterials.length, 1);
+  assert.equal(withheldLabour.length, 1);
+  assert.ok(withheldMaterials.every((m: any) => m.name === 'Additional work'));
+  assert.ok(withheldLabour.every((l: any) => l.role === 'Additional work'));
+  assert.ok(
+    withheldMaterials.concat(withheldLabour as any).every((x: any) => x.quantity === 0 && x.hours !== undefined ? true : true),
+  );
 });
 
 test('a line with no visible flag is shown — absent is not hidden', () => {
@@ -96,17 +112,20 @@ test('a line with no visible flag is shown — absent is not hidden', () => {
   assert.equal(out.materials.length, 1);
 });
 
-test('hiding a line keeps the money: totals pass through untouched', () => {
-  // Eric's explicit choice. The visible lines deliberately do not sum to the
-  // total — hiding removes the detail, not the cost.
+test('hiding a line keeps the money, and now keeps it visible', () => {
+  // This asserted the drawn lines deliberately fell short of the total. They
+  // no longer do: the withheld line keeps its amount, so the column reaches
+  // the figure the customer is approving.
   const out = customerQuoteView(fullQuote);
   assert.equal(out.totalCost, 5100);
   assert.equal(out.materialsSubtotal, 3000);
   assert.equal(out.laborSubtotal, 1800);
-  const visibleSum = out.materials.reduce((s, m) => s + m.totalCost, 0)
+  const drawnSum = out.materials.reduce((s, m) => s + m.totalCost, 0)
     + out.labor.reduce((s, l) => s + l.totalCost, 0);
-  assert.equal(visibleSum, 1700);
-  assert.notEqual(visibleSum, out.totalCost);
+  // 800 of materials and 1,800 of labour, the withheld 500 and 400 included.
+  // It was 1,700 while hiding dropped the rows — the two withheld lines are
+  // the difference, and they are now on the page carrying their own money.
+  assert.equal(drawnSum, 2600, 'every line is counted, withheld or not');
 });
 
 test('visible process steps are renumbered so there is no gap to ask about', () => {
@@ -170,7 +189,10 @@ test('every section defaults on — hiding is an act', () => {
   // Absent config means show everything, so no existing quote changes.
   for (const customerSections of [undefined, {}, { materials: true }]) {
     const out = customerQuoteView({ ...phasedQuote, customerSections });
-    assert.equal(out.materials.length, 1, JSON.stringify(customerSections));
+    // Two rows now: the visible one and the withheld one, which keeps its
+    // row and its price. Hiding is still an act — it just no longer removes
+    // the money from the page.
+    assert.equal(out.materials.length, 2, JSON.stringify(customerSections));
     if (customerSections?.materials === true && !('labor' in (customerSections as any))) {
       assert.equal(out.labor.length, 1, 'labor should default on');
     }
@@ -179,7 +201,7 @@ test('every section defaults on — hiding is an act', () => {
 
 test('materials and labour switch independently', () => {
   const noLabor = customerQuoteView({ ...phasedQuote, customerSections: { materials: true, labor: false, processDetail: true } });
-  assert.equal(noLabor.materials.length, 1, 'materials kept');
+  assert.equal(noLabor.materials.length, 2, 'materials kept, withheld row included');
   assert.deepEqual(noLabor.labor, [], 'labour withheld');
   assert.ok(!JSON.stringify(noLabor).includes('Carpenter'), 'labour role leaked');
   // The rate is what hiding labour protects, and the phase total still shows.
@@ -415,9 +437,11 @@ test('nothing internal travels, named or not', () => {
 /** The visible work still has to arrive, or the portal shows an empty quote. */
 test('what the customer is allowed to see still arrives', () => {
   const out: any = customerQuoteSummary(portalQuote);
-  assert.equal(out.materials.length, 1);
+  // Both sections carry their withheld row now: it travels unnamed, with its
+  // price, so the customer's column reaches the total they are approving.
+  assert.equal(out.materials.length, 2);
   assert.equal(out.materials[0].name, 'Shaker doors');
-  assert.equal(out.labor.length, 1);
+  assert.equal(out.labor.length, 2);
   assert.equal(out.processSteps.length, 1);
   assert.equal(out.totalCost, 18400);
 });

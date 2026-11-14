@@ -31,17 +31,26 @@
  * forgetting is a missing field on the customer's screen, which somebody
  * notices, rather than a disclosed margin, which nobody does.
  *
- * HIDDEN LINES KEEP THEIR COST
+ * HIDDEN LINES KEEP THEIR ROW AND THEIR COST
  *
- * Eric's choice, asked explicitly: hiding a line removes the DETAIL, not the
- * money. So the stored totals are passed through untouched and the hidden
- * lines are simply absent from the arrays. The visible lines will not sum to
- * the total, and that is intended — it is how a contractor avoids itemising
- * every dump run without giving the work away.
+ * Hiding a line removes the DETAIL, not the money — and as of 2026-11-14 not
+ * the row either. Eric, after the quote PDF printed a column $2,633.19 short
+ * of its own total: *"we can hide things but the totals stay as part of the
+ * quote"*, and *"the line item should stay with a total only"*.
  *
- * Subtotals are passed through for the same reason. Recomputing them from the
- * visible lines would quietly contradict the total and make the quote look
- * wrong rather than summarised.
+ * So a hidden line travels with its price and without its name, its
+ * description, its quantity and its rate. It reads "Additional work" and an
+ * amount. The customer can add the column up and reach the total they are
+ * being asked to approve; what the work was and what it cost us stays ours.
+ *
+ * THIS REPLACES THE EARLIER CHOICE, which was to omit the line entirely and
+ * let the visible lines fall short of the total "on purpose". That is what
+ * produced a quote nobody could reconcile, and the same defect was found
+ * waiting on the invoice. The wording here matches `quotePdfSelection` and
+ * `invoiceLineSelection` exactly, because this page, that PDF and the later
+ * invoice are three views of one job.
+ *
+ * Subtotals are still passed through, never recomputed from the lines.
  */
 
 /** A line the customer may see. Anything not named here does not travel. */
@@ -141,6 +150,15 @@ const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
  * exception, not the default.
  */
 const isVisible = (line: any) => line?.visible !== false;
+
+/**
+ * What a withheld line is called on the customer's copy.
+ *
+ * The same wording the quote PDF and the invoice use. A customer who reads
+ * the PDF, approves on this page and is later invoiced must not find one
+ * withholding described three different ways.
+ */
+const WITHHELD_LABEL = 'Additional work';
 
 /**
  * Is this line on the quote at all?
@@ -359,15 +377,29 @@ export function customerQuoteView(quote: any): CustomerQuote {
 
   const materials = includedMaterials
     .map((m: any, i: number) => ({ line: m, price: materialPrices[i] ?? 0 }))
-    .filter(({ line }: any) => isVisible(line))
     .map(({ line: m, price }: any): CustomerMaterial => {
-      const quantity = modes.materials === 'full' ? num(m?.quantity) : 0;
+      /*
+       * A HIDDEN LINE KEEPS ITS ROW AND ITS PRICE.
+       *
+       * This used to `.filter(isVisible)` and the header above said the
+       * visible lines "will not sum to the total, and that is intended".
+       * Eric has since been explicit the other way: "we can hide things but
+       * the totals stay as part of the quote… the line item should stay
+       * with a total only."
+       *
+       * It matters most here. This is the projection behind the page a
+       * customer clicks Approve on, and if it drops a line that the PDF now
+       * keeps, the document they were sent and the page they approve from
+       * show different work for the same money.
+       */
+      const hidden = !isVisible(m);
+      const quantity = hidden || modes.materials !== 'full' ? 0 : num(m?.quantity);
       return {
         id: str(m?.id),
-        name: str(m?.name),
-        description: str(m?.description),
+        name: hidden ? WITHHELD_LABEL : str(m?.name),
+        description: hidden ? '' : str(m?.description),
         quantity,
-        unit: modes.materials === 'full' ? str(m?.unit) : '',
+        unit: hidden || modes.materials !== 'full' ? '' : str(m?.unit),
         /**
          * Back out of the priced line rather than scaled on its own, so
          * quantity x unit price lands on the amount beside it. Scaling the
@@ -377,7 +409,8 @@ export function customerQuoteView(quote: any): CustomerQuote {
          */
         unitCost: quantity > 0 ? round2(price / quantity) : 0,
         totalCost: price,
-        category: str(m?.category),
+        category: hidden ? '' : str(m?.category),
+        ...(hidden ? { detailWithheld: true } : {}),
       };
     });
 
@@ -385,15 +418,16 @@ export function customerQuoteView(quote: any): CustomerQuote {
 
   const labor = includedLaborLines
     .map((l: any, i: number) => ({ line: l, price: laborPrices[i] ?? 0 }))
-    .filter(({ line }: any) => isVisible(line))
     .map(({ line: l, price }: any): CustomerLabor => {
       // Hours and the rate are the two numbers that reveal pricing, and
       // either one alone is enough with the total beside it. Both go.
-      const hours = modes.labor === 'full' ? num(l?.hours) : 0;
+      // A withheld line gives up its role as well — see the materials note.
+      const hidden = !isVisible(l);
+      const hours = hidden || modes.labor !== 'full' ? 0 : num(l?.hours);
       return {
         id: str(l?.id),
-        role: str(l?.role),
-        description: str(l?.description),
+        role: hidden ? WITHHELD_LABEL : str(l?.role),
+        description: hidden ? '' : str(l?.description),
         hours,
         /**
          * The CHARGE-OUT rate, which is what an hour of this trade costs the
@@ -405,6 +439,7 @@ export function customerQuoteView(quote: any): CustomerQuote {
          */
         hourlyRate: hours > 0 ? round2(price / hours) : 0,
         totalCost: price,
+        ...(hidden ? { detailWithheld: true } : {}),
       };
     });
 

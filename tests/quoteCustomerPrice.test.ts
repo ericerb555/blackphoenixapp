@@ -201,12 +201,24 @@ test('a hidden line pays its own share of the markup, not the visible lines', ()
     ],
   };
   const out = customerQuoteView(withHidden);
-  // The drawn line is priced at its own cost x 1.25 — 2500 becomes 3125 —
-  // and emphatically not inflated to cover the hidden one.
-  assert.equal(out.materials.length, 1);
+  // Each line is priced at its OWN cost x 1.25 — 2500 becomes 3125 — and
+  // emphatically not inflated to cover the other. That is the point of this
+  // test and it is unchanged.
   assert.equal(out.materials[0].totalCost, 3125);
-  // The money stays in the section total, which is what makes the bottom
-  // line right while the visible lines deliberately do not reach it.
+
+  /*
+   * The withheld line now keeps its row and its share of the markup, rather
+   * than being dropped. Eric, 2026-11-14: "we can hide things but the totals
+   * stay as part of the quote." So the two drawn lines come to the section
+   * total instead of falling short of it.
+   */
+  assert.equal(out.materials.length, 2);
+  const withheld: any = out.materials.find((m: any) => m.detailWithheld);
+  assert.equal(withheld.totalCost, 1875, 'its own 1500 x 1.25, not the other line’s');
+  assert.equal(
+    out.materials.reduce((s: number, m: any) => s + m.totalCost, 0), 5000,
+    'and the column reaches the section total',
+  );
   assert.equal(out.materialsSubtotal, 5000);
 });
 
