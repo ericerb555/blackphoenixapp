@@ -109,6 +109,29 @@ function drawnLines(doc: any): any[] {
 }
 
 const drawnSum = (doc: any) => r2(drawnLines(doc).reduce((s, l) => s + (Number(l?.amount) || 0), 0));
+
+/**
+ * Every money row the page prints, which is what a reader actually adds up.
+ *
+ * Lines where there are lines, and the "Other work in this phase" row where
+ * work is withheld — Eric's rule is that no money is left without a row
+ * against it, so this is the sum that has to reach the total.
+ */
+function printedSum(doc: any): number {
+  let total = 0;
+  for (const phase of doc.phases || []) {
+    if (phase.groups?.length) {
+      for (const g of phase.groups) {
+        total += g.balancing
+          ? (Number(g.subtotal) || 0)
+          : (g.lines || []).reduce((s: number, l: any) => s + (Number(l?.amount) || 0), 0);
+      }
+    } else {
+      total += (phase.lines || []).reduce((s: number, l: any) => s + (Number(l?.amount) || 0), 0);
+    }
+  }
+  return r2(total);
+}
 const phaseSum = (doc: any) =>
   r2((doc.phases || []).reduce((s: number, p: any) => s + (Number(p.subtotal) || 0), 0));
 
@@ -358,9 +381,29 @@ test('and the page still reconciles to the printed total', () => {
   const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
   assertAddsUp(doc, 'Sarah hidden phases');
   assert.equal(phaseSum(doc), 12666.13);
-  // The drawn column is legitimately short by the hidden money — that is what
-  // hiding means — and the phase subtotals are what carry it to the total.
-  assert.equal(drawnSum(doc), 10032.94, "Eric's figure, which was never wrong");
+  // The named lines are legitimately short by the withheld money — that is
+  // what hiding means — and it is his figure, which was never wrong.
+  assert.equal(drawnSum(doc), 10032.94);
+  /*
+   * "no money total are to be left hidden." Every withheld dollar carries an
+   * "Other work in this phase" row, so the money rows a reader adds up reach
+   * the printed total exactly.
+   */
+  assert.equal(printedSum(doc), 12666.13,
+    'the printed money rows must come to the total with nothing unaccounted for');
+});
+
+test('every phase prints rows that reach its own subtotal', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
+  for (const phase of doc.phases as any[]) {
+    const rows = phase.groups?.length
+      ? phase.groups.reduce((s: number, g: any) => s + (g.balancing
+          ? (Number(g.subtotal) || 0)
+          : (g.lines || []).reduce((t: number, l: any) => t + (Number(l.amount) || 0), 0)), 0)
+      : (phase.lines || []).reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+    assert.equal(r2(rows), r2(phase.subtotal),
+      `${phase.label}: printed rows must come to its subtotal`);
+  }
 });
 
 test('the phases stay in the job order, not shuffled to the end', () => {
@@ -374,4 +417,40 @@ test('the office copy is unchanged by any of this', () => {
   const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: false });
   assert.equal(drawnSum(doc), 12666.13);
   assert.equal((doc.phases || []).length, 8);
+});
+
+/**
+ * "things can be hidden but totals can not."
+ *
+ * The strongest form of hiding: switch a whole section off. The lines go,
+ * and every dollar they carried must still have a row against it.
+ */
+test('turning the materials section off still prints its money', () => {
+  const doc = quoteToPdfDocument(
+    sarah({ processSteps: SARAH_STEPS, customerSections: { labor: true, materials: false, processDetail: true } }),
+    { forCustomer: true },
+  );
+  assert.equal(printedSum(doc), 12666.13, 'nothing may go unaccounted for');
+  assertAddsUp(doc, 'materials section off');
+});
+
+test('turning BOTH sections off still prints every phase and its money', () => {
+  const doc = quoteToPdfDocument(
+    sarah({ processSteps: SARAH_STEPS, customerSections: { labor: false, materials: false, processDetail: true } }),
+    { forCustomer: true },
+  );
+  assert.equal(printedSum(doc), 12666.13);
+  assert.equal(phaseSum(doc), 12666.13);
+});
+
+test('a hidden line never leaves its money without a row', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
+  const withheld = (doc.phases as any[])
+    .flatMap((p) => p.groups || [])
+    .filter((g: any) => g.balancing);
+  assert.ok(withheld.length >= 2, 'both all-hidden phases carry a row');
+  assert.equal(
+    r2(withheld.reduce((s: number, g: any) => s + g.subtotal, 0)), 2633.19,
+    'and those rows come to exactly the money that was hidden',
+  );
 });

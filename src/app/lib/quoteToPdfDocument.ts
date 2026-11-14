@@ -346,13 +346,34 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       const title = String(name || '').trim();
       if (!title || drawnTitles.has(title)) continue;
       if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
+      const amount = round2(Number(cost) || 0);
       phases.push({
         title,
         label: title,
         description: sections.processDetail ? describe.get(title) : undefined,
         lines: [],
-        subtotal: round2(Number(cost) || 0),
-        markup: showMarkup ? { total: markupOn(Number(cost) || 0, rates!).total, label: rateLabel } : undefined,
+        /*
+         * Eric: "no money total are to be left hidden."
+         *
+         * So the withheld work gets a printed row of its own rather than
+         * living only in the phase heading. It names no line, no quantity
+         * and no rate — it says only that the phase contains further work at
+         * that price, which is what withholding a line is for and the least
+         * that can be said while every dollar on the quote still has a row
+         * against it.
+         *
+         * This is the same `balancing` row a partly-hidden phase already
+         * gets below; it was never reached when EVERY line in the phase was
+         * hidden, because that path built no groups at all.
+         */
+        groups: [{
+          label: 'Other work in this phase',
+          lines: [],
+          subtotal: amount,
+          balancing: true,
+        }],
+        subtotal: amount,
+        markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
       });
     }
 
@@ -373,17 +394,33 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     }
   }
 
+  /*
+   * A row for any money a phase carries, wherever the phase came from.
+   *
+   * "things can be hidden but totals can not." A phase built from a step
+   * rather than from drawn lines still has a price against it, and a price
+   * with no row under it is a total that has been hidden. The row names no
+   * line, no quantity and no rate — only that the phase contains work at
+   * that price.
+   */
+  const withheldRow = (amount: number): QuotePdfLineGroup[] | undefined =>
+    Math.abs(amount) > 0.005
+      ? [{ label: 'Other work in this phase', lines: [], subtotal: round2(amount), balancing: true }]
+      : undefined;
+
   if (!phases.length && steps.length) {
     for (const s of steps) {
       const t = String(s?.title || s?.step || '').trim();
+      const amount = round2(trueCost.get(t) || 0);
       phases.push({
         title: t || null,
         label: t || 'Scope of work',
         duration: s?.estimatedDuration ? String(s.estimatedDuration) : undefined,
         description: sections.processDetail && s?.description ? String(s.description) : undefined,
         lines: [],
-        subtotal: round2(trueCost.get(t) || 0),
-        markup: showMarkup ? { total: markupOn(trueCost.get(t) || 0, rates!).total, label: rateLabel } : undefined,
+        groups: withheldRow(amount),
+        subtotal: amount,
+        markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
       });
     }
   }
@@ -411,6 +448,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         label: name,
         description: sections.processDetail ? describe.get(name) : undefined,
         lines: [],
+        groups: withheldRow(round2(cost)),
         subtotal: round2(cost),
         markup: showMarkup ? { total: markupOn(cost, rates!).total, label: rateLabel } : undefined,
       });
