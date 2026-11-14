@@ -55,6 +55,8 @@ import ClientWorkRequestForm from '../forms/ClientWorkRequestForm';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import FloorVisualiser from './FloorVisualiser';
 import TrashEstimatePanel from './TrashEstimatePanel';
+import TipControl from './TipControl';
+import TipCrewCard from './TipCrewCard';
 import HomeVisualiser from './HomeVisualiser';
 import CustomerDesignTab from './CustomerDesignTab';
 import { useAuth } from '../../contexts/AuthContext';
@@ -88,6 +90,8 @@ export default function CustomerPortalView() {
   const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'trash-estimate' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'on-call' | 'guide'>('dashboard');
+  /** Tip chosen per invoice, before it is paid. Never defaulted to anything. */
+  const [invoiceTips, setInvoiceTips] = useState<Record<string, number>>({});
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
@@ -1730,7 +1734,17 @@ export default function CustomerPortalView() {
               };
               const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
-              const payInvoice = async (invoice: any) => {
+              /*
+                The tip is passed separately and never added into `amount`.
+
+                The server caps a payment at what the invoice owes — a fix for
+                the browser deciding its own figure — and credits the invoice
+                by `payment.amount`. A tip folded in would be swallowed by the
+                cap, or worse, credited against the bill and close a balance
+                nobody settled. It rides as its own field and its own Stripe
+                line, which is what the server expects.
+              */
+              const payInvoice = async (invoice: any, tip = 0) => {
                 const { data: { session } } = await supabase.auth.getSession();
                 const tok = session?.access_token || publicAnonKey;
                 const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`, {
@@ -1743,6 +1757,7 @@ export default function CustomerPortalView() {
                     clientName: user?.email?.split('@')[0],
                     invoiceId: invoice.id,
                     workRequestId: invoice.workRequestId,
+                    tip,
                   }),
                 });
                 const data = await res.json().catch(() => ({}));
@@ -1752,6 +1767,14 @@ export default function CustomerPortalView() {
 
               return (
                 <>
+                  {/*
+                    Tipping with nothing to attach it to — the second of the two
+                    places Eric asked for. It is here rather than buried because
+                    a customer whose job is already paid for has no invoice left
+                    to tip against, and that is most of them.
+                  */}
+                  <TipCrewCard workRequests={workRequests} customerEmail={user?.email || undefined} />
+
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Due now</p>
@@ -1810,7 +1833,7 @@ export default function CustomerPortalView() {
                                   {!isSettled(invoice) && balanceOf(invoice) > 0 && (
                                     <button
                                       type="button"
-                                      onClick={() => payInvoice(invoice)}
+                                      onClick={() => payInvoice(invoice, invoiceTips[invoice.id] || 0)}
                                       className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-green-500"
                                     >
                                       <CreditCard className="h-4 w-4" /> Pay now
@@ -1824,6 +1847,22 @@ export default function CustomerPortalView() {
                                 the card is charged, so the way in sits beside Pay now
                                 rather than somewhere the customer would have to go looking.
                               */}
+                              {/*
+                                Tipping sits with the bill, which is where the
+                                card details are already going in. Nothing is
+                                preselected — a tip that is on unless you turn
+                                it off is a charge nobody chose.
+                              */}
+                              {!isSettled(invoice) && balanceOf(invoice) > 0 && (
+                                <div className="mt-3">
+                                  <TipControl
+                                    base={balanceOf(invoice)}
+                                    value={invoiceTips[invoice.id] || 0}
+                                    onChange={(amount) => setInvoiceTips((t) => ({ ...t, [invoice.id]: amount }))}
+                                  />
+                                </div>
+                              )}
+
                               {!isSettled(invoice) && balanceOf(invoice) > 0 && (
                                 <div className="mt-3">
                                   <button

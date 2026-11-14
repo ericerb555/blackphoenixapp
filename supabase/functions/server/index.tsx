@@ -92,6 +92,7 @@ import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
 import houseCaptureRouter from "./house-capture.tsx";
 import { trashEstimatorRouter } from "./trash-estimator.tsx";
+import { crewFromJob, readTipAmount, tipRecord } from "./tips.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -13797,27 +13798,125 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
     if (invoice && asked > owed) {
       console.log(`[payments] asked ${asked} against a balance of ${owed} on invoice ${invoice.id}; charging the balance`);
     }
-    if (amount <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
+    /**
+     * A tip rides alongside the payment. It is never part of it.
+     *
+     * Eric asked for tipping from the portal and answered the question that
+     * decides how it is handled: it goes to the CREW who did the job. So it is
+     * their money travelling through this business, and two rules follow.
+     *
+     * It is a SEPARATE Stripe line and a separate field. `payments/complete`
+     * credits an invoice by `payment.amount`; a tip folded into that figure
+     * would mark the invoice overpaid and close a balance nobody settled.
+     *
+     * And it is added AFTER the cap above, not through it. That cap exists
+     * because the browser used to decide what to charge for a record the
+     * server already holds — a tip must be a thing a customer chooses on top,
+     * never the way round the limit on what they owe.
+     */
+    const tipRead = readTipAmount(body.tip);
+    if (tipRead.error) return c.json({ success: false, error: tipRead.error }, 400);
+    const tip = tipRead.amount;
+
+    if (amount <= 0 && tip <= 0) return c.json({ success: false, error: 'A positive payment amount is required.' }, 400);
     const paymentId = crypto.randomUUID();
     const appUrl = APP_URL;
     const portal = invoicePortal(invoice?.recipientPortal || invoice?.recipient_portal || body.recipientPortal);
     const returnTo = invoicePortalRoutes[portal]; const rail: StripeAccount = invoice?.paymentRail === 'tbpco_ecommerce' || invoice?.payment_rail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
     const paymentMethod = body.paymentMethod === 'us_bank_account' ? 'us_bank_account' : 'card';
+    const lineItems: Record<string, string> = {};
+    let line = 0;
+    if (amount > 0) {
+      lineItems[`line_items[${line}][price_data][currency]`] = 'usd';
+      lineItems[`line_items[${line}][price_data][product_data][name]`] = String(body.description || invoice?.number || 'Black Phoenix payment');
+      lineItems[`line_items[${line}][price_data][unit_amount]`] = String(Math.round(amount * 100));
+      lineItems[`line_items[${line}][quantity]`] = '1';
+      line += 1;
+    }
+    if (tip > 0) {
+      // Named for what it is, on the customer's card statement as well as ours.
+      lineItems[`line_items[${line}][price_data][currency]`] = 'usd';
+      lineItems[`line_items[${line}][price_data][product_data][name]`] = 'Tip for the crew';
+      lineItems[`line_items[${line}][price_data][unit_amount]`] = String(Math.round(tip * 100));
+      lineItems[`line_items[${line}][quantity]`] = '1';
+    }
+
     const session = await stripeCheckoutSession(new URLSearchParams({
       'payment_method_types[]': paymentMethod, mode: 'payment',
       success_url: `${appUrl}/payment-complete?payment_id=${paymentId}&session_id={CHECKOUT_SESSION_ID}&return_to=${encodeURIComponent(returnTo)}`,
       cancel_url: `${appUrl}/${returnTo}?tab=payments`,
-      'line_items[0][price_data][currency]': 'usd',
-      'line_items[0][price_data][product_data][name]': String(body.description || invoice?.number || 'Black Phoenix payment'),
-      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
-      'line_items[0][quantity]': '1', customer_email: user.email,
+      ...lineItems,
+      customer_email: user.email,
       'metadata[payment_id]': paymentId, 'metadata[invoice_id]': String(invoice?.id || ''),
+      'metadata[tip]': String(tip || 0),
     }), rail);
-    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, status: 'pending_confirmation', paymentMethod, customerEmail: user.email, recipientPortal: portal, paymentRail: rail, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, tip, tipWorkRequestId: String(body.workRequestId || invoice?.workRequestId || invoice?.work_request_id || '') || null, tipMessage: String(body.tipMessage || '').slice(0, 500) || null, status: 'pending_confirmation', paymentMethod, customerEmail: user.email, recipientPortal: portal, paymentRail: rail, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     await kv.set(`payment:${paymentId}`, payment);
     if (invoice) await kv.set(`invoice:${invoice.id}`, { ...invoice, paymentId, checkoutSessionId: session.id, status: invoice.status === 'draft' ? 'sent' : invoice.status, updatedAt: new Date().toISOString() });
     return c.json({ success: true, paymentId, checkoutUrl: session.url });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
+/**
+ * GET /tips — what has been left, and who it is owed to.
+ *
+ * Staff see every tip; a customer sees the ones they left. A tip is somebody's
+ * pay, so the list is built to answer the two questions that matter: who is
+ * owed, and has it reached them.
+ */
+app.get('/make-server-3eae23a6/tips', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const rows = (await kv.getByPrefix('tip:').catch(() => [])) as any[];
+    const email = String(user.email).toLowerCase();
+    const visible = (Array.isArray(rows) ? rows : [])
+      .filter((r) => r && (admin || String(r.customerEmail || '').toLowerCase() === email))
+      .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+    const owed = visible.filter((t) => t.status === 'owed');
+    return c.json({
+      success: true, tips: visible, staff: admin,
+      owedTotal: Math.round(owed.reduce((s, t) => s + (Number(t.amount) || 0), 0) * 100) / 100,
+      unattributed: owed.filter((t) => t.unattributed).length,
+    });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to read tips.' }, 500); }
+});
+
+/**
+ * POST /tips/:id/paid-out — mark that it reached them.
+ *
+ * Administrators only, and deliberately only a RECORD of payment rather than a
+ * payment: getting money to an employee is payroll, it is reportable pay, and
+ * a button here that claimed to have done it would be a lie about tax. What
+ * this does is stop a tip being owed twice and leave who said so and when.
+ */
+app.post('/make-server-3eae23a6/tips/:id/paid-out', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrators only.' }, 403);
+    const id = c.req.param('id');
+    const tip = await kv.get(`tip:${id}`) as any;
+    if (!tip) return c.json({ success: false, error: 'No such tip.' }, 404);
+    if (tip.status === 'paid-out') return c.json({ success: true, tip, already: true });
+
+    const body = await c.req.json().catch(() => ({}));
+    const crew = Array.isArray(body?.crew) && body.crew.length
+      ? body.crew.slice(0, 12).map((m: any) => ({
+          name: String(m?.name || '').slice(0, 120),
+          email: String(m?.email || '').toLowerCase().slice(0, 180),
+        })).filter((m: any) => m.name || m.email)
+      : tip.crew;
+
+    const updated = {
+      ...tip, crew,
+      unattributed: !crew.length,
+      status: 'paid-out', paidOutAt: new Date().toISOString(), paidOutBy: user.email,
+      paidOutNote: String(body?.note || '').slice(0, 500) || null,
+    };
+    await kv.set(`tip:${id}`, updated);
+    return c.json({ success: true, tip: updated });
+  } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to update that tip.' }, 500); }
 });
 
 app.post('/make-server-3eae23a6/payments/confirm', async (c) => {
@@ -13865,6 +13964,58 @@ app.post('/make-server-3eae23a6/payments/complete', async (c) => {
       return c.json({ success: true, processing: true, payment, message: 'Your bank payment is processing. The invoice will update automatically after Stripe confirms settlement.' });
     }
     const now = new Date().toISOString(); payment.status = 'paid'; payment.paidAt = now; payment.stripePaymentIntentId = verified.payment_intent || null; payment.updatedAt = now; await kv.set(`payment:${payment.id}`, payment);
+
+    /**
+     * The tip becomes somebody's money here, and nowhere earlier.
+     *
+     * Written on CONFIRMED payment rather than at checkout, because a record
+     * saying a crew is owed forty dollars for a card that was never charged is
+     * a debt this company invented against itself.
+     *
+     * A tip whose crew cannot be named is recorded UNATTRIBUTED rather than
+     * dropped or quietly kept. Eric's answer was that tips go to the crew who
+     * did the job; folding one into company income because the job had nobody
+     * recorded on it is the thing a customer who tipped "the guys" would
+     * object to, and it would never be seen again.
+     */
+    if (Number(payment.tip || 0) > 0 && !payment.tipId) {
+      try {
+        const job = payment.tipWorkRequestId
+          ? (await kv.get(`wr:${payment.tipWorkRequestId}`).catch(() => null))
+          : null;
+        const tipId = `tip_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+        const record = tipRecord({
+          id: tipId,
+          amount: Number(payment.tip),
+          customerEmail: payment.customerEmail,
+          paymentId: payment.id,
+          workRequestId: payment.tipWorkRequestId || null,
+          invoiceId: payment.invoiceId || null,
+          crew: crewFromJob(job),
+          message: payment.tipMessage || null,
+          now,
+        });
+        await kv.set(`tip:${tipId}`, record);
+        payment.tipId = tipId; await kv.set(`payment:${payment.id}`, payment);
+
+        const alerts = (await kv.get('admin_alerts') as any[]) || [];
+        alerts.unshift({
+          id: `alert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          type: 'tip',
+          title: record.unattributed ? 'Tip received — nobody to pay it to' : 'Tip received for the crew',
+          message: `${payment.customerEmail} left $${record.amount.toFixed(2)}` +
+            (record.unattributed
+              ? '. No crew is recorded on that job, so it needs allocating.'
+              : ` for ${record.crew.map((m: any) => m.name).join(', ')}.`),
+          tipId, timestamp: now, status: 'unread',
+        });
+        await kv.set('admin_alerts', alerts.slice(0, 200));
+      } catch (tipError: any) {
+        // A tip we failed to file is still money that was taken, so it is loud.
+        console.log(`[tips] FAILED to record tip on payment ${payment.id}: ${tipError?.message || tipError}`);
+      }
+    }
+
     let subscription = null;
     if (payment.subscriptionId) { const current = await kv.get(subscriptionKey(payment.subscriptionId)) as any; if (current) { subscription = { ...current, status: 'active', activatedAt: now, paymentId: payment.id, updatedAt: now }; await kv.set(subscriptionKey(subscription.id), subscription); } }
     let invoice = null;
