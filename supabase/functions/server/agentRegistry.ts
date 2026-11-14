@@ -101,6 +101,15 @@ export const AGENTS: readonly DeclaredAgent[] = [
     note: 'A quote becomes a contract and then an invoice. Staff act, never an agent acting alone.',
   },
   {
+    agent: 'trash-estimator', domain: 'quoting',
+    does: 'Reads photographs and video frames of a load and reports what is there, twice — once to read it and once to verify the count.',
+    route: '/trash-estimator/read', ui: ['CustomerPortalView'], state: 'live',
+    note:
+      'Two passes over the same images; the second one de-duplicates and drops what it cannot see. ' +
+      'Never asked for a price — trashTakeoff.ts does the money. Not delegable: it writes a ' +
+      'customer-facing estimate record, so Phoenix must not be able to call it.',
+  },
+  {
     agent: 'ai-guide', domain: 'intake',
     does: 'Interviews a customer until their work request is quotable.',
     route: '/ai-guide-chat', ui: ['ClientWorkRequestForm', 'IntakeGuide'], state: 'live',

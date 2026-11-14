@@ -91,6 +91,7 @@ import returnsRouter from "./returns.tsx";
 import shippingLabelsRouter from "./shipping-labels.tsx";
 import townPermitsRouter from "./town-permits.tsx";
 import houseCaptureRouter from "./house-capture.tsx";
+import { trashEstimatorRouter } from "./trash-estimator.tsx";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -1408,7 +1409,8 @@ const startsWithAny = (path: string, list: string[]) =>
  * route somebody writes starts unmetered again. One list, checked once, covers
  * them all and covers what comes next.
  *
- * Deliberately NOT listed: /house-capture/ and /ai/analyze-blueprints, which
+ * Deliberately NOT listed: /house-capture/, /ai/analyze-blueprints and
+ * /trash-estimator/, which
  * meter themselves in their own buckets. Counting them here as well would
  * charge twice for one call.
  */
@@ -1830,6 +1832,9 @@ app.route("/make-server-3eae23a6/ai-floorplan", aiFloorplanRouter);
 app.route("/make-server-3eae23a6/ai", aiBlueprintRouter);
 app.route("/make-server-3eae23a6/house-capture", houseCaptureRouter);
 app.route("/make-server-3eae23a6/bid-intake", bidIntakeRouter);
+// Meters itself, in its own bucket, per image and per pass. Deliberately kept
+// out of AI_METERED_PREFIXES for the reason that list already gives.
+app.route("/make-server-3eae23a6/trash-estimator", trashEstimatorRouter);
 app.route("/make-server-3eae23a6/architect-review", architectReviewRouter);
 app.route("/make-server-3eae23a6/jurisdictions", jurisdictionsRouter);
 // Never mounted, so Company Payment Routing has been calling /stripe/health and

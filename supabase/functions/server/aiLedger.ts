@@ -74,7 +74,7 @@ export interface BeginAiCall {
   provider?: string;
   model?: string;
   /** Matches SpendBucket in `aiCeiling.ts`, so the two can be reconciled. */
-  bucket?: 'ai' | 'render' | 'blueprint';
+  bucket?: 'ai' | 'render' | 'blueprint' | 'trash';
   /** The prompt. Hashed and measured, never stored. */
   input?: string;
   requestPath?: string;
@@ -371,7 +371,7 @@ export function ledgerContextFor(c: any): LedgerContext {
  * by hand. That is how a mechanical change becomes a risky one.
  */
 export async function recordedOpenAIFetch(
-  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' } & LedgerContext,
+  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' | 'trash' } & LedgerContext,
   url: string,
   init: RequestInit,
 ): Promise<Response> {
@@ -446,7 +446,7 @@ export async function recordedOpenAIFetch(
  * `message.content`, usage and errors is untouched.
  */
 export async function recordedAnthropic(
-  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' } & LedgerContext,
+  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' | 'trash' } & LedgerContext,
   client: any,
   params: any,
 ): Promise<any> {

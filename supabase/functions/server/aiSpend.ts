@@ -64,6 +64,14 @@ export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
   // that is what costs money; the intent was thirty drawings, and this is what
   // thirty drawings costs. Do not "tidy" it to 30 without changing the unit.
   blueprint: 120,
+  /**
+   * A photo estimate reads up to a dozen images TWICE — once to read them and
+   * once to verify the reading — so one estimate is roughly two dozen image
+   * reads. Its own bucket rather than a share of `ai` because it is the unit a
+   * customer would buy, and because a loop here costs twenty times what a loop
+   * in the assistant does.
+   */
+  trash: 40,
 };
 
 /**
