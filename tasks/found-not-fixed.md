@@ -190,10 +190,6 @@ phones with a safe-area inset.
   the 44px `min-height` rule is the only thing that can size a tap target here.
   Every "add some padding" fix in this codebase is a no-op. Worth a line in
   CLAUDE.md so it is learned once rather than per-person.
-- **ThemeManager has no role gate.** It renders for every visitor on desktop —
-  a resident looking up a plumber gets a floating theme-colour editor. Hidden
-  on phones now, but the desktop exposure is a product decision nobody has
-  taken. Not a security hole; the theme is client-side.
 - **`/exchange` takes several seconds to mount on a phone-sized viewport** —
   long enough that a 45s scripted budget covering three routes timed out and
   froze the renderer. It renders correctly once up (1,401 nodes). Worth a look
@@ -227,18 +223,6 @@ for roughly 25 of the app's.
 `error: failed to delete '.git/worktrees/deploy-head': Permission denied` on
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
-
-### One test is failing, and it belongs to another session
-`tests/hazardRules.test.ts` — *"the common surcharges are all recognised by the
-words a homeowner uses"* — expects `'tyre'` and gets `undefined`.
-
-**Not from the mobile or Exchange work.** That test and the three modules beside
-it (`hazardRules.ts`, `trashRates.ts`, `trashTakeoff.ts`) are **untracked**,
-in-flight from a concurrent session. Left alone deliberately rather than fixed
-from underneath whoever is writing it — but recorded, because a red suite that
-everyone assumes is somebody else's is how a real failure hides.
-
-Suite is otherwise 3,540 passing.
 
 ### `q3probe.mjs` is untracked in the repo root
 Appeared in `git status` during this session and is not mine. Either it belongs
