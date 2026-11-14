@@ -27,7 +27,7 @@
 import { companyInfo } from '../../lib/config/companyInfo';
 import {
   type QuoteDoc,
-  formatDate, money, lineAmount, isCredit, quoteTotals,
+  formatDate, money, lineAmount, lineQty, lineRate, lineLabel, isCredit, quoteTotals, quoteLines,
 } from './quoteMath';
 
 export type { QuoteDoc, QuoteLine } from './quoteMath';
@@ -43,7 +43,10 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function QuoteDocument({ quote }: { quote: QuoteDoc }) {
-  const items = Array.isArray(quote.items) ? quote.items : [];
+  // The same resolution the totals use — materials and labour where the quote
+  // has them, items otherwise. Reading `quote.items` here while `quoteTotals`
+  // read something else is how a column stops matching its own footer.
+  const items = quoteLines(quote);
   const { subtotal, tax, total } = quoteTotals(quote);
   const status = String(quote.status || 'draft');
   const issued = formatDate(quote.issueDate) || formatDate(quote.createdAt);
@@ -127,7 +130,7 @@ export default function QuoteDocument({ quote }: { quote: QuoteDoc }) {
                 <tr key={line.id || index} className="border-b border-[#2A2A2A] print:border-gray-200">
                   <td className="px-4 py-3 text-sm text-gray-500">{index + 1}</td>
                   <td className="px-4 py-3 text-sm text-white print:text-black">
-                    {line.description || '—'}
+                    {lineLabel(line)}
                     {isCredit(line) && (
                       <span className="ml-2 rounded border border-green-500/40 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-green-400">
                         Credit
@@ -136,10 +139,10 @@ export default function QuoteDocument({ quote }: { quote: QuoteDoc }) {
                     {line.reason && <span className="block text-xs text-gray-500">{line.reason}</span>}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-300 print:text-gray-700">
-                    {Number(line.qty) || 0}
+                    {lineQty(line)}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums text-gray-300 print:text-gray-700">
-                    {money(Number(line.rate) || 0)}
+                    {money(lineRate(line))}
                   </td>
                   <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums text-white print:text-black">
                     {isCredit(line) ? `−${money(lineAmount(line))}` : money(lineAmount(line))}

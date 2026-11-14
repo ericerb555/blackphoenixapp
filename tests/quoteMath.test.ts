@@ -18,6 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   quoteTotals, quoteToPDFData, signed, isCredit,
+  lineAmount, lineQty, lineRate, lineLabel, quoteLines,
 } from '../src/app/components/documents/quoteMath.ts';
 
 const charge = (qty: number, rate: number, over = {}) => ({ description: 'x', qty, rate, ...over });
@@ -136,4 +137,103 @@ test('subcontractor costs and markup are not in the PDF payload', () => {
   assert.ok(!serialised.includes('2400'), 'the raw trade price is the company margin, visible');
   assert.ok(!serialised.includes('markupPct'), 'and so is the markup');
   assert.equal(pdf.items.length, 1, 'only the lines the customer agreed to');
+});
+
+/* ── the shapes quotes are actually stored in ────────────────────────────── */
+
+/**
+ * `lineAmount` was `qty * rate`, and no quote in the database has ever had
+ * either field. Materials store `quantity`/`unitCost`, labour stores
+ * `hours`/`hourlyRate`, and both carry `totalCost`. Every line of all nine
+ * stored quotes therefore computed to zero — and since the footer sums the
+ * same function, the document agreed with itself at $0.00 all the way down.
+ * Checked against the live records on 2026-11-14.
+ */
+test('a material line is priced from quantity and unitCost', () => {
+  assert.equal(lineAmount({ quantity: 5, unitCost: 8.4 } as any), 42);
+  assert.equal(lineQty({ quantity: 5, unitCost: 8.4 } as any), 5);
+  assert.equal(lineRate({ quantity: 5, unitCost: 8.4 } as any), 8.4);
+});
+
+test('a labour line is priced from hours and hourlyRate', () => {
+  assert.equal(lineAmount({ hours: 8, hourlyRate: 57.5 } as any), 460);
+  assert.equal(lineQty({ hours: 8, hourlyRate: 57.5 } as any), 8);
+});
+
+/**
+ * Waste lives in the stored total and not in the unit price: two gallons at
+ * $60 legitimately comes to $126. `quotePdfSelection` resolves it the same
+ * way, which is what keeps this screen and the printed PDF in agreement.
+ */
+test('a stored total wins over quantity times rate', () => {
+  assert.equal(lineAmount({ quantity: 2, unitCost: 60, totalCost: 126 } as any), 126);
+});
+
+test('the old qty/rate shape still works, since it is the declared interface', () => {
+  assert.equal(lineAmount({ qty: 3, rate: 10 } as any), 30);
+});
+
+test('a line with nothing on it is worth nothing, not NaN', () => {
+  assert.equal(lineAmount({} as any), 0);
+  assert.equal(lineAmount({ quantity: 'x', unitCost: null } as any), 0);
+});
+
+/**
+ * Q-2026-0002 end to end: nine materials and seven labour lines that the
+ * stored subtotals reconcile with. Before this the whole document read $0.00.
+ */
+test('an estimator quote totals what its stored subtotals say', () => {
+  const quote = {
+    taxRate: 0,
+    materials: [
+      { name: '2x4 Lumber', quantity: 25, unitCost: 4.38, totalCost: 109.5 },
+      { name: 'Plywood Sheets', quantity: 6, unitCost: 38.4, totalCost: 253.44 },
+      { name: 'Drywall work', quantity: 13, unitCost: 18.13, totalCost: 235.69 },
+      { name: 'LED Strip Lights', quantity: 30, unitCost: 21.25, totalCost: 637.5 },
+      { name: 'Electrical Wire', quantity: 100, unitCost: 4.65, totalCost: 465.00000000000006 },
+      { name: 'Hair Dryers', quantity: 3, unitCost: 202.5, totalCost: 607.5 },
+      { name: 'Paint', quantity: 10, unitCost: 50.4, totalCost: 504 },
+      { name: 'New Material', quantity: 2, unitCost: 24, totalCost: 48 },
+      { name: 'Custom Benches', quantity: 3, unitCost: 350, totalCost: 1050 },
+    ],
+    labor: [
+      { role: 'General Laborer', hours: 40, hourlyRate: 51.75, totalCost: 2070 },
+      { role: 'Carpenter', hours: 30, hourlyRate: 80.5, totalCost: 2415 },
+      { role: 'Licensed Electrician', hours: 24, hourlyRate: 115, totalCost: 2760 },
+      { role: 'Painter', hours: 8, hourlyRate: 57.5, totalCost: 460 },
+      { role: 'Cleanup Crew', hours: 6, hourlyRate: 51.75, totalCost: 310.5 },
+      { role: 'New Labor Role', hours: 4, hourlyRate: 120, totalCost: 480 },
+      { role: 'Bench install', hours: 4, hourlyRate: 65, totalCost: 260 },
+    ],
+    // The stale copy an earlier save left behind: 2x4s a month old at $3.75.
+    items: [{ name: '2x4 Lumber', quantity: 40, unitCost: 3.75, totalCost: 165 }],
+  } as any;
+
+  assert.equal(quoteLines(quote).length, 16, 'materials and labour, not the stale items');
+  assert.equal(Math.round(quoteTotals(quote).subtotal * 100) / 100, 12666.13);
+});
+
+/** A hand-built quote has no materials or labour, and items are all it has. */
+test('a quote with only items still reads them', () => {
+  const quote = { taxRate: 0, items: [{ quantity: 2, unitCost: 60, totalCost: 126 }] } as any;
+  assert.equal(quoteLines(quote).length, 1);
+  assert.equal(quoteTotals(quote).subtotal, 126);
+});
+
+test('labour rows are labelled by role rather than left blank', () => {
+  assert.equal(lineLabel({ role: 'Carpenter' } as any), 'Carpenter');
+  assert.equal(lineLabel({ name: '2x4 Lumber', description: 'framing' } as any), '2x4 Lumber');
+  assert.equal(lineLabel({} as any), '—');
+});
+
+/** A credit still subtracts, whichever shape it arrived in. */
+test('a credit subtracts from a real amount', () => {
+  const quote = {
+    taxRate: 0,
+    items: [
+      { quantity: 1, unitCost: 1000, totalCost: 1000 },
+      { quantity: 1, unitCost: 250, totalCost: 250, kind: 'credit' },
+    ],
+  } as any;
+  assert.equal(quoteTotals(quote).subtotal, 750);
 });
