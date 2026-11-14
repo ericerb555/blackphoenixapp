@@ -154,12 +154,6 @@ cohort now and month 5 fires a conversion prompt with no product behind it, and
 month 6 arrives with nothing to sell. Tiers before the cohort, or the cohort
 starts later.
 
-### The category counter is enforced but never shown
-`INCLUDED_CATEGORIES = 5` and `MAX_CATEGORIES = 10` in `exchangeCoverage.ts`
-are applied in matching. Phase 8 asks for the count to be visible from day one
-of a trial. No surface renders it, so a business hits the ceiling without
-warning.
-
 ### Phase 4 is one tick of eight; Phase 5 is zero of eight
 The resident-facing half of the Exchange. Saved-search alerts — which the plan
 itself calls the retention mechanism (§9i, *"a saved sheet is an alert, and

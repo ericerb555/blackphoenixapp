@@ -35,7 +35,26 @@ import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
-interface Listing { id: string; slug: string; name: string; claimed: boolean }
+interface Listing {
+  id: string; slug: string; name: string; claimed: boolean;
+  /**
+   * How many categories this listing holds against what it is entitled to.
+   *
+   * Shown from the first day of the trial rather than sprung at conversion.
+   * The trial includes everything, so a general contractor can hold fifteen
+   * categories for six months and then have to come down — and finding that
+   * out at the moment the bill arrives is, in `exchangeCoverage`'s own
+   * words, "how a populated platform turns into a revolt".
+   */
+  categories?: {
+    held: number;
+    allowance: number | null;
+    remaining: number | null;
+    purchasable: number;
+    atCeiling: boolean;
+    unlimited: boolean;
+  };
+}
 interface Deal {
   id: string;
   orgId: string;
@@ -67,6 +86,52 @@ function isoDay(offsetDays: number): string {
   const d = new Date(Date.now() + offsetDays * 86_400_000);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * What this listing holds against what it is entitled to.
+ *
+ * Says nothing at all when the figures are not there — an operator with no
+ * ceiling, or an older response that predates the field. A counter that
+ * guesses is worse than no counter, because the number it guesses is the one
+ * a business plans around.
+ *
+ * Over the allowance is stated plainly rather than coloured red and left to
+ * be interpreted: the trial includes everything, so being over is the normal
+ * state for a good general contractor and not a fault. What they need is the
+ * number and the date it starts to matter, which is the conversion — not an
+ * alarm six months early.
+ */
+function CategoryAllowance({ listing }: { listing?: Listing }) {
+  const c = listing?.categories;
+  if (!c || c.unlimited || c.allowance === null) return null;
+
+  const over = c.held > c.allowance;
+  return (
+    <div
+      className="bpxb-note"
+      style={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8,
+        marginBottom: 14,
+      }}
+    >
+      <strong style={{ fontSize: 15 }}>
+        {c.held} of {c.allowance} included
+      </strong>
+      <span style={{ opacity: 0.75 }}>· {MAX_SHOWN_CATEGORIES} maximum</span>
+      <span style={{ flexBasis: '100%', fontSize: 13, opacity: 0.8 }}>
+        {over
+          ? `Your trial includes every category you hold. ${c.held - c.allowance} of them `
+            + 'sit above what the plan covers, so they would need adding on — or dropping — when the trial converts.'
+          : c.remaining
+            ? `Room for ${c.remaining} more within your plan.`
+            : `You are at the categories your plan covers. ${c.purchasable} more can be added on.`}
+      </span>
+    </div>
+  );
+}
+
+/** The platform ceiling, shown beside the plan allowance. */
+const MAX_SHOWN_CATEGORIES = 10;
 
 export default function ExchangeBusinessDeals() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
@@ -246,6 +311,16 @@ export default function ExchangeBusinessDeals() {
               get round to.
             */}
             <ExchangeLogoPanel orgId={orgId} auth={authHeader} />
+
+            {/*
+              "12 of 5 included · 10 maximum", from the first day.
+
+              Phase 8 of the build plan asks for this and `allowanceState`
+              has computed it, tested, since the coverage rules were written
+              — with no caller anywhere. The ceiling was enforced in matching
+              and never shown.
+            */}
+            <CategoryAllowance listing={listings.find((l) => l.id === orgId) || listings[0]} />
 
             <div className="bpxb-section">
               <div className="bpxb-section-head">

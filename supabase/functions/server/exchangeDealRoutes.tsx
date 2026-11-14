@@ -35,6 +35,7 @@ import { isStaffRequest } from "./requireStaff.ts";
 import {
   isLive, businessMayMove, staffMayMove, validateDeal, mayPublish, PUBLISHED_STATE,
 } from "./exchangeDeals.ts";
+import { allowanceState } from "./exchangeCoverage.ts";
 
 export const exchangeDealRoutes = new Hono();
 
@@ -276,18 +277,51 @@ exchangeDealRoutes.get("/exchange/business/deals", async (c) => {
     if (!claims.length) return c.json({ success: true, listings: [], deals: [] });
 
     const orgIds = claims.map((c2) => c2.org_id);
-    const [listings, deals] = await Promise.all([
-      sb.from("organizations").select(LISTING_COLUMNS).in("id", orgIds),
+    const [listings, deals, heldCategories] = await Promise.all([
+      sb.from("organizations").select(`${LISTING_COLUMNS}, type, category_allowance`).in("id", orgIds),
       sb.from("exchange_deal")
         .select("id, org_id, title, body, starts_at, ends_at, state, decision_note, submitted_at, decided_at")
         .in("org_id", orgIds)
         .order("created_at", { ascending: false })
         .limit(200),
+      /*
+       * HOW MANY CATEGORIES EACH LISTING HOLDS.
+       *
+       * `allowanceState` has existed in `exchangeCoverage.ts` — tested, with
+       * a header describing the exact sentence it is for — and had no caller
+       * at all. The ceiling was enforced in matching and never shown, so a
+       * business could hold fifteen categories through a six-month trial and
+       * meet the limit for the first time at conversion. Its own note calls
+       * that "how a populated platform turns into a revolt".
+       */
+      sb.from("organization_category").select("org_id").in("org_id", orgIds),
     ]);
+
+    const heldByOrg = new Map<string, number>();
+    for (const row of (heldCategories?.data ?? []) as any[]) {
+      const id = String(row?.org_id || "");
+      if (id) heldByOrg.set(id, (heldByOrg.get(id) || 0) + 1);
+    }
 
     return c.json({
       success: true,
-      listings: (orThrow(listings, "reading your businesses") as any[]).map(publicListing),
+      listings: (orThrow(listings, "reading your businesses") as any[]).map((row) => ({
+        ...publicListing(row),
+        /*
+         * Infinity does not survive JSON — it serialises as null — so an
+         * operator's unlimited allowance is sent as a flag rather than a
+         * number the browser would have to guess the meaning of.
+         */
+        categories: (() => {
+          const state = allowanceState(
+            { type: row?.type, categoryAllowance: row?.category_allowance },
+            heldByOrg.get(String(row?.id)) || 0,
+          );
+          return Number.isFinite(state.allowance)
+            ? { ...state, unlimited: false }
+            : { held: state.held, allowance: null, remaining: null, purchasable: 0, atCeiling: false, unlimited: true };
+        })(),
+      })),
       deals: (orThrow(deals, "reading your deals") as any[]).map((d) => ({
         id: d.id,
         orgId: d.org_id,
