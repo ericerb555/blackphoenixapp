@@ -223,7 +223,7 @@ export default function CustomReportBuilder() {
               </div>
 
               {showWidgetPicker && (
-                <div className="grid grid-cols-4 gap-3 mt-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
                   {widgetTypes.map((widget) => {
                     const Icon = widget.icon;
                     return (

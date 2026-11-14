@@ -650,7 +650,7 @@ function CatalogTab({ materials, categories, selectedCategory, setSelectedCatego
           </div>
         </div>
         
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {/* Home Depot */}
           <div className="bg-[#0A0A0A] border border-orange-500/30 rounded-lg p-5 hover:border-orange-500 hover:shadow-lg hover:shadow-orange-500/20 transition-all duration-300 cursor-pointer">
             <div className="flex items-center gap-3 mb-4">

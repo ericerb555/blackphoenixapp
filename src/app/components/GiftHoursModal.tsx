@@ -217,7 +217,7 @@ export default function GiftHoursModal({
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                 <div className="p-2 bg-[#1a1a1a] rounded-lg">
                   <div className="text-gray-500 mb-1">Included</div>
                   <div className="text-blue-400 font-medium">{selectedSub.hoursIncluded || 0} hrs</div>

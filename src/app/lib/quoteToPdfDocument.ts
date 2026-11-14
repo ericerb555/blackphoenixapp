@@ -397,8 +397,15 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
 
   return {
     company: {
-      name: company.name,
-      tagline: company.tagline,
+      /*
+       * Coerced to a string, because jsPDF throws "Invalid arguments passed
+       * to jsPDF.text" on undefined rather than drawing nothing — so a quote
+       * rendered without a letterhead would produce no document at all
+       * instead of one missing its header. Caught by building the real PDF
+       * in a test, which is now possible.
+       */
+      name: company.name || '',
+      tagline: company.tagline || '',
       addressLines: [
         [company.address?.line1, company.address?.line2].filter(Boolean).join(', '),
         [company.address?.city, company.address?.state, company.address?.zipCode].filter(Boolean).join(' '),

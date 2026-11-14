@@ -493,7 +493,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
           </div>
 
           {/* Enhanced Stats */}
-          <div className="grid grid-cols-6 gap-4">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
             <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-5 hover:border-orange-500/30 transition group">
               <div className="flex items-center justify-between mb-3">
                 <div className="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -617,7 +617,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
                   Hover to access platform login
                 </p>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {platforms.map(platform => {
                   const Icon = platform.icon;
                   const isSelected = selectedPlatforms.includes(platform.id);
@@ -687,7 +687,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
                 <Layout className="w-6 h-6 text-orange-400" />
                 <h3 className="text-xl font-bold text-white">Content Type</h3>
               </div>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                   { id: 'post' as const, label: 'Post', icon: ImageIcon, desc: 'Single image/video' },
                   { id: 'reel' as const, label: 'Reel', icon: Video, desc: 'Short-form video' },
@@ -716,7 +716,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <button
                 onClick={() => setShowAIGenerator(true)}
                 className="p-8 bg-gradient-to-br from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 rounded-2xl transition group shadow-lg shadow-orange-500/20"
@@ -775,7 +775,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {templates.map(template => (
                     <div key={template.id} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-5 hover:border-orange-500/30 transition group">
                       <div className="flex items-start justify-between mb-3">
@@ -1039,7 +1039,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
                 <TrendingUp className="w-6 h-6 text-orange-400" />
                 <h3 className="text-xl font-bold text-white">Performance Analytics</h3>
               </div>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-5">
                   <Eye className="w-8 h-8 text-blue-400 mb-3" />
                   <p className="text-2xl font-bold text-white mb-1">
@@ -1139,7 +1139,7 @@ export default function AIContentStudio({ onContentCreated, onCancel }: AIConten
                     <Palette className="w-5 h-5 text-orange-400" />
                     Brand Colors
                   </h4>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4 hover:border-orange-500/30 transition group">
                       <div className="w-full h-20 rounded-lg mb-3 group-hover:scale-105 transition-transform" style={{ backgroundColor: brandGuidelinesLocal.primaryColor }} />
                       <p className="text-sm font-medium text-gray-400">Primary Color</p>

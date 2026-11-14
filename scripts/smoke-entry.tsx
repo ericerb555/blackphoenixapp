@@ -152,6 +152,32 @@ function measure(root: HTMLElement): MobileFindings {
     }
     if (viewportAnchored) continue;
 
+    /*
+     * A TRANSFORMED ELEMENT IS MEASURED BY ITS LAYOUT BOX, NOT ITS RECT.
+     *
+     * `getBoundingClientRect` includes transforms, and this runs two frames
+     * after mount — nowhere near the end of a 0.6s entry animation. Six
+     * landing pages reported a button at exactly 420px, which is 390 + 30,
+     * and the button is a `motion.button` with `initial={{ x: 30 }}` sliding
+     * to `x: 0`. Caught in flight. It settles at 390 and was never a defect.
+     *
+     * `offsetWidth` ignores transforms, so for anything mid-animation the
+     * question becomes "is this box wider than the screen" rather than "where
+     * is it right now". That still catches an element genuinely too wide, and
+     * stops reporting one that is merely in motion.
+     */
+    const transformed = getComputedStyle(el).transform !== 'none';
+    if (transformed) {
+      if (el.offsetWidth > vw + 1) {
+        bleed++;
+        if (el.offsetWidth > worstRight) {
+          worstRight = el.offsetWidth;
+          bleedWorst = `${el.tagName.toLowerCase()} is ${el.offsetWidth}px wide (transformed)`;
+        }
+      }
+      continue;
+    }
+
     const right = r.right - rootLeft;
     if (right > widest) widest = right;
     if (right <= vw + 1) continue;

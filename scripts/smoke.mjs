@@ -121,11 +121,14 @@ mkdirSync(tmp, { recursive: true });
  * in with smoke unrun before the cause was found, each saying so in its message
  * rather than claiming a pass, which is the only reason it was not worse.
  *
- * Keyed on the report port because that is already what distinguishes
- * concurrent runs: give your run its own port and it gets its own profile,
- * without having to know that profiles were ever a problem.
+ * Keyed on the PROCESS ID. It used to key on the report port, which stopped
+ * distinguishing runs the moment a busy port started being stepped over
+ * automatically: two runs can now both be asked for 9911 and end up on 9911
+ * and 9912, but the profile directory is chosen before either binds, so both
+ * would have taken profile-9911 and fought over it. A pid is unique per run
+ * and known immediately.
  */
-const profileDir = join(tmp, `profile-${REPORT_PORT}`);
+const profileDir = join(tmp, `profile-${process.pid}`);
 
 const htmlPath = join(process.cwd(), 'smoke.html');
 writeFileSync(htmlPath, `<!doctype html>
@@ -157,12 +160,40 @@ const listener = createServer((req, res) => {
  * them. Correct, and useless: the person reading it has to work out that
  * another run owns the port and that `SMOKE_REPORT_PORT` exists.
  */
+/*
+ * A BUSY PORT IS NOW STEPPED OVER, NOT REPORTED.
+ *
+ * It used to print the message below and exit 3, which was a big improvement
+ * on fourteen lines of events.js internals — but it still made a correct run
+ * fail for a reason that has nothing to do with the code under test. It cost
+ * three failed `precommit` runs on 2026-11-14 alone: once because a sweep was
+ * running alongside it, once because a killed sweep left the port held by an
+ * orphan, and once before that, unexplained for hours because precommit's own
+ * filter was swallowing this very message.
+ *
+ * Nothing about the default 9911 is meaningful. It only has to be a port
+ * nobody else holds, so if it is taken, take the next one. Ten tries is far
+ * more than the number of sweeps anybody runs at once, and past that the
+ * original message still stands — at that point something really is wrong.
+ *
+ * Only the REPORT port is auto-stepped. Vite's port is handed to the browser
+ * in a URL built later, and moving it would need that to follow; it is also
+ * the one a person might deliberately set to watch a run by hand.
+ */
+let reportPort = REPORT_PORT;
+let portTries = 0;
 listener.on('error', (err) => {
+  if (err?.code === 'EADDRINUSE' && portTries < 10) {
+    portTries++;
+    reportPort = REPORT_PORT + portTries;
+    listener.listen(reportPort);
+    return;
+  }
   if (err?.code === 'EADDRINUSE') {
-    console.error(`\nThe report port ${REPORT_PORT} is already in use.`);
-    console.error('Another smoke run is probably in progress — they cannot share it.');
-    console.error('Run yours on different ports:');
-    console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
+    console.error(`\nThe report port ${REPORT_PORT} and the ten after it are all in use.`);
+    console.error('That is more concurrent runs than anybody means to have — check for');
+    console.error('orphaned node processes from a sweep that was killed mid-run:');
+    console.error('  Get-NetTCPConnection -LocalPort 9911 -State Listen\n');
     process.exit(3);
   }
   console.error(`The report listener failed: ${err?.message || err}`);
@@ -236,7 +267,9 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
     ? `only=${encodeURIComponent(only.join(','))}`
     : `from=${from}&to=${to}`;
   const url = `http://localhost:${PORT}/smoke.html?${range}`
-    + `&report=${encodeURIComponent(`http://localhost:${REPORT_PORT}/report`)}`
+    // reportPort, not REPORT_PORT: the listener may have stepped past a busy
+    // one, and the browser has to post back to where it actually bound.
+    + `&report=${encodeURIComponent(`http://localhost:${reportPort}/report`)}`
     + (MOBILE ? '&mobile=1' : '');
 
   browser = spawn(EDGE, [

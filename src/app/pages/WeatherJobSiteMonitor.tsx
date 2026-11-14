@@ -815,7 +815,7 @@ Created By: ${delay.createdBy}
                     </div>
 
                     {/* Current Conditions */}
-                    <div className="grid grid-cols-4 gap-3 mb-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                       <div className="bg-[#0A0A0A] rounded-lg p-2">
                         <Thermometer className="w-4 h-4 text-gray-400 mb-1" />
                         <div className="text-sm font-semibold">{weather.current.feelsLike}°F</div>

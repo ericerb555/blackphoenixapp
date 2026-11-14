@@ -240,3 +240,58 @@ test('Jason: editing an items-shaped quote foots too', () => {
   assertAddsUp(doc, 'Jason price raised');
   assert.equal(drawnSum(doc), r2(7308.7 + 200));
 });
+
+/* ── the actual PDF file, not the payload ────────────────────────────────── */
+
+import { buildQuotePdf } from '../src/app/lib/services/quotePdfLayout.ts';
+
+const LETTERHEAD = {
+  name: 'Black Phoenix Builds',
+  contact: { email: 'a@b.c', phone: '603', website: 'x' },
+  address: { line1: 'L1', city: 'Pelham', state: 'NH', zipCode: '03076' },
+  branding: { primaryColor: '#ea580c' },
+};
+
+/** Every string jsPDF actually placed on the page. */
+function printedText(data: any): string[] {
+  const doc: any = buildQuotePdf(data);
+  const out: string[] = [];
+  for (const page of doc.internal.pages.filter(Boolean)) {
+    for (const op of page as any[]) {
+      const hit = /\((.*)\)\s*Tj/.exec(String(op));
+      if (hit) out.push(hit[1]);
+    }
+  }
+  return out;
+}
+
+/**
+ * THE LAST MILE. Everything above asserts the payload; this builds the real
+ * document and reads the money off it. The three closing figures are "The N
+ * stages above", "Subtotal" and "Total", and on a quote with no tax and no
+ * credits all three are the same number — which is precisely the thing Eric
+ * has been telling us was not true.
+ */
+test('the generated PDF prints a column that reaches its own total', () => {
+  const data = quoteToPdfDocument(sarah(), { forCustomer: true, company: LETTERHEAD as any });
+  const money = printedText(data).filter((t) => /^\$[\d,]+\.\d\d$/.test(t));
+  const last3 = money.slice(-3);
+  assert.deepEqual(last3, ['$12,666.13', '$12,666.13', '$12,666.13'],
+    'stages, subtotal and total must all read the same on an untaxed quote');
+});
+
+/**
+ * jsPDF throws "Invalid arguments passed to jsPDF.text" on undefined rather
+ * than drawing nothing, so a missing letterhead produced NO document at all.
+ * Found by building the real PDF here, which was impossible before.
+ */
+test('a quote rendered without a letterhead still produces a document', () => {
+  const data = quoteToPdfDocument(sarah(), { forCustomer: true });
+  assert.doesNotThrow(() => buildQuotePdf(data));
+});
+
+test('Jason: the generated PDF foots as well', () => {
+  const data = quoteToPdfDocument(jason(), { forCustomer: true, company: LETTERHEAD as any });
+  const money = printedText(data).filter((t) => /^\$[\d,]+\.\d\d$/.test(t));
+  assert.equal(money[money.length - 1], '$7,308.70', 'the printed Total');
+});

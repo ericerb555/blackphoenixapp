@@ -228,7 +228,7 @@ export default function PhotoImporter() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         {[
           { label: 'Total in Library', value: mediaCount, color: 'text-white' },
           { label: 'Website Photos', value: websiteStatus === 'done' || websiteStatus === 'already' ? websiteCount : 0, color: 'text-emerald-400' },
@@ -263,7 +263,7 @@ export default function PhotoImporter() {
           )}
         </div>
 
-        <div className="grid grid-cols-6 gap-1.5 mb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mb-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="aspect-square rounded-lg bg-[#1a1a1a] overflow-hidden">
               <img

@@ -388,7 +388,7 @@ export default function ServiceScheduling() {
                     <Wrench className="w-5 h-5 text-[#ea580c]" />
                     Select Service Type
                   </h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {availableServices.map((service) => (
                       <button
                         key={service.id}
@@ -531,7 +531,7 @@ export default function ServiceScheduling() {
               </div>
             </div>
             
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="flex items-center gap-3 p-3 bg-[#0A0A0A] rounded-lg border border-[#2A2A2A]">
                 <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-600/20 to-orange-700/20 flex items-center justify-center border border-orange-500/20">
                   <User className="w-5 h-5 text-orange-400" />
@@ -648,7 +648,7 @@ export default function ServiceScheduling() {
                 <Clock className="w-5 h-5 text-[#ea580c]" />
                 Available Time Slots
               </h3>
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 {timeSlots.map((slot) => (
                   <button
                     key={slot.time}
@@ -690,7 +690,7 @@ export default function ServiceScheduling() {
                 <User className="w-5 h-5 text-[#ea580c]" />
                 Select Technician
               </h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {technicians
                   .filter(tech => tech.availability.includes(selectedDate))
                   .map((tech) => (

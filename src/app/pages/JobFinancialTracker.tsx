@@ -266,7 +266,7 @@ export default function JobFinancialTracker() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-4 text-white">
           <Package className="w-6 h-6 mb-2 opacity-80" />
           <p className="text-2xl font-bold">{stats.totalJobs}</p>
@@ -412,7 +412,7 @@ export default function JobFinancialTracker() {
                           <AlertCircle className="w-5 h-5 text-yellow-400" />
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                         <div>
                           <p className="text-gray-500">Date</p>
                           <p className="text-white">{new Date(entry.date).toLocaleDateString()}</p>
@@ -462,7 +462,7 @@ export default function JobFinancialTracker() {
                           <AlertCircle className="w-5 h-5 text-yellow-400" />
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm mb-2">
                         <div>
                           <p className="text-gray-500">Date</p>
                           <p className="text-white">{new Date(purchase.date).toLocaleDateString()}</p>
