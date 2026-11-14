@@ -10,6 +10,8 @@ import { lazy } from "react";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import DataProcessingAgreement from "./pages/DataProcessingAgreement";
+import MasterServiceAgreement from "./pages/MasterServiceAgreement";
 import TermsOfService from "./pages/TermsOfService";
 /**
  * Not lazy, unlike RefundPolicy below, and deliberately.
@@ -793,6 +795,11 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "refund-policy":     RefundPolicy,
   "refunds":           RefundPolicy,
   "return-policy":     RefundPolicy,
+  // Drafts, not in force. Each page carries a banner saying so at the top.
+  "dpa":                       DataProcessingAgreement,
+  "data-processing-agreement": DataProcessingAgreement,
+  "msa":                       MasterServiceAgreement,
+  "master-service-agreement":  MasterServiceAgreement,
   "terms":             TermsOfService,
   "terms-of-service":  TermsOfService,
   // Several spellings because this one gets typed by hand off a questionnaire
