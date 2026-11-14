@@ -14030,6 +14030,43 @@ app.post('/make-server-3eae23a6/payments/complete', async (c) => {
         if (planId) await recordEntitlementEvent({ planId, sourceType: 'payment', sourceId: payment.id, amountDelta: Number(payment.amount || 0), invoiceId: invoice.id, note: `Invoice ${invoice.invoice_number || invoice.number || invoice.id} paid` });
       }
     }
+    /**
+     * Tell the office an invoice was actually paid.
+     *
+     * Eric: "i want the app to text me when someone signs up a payment is
+     * made, price comes in for approval." The first two already existed as
+     * events — and this route, the one a customer uses to pay an invoice or a
+     * deposit, did not raise either of them. `payment` notifications fired for
+     * STORE ORDERS only, so the payments that matter most to a contracting
+     * business arrived silently.
+     *
+     * After the invoice is settled above, so the figures reported are the ones
+     * that were written rather than the ones that were hoped for, and keyed on
+     * the payment id so a retried confirmation does not announce it twice.
+     */
+    try {
+      const tipPaid = Number(payment.tip || 0);
+      notifyStaffInBackground('payment', {
+        subject: `Payment received — $${Number(payment.amount || 0).toFixed(2)}`,
+        heading: '💳 A customer just paid',
+        rows: [
+          ['Amount', `$${Number(payment.amount || 0).toFixed(2)}`],
+          ['Tip for the crew', tipPaid > 0 ? `$${tipPaid.toFixed(2)}` : '—'],
+          ['Customer', payment.customerEmail || '—'],
+          ['Invoice', invoice?.invoice_number || invoice?.number || payment.invoiceId || 'no invoice — deposit or ad-hoc'],
+          ['Now', invoice ? `${invoice.status} · $${Number(invoice.balance_due ?? 0).toFixed(2)} still due` : 'paid'],
+          ['Method', payment.paymentMethod === 'us_bank_account' ? 'bank transfer' : 'card'],
+        ],
+        // A text says how much and who. The rest keeps for the email.
+        smsRows: ['Amount', 'Customer', 'Tip for the crew'],
+        ctaLabel: 'Open the dashboard',
+        ctaPath: '/owners-dashboard',
+        dedupeKey: `payment:${payment.id}`,
+      });
+    } catch (notifyError: any) {
+      console.log(`[payments] could not notify staff: ${notifyError?.message || notifyError}`);
+    }
+
     let planActivation = null;
     if (invoice?.status === 'paid' && invoice?.planProposalApplicationId) {
       planActivation = await activatePaidApplicationPlan(invoice, payment);

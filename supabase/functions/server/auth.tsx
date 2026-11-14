@@ -384,6 +384,12 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
         ['User ID', userId],
         ['Signed up', new Date().toLocaleString('en-US')],
       ],
+      /*
+       * A text says who and what kind. The user id and the timestamp are for
+       * the email — a phone does not need a UUID, and a text that arrives
+       * carrying one is harder to read, not more informative.
+       */
+      smsRows: ['Email', 'Portal / role'],
       ctaLabel: 'View in User Management',
       ctaPath: '/user-management',
     });
