@@ -366,10 +366,26 @@ exchangeTerritoryRoutes.post("/exchange/admin/territories/:slug/status", async (
  * makes; what is removed is the typing, not the judgement.
  */
 
-const OVERPASS = "https://overpass-api.de/api/interpreter";
-// Overpass rates and blocks by client. Same identity as the ingest, so the
-// two halves of this feature are one caller rather than two.
-const OVERPASS_AGENT = "PhoenixExchange/1.0 (local business directory; contact blackphoenixbuilds@proton.me)";
+/**
+ * Through the same Worker hop the ingest uses, for the same reason: a Supabase
+ * edge function cannot set `User-Agent`, and Overpass answers 406 without one.
+ * The full account is on `askOverpass` in `exchangeIngestRun.ts`.
+ *
+ * Overpass rates and blocks by client, so both halves of this feature go out
+ * through one hop under one identity rather than as two anonymous callers.
+ */
+const OVERPASS_VIA = "https://api.theblackphoenixcompany.com/__osm/interpreter";
+
+/** Proof to the Worker that this is us. Throws rather than sending nothing. */
+function edgeOriginSecret(): string {
+  const secret = String(Deno.env.get("EDGE_ORIGIN_SECRET") || "").trim();
+  if (!secret) {
+    throw new Error(
+      "EDGE_ORIGIN_SECRET is not set on the server, so the Overpass proxy cannot be reached.",
+    );
+  }
+  return secret;
+}
 
 /** A county-wide municipality query is slower than a town; same ceiling as the ingest. */
 const OVERPASS_TIMEOUT_MS = 90_000;
@@ -399,28 +415,27 @@ exchangeTerritoryRoutes.post("/exchange/admin/territories/discover", async (c) =
   let elements: unknown[] = [];
   try {
     /*
-     * The same call shape `exchangeIngestRun` uses, down to the User-Agent —
-     * and now, as of 2026-11-13, the same plain `fetch` too.
+     * The same call shape `exchangeIngestRun` uses, through the same Worker.
      *
-     * It went through `safeFetch`, and the scheduled ingest doing the same
-     * thing came back `Overpass refused 406` once a day for a week. 406 is
-     * the nginx front door turning away a request with NO User-Agent, so the
-     * agent named on the line below was not arriving. The whole reasoning is
-     * on `askOverpass` in `exchangeIngestRun.ts`; this is the second caller
-     * and it had the identical defect.
+     * This was a direct call carrying a User-Agent, and the scheduled ingest
+     * doing exactly that came back `Overpass refused 406` once a day for a
+     * week: a Supabase edge function cannot send that header at all. Three
+     * spellings were tried from production and all three were refused. The
+     * whole account is on `askOverpass`; this was the second caller with the
+     * identical defect and it takes the identical fix.
      *
-     * Overpass rates and blocks by client, and two different shapes from one
-     * project is two things to be blocked for — so the two stay identical.
+     * Overpass rates and blocks by client, and two shapes from one project is
+     * two things to be blocked for — so the two stay identical.
      */
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(OVERPASS, {
+      res = await fetch(OVERPASS_VIA, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": OVERPASS_AGENT,
+          "X-Edge-Auth": edgeOriginSecret(),
           Accept: "application/json",
         },
         body: new URLSearchParams({ data: municipalityQuery(state, county) }).toString(),

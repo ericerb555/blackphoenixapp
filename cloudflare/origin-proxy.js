@@ -72,6 +72,54 @@
 
 const SUPABASE_HOST = 'plzsvzwwcdopnawtiwzm.supabase.co';
 
+/**
+ * ── THE ONE OUTBOUND PATH ───────────────────────────────────────────────────
+ *
+ * Everything else in this file carries a request INWARDS, to Supabase. This
+ * single path goes the other way, and it exists for one reason: a Supabase
+ * edge function cannot set `User-Agent`.
+ *
+ * WHAT WAS MEASURED, 2026-11-13/14
+ *
+ * The Exchange's nightly ingest had not compiled a town since 2026-10-06.
+ * Every tick chose Hudson correctly and every tick got 406 from Overpass —
+ * which is its nginx front door refusing a request that carries no agent.
+ * Against the live endpoint: the project's agent gets 200, no agent at all
+ * gets exactly that 406 page, and the runtime's own default would have passed.
+ * So nothing was arriving. Three spellings were then tried from the deployed
+ * function — a header object, a `Headers` instance with a lowercase key, and
+ * a GET with the query in the URL — and the run record named all three as
+ * refused. The runtime drops the header silently; that is not ours to change.
+ *
+ * A Worker has no such restriction, so the agent is set HERE.
+ *
+ * WHY THIS IS NOT AN OPEN PROXY, WHICH IS THE OBVIOUS WAY TO GET THIS WRONG
+ *
+ *  - The destination is a CONSTANT in this file. Nothing the caller sends
+ *    chooses, extends or redirects it. A relay that takes its target from the
+ *    request is an open proxy wearing our domain and our reputation.
+ *  - It is gated on the same `EDGE_ORIGIN_SECRET` the inbound path adds, so
+ *    only our own server can reach it. Without that it would be a public
+ *    Overpass relay, and the free service whose terms ask us to identify
+ *    ourselves would be absorbing anonymous traffic in our name.
+ *  - POST only, and the body is passed through untouched.
+ *  - No caching and no logging, for the same reasons as everything else here.
+ *
+ * The double underscore keeps it clear of every real Supabase route; a plain
+ * `/osm` could one day collide with a function of that name.
+ */
+const OSM_PATH = '/__osm/interpreter';
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+
+/**
+ * The courtesy Overpass's terms ask for: who is calling and how to reach them.
+ * Identical to the string in `exchangeIngestRun.ts`, because Overpass rates
+ * and blocks by client and two agents from one project is two things to be
+ * blocked for.
+ */
+const OVERPASS_AGENT =
+  'PhoenixExchange/1.0 (local business directory; contact blackphoenixbuilds@proton.me)';
+
 export default {
   async fetch(request, env) {
     /*
@@ -87,6 +135,53 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    /*
+     * Handled here and never forwarded. See the note on OSM_PATH above.
+     *
+     * The secret is compared before anything else happens, and the answer to a
+     * caller that does not hold it says nothing about what this path is for.
+     */
+    if (url.pathname === OSM_PATH) {
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed.', { status: 405 });
+      }
+      if (request.headers.get('X-Edge-Auth') !== env.EDGE_ORIGIN_SECRET) {
+        return new Response('Not authorised.', { status: 401 });
+      }
+
+      try {
+        const answer = await fetch(OVERPASS_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': OVERPASS_AGENT,
+            Accept: 'application/json',
+          },
+          body: await request.text(),
+          // Overpass does not redirect. If it ever starts, re-sending the query
+          // to wherever it points is not a decision this file gets to make.
+          redirect: 'manual',
+        });
+
+        /*
+         * The status travels. The ingest tells 429 (we are asking too often),
+         * 504 (it is at capacity) and 406 (it refused us) apart and reacts
+         * differently to each — flattening them here would put the bug this
+         * path was built to fix back, one layer further away.
+         */
+        return new Response(answer.body, {
+          status: answer.status,
+          headers: { 'Content-Type': answer.headers.get('content-type') || 'application/json' },
+        });
+      } catch (err) {
+        return new Response(
+          'Overpass could not be reached through the proxy.',
+          { status: 502, headers: { 'Content-Type': 'text/plain' } },
+        );
+      }
+    }
+
     url.protocol = 'https:';
     url.hostname = SUPABASE_HOST;
     url.port = '';
