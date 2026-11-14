@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 /**
@@ -28,13 +28,44 @@ export default function DataInitializer() {
   }, []);
 
   const initializeData = async () => {
+    /*
+     * NOTHING IS SENT WITHOUT A SIGNED-IN SESSION.
+     *
+     * These four endpoints are staff-tier. This component sent them with the
+     * anon key, so since the authorisation gate went in they have returned
+     * 401 every time — four refusals, twice each, for every visitor who
+     * arrived without the localStorage flag. They could never have succeeded.
+     *
+     * MEASURED 2026-11-14, and it is why this is a security fix rather than
+     * tidying: `ipReputation` scores a 401 as `auth_refused`, which is how
+     * Eric's own address reached 60.0 out of a possible 60 and sat
+     * permanently in a would-ban state. The identical burst fires for a
+     * first-time VISITOR. The moment `IP_REPUTATION_ENFORCE` is turned on,
+     * the platform would ban every new customer on their first page load,
+     * using requests it sent itself, and the log line would call it
+     * credential probing.
+     *
+     * So: no session, nothing sent. A signed-out visitor needs none of this,
+     * and the endpoints would refuse them anyway.
+     */
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      console.log('ℹ️ Not signed in — skipping server initialization, which would be refused.');
+      setLoading(false);
+      setInitialized(true);
+      return;
+    }
+
     console.log('🌱 Starting data initialization...');
     console.log('💾 This app uses localStorage as primary data store - server init is optional');
-    
+
     try {
       const baseUrl = `${API_BASE_URL}/make-server-3eae23a6`;
       const headers = {
-        'Authorization': `Bearer ${publicAnonKey}`,
+        /* The SESSION, not the anon key. The anon key is what made every one
+           of these a guaranteed 401. */
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       };
 
