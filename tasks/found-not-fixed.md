@@ -17,29 +17,6 @@ accident.
 
 ## BLOCKED ON SOMEBODY, NOT ON CODE
 
-### ⚠ `wrangler.toml` NAMES A DIFFERENT WORKER FROM THE ONE THAT IS LIVE
-**Confirm the live Worker's exact name before anybody runs `wrangler deploy`.**
-
-`cloudflare/wrangler.toml` declares `name = "blackphoenix-origin-proxy"`. The
-Cloudflare dashboard reports the Worker actually serving
-`api.theblackphoenixcompany.com/*` is **`api-origin-proxy`**, with 3 deployments,
-all made through the dashboard/API rather than wrangler.
-
-That is consistent with this file's own history: its comments describe creating
-the Worker by pasting `origin-proxy.js` into the dashboard, and `wrangler.toml`
-was written afterwards — with a name nobody checked against the live one.
-
-**Why it is dangerous rather than untidy.** `wrangler deploy` does not update a
-Worker by route, it updates one by NAME. With this name it would create a
-SECOND Worker and claim the same route for it — and that new Worker would have
-no `EDGE_ORIGIN_SECRET` binding, so `origin-proxy.js` returns 503 to everything
-by design. 503 on that hostname is the entire API. It is precisely the outage
-the warning at the top of `wrangler.toml` describes, arrived at from a
-direction the warning does not cover.
-
-**The fix is one line** — make `name` match the live Worker — but the live name
-has to be read off the dashboard first, not taken from this note.
-
 ### The frontend does NOT build on Cloudflare, and that pipeline is dead
 A Cloudflare Worker named `blackphoenixapp`, connected to this GitHub repo on
 `main`, has failed **111 builds**, most recently 2026-11-14, with
@@ -65,17 +42,18 @@ The Exchange has not compiled a town since **2026-10-06**. The fix is committed
 (`a0cf2b071`) and inert until both of these run, **in this order**:
 
     npx wrangler login
-    npx wrangler deploy --config cloudflare/wrangler.toml   # ← NOT UNTIL THE
-                                                            #   NAME ABOVE IS
-                                                            #   RECONCILED
+    npx wrangler deploy --config cloudflare/wrangler.toml
     npm run deploy:server
 
 Reversed, the server calls a Worker path that does not exist yet. Wrangler
 cannot be run from the agent environment — it needs an interactive login or
 `CLOUDFLARE_API_TOKEN`.
 
-**Blocked by the name mismatch directly above.** Deploying with the name as it
-stands would create a second Worker rather than update the live one.
+**The Worker name is reconciled** — `api-origin-proxy`, read off the dashboard
+2026-11-14. It had been `blackphoenix-origin-proxy`, a name that has never
+existed in the account, and deploying under it would have created a rival
+Worker on this route with no `EDGE_ORIGIN_SECRET` and taken the API down. Safe
+to run now; the reasoning lives in `wrangler.toml` above the name itself.
 
 **Also confirm first:** `EDGE_ORIGIN_SECRET` must be set on the Supabase side
 as well as in Cloudflare, or the ingest throws rather than calling the proxy.

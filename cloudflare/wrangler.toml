@@ -51,7 +51,22 @@
 # NOT COMMITTED, EVER. `wrangler secret put` stores it in Cloudflare and prints
 # nothing; it does not belong in this file, which is tracked.
 
-name = "blackphoenix-origin-proxy"
+# THE NAME MUST MATCH THE WORKER THAT IS ALREADY LIVE. It said
+# `blackphoenix-origin-proxy` until 2026-11-14 and the Worker serving
+# api.theblackphoenixcompany.com/* has always been `api-origin-proxy` — created
+# by hand in the dashboard, as the deploy notes above describe, with this file
+# written afterwards and its name never checked against it.
+#
+# That is not untidy, it is an outage waiting to be triggered. `wrangler deploy`
+# updates a Worker by NAME, not by route. Under the old name it would have
+# created a SECOND Worker and claimed this route for it — and a fresh Worker
+# holds no EDGE_ORIGIN_SECRET, so origin-proxy.js answers 503 to everything by
+# design. 503 on this hostname is the whole API.
+#
+# If this name is ever changed again, change it in the dashboard first and
+# confirm it there. The route below decides what traffic arrives; this line
+# decides what gets overwritten.
+name = "api-origin-proxy"
 main = "origin-proxy.js"
 compatibility_date = "2026-11-13"
 
