@@ -501,17 +501,15 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         that lets anybody into the app should never depend on an animation
         having run.
       */}
-      <div className="fixed top-4 right-4 z-[60] rounded-2xl bg-black/70 p-1.5 shadow-xl shadow-black/50 ring-1 ring-white/15 backdrop-blur-md">
-        <motion.button
-          initial={{ opacity: 1, x: 0 }}
-          animate={{ opacity: 1, x: 0 }}
+      <div className="fixed top-4 right-4 z-[60]">
+        <CornerCard
+          label="Sign In"
+          icon={User}
+          rgb="34,197,94"
+          tint="#021206"
+          hex="#22c55e"
           onClick={() => handleNavigate('login')}
-          className="px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all flex items-center gap-2 group"
-        >
-          <User className="w-5 h-5" />
-          <span>Sign In</span>
-          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-        </motion.button>
+        />
       </div>
 
       {/*
@@ -548,19 +546,18 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         initial={{ opacity: 0, x: -12 }}
         animate={{ opacity: pastHero ? 0 : 1, x: pastHero ? -12 : 0 }}
         transition={{ duration: 0.25 }}
-        className="fixed top-4 left-4 z-[60] rounded-2xl bg-black/70 shadow-xl shadow-black/50 ring-1 ring-white/15 backdrop-blur-md"
-        style={{ padding: '6px', pointerEvents: pastHero ? 'none' : 'auto' }}
+        className="fixed top-4 left-4 z-[60]"
+        style={{ pointerEvents: pastHero ? 'none' : 'auto' }}
         aria-hidden={pastHero}
       >
-        <button
+        <CornerCard
+          label="Junk Removal"
+          icon={Trash2}
+          rgb="251,146,60"
+          tint="#1a0800"
+          hex="#fb923c"
           onClick={() => void startTrashQuote()}
-          className="rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all flex items-center gap-2 group"
-          style={{ padding: '12px 16px' }}
-        >
-          <Trash2 className="w-5 h-5 flex-shrink-0" />
-          <span className="text-sm whitespace-nowrap">Junk Removal</span>
-          <ArrowRight className="w-4 h-4 flex-shrink-0 group-hover:translate-x-1 transition-transform" />
-        </button>
+        />
       </motion.div>
 
       {/* Hero Section with Company Name & Logo */}
@@ -2087,5 +2084,99 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         onClose={() => setShowSignUpModal(false)}
       />
     </div>
+  );
+}
+
+/**
+ * The hero cards' treatment, at button size.
+ *
+ * Eric, 2026-11-14: "make the junk removal and sign in button on the main page
+ * function and look similiar to the shop the store, work request, create
+ * account buttons" — then, asked whether they should become cards or stay in
+ * the corners: "match new smaller button with same efffects".
+ *
+ * So these keep their position and size and borrow everything else from the
+ * three big cards below: the same near-black diagonal gradient with a colour
+ * tint through the middle, the same 1px border at 0.35, the same resting inset
+ * glow swapping to a double outer glow on hover over 0.4s, the same drifting
+ * grid, scan line and pulsing corner brackets, and the same arrow that steps
+ * right. The geometry is scaled — 16px grid rather than 40, 8px brackets rather
+ * than 20 — because the effects were drawn for a third of a screen and at this
+ * size the originals read as clutter rather than as detail.
+ *
+ * TWO THINGS IT KEEPS FROM THE BUTTON IT REPLACES, DELIBERATELY
+ *
+ * An OPAQUE dark ground. The company name behind these is enormous white
+ * display type over a photograph, and a translucent control lands in the
+ * middle of the lettering and stops reading as a control — that is the
+ * reported "the sign-in button is gone". The gradient here is near-black and
+ * fully opaque, which separates it at least as well as the `bg-black/70` ring
+ * it replaces.
+ *
+ * And INLINE PADDING. `globals.css` zeroes every Tailwind padding utility
+ * application-wide, on purpose, with a comment saying so. `px-4 py-3` computes
+ * to 0px on this page, which on a phone is a button with no tap target.
+ */
+function CornerCard({ label, icon: Icon, rgb, tint, hex, onClick }: {
+  label: string;
+  icon: any;
+  /** The accent, as "r,g,b", so it can be used at several alphas. */
+  rgb: string;
+  /** The colour that bleeds through the middle of the gradient. */
+  tint: string;
+  /** The same accent as a hex, for the corner brackets. */
+  hex: string;
+  onClick: () => void;
+}) {
+  const rest = `0 0 0 0 rgba(${rgb},0), inset 0 0 30px rgba(${rgb},0.04)`;
+  const lit = `0 0 30px rgba(${rgb},0.25), 0 0 60px rgba(${rgb},0.1), inset 0 0 30px rgba(${rgb},0.08)`;
+  const bracket = { width: '8px', height: '8px' } as const;
+
+  return (
+    <button
+      onClick={onClick}
+      className="group relative overflow-hidden flex items-center gap-2.5"
+      style={{
+        borderRadius: '14px',
+        padding: '10px 14px',
+        background: `linear-gradient(135deg, #0a0a0a 0%, ${tint} 50%, #0a0a0a 100%)`,
+        border: `1px solid rgba(${rgb},0.35)`,
+        boxShadow: rest,
+        transition: 'box-shadow 0.4s ease',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = lit; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = rest; }}
+    >
+      {/* Drifting grid, scaled to the smaller face */}
+      <div className="cta-grid absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(rgba(${rgb},1) 1px, transparent 1px), linear-gradient(90deg, rgba(${rgb},1) 1px, transparent 1px)`,
+          backgroundSize: '16px 16px',
+          opacity: 0.06,
+        }} />
+
+      {/* Scan line */}
+      <div className="cta-scanline absolute left-0 right-0 h-8 pointer-events-none"
+        style={{ background: `linear-gradient(to bottom, transparent, rgba(${rgb},0.08), transparent)` }} />
+
+      {/* Corner brackets */}
+      <div className="cta-corner absolute top-1.5 left-1.5 pointer-events-none"
+        style={{ ...bracket, borderTop: `1.5px solid ${hex}`, borderLeft: `1.5px solid ${hex}` }} />
+      <div className="cta-corner absolute bottom-1.5 right-1.5 pointer-events-none"
+        style={{ ...bracket, borderBottom: `1.5px solid ${hex}`, borderRight: `1.5px solid ${hex}`, animationDelay: '1s' }} />
+
+      <span className="relative z-10 flex items-center justify-center flex-shrink-0 rounded-lg"
+        style={{
+          width: '30px', height: '30px',
+          background: `linear-gradient(135deg, rgba(${rgb},0.2), rgba(${rgb},0.05))`,
+          border: `1px solid rgba(${rgb},0.4)`,
+        }}>
+        <Icon className="w-4 h-4 transition-transform duration-300 group-hover:scale-110" style={{ color: hex }} />
+      </span>
+
+      <span className="relative z-10 text-sm font-black text-white whitespace-nowrap">{label}</span>
+      <ArrowRight className="relative z-10 w-3.5 h-3.5 flex-shrink-0 transition-transform group-hover:translate-x-1"
+        style={{ color: hex }} />
+    </button>
   );
 }
