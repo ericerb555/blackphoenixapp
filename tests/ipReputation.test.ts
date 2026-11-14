@@ -17,6 +17,7 @@ import {
   freshReputation, record, decide, decayed, clientIp,
   WARN_SCORE, BAN_SCORE, BAN_MS, HALF_LIFE_MS, MAX_SCORE, BREADTH_PATHS,
   banDuration, banCount, nextBanLength, BAN_MAX_MS, BAN_FORGET_MS, BAN_ESCALATION,
+  presentedCredential, tokenRole,
   type Reputation,
 } from '../supabase/functions/server/ipReputation.ts';
 
@@ -312,4 +313,67 @@ test('the ladder a determined attacker actually walks', () => {
     BAN_MS, BAN_MS * 2, BAN_MS * 4, BAN_MS * 8, BAN_MAX_MS, BAN_MAX_MS,
   ]);
   assert.equal(BAN_ESCALATION, 2, 'the ladder is a doubling');
+});
+
+/* ── did they actually try to authenticate? ──────────────────────────────── */
+
+/**
+ * THE RULE THAT DECIDES WHETHER ENFORCEMENT IS SAFE TO TURN ON.
+ *
+ * A 401 was scored as credential probing whatever produced it. Measured in
+ * the live logs on 2026-11-14, nearly all of them came from the app's own
+ * screens: a signed-out browser opens a staff page and every panel fetches —
+ * `/design-projects`, `/work-requests`, `/crm/contacts` — several a second,
+ * all `signedIn=false`. Eric's own address sat at 60.0 of a possible 60.
+ *
+ * Presenting nothing, or the publishable anon key every browser carries, is
+ * not probing. Presenting a SESSION token that gets refused is.
+ */
+
+/** A JWT with the given role. Unsigned: nothing here verifies one. */
+function jwt(role: string): string {
+  const b64 = (o: unknown) =>
+    Buffer.from(JSON.stringify(o)).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ role, iss: 'supabase' })}.sig`;
+}
+
+const headers = (auth?: string) => new Headers(auth ? { authorization: auth } : {});
+
+test('no Authorization header is not an attempt', () => {
+  assert.equal(presentedCredential(headers()), false);
+});
+
+test('the publishable anon key is not an attempt', () => {
+  assert.equal(presentedCredential(headers(`Bearer ${jwt('anon')}`)), false);
+});
+
+test('a session token IS an attempt', () => {
+  assert.equal(presentedCredential(headers(`Bearer ${jwt('authenticated')}`)), true);
+});
+
+test('a service-role token is an attempt — it should never arrive from a browser', () => {
+  assert.equal(presentedCredential(headers(`Bearer ${jwt('service_role')}`)), true);
+});
+
+/**
+ * Garbage counts AS an attempt, deliberately. An unparseable or forged token
+ * can only make a caller look more suspicious, never less, which is what
+ * makes reading the claim without verifying it safe here.
+ */
+test('an unparseable token is an attempt', () => {
+  assert.equal(presentedCredential(headers('Bearer not-a-jwt')), true);
+  assert.equal(presentedCredential(headers('Bearer a.b.c')), true);
+});
+
+test('the scheme is read case-insensitively and whitespace does not fool it', () => {
+  assert.equal(presentedCredential(headers(`bearer   ${jwt('anon')}`)), false);
+  assert.equal(presentedCredential(headers('Bearer    ')), false);
+});
+
+test('tokenRole reads the claim and gives up cleanly', () => {
+  assert.equal(tokenRole(jwt('authenticated')), 'authenticated');
+  assert.equal(tokenRole('nonsense'), null);
+  assert.equal(tokenRole(''), null);
+  assert.equal(tokenRole('a.b.c'), null);
 });

@@ -11,7 +11,7 @@ import { logger } from "npm:hono@4/logger";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
-  clientIp, decide, record as recordReputation, freshReputation,
+  clientIp, decide, record as recordReputation, freshReputation, presentedCredential,
   type Reputation, type Signal,
 } from "./ipReputation.ts";
 import { customerQuoteView } from "./customerQuoteView.ts";
@@ -713,11 +713,22 @@ async function saveReputation(ip: string, rep: Reputation): Promise<void> {
 }
 
 /** Which signal, if any, this response represents. */
-function signalFor(path: string, status: number): Signal | null {
+function signalFor(path: string, status: number, credentialed: boolean): Signal | null {
   if (status === 401 || status === 403) {
     // A token-addressed path answering 401/403 is a miss on the token itself,
-    // which is a far stronger signal than a failed password.
+    // which is a far stronger signal than a failed password. Scored whether
+    // or not a bearer was presented: the token IS the credential and it is in
+    // the path.
     if (/\/(by-token|screening|architect-review\/review)\//.test(path)) return 'bad_token';
+    /*
+     * A refusal is only probing if something was presented to refuse.
+     *
+     * See `presentedCredential`. A signed-out browser opening a staff screen
+     * fires every panel on it and collects a 401 for each; that is the gate
+     * working, not an attack, and scoring it pinned Eric's own address at the
+     * cap and would have banned every first-time visitor.
+     */
+    if (!credentialed) return null;
     return 'auth_refused';
   }
   if (status === 404) {
@@ -769,7 +780,11 @@ app.use('*', async (c, next) => {
 
   await next();
 
-  const signal = signalFor(new URL(c.req.url).pathname, c.res.status);
+  const signal = signalFor(
+    new URL(c.req.url).pathname,
+    c.res.status,
+    presentedCredential(c.req.raw.headers),
+  );
   if (!signal) return;
   const { next: updated } = recordReputation(rep, signal, new URL(c.req.url).pathname, Date.now());
   await saveReputation(ip, updated);

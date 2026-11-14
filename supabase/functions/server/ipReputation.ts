@@ -316,6 +316,67 @@ export function record(
  * way to choose their own identity and shed a bad score at will — strictly
  * worse than the pooling it fixes.
  */
+/**
+ * The `role` a bearer token claims, without verifying it.
+ *
+ * Unverified on purpose and safe because of what it is used for: nothing is
+ * authorised on the strength of this. It answers one question — "was this
+ * caller attempting to authenticate at all" — and a forged claim can only
+ * ever make a caller look MORE suspicious, never less, because an
+ * unparseable token is treated as an attempt.
+ *
+ * Returns null when there is no readable payload.
+ */
+export function tokenRole(bearer: string): string | null {
+  const parts = String(bearer || '').split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const pad = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(pad + '='.repeat((4 - (pad.length % 4)) % 4));
+    const role = JSON.parse(json)?.role;
+    return typeof role === 'string' ? role : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Did this caller actually try to authenticate?
+ *
+ * THE DISTINCTION THIS EXISTS TO MAKE, and it decides whether enforcement is
+ * safe to turn on at all.
+ *
+ * A 401 was scored as `auth_refused` — credential probing — whatever produced
+ * it. But the overwhelming majority of 401s on this platform come from the
+ * app's own screens: a signed-out browser opens a staff page and every panel
+ * on it fetches. MEASURED 2026-11-14: `/design-projects`, `/work-requests`,
+ * `/crm/contacts`, `/labor-rates/get`, all `signedIn=false`, several per
+ * second, and Eric's own address pinned at 60.0 of a possible 60 in a
+ * permanent would-ban state. A stranger reading the website generates the
+ * same burst.
+ *
+ * Presenting NO token, or the publishable anon key, is not probing. It is a
+ * client asking for something it has not earned, and the gate says no. That
+ * is the system working, and scoring it would have banned every signed-out
+ * visitor the moment enforcement came on.
+ *
+ * Presenting a token that claims to be a SESSION and having it refused is a
+ * different thing: an expired, stolen or guessed credential. So is a token
+ * that cannot be parsed at all. Those still score.
+ */
+export function presentedCredential(headers: Headers): boolean {
+  // `\s*`, not `\s+`: Headers trims the value, so a header of "Bearer   "
+  // arrives as the bare scheme. That is a broken client with no token, not a
+  // credential attempt, and `\s+` left it looking like an unparseable one.
+  const raw = String(headers.get('authorization') || '').replace(/^Bearer\s*/i, '').trim();
+  if (!raw) return false;
+  const role = tokenRole(raw);
+  // 'anon' is the publishable key every browser carries. Not a credential.
+  if (role === 'anon') return false;
+  // A readable session or service token, or something unreadable: an attempt.
+  return true;
+}
+
 export function clientIp(
   headers: { get(name: string): string | null },
   viaTrustedProxy = false,
