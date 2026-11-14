@@ -24,14 +24,39 @@
  * everything, because the controls exist to manage what the CUSTOMER sees,
  * not to blind the person who priced the job.
  */
-import { groupLinesByPhase } from './invoicePhases';
-import { selectQuoteLines } from './quotePdfSelection';
-import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup';
+import { groupLinesByPhase } from './invoicePhases.ts';
+import { selectQuoteLines } from './quotePdfSelection.ts';
+import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup.ts';
 import {
   customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate, includedShareOf,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
-import { companyInfo } from './config/companyInfo';
-import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
+import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout.ts';
+
+/**
+ * THE LETTERHEAD IS PASSED IN, AND THAT IS WHY THIS FILE IS TESTABLE.
+ *
+ * It used to `import { companyInfo }`, which reaches `brandingService` and
+ * from there the Supabase client, which constructs on import. That single
+ * line is why `quoteToPdfDocument` could never be loaded by the test runner,
+ * and therefore why NOTHING ever asserted that the drawn column equals the
+ * printed total. Every test covered a part — the selection, the pricing, the
+ * markup, the grouping — all of them passing while the assembled document
+ * was wrong, three times over.
+ *
+ * The company block is the only thing it needed, it is pure data, and the
+ * one caller already has it. So it comes in through the options and this
+ * file imports nothing that touches a network.
+ */
+export interface PdfCompany {
+  name?: string;
+  tagline?: string;
+  address?: { line1?: string; line2?: string; city?: string; state?: string; zipCode?: string };
+  contact?: { email?: string; phone?: string; website?: string };
+  branding?: { primaryColor?: string };
+}
+
+/** Enough to render a document when a caller passes nothing. */
+const NO_COMPANY: PdfCompany = {};
 
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -49,10 +74,12 @@ export interface QuotePdfOptions {
   /** Already-decoded logo. Fetching is the caller's job — this stays pure. */
   logoDataUrl?: string;
   workRequest?: { title?: string; description?: string; location?: string; customerName?: string; customerEmail?: string; customerPhone?: string };
+  /** The letterhead. Passed in so this file imports nothing networked. */
+  company?: PdfCompany;
 }
 
 export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): QuotePdfData {
-  const { forCustomer = true, logoDataUrl, workRequest } = options;
+  const { forCustomer = true, logoDataUrl, workRequest, company = NO_COMPANY } = options;
   /**
    * Every decision about what appears lives in `selectQuoteLines`, which is
    * dependency-free and tested. This file only assembles the result into the
@@ -103,7 +130,32 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         (line as any).amount = Math.round((line as any).amount * pricing.factor * 100) / 100;
       }
     }
-    for (const [name, cost] of trueCost) trueCost.set(name, atCustomerPrice(cost, pricing));
+    /*
+     * PHASE SUBTOTALS ARE SCALED TO THE PRINTED TOTAL, NOT TO THE PERCENTAGES.
+     *
+     * This used to be `atCustomerPrice(cost, pricing)` — cost times
+     * 1 + overhead + profit + contingency — while the lines below are
+     * allocated to the STORED subtotal and the footer prints the STORED
+     * total. Two independent sources for the same money, which agree only
+     * when the stored figures were written with exactly these percentages.
+     *
+     * Change a margin in the editor and they stop agreeing. Measured on
+     * Sarah's quote with 10/10/5: the phase subtotals came to 15,832.68
+     * under a printed total of 12,666.13. That is the complaint, in the
+     * worst form — the column adds up to more than the customer is asked to
+     * pay, on the document they are asked to sign.
+     *
+     * Scaling by the ratio the lines are already scaled by makes the phases
+     * sum to the footer by construction, whatever the stored figures say.
+     */
+    const costBeforePricing = round2(
+      [...trueCost.values()].reduce((sum, v) => sum + (Number(v) || 0), 0),
+    );
+    const pricedTarget = round2(share * preTaxTotalOf(quote, pricing));
+    const phaseScale = costBeforePricing > 0
+      ? pricedTarget / costBeforePricing
+      : pricing.factor;
+    for (const [name, cost] of trueCost) trueCost.set(name, round2(cost * phaseScale));
 
     /**
      * AND THEN THE ROUNDING REMAINDER IS PLACED, OR THE COLUMN STILL MISSES.
@@ -345,17 +397,17 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
 
   return {
     company: {
-      name: companyInfo.name,
-      tagline: companyInfo.tagline,
+      name: company.name,
+      tagline: company.tagline,
       addressLines: [
-        [companyInfo.address?.line1, companyInfo.address?.line2].filter(Boolean).join(', '),
-        [companyInfo.address?.city, companyInfo.address?.state, companyInfo.address?.zipCode].filter(Boolean).join(' '),
+        [company.address?.line1, company.address?.line2].filter(Boolean).join(', '),
+        [company.address?.city, company.address?.state, company.address?.zipCode].filter(Boolean).join(' '),
       ].filter(Boolean) as string[],
-      email: companyInfo.contact?.email,
-      phone: companyInfo.contact?.phone,
-      website: companyInfo.contact?.website,
+      email: company.contact?.email,
+      phone: company.contact?.phone,
+      website: company.contact?.website,
       logoDataUrl,
-      primaryColor: hexToRgb(companyInfo.branding?.primaryColor || '#ea580c'),
+      primaryColor: hexToRgb(company.branding?.primaryColor || '#ea580c'),
     },
     heading: 'Estimate',
     number: String(quote?.quoteNumber || quote?.number || ''),

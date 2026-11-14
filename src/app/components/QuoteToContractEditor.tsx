@@ -87,7 +87,7 @@ import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
 import { QuoteAttachmentsPanel } from './quotes/QuoteAttachmentsPanel';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
-import { pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
+import { companyInfo, pickMainAppCompany, setActiveCompanyInfo } from '../lib/config/companyInfo';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '../lib/quoteMarkup';
 /* The server's pricing arithmetic, imported rather than reimplemented — see
@@ -1006,7 +1006,23 @@ export function QuoteToContractEditor({
   const buildPdf = (forCustomer: boolean) =>
     buildQuotePdf(quoteToPdfDocument(
       { ...(currentQuote as any), clientName: workRequest.customerName },
-      { forCustomer, logoDataUrl, workRequest: workRequest as any },
+      {
+        forCustomer,
+        logoDataUrl,
+        workRequest: workRequest as any,
+        /*
+         * The letterhead, passed rather than imported.
+         *
+         * `quoteToPdfDocument` used to reach `companyInfo` itself, which
+         * pulls in the Supabase client on import and made the one function
+         * that decides what the PDF says impossible to load in a test. That
+         * is why nothing ever checked the assembled document and three
+         * separate "the lines don't total" bugs shipped. `companyInfo` is
+         * already the resolved company here, so nothing about which brand is
+         * used changes.
+         */
+        company: companyInfo as any,
+      },
     ));
 
   /**
