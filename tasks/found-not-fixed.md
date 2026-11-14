@@ -163,9 +163,44 @@ styles, zero responsive) · `SubcontractorSetupWizard` (16 fixed grids) ·
 `PropertyRevenueHub` · `AIContentStudio` · `MaintenancePlanEditor` ·
 `QuoteToContractEditor` (6,524 loc).
 
-### The 390px browser sweep has not been run
-Everything above is static analysis. Overlap, clipping and real overflow need a
-device-width pass, and it would also confirm P0 actually landed.
+### The 390px sweep ran — what it found that is still open
+Run 2026-11-14 against production in a same-origin iframe (a desktop Chrome
+window will not go below ~568px and was sitting at 62% zoom, so resizing it
+cannot produce a phone viewport — the iframe gets its own real one at 386px).
+
+**Confirmed working on the live site:** store button `display:none`, chat
+widget 88px off the bottom (20px + the 4rem lift), and the landing page,
+`/login`, `/signup` and `/exchange` all have `scrollWidth <= viewport` —
+nothing drags sideways.
+
+**Fixed on the spot** (`926cee5bf`): six Exchange fields still computing under
+16px, found by measuring the running page.
+
+**Still open from the sweep:**
+
+- **The "Sign In" button overlaps the hero heading on the landing page.** It is
+  `fixed top-4 right-4 z-[60]`, and at 390px the H1 wraps to three lines and
+  runs underneath it. Visible in the first screenshot of the sweep.
+- **That Sign In control is 26px tall** and is not a `<button>`, so the 44px
+  coarse-pointer rule does not reach it. Either make it a button or give it the
+  minimum directly.
+- **A third floating control is unaccounted for**: `fixed bottom-6 right-6`,
+  48×48, `bg-[#ea580c]`, z-50 — not the chat widget and not the store button.
+  It sits below the chat widget and was not part of the P0 audit. Identify it
+  and decide whether it belongs on a phone.
+- **`/exchange` takes several seconds to mount on a phone-sized viewport** —
+  long enough that a 45s scripted budget covering three routes timed out and
+  froze the renderer. It renders correctly once up (1,401 nodes). Worth a look
+  at what it loads before first paint.
+
+**The 44px tap-target rule could not be verified this way.** `@media (pointer:
+coarse)` does not match in desktop Chrome, so every "small target" count from
+the sweep is the unstyled size, not what a phone gets. Confirming that rule
+needs a real device or Chrome's device emulation.
+
+**Only four routes were swept** — the landing page, `/login`, `/signup` and
+`/exchange`. The browser profile used was signed in as a platform owner, so
+authenticated pages are reachable; the rest of the ~190 pages are unswept.
 
 ---
 
