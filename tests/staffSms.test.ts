@@ -36,39 +36,40 @@ const sub = (over: Record<string, any> = {}) => ({
   phone: '603-207-2248', enabled: true, smsEvents: ['estimate'], ...over,
 });
 
-test('the env list is always reachable, with nobody configured', () => {
-  assert.deepEqual(phonesForEvent('estimate', [], '6032072248'), ['+16032072248']);
+test('nobody configured means nobody texted — there is no env back door', () => {
+  assert.deepEqual(phonesForEvent('estimate', []), [],
+    'an env list here would subscribe that number to every event and double the work-request text');
 });
 
 test('a subscriber is texted only for events they asked for', () => {
   const rows = [sub()];
-  assert.deepEqual(phonesForEvent('estimate', rows, ''), ['+16032072248']);
-  assert.deepEqual(phonesForEvent('application', rows, ''), [], 'texted about something they did not opt into');
+  assert.deepEqual(phonesForEvent('estimate', rows), ['+16032072248']);
+  assert.deepEqual(phonesForEvent('application', rows), [], 'texted about something they did not opt into');
 });
 
 test('texts are off by default — email subscribers are not phone subscribers', () => {
   const emailOnly = { phone: '6032072248', enabled: true, events: ['estimate'] } as any;
-  assert.deepEqual(phonesForEvent('estimate', [emailOnly], ''), []);
-  assert.deepEqual(phonesForEvent('estimate', [sub({ smsEvents: [] })], ''), []);
-  assert.deepEqual(phonesForEvent('estimate', [sub({ smsEvents: undefined })], ''), []);
+  assert.deepEqual(phonesForEvent('estimate', [emailOnly]), []);
+  assert.deepEqual(phonesForEvent('estimate', [sub({ smsEvents: [] })]), []);
+  assert.deepEqual(phonesForEvent('estimate', [sub({ smsEvents: undefined })]), []);
 });
 
 test('somebody switched off is not texted', () => {
-  assert.deepEqual(phonesForEvent('estimate', [sub({ enabled: false })], ''), []);
+  assert.deepEqual(phonesForEvent('estimate', [sub({ enabled: false })]), []);
 });
 
 test('the same phone typed two ways is one message', () => {
-  const phones = phonesForEvent('estimate', [sub({ phone: '(603) 207-2248' }), sub({ phone: '+16032072248' })], '603-207-2248');
+  const phones = phonesForEvent('estimate', [sub({ phone: '(603) 207-2248' }), sub({ phone: '+16032072248' })]);
   assert.deepEqual(phones, ['+16032072248']);
 });
 
 test('a subscriber with an unsendable number is skipped, not sent to', () => {
-  assert.deepEqual(phonesForEvent('estimate', [sub({ phone: 'ask Dan' })], ''), []);
+  assert.deepEqual(phonesForEvent('estimate', [sub({ phone: 'ask Dan' })]), []);
 });
 
 test('junk in the list does not throw', () => {
-  assert.deepEqual(phonesForEvent('estimate', [null, undefined, 42, {}] as any, ''), []);
-  assert.deepEqual(phonesForEvent('estimate', null as any, ''), []);
+  assert.deepEqual(phonesForEvent('estimate', [null, undefined, 42, {}] as any), []);
+  assert.deepEqual(phonesForEvent('estimate', null as any), []);
 });
 
 /* ── what it says ────────────────────────────────────────────────────────── */

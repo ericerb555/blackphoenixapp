@@ -309,7 +309,7 @@ export async function notifyStaff(
      * problem must not turn a delivered notification into a failed one.
      */
     try {
-      const phones = phonesForEvent(event, await loadStaffRecipients(), Deno.env.get('ADMIN_NOTIFICATION_PHONES') || '');
+      const phones = phonesForEvent(event, await loadStaffRecipients());
       if (phones.length) {
         const text = smsBody({
           company: companyName(),

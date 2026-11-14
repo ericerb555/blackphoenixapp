@@ -17412,6 +17412,20 @@ app.get('/make-server-3eae23a6/staff-notifications/recipients', async (c) => {
       })),
       emailConfigured: Boolean(Deno.env.get('RESEND_API_KEY')),
       fromEmail: Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev',
+      /*
+       * Whether a text could actually leave the building.
+       *
+       * Eric is waiting on carrier approval for the number, and until that
+       * lands a ticked "text me this one too" does nothing — which from the
+       * screen is indistinguishable from a bug. So the screen is told, and
+       * says so, rather than leaving somebody to wonder whether they
+       * configured it wrong.
+       *
+       * Only whether it resolves and the sender, never the key.
+       */
+      smsConfigured: !resolveBirdSms().error,
+      smsFrom: resolveBirdSms().from || null,
+      smsError: resolveBirdSms().error || null,
     });
   } catch (error: any) {
     console.log(`Staff notification recipients read error: ${error?.message || error}`);

@@ -75,6 +75,9 @@ export function NotificationRecipientsPanel() {
   const [ownerEmails, setOwnerEmails] = useState<string[]>([]);
   const [events, setEvents] = useState<EventMeta[]>([]);
   const [emailConfigured, setEmailConfigured] = useState(true);
+  /** Whether a text could actually leave the building, and why not if not. */
+  const [smsConfigured, setSmsConfigured] = useState(true);
+  const [smsError, setSmsError] = useState('');
   const [fromEmail, setFromEmail] = useState('');
   const [log, setLog] = useState<LogEntry[]>([]);
 
@@ -106,6 +109,8 @@ export function NotificationRecipientsPanel() {
       setOwnerEmails(Array.isArray(data.ownerEmails) ? data.ownerEmails : []);
       setEvents(Array.isArray(data.events) ? data.events : []);
       setEmailConfigured(Boolean(data.emailConfigured));
+      setSmsConfigured(Boolean(data.smsConfigured));
+      setSmsError(String(data.smsError || ''));
       setFromEmail(data.fromEmail || '');
 
       const logRes = await fetch(`${SERVER}/staff-notifications/log?limit=25`, { headers });
@@ -281,6 +286,30 @@ export function NotificationRecipientsPanel() {
           <div>
             <p className="text-sm font-semibold text-red-300">Could not load recipients</p>
             <p className="mt-1 text-sm text-red-200/80">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/*
+        Texts not live yet.
+
+        Shown whenever somebody has ticked "text me" but the provider cannot
+        send — most often because the number is still waiting on carrier
+        approval. Without this the screen looks configured and the phone simply
+        never rings, which is indistinguishable from a bug and is exactly the
+        kind of silence somebody stops trusting an alert over.
+      */}
+      {!smsConfigured && recipients.some(r => (r.smsEvents || []).length > 0) && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
+          <div>
+            <p className="text-sm font-semibold text-amber-300">Texts are set up but not sending yet</p>
+            <p className="mt-1 text-sm text-amber-200/80">
+              Somebody here has asked to be texted, and the SMS provider is not ready — usually
+              because the number is still waiting on carrier approval. Emails are going out
+              normally and nothing is lost; the texts will start on their own once it clears.
+            </p>
+            {smsError && <p className="mt-1 text-xs text-amber-200/60">{smsError}</p>}
           </div>
         </div>
       )}

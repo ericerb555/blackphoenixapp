@@ -61,25 +61,27 @@ export interface SmsSubscriber {
 }
 
 /**
- * Who should be texted about this event.
+ * Who should be texted about this event. Only people who asked.
  *
- * The env list is for the account that must always be reachable without
- * anybody having configured a screen first — the same role
- * `ADMIN_NOTIFICATION_EMAILS` plays for email. Subscribers are added to it,
- * de-duplicated by the normalised number so the same phone typed two ways is
- * one phone and one message.
+ * NO ENVIRONMENT FALLBACK, UNLIKE EMAIL — AND THAT IS THE POINT.
+ *
+ * `ADMIN_NOTIFICATION_EMAILS` is an always-on list for email because an extra
+ * email is free and unread. The same arrangement for SMS was written here
+ * first and taken out: it would have subscribed that number to EVERY event
+ * notifyStaff sends — signups, messages, payments, applications — when what
+ * was asked for was a text when a price comes in. It would also have doubled
+ * the work-request text, because `/notifications/work-request` in index.tsx
+ * already texts `ADMIN_NOTIFICATION_PHONES` directly for that one event.
+ *
+ * So a phone is texted when, and only when, somebody ticked this event for it
+ * on the Notification Recipients screen. De-duplicated by the normalised
+ * number, so the same phone typed two ways is one phone and one message.
  */
 export function phonesForEvent(
   event: StaffNotificationEvent | string,
   subscribers: SmsSubscriber[],
-  envList: string,
 ): string[] {
   const out = new Set<string>();
-
-  for (const entry of String(envList || "").split(",")) {
-    const phone = normalisePhone(entry);
-    if (phone) out.add(phone);
-  }
 
   for (const row of Array.isArray(subscribers) ? subscribers : []) {
     if (!row || row.enabled === false) continue;
