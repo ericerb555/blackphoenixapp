@@ -392,6 +392,15 @@ input::placeholder, textarea::placeholder {
      own bottom offset with the safe-area inset. */
   :root {
     --chat-lift: 4rem;
+
+    /* Clearance under the landing page's fixed "Sign In" button.
+       At 390px the hero title wraps to three lines and the first of them
+       runs underneath that button — found by the device sweep, invisible
+       in the source because the hero's own `pt-12` is one of the padding
+       utilities the reset above zeroes. Consumed as an inline
+       `var(--hero-top-clearance, 0px)`, so it is 0 on desktop where the
+       hero is wide enough that nothing collides. */
+    --hero-top-clearance: 76px;
   }
 
   /* A fixed bar at the bottom of an iPhone sits UNDER the home

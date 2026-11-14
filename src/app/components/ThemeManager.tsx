@@ -138,7 +138,20 @@ export function ThemeManager() {
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 w-12 h-12 bg-[#ea580c] rounded-full shadow-lg hover:bg-[#dc2626] transition-colors flex items-center justify-center z-50"
+        /*
+         * `hidden sm:flex` — not on a phone.
+         *
+         * This is the THIRD fixed control in the bottom-right corner at 390px,
+         * under the chat widget and beside the store button, on every page.
+         * Found by the device sweep, which could see what was on screen where
+         * a file-by-file read could not.
+         *
+         * Of the three this is the easiest call: it opens a colour editor for
+         * the theme. That is a thing you do once at a desk, not something a
+         * resident needs while looking up a plumber.
+         */
+        className="hidden sm:flex fixed bottom-6 right-6 w-12 h-12 bg-[#ea580c] rounded-full shadow-lg hover:bg-[#dc2626] transition-colors items-center justify-center z-50"
+        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
         title="Theme Settings"
       >
         <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

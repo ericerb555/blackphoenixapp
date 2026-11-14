@@ -479,7 +479,24 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
         className="relative pt-12 pb-12 px-4 overflow-hidden"
-        style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+        /*
+         * paddingTop inline, not via `pt-12`.
+         *
+         * The class is already there and does nothing: the reset in
+         * globals.css zeroes every padding utility application-wide (it says
+         * so, and says not to change it). So at 390px the hero title began at
+         * y=0, with its first line under the fixed Sign In button.
+         *
+         * The variable is 76px on phones and 0 elsewhere, so the desktop hero
+         * is untouched — there the page is wide enough that the button sits
+         * beside the title rather than on it.
+         */
+        style={{
+          width: '100%',
+          display: 'flex',
+          justifyContent: 'center',
+          paddingTop: 'var(--hero-top-clearance, 0px)',
+        }}
       >
         {/* Scrolling Project Images Background */}
         <div className="absolute inset-0 overflow-hidden">
