@@ -295,3 +295,83 @@ test('Jason: the generated PDF foots as well', () => {
   const money = printedText(data).filter((t) => /^\$[\d,]+\.\d\d$/.test(t));
   assert.equal(money[money.length - 1], '$7,308.70', 'the printed Total');
 });
+
+/* ── Eric's actual report, to the penny ──────────────────────────────────── */
+
+/**
+ * "QT-20261017-7392  10,031.94  total 12,666.13" — Q-2026-0002 with five
+ * lines hidden from the customer. The gap is $2,633.19, which is every line
+ * in two phases: Wall Modifications, and all four of Fixture Installation.
+ *
+ * `groupLinesByPhase` only sees lines that are DRAWN, so a phase whose lines
+ * are all hidden produced no group and vanished from the customer's copy
+ * entirely — heading, subtotal and all — while its money stayed in the
+ * total. Nothing on the page accounted for the difference.
+ *
+ * The office copy draws hidden lines anyway, so it always looked right.
+ * That is why every check against the office copy passed while the document
+ * a customer reads was wrong.
+ */
+const HIDDEN = { visible: false };
+
+/** Q-2026-0002's real nine steps — two of them stored as a bare title. */
+const SARAH_STEPS = [
+  { title: 'Site Setup and Protection', included: true, stepNumber: 1 },
+  { title: 'Demolition and Preparation', stepNumber: 2 },
+  { title: 'Bench Construction', stepNumber: 3 },
+  { title: 'Wall Modifications', stepNumber: 4 },
+  { title: 'Electrical Rough-In', stepNumber: 5 },
+  { title: 'Fixture Installation', stepNumber: 6 },
+  { title: 'Lighting Installation', stepNumber: 7 },
+  { title: 'Painting', stepNumber: 8 },
+  { title: 'Final Cleanup and Handover', stepNumber: 9 },
+];
+
+function sarahWithHiddenPhases() {
+  const q = sarah({ processSteps: SARAH_STEPS });
+  const hide = (list: any[], name: string) => {
+    const row = list.find((r: any) => (r.name || r.role) === name);
+    Object.assign(row, HIDDEN);
+  };
+  hide(q.materials as any[], 'Drywall work');       // all of Wall Modifications
+  hide(q.materials as any[], 'Hair Dryers');        // all four of
+  hide(q.materials as any[], 'Custom Benches');     //   Fixture Installation
+  hide(q.labor as any[], 'New Labor Role');
+  hide(q.labor as any[], 'Bench install');
+  return q;
+}
+
+test('a phase with every line hidden still appears, with its subtotal', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
+  const labels = (doc.phases || []).map((p: any) => p.label);
+  assert.ok(labels.includes('Wall Modifications'), 'Wall Modifications must not vanish');
+  assert.ok(labels.includes('Fixture Installation'), 'Fixture Installation must not vanish');
+
+  const wall = (doc.phases as any[]).find((p) => p.label === 'Wall Modifications');
+  const fixture = (doc.phases as any[]).find((p) => p.label === 'Fixture Installation');
+  assert.equal(wall.lines.length, 0, 'the detail is withheld');
+  assert.equal(wall.subtotal, 235.69, 'the money is not');
+  assert.equal(fixture.subtotal, 2397.5);
+});
+
+test('and the page still reconciles to the printed total', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
+  assertAddsUp(doc, 'Sarah hidden phases');
+  assert.equal(phaseSum(doc), 12666.13);
+  // The drawn column is legitimately short by the hidden money — that is what
+  // hiding means — and the phase subtotals are what carry it to the total.
+  assert.equal(drawnSum(doc), 10032.94, "Eric's figure, which was never wrong");
+});
+
+test('the phases stay in the job order, not shuffled to the end', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
+  const labels = (doc.phases || []).map((p: any) => p.label);
+  assert.ok(labels.indexOf('Wall Modifications') < labels.indexOf('Electrical Rough-In'));
+  assert.ok(labels.indexOf('Fixture Installation') < labels.indexOf('Lighting Installation'));
+});
+
+test('the office copy is unchanged by any of this', () => {
+  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: false });
+  assert.equal(drawnSum(doc), 12666.13);
+  assert.equal((doc.phases || []).length, 8);
+});

@@ -239,7 +239,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     amount: amountOf(l),
   });
 
-  const phases: QuotePdfPhase[] = grouped.map((g) => {
+  let phases: QuotePdfPhase[] = grouped.map((g) => {
     const lines = g.lines.map(toPdfLine);
     const subtotal = g.phase && trueCost.has(g.phase)
       ? round2(trueCost.get(g.phase) as number)
@@ -316,6 +316,63 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * are built from the job's own steps instead — otherwise turning both
    * sections off produces a PDF with a total and nothing above it.
    */
+  /**
+   * A PHASE WHOSE LINES ARE ALL HIDDEN STILL HAS TO APPEAR.
+   *
+   * `groupLinesByPhase` only knows about lines that are drawn, so a phase
+   * where every line is hidden from the customer produced no group at all —
+   * and vanished from the page, taking its subtotal with it. The money
+   * stayed in the total, which is how Q-2026-0002 printed a column of
+   * $10,032.94 beneath a total of $12,666.13: Wall Modifications and Fixture
+   * Installation were simply not on the customer's copy, and nothing
+   * accounted for the $2,633.19 between them.
+   *
+   * That is the opposite of what hiding is for. The rule this file and
+   * `invoiceLineSelection` both state is that hiding withholds the DETAIL
+   * and keeps the money, and the phase subtotal is where the money is meant
+   * to stay visible. So a phase with cost against it is drawn whether or not
+   * any of its lines survived — heading and subtotal, no detail.
+   *
+   * The office copy never hit this, because it draws hidden lines anyway,
+   * which is why the fault only ever showed on the copy a customer reads.
+   */
+  if (phases.length && trueCost.size) {
+    const drawnTitles = new Set(phases.map((p) => String(p.title ?? p.label ?? '').trim()));
+    const order = steps
+      .map((s: any) => String(s?.title || s?.step || '').trim())
+      .filter(Boolean);
+
+    for (const [name, cost] of trueCost) {
+      const title = String(name || '').trim();
+      if (!title || drawnTitles.has(title)) continue;
+      if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
+      phases.push({
+        title,
+        label: title,
+        description: sections.processDetail ? describe.get(title) : undefined,
+        lines: [],
+        subtotal: round2(Number(cost) || 0),
+        markup: showMarkup ? { total: markupOn(Number(cost) || 0, rates!).total, label: rateLabel } : undefined,
+      });
+    }
+
+    /*
+     * Back into the job's own order. Appending would put a withheld phase
+     * after the handover, which reads as an afterthought rather than as part
+     * of the sequence it belongs to.
+     */
+    if (order.length) {
+      const rank = (p: QuotePdfPhase) => {
+        const i = order.indexOf(String(p.title ?? p.label ?? '').trim());
+        return i === -1 ? order.length : i;
+      };
+      phases = phases
+        .map((p, i) => ({ p, i }))
+        .sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i)
+        .map((x) => x.p);
+    }
+  }
+
   if (!phases.length && steps.length) {
     for (const s of steps) {
       const t = String(s?.title || s?.step || '').trim();
