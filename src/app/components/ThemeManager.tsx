@@ -1,4 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+
+/** Same fallback RoleSwitcher carries, for the same reason: the real owner
+ *  stays able to work while the ownership tables are loading or unavailable. */
+const OWNER_EMAILS = ['ericerb555@proton.me'];
 
 interface Theme {
   primary: string;
@@ -112,6 +117,28 @@ export function useTheme() {
 export function ThemeManager() {
   const { theme, mode, toggleMode, setCustomTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+
+  /*
+   * OWNER AND ADMIN ONLY.
+   *
+   * This had no gate of any kind. It renders from App's global tree, so every
+   * visitor on every page — a resident looking up a plumber, a customer
+   * approving a quote — got a floating button that opens an editor for the
+   * application's colour palette. Found by the 390px device sweep, which was
+   * looking for a third floating control and found a permissions question.
+   *
+   * The same test RoleSwitcher uses, deliberately: one idea of who staff are,
+   * including the email fallback that keeps the real owner working while the
+   * ownership tables are still loading.
+   *
+   * NOTE: only the button and the panel are gated. `ThemeProvider` above is
+   * untouched and still runs for everybody — it is what APPLIES the theme, and
+   * gating it would leave every visitor unstyled.
+   */
+  const { isOwner, isAdmin, user: authUser } = useAuth();
+  const authEmail = String(authUser?.email || '').trim().toLowerCase();
+  const canUse = isOwner || isAdmin || OWNER_EMAILS.includes(authEmail);
+  if (!canUse) return null;
 
   const ColorPicker = ({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) => (
     <div className="flex items-center gap-3">
