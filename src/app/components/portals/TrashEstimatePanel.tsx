@@ -67,6 +67,27 @@ interface Shot { id: string; file: File; preview: string }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
+/**
+ * What to tell the bucket this photograph is.
+ *
+ * An iPhone hands back HEIC, and `file.type` is empty often enough that
+ * defaulting to `image/jpeg` stores a HEIC under a type it is not — a file that
+ * uploads cleanly and then will not open for whoever looks at it later. The
+ * bucket's allow-list already includes `image/heic` and `image/heif`, so the
+ * honest type is also the accepted one. The extension is the only evidence
+ * available in the browser; the server sniffs the actual bytes (`photoSniff.ts`)
+ * where it matters.
+ */
+function photoContentType(file: File): string {
+  if (file.type) return file.type;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const byExt: Record<string, string> = {
+    heic: 'image/heic', heif: 'image/heif', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+  };
+  return byExt[ext] || 'application/octet-stream';
+}
+
 export default function TrashEstimatePanel({ customerName, onNavigate }: Props) {
   const [photos, setPhotos] = useState<Shot[]>([]);
   const [video, setVideo] = useState<{ file: File; url: string } | null>(null);
@@ -122,7 +143,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
       for (const shot of photos) {
         const path = `${owner}/trash-estimate/${Date.now()}_${shot.file.name.replace(/[^\w.-]+/g, '_')}`;
         const { error } = await supabase.storage.from('project-photos')
-          .upload(path, shot.file, { contentType: shot.file.type || 'image/jpeg' });
+          .upload(path, shot.file, { contentType: photoContentType(shot.file) });
         if (!error) mediaRefs.push(`storage://project-photos/${path}`);
       }
 
@@ -141,16 +162,56 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
         setStage('Reading your video…');
         const room = Math.max(0, MAX_IMAGES - photos.length);
         if (room > 0) {
-          const frames = await framesFromVideo(
-            video.file, Math.min(FRAMES_PER_VIDEO, room), undefined,
-            (done, total) => setStage(`Reading your video — frame ${done} of ${total}…`),
-          );
-          images.push(...frames);
+          /*
+           * A video this browser cannot decode is not a failed estimate.
+           *
+           * An iPhone records H.265 inside a .mov, and a browser that cannot
+           * decode it throws here — which, before this, took the whole
+           * submission down with it and lost the photographs too. The clip is
+           * already uploaded by this point, so somebody can still watch it;
+           * the estimate carries on with the photographs and says what it
+           * missed.
+           */
+          try {
+            const frames = await framesFromVideo(
+              video.file, Math.min(FRAMES_PER_VIDEO, room), undefined,
+              (done, total) => setStage(`Reading your video — frame ${done} of ${total}…`),
+            );
+            images.push(...frames);
+          } catch (err) {
+            console.warn('[TrashEstimate] could not read the video', err);
+            toast.message('We could not read that video on this device', {
+              description: 'Your photographs still price the job, and we have kept the video for a person to watch.',
+            });
+          }
         }
       }
 
+      /*
+       * One photograph this browser cannot decode must not lose the other six.
+       *
+       * The same HEIC-on-a-desktop case as the preview above: Safari opens it,
+       * another browser looking at the same synced library does not. A file
+       * that will not convert is skipped and the rest are priced; only an empty
+       * set is a failure, and it says which ones were skipped.
+       */
       setStage('Preparing your photographs…');
-      for (const shot of photos) images.push(await fileToDataUrl(shot.file));
+      const skipped: string[] = [];
+      for (const shot of photos) {
+        try {
+          images.push(await fileToDataUrl(shot.file));
+        } catch {
+          skipped.push(shot.file.name);
+        }
+      }
+      if (skipped.length) {
+        toast.message(`${skipped.length} picture${skipped.length === 1 ? '' : 's'} could not be opened on this device`, {
+          description: 'They are uploaded and a person can see them. Try from your phone if the price looks light.',
+        });
+      }
+      if (!images.length) {
+        throw new Error('None of those pictures could be opened on this device. Try taking them on your phone.');
+      }
 
       images = images.slice(0, MAX_IMAGES);
       // Drop frames until it fits, rather than finding out at the far end.
@@ -325,11 +386,43 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
         <input ref={libraryRef} type="file" accept="image/*" multiple className="hidden"
           onChange={(e) => { addPhotos(e.target.files); e.currentTarget.value = ''; }} />
 
+        {/*
+          If the camera does not open.
+
+          A `capture` input needs no permission prompt, but a browser whose
+          camera was blocked once — months ago, for another site — silently
+          falls back to the library or does nothing at all, which reads as the
+          button being broken. The work request form already carries this hint
+          for the same reason; it is the same sentence because it is the same
+          problem.
+        */}
+        <p className="text-[11px] leading-relaxed text-gray-500">
+          If the camera does not open, your browser may be blocking it:
+          on iPhone, Settings → Safari → Camera → Allow. You can always use
+          Choose from library instead — photographs you have already taken work
+          just as well.
+        </p>
+
         {photos.length > 0 && (
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {photos.map((p) => (
-              <div key={p.id} className="relative rounded-lg overflow-hidden" style={{ aspectRatio: '1' }}>
-                <img src={p.preview} alt="" className="w-full h-full object-cover" />
+              <div key={p.id} className="relative rounded-lg overflow-hidden"
+                style={{ aspectRatio: '1', background: 'rgba(255,255,255,0.05)' }}>
+                {/*
+                  A HEIC off an iPhone renders here on Safari and not on a
+                  desktop Chrome looking at the same synced library. The file
+                  is still perfectly usable — it is converted before it is sent
+                  and the server sniffs the bytes — so a preview that will not
+                  decode shows the name rather than a broken image icon.
+                */}
+                <span className="absolute inset-0 flex items-center justify-center p-2 text-[9px] text-center text-gray-500 break-all">
+                  {p.file.name}
+                </span>
+                <img
+                  src={p.preview} alt=""
+                  className="relative w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                />
                 <button
                   onClick={() => setPhotos((c) => c.filter((x) => x.id !== p.id))}
                   aria-label="Remove this photo"

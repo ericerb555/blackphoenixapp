@@ -99,6 +99,19 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
    * reconcile away or that never gets set at all.
    */
   const [bounceDone, setBounceDone] = useState(false);
+  /**
+   * Whether the hero has scrolled away, which retires the floating junk button.
+   *
+   * Passive listener, and the threshold is a fraction of the viewport rather
+   * than a pixel count so it behaves the same on a phone and on a monitor.
+   */
+  const [pastHero, setPastHero] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setPastHero(window.scrollY > window.innerHeight * 0.7);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [selectedPromo, setSelectedPromo] = useState<any>(null);
 
@@ -500,6 +513,55 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
           <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
         </motion.button>
       </div>
+
+      {/*
+        Junk removal — floating, top left, opposite Sign In.
+
+        Eric, 2026-11-14: "can we also put a floating button on the landing page
+        in the top section on the lefthand side click for Junk removal".
+
+        THREE THINGS THIS INHERITS FROM THE BUTTON ACROSS THE ROW
+
+        It shares the top row with Sign In, so it copies what that one learned
+        the hard way. Its own dark ground, because the company name behind it is
+        enormous white display type over a photograph and an unbacked control
+        lands in the middle of the lettering and reads as part of the headline.
+        Inline padding, because `globals.css` zeroes every Tailwind padding
+        utility application-wide on purpose — `px-6 py-3` computes to 0px here,
+        which on a phone is a button with no tap target. And it does not wait on
+        the opening flourish: a control should not depend on an animation having
+        run.
+
+        It clears Sign In at 390px — the two together are about 300px of a
+        358px row — and both sit inside the 76px the hero already reserves for
+        this row in `--hero-top-clearance`.
+
+        IT LEAVES WHEN THE TOP SECTION DOES
+
+        Eric asked for it in the top section, so it fades out once the hero is
+        behind you rather than floating over the whole page. The banner above
+        the service row and the pill beside it carry the same journey further
+        down; a third copy of it hovering over the reels is the thing that gets
+        reported as covering the page on a phone.
+      */}
+      <motion.div
+        initial={{ opacity: 0, x: -12 }}
+        animate={{ opacity: pastHero ? 0 : 1, x: pastHero ? -12 : 0 }}
+        transition={{ duration: 0.25 }}
+        className="fixed top-4 left-4 z-[60] rounded-2xl bg-black/70 shadow-xl shadow-black/50 ring-1 ring-white/15 backdrop-blur-md"
+        style={{ padding: '6px', pointerEvents: pastHero ? 'none' : 'auto' }}
+        aria-hidden={pastHero}
+      >
+        <button
+          onClick={() => void startTrashQuote()}
+          className="rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-500 hover:to-orange-600 shadow-lg shadow-orange-500/30 hover:shadow-orange-500/50 transition-all flex items-center gap-2 group"
+          style={{ padding: '12px 16px' }}
+        >
+          <Trash2 className="w-5 h-5 flex-shrink-0" />
+          <span className="text-sm whitespace-nowrap">Junk Removal</span>
+          <ArrowRight className="w-4 h-4 flex-shrink-0 group-hover:translate-x-1 transition-transform" />
+        </button>
+      </motion.div>
 
       {/* Hero Section with Company Name & Logo */}
       <motion.div
