@@ -307,7 +307,22 @@ async function askOverpass(query: string): Promise<OverpassElement[]> {
       ? result.error
       : result.status === 429
         ? "it is rate-limiting us, so we are asking too often"
+        /*
+         * 522 and 524 join 502 and 504 because they mean the same thing to us
+         * and have the same answer: come back later.
+         *
+         * 502 is Overpass saying so in words — "all query workers are busy and
+         * the request queue is full", which is what it returned on 2026-11-14
+         * while this path was being proved. 522 and 524 are Cloudflare saying
+         * it on Overpass's behalf when its origin stops answering at all; we
+         * saw one after 39.7s on the first tick that got through the Worker.
+         *
+         * Lumping them in matters because 522 was landing in the "no usable
+         * body" bucket, which reads like a bug in us. It is a busy endpoint,
+         * and the clock already does the only correct thing: try again later.
+         */
         : result.status === 502 || result.status === 504
+          || result.status === 522 || result.status === 524
           ? "it is at capacity; all its query workers are busy"
           : result.status === 406
             // The refusal this whole hop exists to prevent. Seeing it again

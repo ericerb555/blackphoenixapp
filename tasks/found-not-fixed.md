@@ -15,7 +15,7 @@ accident.
 
 ---
 
-## BLOCKED ON SOMEBODY, NOT ON CODE
+## WAITING ON A BUSY ENDPOINT, NOT ON ANYBODY
 
 ### The frontend does NOT build on Cloudflare, and that pipeline is dead
 A Cloudflare Worker named `blackphoenixapp`, connected to this GitHub repo on
@@ -37,17 +37,28 @@ publishing one site is a worse problem than one of them failing.
 The build itself is healthy: `npm run build` finishes locally in 32-55s and has
 been run many times today without memory trouble.
 
-### The two Overpass deploys — written, tested, NOT shipped
-The Exchange has not compiled a town since **2026-10-06**. The fix is committed
-(`a0cf2b071`) and inert until both of these run, **in this order**:
+### The ingest path is FIXED and SHIPPED — Overpass is simply busy
+Everything we control works, proved end to end on 2026-11-14:
 
-    npx wrangler login
-    npx wrangler deploy --config cloudflare/wrangler.toml
-    npm run deploy:server
+- `api-origin-proxy` deployed from this repo, to its real route
+- `/__osm/interpreter` live and gated — 401 without the secret, 405 on GET
+- `EDGE_ORIGIN_SECRET` matched on both sides (it never had been; the old
+  Supabase digest `81c0b89a…` and Cloudflare's copy were different values)
+- the server deployed and calling the proxy
+- a tick reaching Overpass through the hop, confirmed by the 401 disappearing
 
-Reversed, the server calls a Worker path that does not exist yet. Wrangler
-cannot be run from the agent environment — it needs an interactive login or
-`CLOUDFLARE_API_TOKEN`.
+The last tick failed with **522 after 39.7 seconds**, and a direct request from
+a laptop at the same moment got 502 with Overpass's own words: *"This Overpass
+API server is currently at capacity. All query workers are busy and the request
+queue is full. Retry your request using exponential backoff."*
+
+**Nothing to fix and nobody to chase.** The hourly clock is the exponential
+backoff Overpass asks for. Hudson is first in its queue — never-compiled sorts
+ahead of stale — then Windham, then Salem and Manchester refresh.
+
+**What to check tomorrow** rather than assume: `last_compiled_at` on
+`exchange_territory`. If Hudson is still NEVER after a day of hourly ticks,
+that is a new problem and the run record will name it.
 
 **The Worker name is reconciled** — `api-origin-proxy`, read off the dashboard
 2026-11-14. It had been `blackphoenix-origin-proxy`, a name that has never
