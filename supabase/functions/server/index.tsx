@@ -94,6 +94,7 @@ import houseCaptureRouter from "./house-capture.tsx";
 import { trashEstimatorRouter } from "./trash-estimator.tsx";
 import { crewFromJob, readTipAmount, tipRecord } from "./tips.ts";
 import { normalisePhone } from "./staffSms.ts";
+import { signMediaValues } from "./mediaSigning.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -652,6 +653,34 @@ const IP_REPUTATION_ENFORCE =
   String(Deno.env.get('IP_REPUTATION_ENFORCE') ?? 'false').toLowerCase() === 'true';
 
 /**
+ * Addresses that are never throttled and never banned — fail2ban's `ignoreip`.
+ *
+ * Eric: "i dont want to get locked out." He is right to worry, and the logs
+ * say so: on 2026-11-14 his own address sat at score 60.0, the cap, in a
+ * permanent would-ban state. The requests earning it were
+ * `/work-requests`, `/design-projects`, `/customers`, `/job-sites`,
+ * `/waste-entries` — fifteen in one second. That is the owner dashboard
+ * mounting, not an attack.
+ *
+ * So this exists before enforcement does, rather than after somebody is
+ * locked out by it. An operator losing access to their own platform cannot
+ * fix the thing that locked them out, which makes it the one failure this
+ * module must not be able to cause.
+ *
+ * Comma-separated, set with:
+ *   supabase secrets set IP_REPUTATION_ALLOW=70.109.187.2,203.0.113.4
+ *
+ * Addresses, not ranges, and deliberately: a CIDR here would be a way to
+ * exempt half the internet with a typo. Several entries are cheap.
+ */
+const IP_REPUTATION_ALLOW: ReadonlySet<string> = new Set(
+  String(Deno.env.get('IP_REPUTATION_ALLOW') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+/**
  * Per-isolate cache, so the common case touches no storage.
  *
  * Bounded, because an isolate is long-lived and an attacker rotating
@@ -707,6 +736,16 @@ app.use('*', async (c, next) => {
   // caller into one bucket, which would ban all of them the first time any
   // one of them probed.
   if (!ip) return next();
+
+  /*
+   * An allowlisted address is not scored at all, not merely not enforced.
+   *
+   * Scoring it and then declining to act would leave a record sitting at the
+   * cap, which is a trap for the next person reading the store: it looks
+   * exactly like an attacker nobody dealt with. Skipping entirely means the
+   * absence of a record is the truth.
+   */
+  if (IP_REPUTATION_ALLOW.has(ip)) return next();
 
   const now = Date.now();
   const rep = await loadReputation(ip, now);
@@ -13897,6 +13936,103 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
  * pay, so the list is built to answer the two questions that matter: who is
  * owed, and has it reached them.
  */
+/**
+ * Insurance certificates, and when they lapse.
+ *
+ * Eric asked for somewhere to keep cyber liability cover — "build a spot for
+ * when i get it" — so these exist before any policy does.
+ *
+ * Administrators only, on the read as well as the write. A policy number, a
+ * limit and a renewal date are the shape of this company's risk and what an
+ * attacker would want before social-engineering a broker; they are not
+ * something any signed-in customer should be able to list.
+ */
+app.get('/make-server-3eae23a6/insurance', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrators only.' }, 403);
+
+    const policies = ((await kv.get('insurance_policies') as any[]) || []);
+    /*
+     * The certificate lives in a private bucket, so the stored value is a
+     * `storage://` ref and a usable link is minted per read — the rule
+     * `mediaSigning.ts` sets for every other document on this platform.
+     */
+    let signed: unknown[] = [];
+    try {
+      signed = await signMediaValues(
+        createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!),
+        policies.map((p: any) => p?.certificateRef || ''),
+      );
+    } catch { signed = []; }
+
+    return c.json({
+      success: true,
+      policies: policies.map((p: any, i: number) => ({
+        ...p,
+        certificateUrl: String(signed[i] || '').startsWith('http') ? signed[i] : null,
+      })),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not read the policies.' }, 500);
+  }
+});
+
+app.post('/make-server-3eae23a6/insurance', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrators only.' }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const rows = ((await kv.get('insurance_policies') as any[]) || []);
+    const index = body?.id ? rows.findIndex((r: any) => r?.id === String(body.id)) : -1;
+    const now = new Date().toISOString();
+    const text = (v: unknown, max = 200) => String(v ?? '').trim().slice(0, max);
+
+    // Field by field, and merged over what is already stored so a partial save
+    // — uploading a certificate, say — does not blank the rest of the record.
+    const existing = index >= 0 ? rows[index] : {};
+    const record = {
+      ...existing,
+      id: index >= 0 ? rows[index].id : `ins_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      kind: text(body.kind ?? existing.kind ?? 'cyber', 40),
+      insurer: text(body.insurer ?? existing.insurer),
+      policyNumber: text(body.policyNumber ?? existing.policyNumber),
+      limit: text(body.limit ?? existing.limit, 80),
+      expiresOn: text(body.expiresOn ?? existing.expiresOn, 40),
+      note: text(body.note ?? existing.note, 1000),
+      certificateRef: String(body.certificateRef ?? existing.certificateRef ?? '').startsWith('storage://')
+        ? String(body.certificateRef ?? existing.certificateRef)
+        : null,
+      updatedAt: now,
+      updatedBy: user.email,
+    };
+
+    if (index >= 0) rows[index] = record; else rows.push(record);
+    await kv.set('insurance_policies', rows);
+    return c.json({ success: true, policies: rows });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not save that policy.' }, 500);
+  }
+});
+
+app.delete('/make-server-3eae23a6/insurance/:id', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrators only.' }, 403);
+
+    const id = c.req.param('id');
+    const rows = ((await kv.get('insurance_policies') as any[]) || []).filter((r: any) => r?.id !== id);
+    await kv.set('insurance_policies', rows);
+    return c.json({ success: true, policies: rows });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not remove that policy.' }, 500);
+  }
+});
+
 app.get('/make-server-3eae23a6/tips', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
