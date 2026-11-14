@@ -239,9 +239,43 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
   const mark = (desc: string, l: any) =>
     !forCustomer && l?.visible === false ? `${desc}  (hidden from customer)` : desc;
 
+  /*
+   * WHERE THE LINES LIVE, WHICH IS NOT ALWAYS `materials` AND `labor`.
+   *
+   * Some quotes keep everything in `items` instead — Q-2026-0006 is one, with
+   * seventeen fully formed rows worth $7,308.70, every one phased and priced,
+   * and `materials`/`labor` both absent. Reading only the two named arrays
+   * produced a PDF of phase headings with no lines under them and a $0.00
+   * total, which is the "i just see a total at the bottom of the pdf" state.
+   *
+   * The named arrays win where they exist: on a quote carrying both, `items`
+   * is a stale copy from an earlier save and the stored subtotals reconcile
+   * with `materials`/`labor` rather than with it.
+   *
+   * Splitting by SHAPE rather than by a flag, because that is what the rows
+   * actually carry: an hourly rate and a role is labour, a quantity and a
+   * unit cost is material. A row that says neither is treated as material,
+   * which prices it from the same two fields it would have used anyway.
+   */
+  const looksLikeLabour = (r: any) =>
+    r?.hours != null || r?.hourlyRate != null || (r?.role != null && r?.unitCost == null);
+
+  const declaredMaterials = Array.isArray(quote?.materials) ? quote.materials : [];
+  const declaredLabour = Array.isArray(quote?.labor) ? quote.labor : [];
+  const fallbackItems = (declaredMaterials.length || declaredLabour.length)
+    ? []
+    : (Array.isArray(quote?.items) ? quote.items : []);
+
+  const materialRows = declaredMaterials.length || declaredLabour.length
+    ? declaredMaterials
+    : fallbackItems.filter((r: any) => !looksLikeLabour(r));
+  const labourRows = declaredMaterials.length || declaredLabour.length
+    ? declaredLabour
+    : fallbackItems.filter(looksLikeLabour);
+
   const lines: SelectedLine[] = [];
   if (sections.materials) {
-    for (const m of Array.isArray(quote?.materials) ? quote.materials : []) {
+    for (const m of materialRows) {
       if (!keep(m)) continue;
       lines.push({
         description: describeLine(
@@ -257,7 +291,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     }
   }
   if (sections.labor) {
-    for (const l of Array.isArray(quote?.labor) ? quote.labor : []) {
+    for (const l of labourRows) {
       if (!keep(l)) continue;
       lines.push({
         description: mark([l?.role, l?.description].filter(Boolean).join(' — ') || 'Labour', l),
@@ -313,8 +347,12 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
    */
   const phaseCost = new Map<string, number>();
   for (const l of [
-    ...(Array.isArray(quote?.materials) ? quote.materials : []),
-    ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    // The same rows the lines above were built from, so a quote that keeps
+    // everything in `items` gets phase subtotals as well as lines. Reading
+    // the named arrays here while the lines came from `items` would print
+    // every phase at zero beneath its own priced rows.
+    ...materialRows,
+    ...labourRows,
     // Phased soft costs carry real money and a real milestone. Leaving them
     // out would make the phase subtotal disagree with the lines printed
     // under it, and would short the draw that releases on that phase.

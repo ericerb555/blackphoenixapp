@@ -322,6 +322,27 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     ? undefined
     : 'No priced lines on this quote yet — add materials or labour, and they will appear here grouped by phase.';
 
+  /**
+   * What the page actually shows, used only when the quote stores no total.
+   *
+   * Some quotes have never had `totalCost`, `preTaxTotal` or the subtotals
+   * written at all — Q-2026-0006 is one, with seventeen priced and phased
+   * rows under a stored total of null. Without this the document drew every
+   * line correctly beneath a footer reading $0.00, which is the same
+   * complaint from the other end: the lines do not total the total line.
+   *
+   * Taken from the phase subtotals, which already count hidden lines and
+   * already exclude unticked ones, plus any drawn line that belongs to no
+   * phase. Never used when a stored figure exists — a quote that has been
+   * priced keeps its own arithmetic, margins and all.
+   */
+  const drawnTotal = round2(
+    phases.reduce((sum, p) => sum + (Number(p.subtotal) || 0), 0)
+    + lines
+      .filter((l: any) => !String(l?.phase || '').trim())
+      .reduce((sum: number, l: any) => sum + amountOf(l), 0),
+  );
+
   return {
     company: {
       name: companyInfo.name,
@@ -386,10 +407,11 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     subtotal: round2(share * (forCustomer
       ? preTaxTotalOf(quote, pricing)
       : Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
-        || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0))),
+        || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0))
+      || drawnTotal),
     tax: round2(share * (Number(quote?.taxAmount) || 0)),
     taxRate: Number(quote?.taxRate) || undefined,
-    total: round2(share * (Number(quote?.totalCost || quote?.total) || 0)),
+    total: round2(share * (Number(quote?.totalCost || quote?.total) || 0)) || drawnTotal,
     notes: quote?.notes || undefined,
   };
 }
