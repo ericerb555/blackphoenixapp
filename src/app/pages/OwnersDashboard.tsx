@@ -32,7 +32,7 @@ import {
   Megaphone, Store, ShoppingCart, Truck, RefreshCw, Filter,
   LayoutDashboard, Network, HardDrive, Cpu, Server, Terminal,
   Camera, Cloud, Wrench, Smartphone,
-  PhoneCall, Trash2,
+  PhoneCall, Trash2, Heart,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RoleManagementSystem from '../components/RoleManagementSystem';
@@ -62,6 +62,7 @@ import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
 import PricingAttentionBanner from '../components/PricingAttentionBanner';
 import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import TrashRatesPanel from '../components/owner/TrashRatesPanel';
+import TipsPanel from '../components/owner/TipsPanel';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
@@ -78,7 +79,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing' | 'trash-rates' | 'messages';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing' | 'trash-rates' | 'tips' | 'messages';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -508,6 +509,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'plans' as MainTab, label: 'Portal Plans (moved)', icon: CreditCard },
     { id: 'on-call-pricing' as MainTab, label: 'On-Call Pricing', icon: PhoneCall },
     { id: 'trash-rates' as MainTab, label: 'Junk & Demo Rates', icon: Trash2 },
+    { id: 'tips' as MainTab, label: 'Crew Tips', icon: Heart },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
     { id: 'tier-features' as MainTab, label: 'Tier Features', icon: Layers },
@@ -824,6 +826,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         )}
         {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
         {activeTab === 'trash-rates' && <TrashRatesPanel />}
+        {activeTab === 'tips' && <TipsPanel />}
 
         {/*
           Reels, advertisements and offers submitted by tenants. None of them
@@ -1090,7 +1093,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                         </div>
 
                         {/* Stat pills */}
-                        <div className="grid grid-cols-3 divide-x divide-[#2A2A2A] border-t border-[#2A2A2A]">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 divide-x divide-[#2A2A2A] border-t border-[#2A2A2A]">
                           {[
                             { label: 'Employees', value: biz.employee_count ? biz.employee_count.toString() : '—' },
                             { label: 'Founded', value: biz.founded_date ? biz.founded_date.slice(0, 4) : '—' },
