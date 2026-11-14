@@ -76,8 +76,71 @@ export const SIGNAL_WEIGHTS: Record<Signal, number> = {
 export const WARN_SCORE = 12;
 /** Score at which a caller is refused outright. */
 export const BAN_SCORE = 30;
-/** How long a ban lasts, in ms. Short on purpose — see `decide`. */
+/** How long a FIRST ban lasts, in ms. Short on purpose — see `decide`. */
 export const BAN_MS = 15 * 60 * 1000;
+/**
+ * Each further ban doubles: 15m, 30m, 1h, 2h, 4h, then the cap.
+ *
+ * Eric: "ban repeat offenders for escalating durations." This is fail2ban's
+ * `bantime.increment` and it answers the one thing a flat ban cannot. Fifteen
+ * minutes is the right price for a first offence — it stops an enumeration
+ * run dead and expires before a wrongly-caught customer telephones — and it
+ * is far too cheap for somebody who comes back and earns it a sixth time.
+ */
+export const BAN_ESCALATION = 2;
+/**
+ * Longest a ban may ever last.
+ *
+ * Four hours rather than a day, and the reason is the one in `decide`:
+ * addresses are not identities. A CGNAT range or an office can be shared by
+ * hundreds of people, and the cost of being wrong rises with the duration.
+ * Four hours is long enough that an attacker has to come back tomorrow, and
+ * short enough that a mistaken ban clears inside a working day.
+ */
+export const BAN_MAX_MS = 4 * 60 * 60 * 1000;
+/**
+ * Quiet time after which repeat offences are forgiven and the count resets.
+ *
+ * Without this, escalation is permanent: an office that trips the detector
+ * once a quarter would eventually be meeting four-hour bans for a single
+ * mistake, having done nothing wrong twice in a row. Measured from the last
+ * ban, so a genuine attacker pausing to wait it out has to pause for longer
+ * than the ban they were trying to escape.
+ */
+export const BAN_FORGET_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long the Nth ban should last.
+ *
+ * `bans` is the count INCLUDING this one, so the first ban is `BAN_MS`.
+ * Exported because the figure appears in a `Retry-After` header and in the
+ * log line, and those two must not be able to disagree.
+ */
+/**
+ * How many bans count against this address right now.
+ *
+ * Zero once it has been quiet for `BAN_FORGET_MS`, which is what stops
+ * escalation being permanent for a shared address that trips the detector
+ * twice a year.
+ */
+export function banCount(rep: Reputation, now: number): number {
+  const last = Number(rep?.lastBanAt) || 0;
+  if (!last || now - last > BAN_FORGET_MS) return 0;
+  return Math.max(0, Math.trunc(Number(rep?.bans) || 0));
+}
+
+/** How long the ban being imposed right now should last. */
+export function nextBanLength(rep: Reputation, now: number): number {
+  return banDuration(banCount(rep, now) + 1);
+}
+
+export function banDuration(bans: number): number {
+  const n = Math.max(1, Math.trunc(bans) || 1);
+  // Doubling overflows into Infinity surprisingly fast; the cap is applied to
+  // the exponent as well so the arithmetic stays finite for any input.
+  const steps = Math.min(n - 1, 32);
+  return Math.min(BAN_MS * Math.pow(BAN_ESCALATION, steps), BAN_MAX_MS);
+}
 /** Score halves every this many ms of quiet. */
 export const HALF_LIFE_MS = 10 * 60 * 1000;
 /** Distinct paths in one window past which breadth itself is a signal. */
@@ -92,13 +155,23 @@ export interface Reputation {
   updatedAt: number;
   /** Epoch ms the current ban expires, or 0. */
   bannedUntil: number;
+  /**
+   * How many bans this address has earned, for escalation.
+   *
+   * Reset after `BAN_FORGET_MS` of quiet — see `banDuration`. Absent on
+   * records written before escalation existed, which `record` reads as zero,
+   * so an address mid-ban at deploy time simply starts its count now.
+   */
+  bans?: number;
+  /** Epoch ms of the most recent ban, for the forget window. */
+  lastBanAt?: number;
   /** Distinct paths seen in the breadth window, and when it opened. */
   paths: string[];
   windowAt: number;
 }
 
 export const freshReputation = (now: number): Reputation => ({
-  score: 0, updatedAt: now, bannedUntil: 0, paths: [], windowAt: now,
+  score: 0, updatedAt: now, bannedUntil: 0, bans: 0, lastBanAt: 0, paths: [], windowAt: now,
 });
 
 /**
@@ -138,7 +211,12 @@ export function decide(rep: Reputation, now: number): Decision {
     return { action: 'ban', score: decayed(rep, now), retryAfter: Math.ceil((rep.bannedUntil - now) / 1000) };
   }
   const score = decayed(rep, now);
-  if (score >= BAN_SCORE) return { action: 'ban', score, retryAfter: Math.ceil(BAN_MS / 1000) };
+  if (score >= BAN_SCORE) {
+    // What the NEXT ban would cost, which is what `record` is about to
+    // impose. Reading it from the same function keeps the Retry-After this
+    // returns and the ban that follows from ever disagreeing.
+    return { action: 'ban', score, retryAfter: Math.ceil(nextBanLength(rep, now) / 1000) };
+  }
   if (score >= WARN_SCORE) return { action: 'throttle', score, retryAfter: 5 };
   return { action: 'allow', score, retryAfter: 0 };
 }
@@ -170,10 +248,39 @@ export function record(
 
   score = Math.min(score, MAX_SCORE);
 
+  /*
+   * A BAN IS COUNTED WHEN IT STARTS, NOT WHILE IT RUNS.
+   *
+   * An address already serving a ban keeps earning signals — it is still
+   * making requests, that is what being banned looks like from here. If each
+   * of those re-counted, one determined run would walk straight up to the
+   * four-hour cap in seconds and the escalation would measure request volume
+   * rather than repeat offending, which is what the score already does.
+   *
+   * So the count rises only on the transition into a ban: the address was
+   * free, and now it is not.
+   */
+  const alreadyBanned = rep.bannedUntil > now;
+  const starting = score >= BAN_SCORE && !alreadyBanned;
+
+  let { bans, lastBanAt, bannedUntil } = {
+    bans: banCount(rep, now),
+    lastBanAt: Number(rep.lastBanAt) || 0,
+    bannedUntil: rep.bannedUntil,
+  };
+
+  if (starting) {
+    bans += 1;
+    lastBanAt = now;
+    bannedUntil = now + banDuration(bans);
+  }
+
   const next: Reputation = {
     score,
     updatedAt: now,
-    bannedUntil: score >= BAN_SCORE ? now + BAN_MS : rep.bannedUntil,
+    bannedUntil,
+    bans,
+    lastBanAt,
     paths,
     windowAt,
   };

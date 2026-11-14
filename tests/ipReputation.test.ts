@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import {
   freshReputation, record, decide, decayed, clientIp,
   WARN_SCORE, BAN_SCORE, BAN_MS, HALF_LIFE_MS, MAX_SCORE, BREADTH_PATHS,
+  banDuration, banCount, nextBanLength, BAN_MAX_MS, BAN_FORGET_MS, BAN_ESCALATION,
   type Reputation,
 } from '../supabase/functions/server/ipReputation.ts';
 
@@ -192,4 +193,123 @@ test('proof alone does not invent an address when the Worker forwarded none', ()
   // the Worker is still a request, and cf-connecting-ip is the best left.
   assert.equal(clientIp(hdr({ 'cf-connecting-ip': '1.2.3.4' }), true), '1.2.3.4');
   assert.equal(clientIp(hdr({ 'x-client-ip': '  ' }), true), null);
+});
+
+/* ── escalating bans ─────────────────────────────────────────────────────── */
+
+/**
+ * Eric: "ban repeat offenders for escalating durations."
+ *
+ * A flat fifteen minutes is the right price for a first offence and far too
+ * cheap for the sixth. But the reason the ban was short in the first place
+ * has not gone away — addresses are not identities, and an office or a CGNAT
+ * range is shared — so escalation only ever punishes coming BACK, and it is
+ * forgiven after a day of quiet.
+ */
+
+test('the first ban is the short one', () => {
+  assert.equal(banDuration(1), BAN_MS);
+});
+
+test('each further ban doubles', () => {
+  assert.equal(banDuration(2), BAN_MS * 2);
+  assert.equal(banDuration(3), BAN_MS * 4);
+  assert.equal(banDuration(4), BAN_MS * 8);
+});
+
+test('escalation stops at the cap, and stays there', () => {
+  assert.equal(banDuration(99), BAN_MAX_MS);
+  assert.equal(banDuration(5000), BAN_MAX_MS, 'no overflow to Infinity');
+  assert.ok(Number.isFinite(banDuration(Number.MAX_SAFE_INTEGER)));
+});
+
+test('a nonsense count is treated as a first offence, never as no ban', () => {
+  for (const n of [0, -3, Number.NaN, 0.4]) {
+    assert.equal(banDuration(n as number), BAN_MS, String(n));
+  }
+});
+
+test('a second offence after the first ban expires is longer', () => {
+  const first = hammer(BAN_SCORE, 'auth_refused').rep;
+  assert.equal(first.bans, 1);
+  assert.equal(first.bannedUntil - T0, BAN_MS);
+
+  // Long enough after that the ban has expired and the score has decayed,
+  // but well inside the forget window.
+  const later = T0 + BAN_MS + 60 * MIN;
+  let rep: Reputation = { ...first };
+  for (let i = 0; i < BAN_SCORE; i++) {
+    rep = record(rep, 'auth_refused', `/again/${i}`, later).next;
+  }
+  assert.equal(rep.bans, 2, 'the second ban is counted');
+  assert.equal(rep.bannedUntil - later, BAN_MS * 2, 'and is twice as long');
+});
+
+/**
+ * THE ONE THAT KEEPS THIS HONEST. An address serving a ban goes on making
+ * requests — that is what being banned looks like from in here. If each of
+ * those re-counted, one run would reach the four-hour cap in seconds and the
+ * ladder would be measuring request volume, which the score already does.
+ */
+test('hammering DURING a ban does not escalate it', () => {
+  const banned = hammer(BAN_SCORE, 'auth_refused').rep;
+  assert.equal(banned.bans, 1);
+
+  let rep: Reputation = banned;
+  for (let i = 0; i < 200; i++) {
+    rep = record(rep, 'auth_refused', `/during/${i}`, T0 + 1000 + i).next;
+  }
+  assert.equal(rep.bans, 1, 'still one ban');
+  assert.equal(rep.bannedUntil, banned.bannedUntil, 'and it did not get longer');
+});
+
+test('a day of quiet forgives the count, so a shared address is not punished forever', () => {
+  const first = hammer(BAN_SCORE, 'auth_refused').rep;
+  const muchLater = T0 + BAN_FORGET_MS + MIN;
+  assert.equal(banCount(first, muchLater), 0);
+  assert.equal(nextBanLength(first, muchLater), BAN_MS, 'back to a first offence');
+
+  // And still counted inside the window.
+  assert.equal(banCount(first, T0 + BAN_FORGET_MS - MIN), 1);
+});
+
+test('Retry-After matches the ban that is about to be imposed', () => {
+  // A record one ban in, out of its ban and decayed, about to earn another.
+  const first = hammer(BAN_SCORE, 'auth_refused').rep;
+  const later = T0 + BAN_MS + 60 * MIN;
+  const atThreshold: Reputation = { ...first, score: BAN_SCORE, updatedAt: later };
+
+  const said = decide(atThreshold, later);
+  assert.equal(said.action, 'ban');
+  const imposed = record(atThreshold, 'auth_refused', '/x', later).next;
+  assert.equal(
+    said.retryAfter, Math.ceil((imposed.bannedUntil - later) / 1000),
+    'the header and the ban must not be able to disagree',
+  );
+});
+
+test('a record written before escalation existed still works', () => {
+  // No `bans`, no `lastBanAt` — every record in the store at deploy time.
+  const legacy = { score: 0, updatedAt: T0, bannedUntil: 0, paths: [], windowAt: T0 } as Reputation;
+  assert.equal(banCount(legacy, T0), 0);
+  let rep = legacy;
+  for (let i = 0; i < BAN_SCORE; i++) rep = record(rep, 'auth_refused', `/p/${i}`, T0).next;
+  assert.equal(rep.bans, 1, 'it starts counting from now');
+  assert.equal(rep.bannedUntil - T0, BAN_MS);
+});
+
+test('the ladder a determined attacker actually walks', () => {
+  const lengths: number[] = [];
+  let rep: Reputation = freshReputation(T0);
+  let at = T0;
+  for (let round = 0; round < 6; round++) {
+    for (let i = 0; i < BAN_SCORE; i++) rep = record(rep, 'auth_refused', `/r${round}/${i}`, at).next;
+    lengths.push(rep.bannedUntil - at);
+    // Wait out the ban, then come straight back.
+    at = rep.bannedUntil + MIN;
+  }
+  assert.deepEqual(lengths, [
+    BAN_MS, BAN_MS * 2, BAN_MS * 4, BAN_MS * 8, BAN_MAX_MS, BAN_MAX_MS,
+  ]);
+  assert.equal(BAN_ESCALATION, 2, 'the ladder is a doubling');
 });
