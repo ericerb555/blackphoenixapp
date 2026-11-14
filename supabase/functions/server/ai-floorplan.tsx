@@ -10,6 +10,26 @@
  * - POST /make-server-3eae23a6/ai-floorplan/generate-from-description
  * - POST /make-server-3eae23a6/ai-floorplan/analyze-kitchen - NEW: Kitchen-specific analysis
  * - GET  /make-server-3eae23a6/ai-floorplan/projects/:id
+ *
+ * THE SECOND PASS IS THE CALLER'S JOB, AND HAS TO BE
+ *
+ * A first reading is unreliable on small rooms — anything under
+ * `SMALL_ROOM_SQFT` (90) gets re-read at a tighter crop by
+ * `src/app/lib/blueprintSecondPass.ts`, which tiles the sheet and merges
+ * what comes back.
+ *
+ * That cannot run here. Cutting tiles needs `Image` and a `<canvas>`, so it
+ * is browser work, and putting an image library in this bundle to move it
+ * server-side would cost more than the problem is worth.
+ *
+ * It is not missing: BOTH callers of `analyze-image` already run it on the
+ * reply — `AIVideoUpload.tsx` via `runSecondPassInches` and
+ * `BlueprintImport.tsx` via `runSecondPass` — and there are no others. This
+ * note exists because the absence looks like a gap from in here, and it was
+ * raised as one on 2026-11-14 before the callers were checked.
+ *
+ * If a third caller appears, it needs the second pass too. A reading taken
+ * from this route alone keeps whatever the first pass guessed.
  */
 
 import { Hono } from 'npm:hono@4';

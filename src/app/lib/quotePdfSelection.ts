@@ -285,6 +285,17 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
    * is a stale copy from an earlier save and the stored subtotals reconcile
    * with `materials`/`labor` rather than with it.
    *
+   * THE STALE COPIES ARE GONE FROM THE DATA as of 2026-11-14. Q-2026-0002,
+   * -0003 and -0004 each carried one — Q-2026-0002's priced 2x4s at $3.75
+   * against $4.38 in `materials`, a month apart — and `items` was removed
+   * from those three, backed up first under
+   * `quote_items_backup_20261114:<quote id>` with the original array intact.
+   * Each carries `itemsRemovedAt` and `itemsRemovedWhy` saying so.
+   *
+   * The precedence stays regardless. It costs nothing, it is what made the
+   * removal safe to do, and a quote written by an older path could carry
+   * both again tomorrow.
+   *
    * Splitting by SHAPE rather than by a flag, because that is what the rows
    * actually carry: an hourly rate and a role is labour, a quantity and a
    * unit cost is material. A row that says neither is treated as material,
