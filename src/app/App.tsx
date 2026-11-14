@@ -1309,7 +1309,24 @@ function NavigationHeader({ currentPage, navigate }: { currentPage: string; navi
   }, []);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-[#1A1A1A] border-b border-[#2A2A2A]">
+    /*
+     * The inset is on the HEADER, not on #root.
+     *
+     * index.html sets `viewport-fit=cover` and a black-translucent status bar,
+     * so on a notched iPhone the status bar is drawn OVER the page. globals.css
+     * gives #root `padding-top: env(safe-area-inset-top)`, but this header is
+     * `position: fixed` — it is laid out against the viewport and never sees a
+     * parent's padding. Without this the company switcher and the sign-out
+     * button sit under the clock and the battery icon.
+     *
+     * env() is 0px on every device without a notch, so nothing moves anywhere
+     * else. The spacer that reserves room below this header carries the same
+     * expression, and the two have to stay in step.
+     */
+    <header
+      className="fixed top-0 left-0 right-0 z-50 bg-[#1A1A1A] border-b border-[#2A2A2A]"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-4">
           {/* Company Logo/Name */}
@@ -1737,7 +1754,17 @@ function AppContent() {
                   <ActiveCompanyProvider>
                     <NavigationContext.Provider value={{ navigate }}>
                   <DataInitializer />
-                  <div className="min-h-screen bg-[#0A0A0A]" style={{ display: 'flex', flexDirection: 'column', width: '100vw', margin: 0, padding: 0 }}>
+                  {/*
+                    width:100% rather than 100vw.
+
+                    100vw is the viewport INCLUDING any space a scrollbar
+                    takes, so on every desktop browser that reserves one this
+                    container is a few pixels wider than the room it has, and
+                    the whole page can be dragged sideways. On a phone it is
+                    the same value as 100%, so this costs nothing there and
+                    removes a sideways-scroll source everywhere else.
+                  */}
+                  <div className="min-h-screen bg-[#0A0A0A]" style={{ display: 'flex', flexDirection: 'column', width: '100%', margin: 0, padding: 0 }}>
                     {/* Fixed Navigation Header */}
                     {!isFullBleedPage(currentPage) && (
                         <NavigationHeader currentPage={currentPage} navigate={navigate} />
@@ -1761,7 +1788,18 @@ function AppContent() {
                         currentPage !== "marketing-hub-landing-page" &&
                         currentPage !== "login" &&
                         currentPage !== "signup" && (
-                          <div className="h-16 w-full" />
+                          /*
+                            Reserves the room the fixed header occupies. It was
+                            a flat h-16, and the header now also carries the
+                            safe-area inset — so on a notched iPhone the header
+                            grew and this did not, and the first 40-odd pixels
+                            of every page sat underneath it. The two expressions
+                            have to stay in step.
+                          */
+                          <div
+                            className="w-full"
+                            style={{ height: 'calc(4rem + env(safe-area-inset-top))' }}
+                          />
                         )}
                       {/* Wrap page rendering in additional Suspense to handle lazy loading during navigation */}
                       <Suspense fallback={<LoadingFallback />}>

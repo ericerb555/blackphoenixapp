@@ -369,4 +369,82 @@ input::placeholder, textarea::placeholder {
   .fixed.inset-0 .flex > * {
     min-width: 0;
   }
+
+  /* ── NO FIELD UNDER 16px, EVER ────────────────────────────────────
+     Safari zooms the page in when a focused field is smaller than
+     16px and does NOT zoom back out when the field is left, so one
+     14px input turns the whole app into a pinch-to-recover. The
+     shared <Input> component sets its own `text-base sm:text-sm`;
+     this is for the ~2,600 raw <input>, <select> and <textarea>
+     elements across the app that do not go through it.
+
+     Phones only. The 640px ceiling means no desktop size changes. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* How far the live-chat bubble is lifted on a phone, so it clears
+     a fixed bottom nav instead of sitting on top of it. Read by
+     LiveChatWidget; 0 everywhere else, so nothing moves on desktop.
+     A variable rather than a class because the widget composes its
+     own bottom offset with the safe-area inset. */
+  :root {
+    --chat-lift: 4rem;
+  }
+
+  /* A fixed bar at the bottom of an iPhone sits UNDER the home
+     indicator unless it says otherwise. `#root` already carries the
+     inset, but a fixed element is positioned against the viewport
+     and never sees it — which is every bottom nav and action bar in
+     the app. Padding rather than margin, so the bar's own background
+     still reaches the bottom of the screen. */
+  .fixed.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ── TOUCH TARGETS ──────────────────────────────────────────────────
+   Keyed to the POINTER, not the screen width: a touchscreen laptop
+   needs this and a narrow desktop window does not. A mouse pointer
+   is unaffected at any size, so no desktop layout moves.
+
+   44px is Apple's minimum and roughly a fingertip. Buttons in this
+   app go down to about 24px for icon-only controls, which is a
+   coin-flip to hit while holding a phone one-handed.
+
+   `min-height` and `min-width` rather than padding: padding would
+   push surrounding layout around, where a minimum size only grows
+   the ones that are actually too small. Explicitly NOT applied to
+   anything inside a table cell or a text run — an inline link in a
+   paragraph is not a tap target and stretching it breaks the line. */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* An icon button is square and centred; without this the minimum
+     size just adds dead space on one side. */
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* The exceptions, and they are real: a button that is deliberately
+     inline in a sentence, and one inside a dense table row where 44px
+     would double the row height. Both are opt-outs a component sets
+     on purpose rather than something applied by accident. */
+  button.inline-target,
+  td button,
+  th button {
+    min-height: 0;
+    min-width: 0;
+  }
 }

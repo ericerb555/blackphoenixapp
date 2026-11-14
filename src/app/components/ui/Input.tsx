@@ -37,8 +37,19 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           
           <input
             ref={ref}
+            /*
+             * `text-base sm:text-sm` — 16px on a phone, 14px from 640px up.
+             *
+             * Safari zooms the whole page in when a focused field is under
+             * 16px, and it does not zoom back out when the field is left. On
+             * an iPhone that turns every form in the app into a pinch-to-
+             * recover, and this one component renders most of them.
+             *
+             * The desktop size is unchanged: the breakpoint restores 14px
+             * before any laptop sees it.
+             */
             className={`
-              w-full px-4 py-3 text-sm
+              w-full px-4 py-3 text-base sm:text-sm
               bg-[#0A0A0A] border rounded-xl text-white placeholder-gray-500
               transition-all duration-200
               focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-[#0A0A0A]

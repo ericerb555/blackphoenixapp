@@ -218,8 +218,22 @@ export default function LiveChatWidget() {
 
   const positionClass = config.position === 'bottom-left' ? 'left-5' : 'right-5';
 
+  /*
+   * Clear of the home indicator, and of a bottom nav when there is one.
+   *
+   * This is fixed to the viewport, so #root's safe-area padding never reaches
+   * it and on a notched iPhone it sat on the home indicator. The inset fixes
+   * that; the extra 4rem on phones lifts it above the mobile dashboard's own
+   * fixed bottom bar, which it otherwise covered — this widget is z-9998 and
+   * that bar is z-50, so the widget won every time.
+   *
+   * From 640px up both the lift and the inset resolve to the original 20px.
+   */
   return (
-    <div className={`fixed bottom-5 ${positionClass} z-[9998] flex flex-col items-end gap-3`}>
+    <div
+      className={`fixed bottom-5 ${positionClass} z-[9998] flex flex-col items-end gap-3`}
+      style={{ marginBottom: 'calc(env(safe-area-inset-bottom) + var(--chat-lift, 0px))' }}
+    >
       {/* Chat window */}
       {open && !minimized && (
         <div
