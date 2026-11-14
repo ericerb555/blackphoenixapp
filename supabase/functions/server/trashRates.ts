@@ -96,6 +96,16 @@ export interface TrashRates {
   perTrip: number;
   /** Nothing is cheaper than this. `quoteDisposal.ts` already sets it at 125. */
   minimum: number;
+  /**
+   * What each hazard surcharge costs, by rule id, overriding `hazardRules.ts`.
+   *
+   * The published figures in that file are a starting point, not Eric's prices
+   * — what his transfer station charges per mattress is a local fact. Held here
+   * rather than there because this is the file that is meant to be edited, and
+   * a rule about what we will and will not carry should not change every time
+   * somebody adjusts a price.
+   */
+  surcharges: Record<string, number>;
   source: PriceSource;
 }
 
@@ -132,6 +142,8 @@ export const STANDARD_TRASH_RATES: TrashRates = {
   truckCuYd: 15,
   perTrip: 85,
   minimum: 125,
+  /** Empty: `hazardRules.ts` supplies the published figure until Eric sets one. */
+  surcharges: {},
   source: "standard",
 };
 
@@ -156,8 +168,22 @@ export function resolveTrashRates(saved: any): TrashRates {
     }
   }
 
+  /*
+   * Only real numbers survive. A surcharge saved as blank, text or a negative
+   * is not an instruction to make something free — it is a typo, and falling
+   * through to the published figure is the safe reading of one.
+   */
+  const surcharges: Record<string, number> = {};
+  if (saved.surcharges && typeof saved.surcharges === "object") {
+    for (const [id, value] of Object.entries(saved.surcharges)) {
+      const v = Number(value);
+      if (Number.isFinite(v) && v >= 0) surcharges[id] = v;
+    }
+  }
+
   const rates: TrashRates = {
     disposalPerTon: perTon as Record<MaterialClass, number>,
+    surcharges,
     laborPerHour: num(saved.laborPerHour, base.laborPerHour),
     cuYdPerCrewHour: num(saved.cuYdPerCrewHour, base.cuYdPerCrewHour) || base.cuYdPerCrewHour,
     crewSize: num(saved.crewSize, base.crewSize) || base.crewSize,
@@ -175,6 +201,7 @@ export function resolveTrashRates(saved: any): TrashRates {
    * estimate would be a claim nobody made.
    */
   const overridden = touched ||
+    Object.keys(surcharges).length > 0 ||
     rates.laborPerHour !== base.laborPerHour ||
     rates.cuYdPerCrewHour !== base.cuYdPerCrewHour ||
     rates.truckCuYd !== base.truckCuYd ||

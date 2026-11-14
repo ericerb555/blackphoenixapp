@@ -296,3 +296,47 @@ test('a junk reading that is pure nonsense does not throw', () => {
   assert.ok(Number.isFinite(t.cost.likely));
   assert.ok(t.cost.likely >= 0);
 });
+
+/* ── Eric's own prices, once he sets them ────────────────────────────────── */
+
+test("a surcharge Eric has set beats the published figure, and says it is his", () => {
+  const obs = { items: [item({ name: 'queen mattress', count: 2, materialClass: 'mattress' as const })] };
+
+  const published = trashTakeoff(obs, rates);
+  const mine = trashTakeoff(obs, { ...rates, surcharges: { mattress: 60 } });
+
+  const lineOfKind = (t: any) => t.lines.find((l: any) => l.kind === 'surcharge');
+  assert.equal(lineOfKind(published).unitCost, 35);
+  assert.equal(lineOfKind(published).source, 'standard');
+
+  assert.equal(lineOfKind(mine).unitCost, 60);
+  assert.equal(lineOfKind(mine).cost, 120, 'two mattresses at his rate');
+  assert.equal(lineOfKind(mine).source, 'your-rate', "his own price still reported as standard");
+  assert.ok(mine.cost.likely > published.cost.likely);
+});
+
+test("a surcharge set to zero is honoured — some tips take mattresses free", () => {
+  const t = trashTakeoff(
+    { items: [item({ name: 'queen mattress', materialClass: 'mattress' as const })] },
+    { ...rates, surcharges: { mattress: 0 } },
+  );
+  const line = t.lines.find((l: any) => l.kind === 'surcharge');
+  assert.equal(line.unitCost, 0);
+  assert.equal(line.source, 'your-rate');
+});
+
+test("a surcharge saved as nonsense falls back to the published figure", () => {
+  for (const bad of [{ mattress: 'free' }, { mattress: -10 }, { mattress: NaN }]) {
+    const saved = resolveTrashRates({ surcharges: bad });
+    const t = trashTakeoff(
+      { items: [item({ name: 'queen mattress', materialClass: 'mattress' as const })] },
+      saved,
+    );
+    assert.equal(t.lines.find((l: any) => l.kind === 'surcharge').unitCost, 35);
+  }
+});
+
+test("setting only a surcharge is still setting a rate", () => {
+  assert.equal(resolveTrashRates({ surcharges: { tyre: 25 } }).source, 'your-rate');
+  assert.equal(resolveTrashRates({ surcharges: {} }).source, 'standard');
+});

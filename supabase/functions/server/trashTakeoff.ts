@@ -394,8 +394,22 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
 
   /* ── what it costs, computed three times ────────────────────────────────── */
 
+  /**
+   * What one of these costs — Eric's figure where he has set one.
+   *
+   * `hazardRules.ts` carries a published trade figure so the estimator works on
+   * day one. The moment a real price is set on the rate card it wins, and the
+   * line reports `your-rate` instead of `standard`.
+   */
+  const eachFor = (rule: Surcharge): number => {
+    const set = rates.surcharges?.[rule.id];
+    return Number.isFinite(set) && (set as number) >= 0 ? (set as number) : rule.each;
+  };
+  const sourceFor = (rule: Surcharge): PriceSource =>
+    rates.surcharges?.[rule.id] === undefined ? rule.source : "your-rate";
+
   const fixedSurcharges = [...surchargeHits.values()]
-    .reduce((sum, hit) => sum + hit.count * hit.rule.each, 0);
+    .reduce((sum, hit) => sum + hit.count * eachFor(hit.rule), 0);
 
   /** Everything that scales with volume, priced at one band. */
   const priceAt = (band: keyof ClassVolume, structuralFactor: number): number => {
@@ -526,11 +540,11 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
       label: hit.rule.label,
       quantity: hit.count,
       unit: hit.count === 1 ? "item" : "items",
-      unitCost: hit.rule.each,
-      cost: round2(hit.count * hit.rule.each),
+      unitCost: eachFor(hit.rule),
+      cost: round2(hit.count * eachFor(hit.rule)),
       from: hit.named || hit.rule.label,
       assumed: false,
-      source: hit.rule.source,
+      source: sourceFor(hit.rule),
     });
   }
 

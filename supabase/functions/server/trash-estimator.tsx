@@ -46,11 +46,12 @@ import { reserve, refund } from "./aiSpend.ts";
 import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";
 import { trashTakeoff, type Observations } from "./trashTakeoff.ts";
-import { resolveTrashRates } from "./trashRates.ts";
+import { MATERIAL_CLASSES, resolveTrashRates, STANDARD_TRASH_RATES } from "./trashRates.ts";
 import {
   MAX_IMAGES, parseReply, readObservations, readingSystem, verifySystem,
 } from "./trashReading.ts";
 import { ATTESTATION, estimateBasis } from "./estimateBasis.ts";
+import { SURCHARGES } from "./hazardRules.ts";
 import { signMediaValues } from "./mediaSigning.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
@@ -365,6 +366,89 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     console.log(`[trash-estimator] failed: ${err?.message || err}`);
     return c.json({ success: false, error: `Could not read those photographs: ${err?.message || err}` }, 500);
   }
+});
+
+/** Owner, admin, master admin or management. From app_metadata only. */
+function isStaffActor(c: any): boolean {
+  return ["owner", "admin", "master_admin", "management"].includes(trustedRole(c.get("actor")));
+}
+
+/**
+ * GET /trash-estimator/rates — what the estimator is charging, and from where.
+ *
+ * Staff only. These are costs, margins and the minimum this company will turn
+ * a truck out for: competitors' homework, not something a signed-in customer
+ * gets to read off an endpoint.
+ *
+ * Returns the standard table where nothing is saved, so the editor opens on
+ * the figures actually in force rather than on blanks — somebody filling in
+ * empty boxes is guessing, and the published figures are the better start.
+ */
+trashEstimatorRouter.get("/rates", async (c: any) => {
+  if (!isStaffActor(c)) return c.json({ success: false, error: "Administrators only." }, 403);
+  const saved = await kv.get("trash_rates:global").catch(() => null);
+  const rates = resolveTrashRates(saved);
+  return c.json({
+    success: true,
+    rates,
+    /** Never overwritten — what to fall back to, and what "standard" means. */
+    standard: STANDARD_TRASH_RATES,
+    /** The surcharge rules, so the editor can name them and show the default. */
+    surchargeRules: SURCHARGES.map((s) => ({ id: s.id, label: s.label, standard: s.each, why: s.why })),
+    saved: Boolean(saved),
+  });
+});
+
+/**
+ * PUT /trash-estimator/rates — set them.
+ *
+ * Administrators only, and the body is read field by field rather than stored
+ * as sent. A rate card reached by a write that went round this would be the
+ * price of every job after it.
+ *
+ * It stores what it was given and then returns what `resolveTrashRates` makes
+ * of it, so the screen shows the figures that will actually be used rather
+ * than the ones that were typed — a blank, a word or a negative falls back to
+ * the published figure, and the answer says so.
+ */
+trashEstimatorRouter.put("/rates", async (c: any) => {
+  if (!isStaffActor(c)) return c.json({ success: false, error: "Administrators only." }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const num = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+
+  const perTon: Record<string, number> = {};
+  if (body?.disposalPerTon && typeof body.disposalPerTon === "object") {
+    for (const cls of MATERIAL_CLASSES) {
+      const v = num(body.disposalPerTon[cls]);
+      if (v !== undefined) perTon[cls] = v;
+    }
+  }
+
+  const surcharges: Record<string, number> = {};
+  if (body?.surcharges && typeof body.surcharges === "object") {
+    for (const rule of SURCHARGES) {
+      const v = num(body.surcharges[rule.id]);
+      if (v !== undefined) surcharges[rule.id] = v;
+    }
+  }
+
+  const record: Record<string, unknown> = {
+    disposalPerTon: perTon,
+    surcharges,
+    updatedAt: new Date().toISOString(),
+    updatedBy: c.get("actorEmail"),
+  };
+  for (const field of ["laborPerHour", "cuYdPerCrewHour", "crewSize", "truckCuYd", "perTrip", "minimum"]) {
+    const v = num(body?.[field]);
+    if (v !== undefined) record[field] = v;
+  }
+
+  await kv.set("trash_rates:global", record);
+  return c.json({ success: true, rates: resolveTrashRates(record) });
 });
 
 /**
