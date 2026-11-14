@@ -38,16 +38,18 @@ import { companyInfo } from '../../lib/config/companyInfo';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { screenChannel, describeFindings } from '../../lib/captionFacts';
+import {
+  photoSrc, usablePhotos, jobsWithPhotos, photosForJob, NO_JOB, type JobPhoto,
+} from '../../lib/jobPhotoGrouping';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
-interface GalleryPhoto {
-  id: string;
-  url?: string;
-  signedUrl?: string;
-  title?: string;
-  published?: boolean;
-}
+/**
+ * A photograph as this panel needs it. The shape, where its address lives and
+ * how it groups by job are all in `jobPhotoGrouping`, which is tested — the
+ * failure here is silent in both directions, so it does not live inline.
+ */
+type GalleryPhoto = JobPhoto;
 
 type Slot = 'before' | 'after';
 
@@ -93,6 +95,8 @@ export default function BeforeAfterCreator() {
   const [overlayText, setOverlayText] = useState('');
 
   const [gallery, setGallery] = useState<GalleryPhoto[]>([]);
+  /** '' = every photo, '__none' = the ones with no job, otherwise a job id. */
+  const [jobFilter, setJobFilter] = useState('');
   const [picking, setPicking] = useState<Slot | null>(null);
   const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing'>('');
 
@@ -109,8 +113,22 @@ export default function BeforeAfterCreator() {
     try {
       const res = await fetch(`${SERVER}/gallery/all`, { headers: await authedHeaders() });
       const data = await res.json().catch(() => ({}));
-      const rows: GalleryPhoto[] = Array.isArray(data) ? data : (data.photos || data.items || []);
-      setGallery(rows.filter((p) => p && (p.signedUrl || p.url)));
+      /*
+       * `projects` IS THE KEY. This read `data.photos || data.items`, and the
+       * route has always answered `{ projects: [...] }` — so the library came
+       * back empty every single time and the panel said "nothing in it yet,
+       * so upload instead" to a company with a full photo library. The same
+       * mistake twice over: the filter below required `signedUrl || url`, and
+       * a gallery record stores its address in `image`.
+       *
+       * Both spellings are accepted rather than one corrected, because this
+       * endpoint is shared with JobPhotos and a tool reaching into another
+       * tool's response should bend rather than demand.
+       */
+      const rows: GalleryPhoto[] = Array.isArray(data)
+        ? data
+        : (data.projects || data.photos || data.items || []);
+      setGallery(usablePhotos(rows));
     } catch {
       /* An unreachable gallery is not a broken tool — uploading still works. */
       setGallery([]);
@@ -118,6 +136,17 @@ export default function BeforeAfterCreator() {
   }, []);
 
   useEffect(() => { void loadGallery(); }, [loadGallery]);
+
+  /**
+   * The jobs that actually have photographs, newest first.
+   *
+   * Derived from the photos rather than fetched from `/jobs`: the only jobs
+   * worth offering here are the ones with something to show, and a list of
+   * every job the company has ever opened would bury them. It also means this
+   * panel needs no permission the gallery has not already granted.
+   */
+  const jobsInGallery = useMemo(() => jobsWithPhotos(gallery), [gallery]);
+  const shown = useMemo(() => photosForJob(gallery, jobFilter), [gallery, jobFilter]);
 
   useEffect(() => {
     if (!brand.logoUrl) return;
@@ -418,18 +447,44 @@ export default function BeforeAfterCreator() {
                   Pick a {picking} photo from your job gallery
                   {gallery.length === 0 && ' — nothing in it yet, so upload instead.'}
                 </p>
+
+                {/*
+                  Narrow to one job's photographs.
+                  Only offered when photos actually carry a job: before this
+                  was stamped at upload nothing did, and a filter listing one
+                  entry would be furniture. "All photos" stays first and stays
+                  the default, because the library is mostly older photographs
+                  that have no job and must not become unreachable.
+                */}
+                {jobsInGallery.length > 0 && (
+                  <select
+                    value={jobFilter}
+                    onChange={(e) => setJobFilter(e.target.value)}
+                    className="mb-2 w-full rounded-lg border border-gray-700 bg-black/40 px-2 py-1.5 text-xs text-gray-200"
+                  >
+                    <option value="">All photos ({gallery.length})</option>
+                    {jobsInGallery.map((j) => (
+                      <option key={j.id} value={j.id}>{j.label} ({j.count})</option>
+                    ))}
+                    <option value={NO_JOB}>Not filed to a job ({gallery.filter((p) => !p.jobId).length})</option>
+                  </select>
+                )}
+
                 <div className="grid grid-cols-4 gap-2 max-h-44 overflow-y-auto">
-                  {gallery.map((p) => (
+                  {shown.map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => { void take(picking, p.signedUrl || p.url || ''); setPicking(null); }}
+                      onClick={() => { void take(picking, photoSrc(p)); setPicking(null); }}
                       className="aspect-square rounded border border-gray-700 overflow-hidden hover:border-[#ea580c]"
-                      title={p.title || ''}
+                      title={[p.title, p.jobTitle].filter(Boolean).join(' · ')}
                     >
-                      <img src={p.signedUrl || p.url} alt={p.title || 'job photo'} className="w-full h-full object-cover" />
+                      <img src={photoSrc(p)} alt={p.title || 'job photo'} className="w-full h-full object-cover" />
                     </button>
                   ))}
                 </div>
+                {shown.length === 0 && gallery.length > 0 && (
+                  <p className="mt-2 text-xs text-gray-500">No photos on that job yet.</p>
+                )}
               </div>
             )}
           </div>

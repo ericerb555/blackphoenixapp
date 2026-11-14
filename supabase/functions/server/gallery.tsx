@@ -247,6 +247,22 @@ galleryRouter.post(`${PREFIX}/gallery/upload`, async (c) => {
 
     const title = String(form.get("title") || file.name.replace(/\.[^.]+$/, "")).slice(0, 200);
     const category = String(form.get("category") || "Recent Projects").slice(0, 80);
+    /*
+     * WHICH JOB THIS PHOTO IS OF.
+     *
+     * Stamped at upload because it cannot be recovered later. A photo in the
+     * library has a filename, a category that nearly always reads "Recent
+     * Projects", and nothing else tying it to the work it shows — so the
+     * before-and-after tool could only ever offer one flat pile of every
+     * photograph the company has ever taken, and somebody had to remember
+     * which bathroom was which.
+     *
+     * Optional on purpose. The button is mounted in places that know the job
+     * and places that do not, and a photo with no job is still a photo worth
+     * keeping — it lands in the flat list exactly as it does today.
+     */
+    const jobId = String(form.get("jobId") || "").trim().slice(0, 120);
+    const jobTitle = String(form.get("jobTitle") || "").trim().slice(0, 200);
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     const id = `gal_${crypto.randomUUID()}`;
     const path = `uploads/${id}.${ext}`;
@@ -266,6 +282,10 @@ galleryRouter.post(`${PREFIX}/gallery/upload`, async (c) => {
       order: 9999,
       uploadedBy: uploader,
       createdAt: new Date().toISOString(),
+      /* Absent rather than empty when unknown, so "no job" stays distinct
+         from "job recorded as nothing" for anything reading these later. */
+      ...(jobId ? { jobId } : {}),
+      ...(jobTitle ? { jobTitle } : {}),
     };
     await kv.set(`${KEY}${id}`, record);
     return c.json({ success: true, project: record }, 201);
