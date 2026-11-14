@@ -101,6 +101,21 @@ export default function ExchangeTowns() {
    */
   const [health, setHealth] = useState<any>(null);
   const [healthErr, setHealthErr] = useState<string | null>(null);
+  /**
+   * What the scheduled clock has actually been doing.
+   *
+   * `GET /exchange/upkeep/status` has recorded every run and every refusal
+   * since the clock was armed, and until now NOTHING rendered it. That is how
+   * the Exchange went from 2026-10-06 to 2026-11-13 — thirty-eight days —
+   * with Hudson chosen correctly every single night, Overpass refusing every
+   * single night, and no screen anywhere saying so. The towns list went on
+   * showing its counts, a month stale, with nothing to suggest it.
+   *
+   * Its own request, like health and demand below: a clock that cannot be
+   * read must not stop somebody opening a town.
+   */
+  const [clock, setClock] = useState<any>(null);
+  const [clockErr, setClockErr] = useState<string | null>(null);
   const [brief, setBrief] = useState<string | null>(null);
   const [briefNote, setBriefNote] = useState<string | null>(null);
   const [briefing, setBriefing] = useState(false);
@@ -182,6 +197,25 @@ export default function ExchangeTowns() {
     }
   }, [auth]);
 
+  const loadClock = useCallback(async () => {
+    setClockErr(null);
+    try {
+      const token = await auth();
+      if (!token) return;
+      const res = await fetch(`${SERVER}/exchange/upkeep/status`, {
+        headers: { Authorization: token },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        setClockErr(body?.error || 'The clock did not answer.');
+        return;
+      }
+      setClock(body);
+    } catch {
+      setClockErr('We could not reach the clock just now.');
+    }
+  }, [auth]);
+
   /**
    * Ask the assistant to write the briefing.
    *
@@ -213,6 +247,7 @@ export default function ExchangeTowns() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadHealth(); }, [loadHealth]);
+  useEffect(() => { void loadClock(); }, [loadClock]);
   useEffect(() => { void loadGaps(); }, [loadGaps]);
 
   const call = useCallback(async (path: string, init: RequestInit, label: string) => {
@@ -322,7 +357,7 @@ export default function ExchangeTowns() {
     setConfirming(null);
     if (body) {
       setSaid({ ok: true, text: body.summary || 'Done.' });
-      await Promise.all([load(), loadHealth()]);
+      await Promise.all([load(), loadHealth(), loadClock()]);
     }
   }, [call, load, loadHealth]);
 
@@ -509,6 +544,102 @@ export default function ExchangeTowns() {
                   );
                 })}
               </div>
+            </section>
+
+            {/*
+              ── the clock ──────────────────────────────────────────────
+
+              Every scheduled run, with the reason it gave. The record has
+              existed since the clock was armed and nothing rendered it, which
+              is how thirty-eight days of identical nightly failures passed
+              unnoticed while the towns list went on looking healthy.
+
+              A failing run is shown in full, including what the endpoint
+              said. That sentence is the whole diagnosis when it next breaks —
+              "Overpass refused 406 ... our User-Agent did not arrive" names
+              the cause and whose it is, where "nothing compiled" names
+              neither.
+            */}
+            <section className="bpx-card" style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <RefreshCw size={18} color={clock?.last?.ok === false ? '#f87171' : '#34d399'} />
+                <div className="bpx-card-title" style={{ margin: 0 }}>The clock</div>
+                <button
+                  className="bpx-btn"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => void loadClock()}
+                  title="Re-read what the scheduled refresh has been doing"
+                >
+                  <RefreshCw size={14} /> Refresh
+                </button>
+              </div>
+
+              {clockErr && <div className="bpxb-failed">{clockErr}</div>}
+
+              {clock && (
+                <>
+                  <div className="bpx-desc" style={{ marginBottom: 10 }}>
+                    {clock.summary || 'The clock has not run yet.'}
+                  </div>
+
+                  {/* The two counts mean different things and have different
+                      fixes, which is why the route separates them. */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 12 }}>
+                    <span className="bpx-desc">
+                      Refreshes a town every <strong>{clock.refreshAfterDays}</strong> days
+                    </span>
+                    {!clock.secretConfigured && (
+                      <span className="bpxb-failed" style={{ margin: 0 }}>
+                        No cron secret — every scheduled tick is being refused.
+                      </span>
+                    )}
+                    {clock.failedRecently > 0 && (
+                      <span style={{ color: '#f87171' }}>
+                        {clock.failedRecently} recent run(s) failed
+                      </span>
+                    )}
+                    {clock.refusedRecently > 0 && (
+                      <span style={{ color: '#fbbf24' }}>
+                        {clock.refusedRecently} recent tick(s) refused
+                      </span>
+                    )}
+                  </div>
+
+                  {!Array.isArray(clock.recent) || !clock.recent.length ? (
+                    <div className="bpx-desc">
+                      Nothing recorded yet. A tick that has never run and a tick that
+                      runs and does nothing look the same from the towns list, which
+                      is the reason this panel exists.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {clock.recent.slice(0, 8).map((r: any, i: number) => (
+                        <div
+                          key={`${r?.at || i}`}
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'baseline',
+                            gap: 8,
+                            paddingBottom: 8,
+                            borderBottom: '1px solid #2A2A2A',
+                          }}
+                        >
+                          {r?.ok === false
+                            ? <AlertCircle size={14} color="#f87171" />
+                            : <CheckCircle2 size={14} color="#34d399" />}
+                          <span className="bpx-desc" style={{ minWidth: 150 }}>
+                            {r?.at ? new Date(r.at).toLocaleString() : 'unknown time'}
+                          </span>
+                          <span style={{ color: r?.ok === false ? '#f87171' : '#d1d5db', flex: '1 1 240px' }}>
+                            {r?.error || r?.why || 'No reason recorded.'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </section>
 
             {/*

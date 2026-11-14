@@ -36,7 +36,6 @@
  * audited rather than remembered.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { safeFetch } from "./outboundGuard.ts";
 import {
   osmToRegistryRecord,
   osmCoordinates,
@@ -64,6 +63,12 @@ const OVERPASS = "https://overpass-api.de/api/interpreter";
  * endpoint's terms ask for.
  */
 const USER_AGENT = "PhoenixExchange/1.0 (local business directory; contact blackphoenixbuilds@proton.me)";
+
+/** Overpass is slow by nature; this is the ceiling before we give the town up. */
+const OVERPASS_TIMEOUT_MS = 90_000;
+
+/** The same size ceiling `safeFetch` applied, kept now that it is gone. */
+const OVERPASS_MAX_BYTES = 8_000_000;
 
 export interface IngestOutcome {
   territory: string;
@@ -195,21 +200,61 @@ async function aliasIndex(sb: any): Promise<Map<string, string>> {
 /**
  * Ask Overpass one question.
  *
- * Through `safeFetch`, which revalidates every redirect hop — the endpoint is
- * ours to choose rather than attacker-supplied, so this is belt and braces
- * rather than the main defence, and it also gives us the size ceiling for
- * free.
+ * Directly, with a User-Agent, because the endpoint is a constant in this file
+ * rather than anything a caller chose. See the note inside on why this stopped
+ * going through `safeFetch`.
  */
 async function askOverpass(query: string): Promise<OverpassElement[]> {
-  const result = await safeFetch(OVERPASS, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": USER_AGENT,
-      Accept: "application/json",
-    },
-    body: new URLSearchParams({ data: query }).toString(),
-  });
+  /*
+   * WHY THIS IS A PLAIN `fetch` AND NOT `safeFetch` — 2026-11-13
+   *
+   * It went through `safeFetch`, and every scheduled tick from at least
+   * 2026-11-07 came back `Overpass refused 406`, one a day, with Hudson
+   * chosen correctly each time and never compiled. 406 is not Overpass's own
+   * answer: it is its nginx front door refusing a request that carries NO
+   * User-Agent. Measured against the live endpoint on 2026-11-13:
+   *
+   *   this USER_AGENT          -> 200
+   *   no User-Agent at all     -> 406 Not Acceptable (nginx)
+   *   empty body, good agent   -> 200 and an XML error page, NOT 406
+   *
+   * So the agent this file sets was not arriving. The call beside it in
+   * `exchangeTerritoryRoutes` that reaches Nominatim — which blocks an
+   * anonymous caller just as hard — is a plain `fetch` with a User-Agent,
+   * and it works. That is the only difference between the path that arrives
+   * identified and the path that arrives anonymous.
+   *
+   * Dropping `safeFetch` here costs nothing that was protecting us. Its job
+   * is a URL somebody outside chose; `OVERPASS` is a constant in this file,
+   * which the note above already said made it "belt and braces rather than
+   * the main defence". Redirects are refused outright rather than followed,
+   * and the read below keeps its own size ceiling.
+   */
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(OVERPASS, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": USER_AGENT,
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ data: query }).toString(),
+      // Never followed: re-sending the query to wherever a first host points
+      // is the one thing safeFetch was guarding, and it is cheap to keep.
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    throw new Error(`Overpass refused: ${e?.message || "the request never completed"}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = (await res.text().catch(() => "")).slice(0, OVERPASS_MAX_BYTES);
+  const result = { ok: res.ok, status: res.status, body: text, error: undefined as string | undefined };
 
   if (!result.ok || !result.body) {
     /**
@@ -245,8 +290,22 @@ async function askOverpass(query: string): Promise<OverpassElement[]> {
         ? "it is rate-limiting us, so we are asking too often"
         : result.status === 502 || result.status === 504
           ? "it is at capacity; all its query workers are busy"
-          : "it answered with no usable body";
-    throw new Error(`Overpass refused${status}: ${detail}`);
+          : result.status === 406
+            // The one refusal that is about us and is fixable. Its front door
+            // rejects a request with no User-Agent, so this means our agent is
+            // not arriving — not that Overpass is busy. See the note above.
+            ? "it refused the request as unidentified, which means our User-Agent did not arrive"
+            : "it answered with no usable body";
+
+    /*
+     * QUOTE THE ENDPOINT. A week of "it answered with no usable body" hid a
+     * four-line nginx page that named the problem outright. Whatever it says
+     * next, the run record should carry it.
+     */
+    const said = result.body
+      ? ` It said: ${result.body.replace(/\s+/g, " ").trim().slice(0, 200)}`
+      : "";
+    throw new Error(`Overpass refused${status}: ${detail}.${said}`);
   }
   // A 504 comes back as an HTML page, not JSON. Saying so plainly beats a
   // JSON parse error that reads like our bug.

@@ -31,7 +31,6 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { isStaffRequest } from "./requireStaff.ts";
 import { demandGaps } from "./exchangeLedger.ts";
-import { safeFetch } from "./outboundGuard.ts";
 import {
   municipalityQuery,
   candidatesFrom,
@@ -372,6 +371,9 @@ const OVERPASS = "https://overpass-api.de/api/interpreter";
 // two halves of this feature are one caller rather than two.
 const OVERPASS_AGENT = "PhoenixExchange/1.0 (local business directory; contact blackphoenixbuilds@proton.me)";
 
+/** A county-wide municipality query is slower than a town; same ceiling as the ingest. */
+const OVERPASS_TIMEOUT_MS = 90_000;
+
 /**
  * Ask Overpass for the municipalities of a state, or one county of it.
  *
@@ -397,30 +399,61 @@ exchangeTerritoryRoutes.post("/exchange/admin/territories/discover", async (c) =
   let elements: unknown[] = [];
   try {
     /*
-     * The same call shape `exchangeIngestRun` uses, down to the User-Agent.
+     * The same call shape `exchangeIngestRun` uses, down to the User-Agent —
+     * and now, as of 2026-11-13, the same plain `fetch` too.
+     *
+     * It went through `safeFetch`, and the scheduled ingest doing the same
+     * thing came back `Overpass refused 406` once a day for a week. 406 is
+     * the nginx front door turning away a request with NO User-Agent, so the
+     * agent named on the line below was not arriving. The whole reasoning is
+     * on `askOverpass` in `exchangeIngestRun.ts`; this is the second caller
+     * and it had the identical defect.
+     *
      * Overpass rates and blocks by client, and two different shapes from one
-     * project is two things to be blocked for — this is the one already
-     * proven against the endpoint.
+     * project is two things to be blocked for — so the two stay identical.
      */
-    const result = await safeFetch(OVERPASS, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": OVERPASS_AGENT,
-        Accept: "application/json",
-      },
-      body: new URLSearchParams({ data: municipalityQuery(state, county) }).toString(),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(OVERPASS, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": OVERPASS_AGENT,
+          Accept: "application/json",
+        },
+        body: new URLSearchParams({ data: municipalityQuery(state, county) }).toString(),
+        redirect: "error",
+        signal: controller.signal,
+      });
+    } catch (e: any) {
+      return c.json({
+        success: false,
+        error: `Overpass did not answer: ${e?.message || "the request never completed"}.`,
+      }, 502);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const result = {
+      ok: res.ok,
+      status: res.status,
+      body: await res.text().catch(() => ""),
+    };
     if (!result.ok || !result.body) {
       /*
        * Say what Overpass actually said. "Could not reach it" sends somebody
        * looking at their own network for a 504 from a free service that is
-       * entitled to refuse us.
+       * entitled to refuse us — and it hid the 406 for a week.
        */
       return c.json({
         success: false,
-        error: result.error || "Overpass did not answer. It is a free shared service and refuses "
-          + "under load — this is worth trying again in a few minutes.",
+        error: result.status === 406
+          ? "Overpass refused the request as unidentified (406), which means our User-Agent "
+            + "did not arrive. That is ours to fix, not a busy endpoint."
+          : `Overpass answered ${result.status}. It is a free shared service and refuses `
+            + "under load — this is worth trying again in a few minutes.",
       }, 502);
     }
     const payload = JSON.parse(result.body) as any;
