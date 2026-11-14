@@ -619,7 +619,22 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="bg-[#1A1A1A] border-b border-[#2A2A2A] sticky top-0 z-40">
+      {/*
+        `top: var(--app-header-h)`, not `top-0`.
+
+        This bar is sticky, and the app's own header is FIXED at the top of the
+        viewport — so `top-0` parked the tabs in the header's seat. The header
+        is z-50 and this is z-40, so scrolling slid the whole tab row underneath
+        it and out of sight. That is the overlap reported from an iPhone.
+
+        The variable lives in globals.css beside the reason, so the header's
+        height, the spacer that reserves its room, and this offset cannot drift
+        apart — which is how they got out of step in the first place.
+      */}
+      <div
+        className="bg-[#1A1A1A] border-b border-[#2A2A2A] sticky z-40"
+        style={{ top: 'var(--app-header-h, 0px)' }}
+      >
         <div className="max-w-[1920px] mx-auto px-6">
           <div className="flex gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-[#2A2A2A] scrollbar-track-transparent">
             {tabs.map((tab) => {

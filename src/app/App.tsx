@@ -1798,7 +1798,7 @@ function AppContent() {
                           */
                           <div
                             className="w-full"
-                            style={{ height: 'calc(4rem + env(safe-area-inset-top))' }}
+                            style={{ height: 'var(--app-header-h)' }}
                           />
                         )}
                       {/* Wrap page rendering in additional Suspense to handle lazy loading during navigation */}

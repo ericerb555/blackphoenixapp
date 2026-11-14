@@ -261,6 +261,30 @@ for roughly 25 of the app's.
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
 
+### Smoke trusts whoever answers on its port, and drives the wrong app
+`smoke.mjs` starts Vite on `SMOKE_PORT`, then health-checks
+`http://localhost:<port>/smoke.html` and proceeds when it gets a 200. It never
+checks that the server answering is the one IT started.
+
+**What that looked like, 2026-11-14.** An orphaned Vite from an earlier run
+held 5177. A sweep launched from a WORKTREE found the port occupied, got its
+200 from the MAIN checkout's server, and drove the browser against a harness
+page that was not its own. Every batch came back silent and the error said
+*"Nothing reported at all from the first batch. Either the route map failed to
+load, or the batch was starved"* — blaming the route map, while the real
+problem was that it was looking at a different application. It cost most of an
+hour and three wrong hypotheses (junctioned `node_modules`, a stale Vite dep
+cache, Edge profile collision) before `Get-NetTCPConnection` named it.
+
+**The fix** is a sibling of the report-port one already made: either fail when
+the port is occupied rather than adopting the squatter, or step to a free port
+the way the report listener now does. Stepping is better — it also makes
+worktree and main-checkout runs able to proceed side by side, which is the
+whole point of a worktree.
+
+A cheap intermediate: stamp something identifying into the generated
+`smoke.html` and have the health check confirm it comes back.
+
 ### The smoke harness uses fixed ports, so two runs collide
 `SMOKE_PORT` 5177 and `SMOKE_REPORT_PORT` 9911 are defaults, and a second run
 cannot bind them. That is correct behaviour and it says so clearly — but it

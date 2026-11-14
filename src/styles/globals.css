@@ -77,6 +77,24 @@
   padding: 0;
 }
 
+/* How tall the app's fixed header is, as one value everybody reads.
+
+   The header is `position: fixed` at the top of the viewport, so anything else
+   that wants to sit at the top of the viewport has to start BELOW it. Three
+   places need to agree on that number: the header itself, the spacer that
+   reserves its room, and every page-level `sticky` bar.
+
+   They did not agree. OwnersDashboard's tab bar is `sticky top-0`, which parks
+   it exactly where the header already is — header z-50, tabs z-40 — so
+   scrolling slid the tabs underneath the header and out of sight. Reported
+   from an iPhone as the owners dashboard overlapping.
+
+   4rem is the header's own height; the inset is the notch, and is 0px on
+   hardware that has none. */
+:root {
+  --app-header-h: calc(4rem + env(safe-area-inset-top));
+}
+
 html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
