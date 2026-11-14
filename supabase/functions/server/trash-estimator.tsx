@@ -391,6 +391,42 @@ trashEstimatorRouter.post("/read", async (c: any) => {
 
     await kv.set(`estimate:${estimate.id}`, estimate);
 
+    /*
+     * Tell the office a price went out.
+     *
+     * Eric: "i should get sms messaged when a price come in as well." This is
+     * the moment he means — a customer has a number in their hand, and whether
+     * it becomes a job now depends on somebody following it up.
+     *
+     * Best-effort and after the record is written: an estimate that was
+     * produced and stored is not a failure because a text could not be sent,
+     * and the customer is waiting on this response.
+     */
+    try {
+      notifyStaffInBackground("estimate", {
+        subject: `Junk & demo estimate: ${money(takeoff.cost.likely)}`,
+        heading: "A customer just priced a job from photographs",
+        rows: [
+          ["Customer", email],
+          ["Likely", money(takeoff.cost.likely)],
+          ["Range", `${money(takeoff.cost.low)} – ${money(takeoff.cost.high)}`],
+          ["Volume", `about ${takeoff.volumeCuYd.likely} cu yd in ${takeoff.loads} load(s)`],
+          ["Needs a visit", takeoff.needsSiteVisit ? `yes — ${takeoff.siteVisitReasons.join("; ")}` : "no"],
+          ["Could not see", takeoff.unseenCuYd ? `about ${takeoff.unseenCuYd} cu yd` : "nothing flagged"],
+          ["They want left", (takeoff.excluded || []).map((x: any) => x.name).join(", ") || "nothing"],
+          ["Not carried", (takeoff.refused || []).map((r: any) => r.label).join(", ") || "nothing refused"],
+        ],
+        // A text is a tap on the shoulder, so it carries the price, who it is
+        // for, and whether it needs eyes. The rest waits in the email.
+        smsRows: ["Likely", "Customer", "Needs a visit"],
+        ctaLabel: "Open the estimate",
+        ctaPath: `/owners-dashboard`,
+        dedupeKey: `estimate:${estimate.id}`,
+      });
+    } catch (notifyError: any) {
+      console.log(`[trash-estimator] could not notify staff: ${notifyError?.message || notifyError}`);
+    }
+
     return c.json({ success: true, estimate });
   } catch (err: any) {
     await refund(user, "trash", units);
@@ -574,7 +610,7 @@ trashEstimatorRouter.post("/estimates/:id/ask-us-to-confirm", async (c: any) => 
   }
 
   try {
-    notifyStaffInBackground("work_request", {
+    notifyStaffInBackground("estimate", {
       subject: "Junk & demo estimate wants confirming",
       heading: "A customer priced a job from photographs and wants it confirmed",
       rows: [
@@ -587,8 +623,9 @@ trashEstimatorRouter.post("/estimates/:id/ask-us-to-confirm", async (c: any) => 
         ["Not carried", (updated.refused || []).map((r: any) => r.label).join(", ") || "nothing refused"],
         ["They said", updated.customerMessage || updated.customerNotes || "—"],
       ],
+      smsRows: ["Likely", "Customer", "Needs a visit"],
       ctaLabel: "Open the estimate",
-      ctaPath: `/customer-portal-app?tab=trash-estimate&estimate=${id}`,
+      ctaPath: "/owners-dashboard",
     });
   } catch (err) {
     console.log(`[trash-estimator] could not notify staff: ${err}`);

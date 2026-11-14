@@ -42,6 +42,8 @@ interface Recipient {
   name: string;
   role: 'owner' | 'admin' | 'employee';
   events: EventId[];
+  phone?: string;
+  smsEvents?: EventId[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +65,8 @@ const EMPTY_FORM = {
   email: '',
   role: 'employee' as Recipient['role'],
   events: [] as EventId[],
+  phone: '',
+  smsEvents: [] as EventId[],
   enabled: true,
 };
 
@@ -120,7 +124,7 @@ export function NotificationRecipientsPanel() {
   const startAdd = () => { setForm(EMPTY_FORM); setShowForm(true); };
 
   const startEdit = (r: Recipient) => {
-    setForm({ id: r.id, name: r.name, email: r.email, role: r.role, events: r.events || [], enabled: r.enabled !== false });
+    setForm({ id: r.id, name: r.name, email: r.email, role: r.role, events: r.events || [], phone: r.phone || '', smsEvents: r.smsEvents || [], enabled: r.enabled !== false });
     setShowForm(true);
   };
 
@@ -128,6 +132,18 @@ export function NotificationRecipientsPanel() {
     setForm(prev => ({
       ...prev,
       events: prev.events.includes(id) ? prev.events.filter(e => e !== id) : [...prev.events, id],
+      // Turning an alert off takes its text with it. A text about something
+      // you no longer get an email about is a message with nowhere to go
+      // back to, and the server refuses that pairing anyway.
+      smsEvents: prev.events.includes(id) ? prev.smsEvents.filter(e => e !== id) : prev.smsEvents,
+    }));
+  };
+
+  /** Which alerts also buzz a phone. Off by default, and never implied. */
+  const toggleFormSms = (id: EventId) => {
+    setForm(prev => ({
+      ...prev,
+      smsEvents: prev.smsEvents.includes(id) ? prev.smsEvents.filter(e => e !== id) : [...prev.smsEvents, id],
     }));
   };
 
@@ -146,6 +162,8 @@ export function NotificationRecipientsPanel() {
           name: form.name.trim(),
           role: form.role,
           events: form.events,
+          phone: form.phone.trim(),
+          smsEvents: form.smsEvents,
           enabled: form.enabled,
         }),
       });
@@ -327,6 +345,20 @@ export function NotificationRecipientsPanel() {
               />
             </div>
             <div>
+              <label className="mb-1 block text-xs text-gray-400">Mobile, for texts</label>
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="(603) 207-2248 — optional"
+                inputMode="tel"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-white outline-none focus:border-[#ea580c]"
+              />
+              <p className="mt-1 text-[11px] text-gray-500">
+                Leave blank for email only. With a number saved, each alert below gets a
+                “text me this one too” option — nothing texts unless you tick it.
+              </p>
+            </div>
+            <div>
               <label className="mb-1 block text-xs text-gray-400">Role</label>
               <select
                 value={form.role}
@@ -362,6 +394,26 @@ export function NotificationRecipientsPanel() {
                       <div>
                         <div className="text-sm font-medium text-white">{evt.label}</div>
                         <div className="mt-0.5 text-[11px] leading-snug text-gray-500">{evt.description}</div>
+                        {/*
+                          Texting is opted into per alert, and only once this
+                          alert is on and a number is saved. An SMS costs money
+                          per message and arrives wherever somebody is standing
+                          — wanting an email for every portal application is not
+                          wanting a phone to buzz for each one.
+                        */}
+                        {checked && form.phone.trim() && (
+                          <label
+                            className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-orange-400"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={form.smsEvents.includes(evt.id)}
+                              onChange={() => toggleFormSms(evt.id)}
+                            />
+                            Text me this one too
+                          </label>
+                        )}
                       </div>
                     </div>
                   </label>

@@ -93,6 +93,7 @@ import townPermitsRouter from "./town-permits.tsx";
 import houseCaptureRouter from "./house-capture.tsx";
 import { trashEstimatorRouter } from "./trash-estimator.tsx";
 import { crewFromJob, readTipAmount, tipRecord } from "./tips.ts";
+import { normalisePhone } from "./staffSms.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -17444,9 +17445,26 @@ app.post('/make-server-3eae23a6/staff-notifications/recipients', async (c) => {
       ? rows.findIndex(r => r.id === String(body.id))
       : rows.findIndex(r => String(r.email || '').toLowerCase() === email);
 
+    /*
+     * The phone, and which events are worth a text.
+     *
+     * Normalised on the way in rather than trusted, so a number that cannot be
+     * sent to is stored as empty instead of sitting in the list looking
+     * configured. `smsEvents` is intersected with `events`: being texted about
+     * something you do not get an email about is a setting nobody means, and
+     * it is also how somebody ends up unable to find the message afterwards.
+     */
+    const phone = normalisePhone(body?.phone);
+    const smsEvents = (Array.isArray(body?.smsEvents) ? body.smsEvents : [])
+      .map(String)
+      .filter((e: string) => (STAFF_NOTIFICATION_EVENTS as readonly string[]).includes(e))
+      .filter((e: string) => events.includes(e as StaffNotificationEvent)) as StaffNotificationEvent[];
+
     const record: StaffRecipient = {
       id: index >= 0 ? rows[index].id : `recip_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       email,
+      phone,
+      smsEvents: phone ? smsEvents : [],
       name: String(body?.name || '').trim().slice(0, 120),
       role: role as StaffRecipient['role'],
       events,

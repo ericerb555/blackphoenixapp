@@ -21,11 +21,13 @@
  */
 
 import * as kv from './kv_store.tsx';
+import { phonesForEvent, smsBody } from './staffSms.ts';
+import { sendTextMessage } from './sendSms.ts';
 
 const RECIPIENTS_KEY = 'staff_notification_recipients';
 const LOG_PREFIX = 'staff_notification_log:';
 
-export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency', 'application', 'message'] as const;
+export const STAFF_NOTIFICATION_EVENTS = ['signup', 'payment', 'work_request', 'emergency', 'application', 'message', 'estimate'] as const;
 export type StaffNotificationEvent = typeof STAFF_NOTIFICATION_EVENTS[number];
 
 export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, string> = {
@@ -35,6 +37,7 @@ export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, str
   emergency: 'Emergency on-call calls',
   application: 'New portal applications',
   message: 'New messages from customers',
+  estimate: 'Junk & demo prices',
 };
 
 export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEvent, string> = {
@@ -54,12 +57,17 @@ export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEven
    * mattered.
    */
   message: 'Emailed whenever a customer, vendor or tenant sends a message through the portal.',
+  estimate: 'A price from the junk and demo estimator — when a customer gets one, and when they ask you to confirm it.',
   application: 'Emailed whenever anybody applies to any portal — vendor, subcontractor, investor, advertiser, tenant, territory or property manager.',
 };
 
 export interface StaffRecipient {
   id: string;
   email: string;
+  /** For texts. Empty for most people; see staffSms.ts for why it is opt-in. */
+  phone?: string;
+  /** Which events TEXT this person. Separate from email on purpose. */
+  smsEvents?: StaffNotificationEvent[];
   name: string;
   role: 'owner' | 'admin' | 'employee';
   events: StaffNotificationEvent[];
@@ -146,6 +154,8 @@ export interface StaffNotificationPayload {
   /** Optional deep link button. */
   ctaLabel?: string;
   ctaPath?: string;
+  /** Which row labels are worth a TEXT. Others stay in the email only. */
+  smsRows?: string[];
   /** Optional note under the table. */
   note?: string;
   /**
@@ -288,6 +298,33 @@ export async function notifyStaff(
 
     if (payload.dedupeKey) {
       await kv.set(`${DEDUPE_PREFIX}${payload.dedupeKey}`, { key: payload.dedupeKey, at: new Date().toISOString() });
+    }
+
+    /*
+     * And a text, for whoever asked to be texted about this event.
+     *
+     * After the email and never instead of it: the email is the record and the
+     * one that carries everything, while the text is a tap on the shoulder. A
+     * failure here is logged and swallowed for the same reason — a carrier
+     * problem must not turn a delivered notification into a failed one.
+     */
+    try {
+      const phones = phonesForEvent(event, await loadStaffRecipients(), Deno.env.get('ADMIN_NOTIFICATION_PHONES') || '');
+      if (phones.length) {
+        const text = smsBody({
+          company: companyName(),
+          subject: payload.subject,
+          rows: payload.rows,
+          keep: payload.smsRows || [],
+          url: payload.ctaPath ? `${(Deno.env.get('APP_URL') || '').replace(/\/+$/, '')}${payload.ctaPath}` : undefined,
+        });
+        for (const phone of phones) {
+          const result = await sendTextMessage(phone, text, 'transactional');
+          if (!result.ok) console.log(`[StaffNotify:${event}] SMS to ${phone.slice(0, 5)}… not sent: ${result.error}`);
+        }
+      }
+    } catch (smsError: any) {
+      console.log(`[StaffNotify:${event}] SMS step failed: ${smsError?.message || smsError}`);
     }
 
     console.log(`[StaffNotify:${event}] Sent to ${recipients.length} recipient(s).`);
