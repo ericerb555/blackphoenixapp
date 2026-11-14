@@ -230,31 +230,81 @@ async function askOverpass(query: string): Promise<OverpassElement[]> {
    * the main defence". Redirects are refused outright rather than followed,
    * and the read below keeps its own size ceiling.
    */
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(OVERPASS, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": USER_AGENT,
-        Accept: "application/json",
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-      // Never followed: re-sending the query to wherever a first host points
-      // is the one thing safeFetch was guarding, and it is cheap to keep.
-      redirect: "error",
-      signal: controller.signal,
-    });
-  } catch (e: any) {
-    throw new Error(`Overpass refused: ${e?.message || "the request never completed"}`);
-  } finally {
-    clearTimeout(timer);
-  }
+  /*
+   * THREE WAYS TO SPELL THE SAME HEADER, AND WHY — 2026-11-14
+   *
+   * Dropping `safeFetch` was not enough. The first deploy carrying that change
+   * fired a tick by hand and Overpass answered 406 again, quoting the same
+   * nginx page. So the header is not being lost by our wrapper: the runtime
+   * itself is not sending it. `User-Agent` is a protected name in some fetch
+   * implementations, dropped silently rather than refused loudly.
+   *
+   * What is NOT in doubt is the diagnosis. Measured against the live endpoint,
+   * absent agent is the only thing that produces this exact page, and the
+   * runtime's own default (`Deno/x`) passes nginx without trouble — so what
+   * arrives is nothing at all, not a substitute.
+   *
+   * Rather than guess a fourth time, ask the endpoint. Each spelling is tried
+   * in turn and the one that worked is RECORDED, so the next run record says
+   * which of these a Supabase edge function may actually set. A 406 is the
+   * only thing that moves to the next attempt: every other answer — a 200, a
+   * busy 504, a rate-limiting 429 — is Overpass talking to a caller it has
+   * accepted, and retrying those would be exactly the hammering that got an
+   * earlier fetcher blocked.
+   */
+  const form = new URLSearchParams({ data: query }).toString();
+  const headerObject: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": USER_AGENT,
+    Accept: "application/json",
+  };
+  const headerInstance = new Headers();
+  headerInstance.set("Content-Type", "application/x-www-form-urlencoded");
+  headerInstance.set("user-agent", USER_AGENT);
+  headerInstance.set("Accept", "application/json");
 
-  const text = (await res.text().catch(() => "")).slice(0, OVERPASS_MAX_BYTES);
-  const result = { ok: res.ok, status: res.status, body: text, error: undefined as string | undefined };
+  const attempts: Array<{ how: string; init: RequestInit; url: string }> = [
+    { how: "POST with a header object", url: OVERPASS, init: { method: "POST", headers: headerObject, body: form } },
+    { how: "POST with a Headers instance", url: OVERPASS, init: { method: "POST", headers: headerInstance, body: form } },
+    {
+      how: "GET with the query in the URL",
+      url: `${OVERPASS}?${form}`,
+      init: { method: "GET", headers: headerInstance },
+    },
+  ];
+
+  let result = { ok: false, status: 0, body: "", error: undefined as string | undefined };
+  /** Which spellings were tried and refused, so the run record names them. */
+  const refusedHow: string[] = [];
+  for (const attempt of attempts) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(attempt.url, {
+        ...attempt.init,
+        // Never followed: re-sending the query to wherever a first host points
+        // is the one thing safeFetch was guarding, and it is cheap to keep.
+        redirect: "error",
+        signal: controller.signal,
+      });
+    } catch (e: any) {
+      throw new Error(`Overpass refused: ${e?.message || "the request never completed"}`);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const text = (await res.text().catch(() => "")).slice(0, OVERPASS_MAX_BYTES);
+    result = { ok: res.ok, status: res.status, body: text, error: undefined };
+
+    if (res.status !== 406) {
+      // Worth saying out loud in the log: this is the answer to "which spelling
+      // of User-Agent survives this runtime", and it is the whole bug.
+      if (res.ok) console.log(`[exchange] Overpass accepted us — ${attempt.how}.`);
+      break;
+    }
+    refusedHow.push(attempt.how);
+  }
 
   if (!result.ok || !result.body) {
     /**
@@ -294,7 +344,8 @@ async function askOverpass(query: string): Promise<OverpassElement[]> {
             // The one refusal that is about us and is fixable. Its front door
             // rejects a request with no User-Agent, so this means our agent is
             // not arriving — not that Overpass is busy. See the note above.
-            ? "it refused the request as unidentified, which means our User-Agent did not arrive"
+            ? "it refused the request as unidentified, which means our User-Agent did not arrive. "
+              + `This runtime would not send it as: ${refusedHow.join("; ")}`
             : "it answered with no usable body";
 
     /*
