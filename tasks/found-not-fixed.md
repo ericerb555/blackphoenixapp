@@ -176,18 +176,24 @@ nothing drags sideways.
 **Fixed on the spot** (`926cee5bf`): six Exchange fields still computing under
 16px, found by measuring the running page.
 
+**Also fixed** (`fe4f05760`): the Sign In button overlapping the landing hero,
+and the third floating control — ThemeManager's colour editor — now hidden on
+phones with a safe-area inset.
+
 **Still open from the sweep:**
 
-- **The "Sign In" button overlaps the hero heading on the landing page.** It is
-  `fixed top-4 right-4 z-[60]`, and at 390px the H1 wraps to three lines and
-  runs underneath it. Visible in the first screenshot of the sweep.
-- **That Sign In control is 26px tall** and is not a `<button>`, so the 44px
-  coarse-pointer rule does not reach it. Either make it a button or give it the
-  minimum directly.
-- **A third floating control is unaccounted for**: `fixed bottom-6 right-6`,
-  48×48, `bg-[#ea580c]`, z-50 — not the chat widget and not the store button.
-  It sits below the chat widget and was not part of the P0 audit. Identify it
-  and decide whether it belongs on a phone.
+- **`* { margin:0; padding:0 }` kills every Tailwind padding utility
+  application-wide.** `globals.css:70` says this is deliberate and that changing
+  it needs Eric's approval, so it stays — but the consequences are not written
+  down anywhere people will meet them. `px-6 py-3` on a button does nothing,
+  which is why the Sign In control measured 26px tall on the live page, and why
+  the 44px `min-height` rule is the only thing that can size a tap target here.
+  Every "add some padding" fix in this codebase is a no-op. Worth a line in
+  CLAUDE.md so it is learned once rather than per-person.
+- **ThemeManager has no role gate.** It renders for every visitor on desktop —
+  a resident looking up a plumber gets a floating theme-colour editor. Hidden
+  on phones now, but the desktop exposure is a product decision nobody has
+  taken. Not a security hole; the theme is client-side.
 - **`/exchange` takes several seconds to mount on a phone-sized viewport** —
   long enough that a 45s scripted budget covering three routes timed out and
   froze the renderer. It renders correctly once up (1,401 nodes). Worth a look
@@ -221,6 +227,18 @@ for roughly 25 of the app's.
 `error: failed to delete '.git/worktrees/deploy-head': Permission denied` on
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
+
+### One test is failing, and it belongs to another session
+`tests/hazardRules.test.ts` — *"the common surcharges are all recognised by the
+words a homeowner uses"* — expects `'tyre'` and gets `undefined`.
+
+**Not from the mobile or Exchange work.** That test and the three modules beside
+it (`hazardRules.ts`, `trashRates.ts`, `trashTakeoff.ts`) are **untracked**,
+in-flight from a concurrent session. Left alone deliberately rather than fixed
+from underneath whoever is writing it — but recorded, because a red suite that
+everyone assumes is somebody else's is how a real failure hides.
+
+Suite is otherwise 3,540 passing.
 
 ### `q3probe.mjs` is untracked in the repo root
 Appeared in `git status` during this session and is not mine. Either it belongs
