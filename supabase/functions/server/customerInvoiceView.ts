@@ -103,6 +103,16 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export const isLineShown = (line: any): boolean => line?.visible !== false;
 
 /**
+ * What a withheld line is called on the customer's copy.
+ *
+ * Identical to the wording in `src/app/lib/invoiceLineSelection.ts` and
+ * `quotePdfSelection.ts` on purpose: a customer who receives a quote and
+ * then an invoice for the same job must not find the same withholding
+ * described two different ways.
+ */
+export const WITHHELD_LABEL = 'Additional work';
+
+/**
  * Is this line on the invoice at all?
  *
  * A DIFFERENT QUESTION FROM `isLineShown`, and the difference is money.
@@ -161,14 +171,39 @@ export function customerInvoiceView(invoice: any): CustomerInvoice {
   const all: any[] = (Array.isArray(invoice?.line_items) ? invoice.line_items : [])
     .filter(isLineIncluded);
 
-  const line_items = all.filter(isLineShown).map((line: any, i: number) => {
+  /*
+   * A HIDDEN LINE KEEPS ITS ROW AND ITS AMOUNT.
+   *
+   * Eric, on the quote and it holds identically here: "we can hide things
+   * but the totals stay as part of the quote… the line item should stay with
+   * a total only."
+   *
+   * This used to `filter(isLineShown)`, which dropped the row and left its
+   * money in the totals that are passed through below — so the customer's
+   * copy showed a column that did not reach its own subtotal, with nothing
+   * accounting for the difference. The same defect on the quote PDF printed
+   * $10,032.94 of lines beneath a total of $12,666.13.
+   *
+   * What it gives up is the DESCRIPTION, which is the entire point of the
+   * flag — "Skip hire $450" on a customer's invoice would be no hiding at
+   * all. The quantity and unit price go with it, so nothing can be divided
+   * back into a rate.
+   *
+   * This file enforces the rule independently of `invoiceLineSelection`,
+   * because Deno cannot import from `src/` and a hide that exists only in
+   * the browser is not a hide. The two must agree, and the wording is
+   * deliberately identical.
+   */
+  const line_items = all.map((line: any, i: number) => {
+    const withheld = !isLineShown(line);
     const projected: CustomerInvoiceLine = {
       line_number: i + 1,
-      description: str(line?.description),
-      quantity: num(line?.quantity),
-      unit_price: num(line?.unit_price),
+      description: withheld ? WITHHELD_LABEL : str(line?.description),
+      quantity: withheld ? 0 : num(line?.quantity),
+      unit_price: withheld ? 0 : num(line?.unit_price),
       amount: amountOf(line),
     };
+    if (withheld) (projected as any).detailWithheld = true;
     const phase = str(line?.phase).trim();
     if (phase) projected.phase = phase;
     return projected;

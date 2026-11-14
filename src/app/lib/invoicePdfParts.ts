@@ -22,7 +22,7 @@ export interface InvoicePdfPhase {
   title: string | null;
   label: string;
   duration?: string;
-  lines: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  lines: Array<{ description: string; quantity: number; rate: number; amount: number; detailWithheld?: boolean }>;
   subtotal: number;
 }
 
@@ -94,7 +94,17 @@ export function invoicePdfParts(invoice: any, forCustomer: boolean): InvoicePdfP
       description: l.description,
       quantity: Number(l.quantity) || 0,
       rate: Number(l.unit_price) || 0,
-      amount: round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0)),
+      /*
+       * The line's OWN amount where it has one, because quantity times rate
+       * is not always it. A withheld line carries its amount and no quantity
+       * or rate at all — recomputing would print it at $0.00 beside a phase
+       * subtotal that counts it, which is the mismatch this whole area has
+       * been about.
+       */
+      amount: Number.isFinite(Number(l.amount))
+        ? round2(Number(l.amount))
+        : round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0)),
+      ...(l.detailWithheld ? { detailWithheld: true } : {}),
     })),
     subtotal: costOf(g.phase, g.subtotal),
   }));

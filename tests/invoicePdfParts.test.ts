@@ -76,12 +76,22 @@ test('the office copy draws it, marked', () => {
   assert.ok(drawn.some((d) => /Contingency.*hidden from customer/.test(d)));
 });
 
-test('a phase subtotal counts the hidden line, so the sections still sum', () => {
+test('a phase subtotal counts the hidden line, and so do the drawn lines', () => {
   const parts = invoicePdfParts(invoice, true);
   const structural = parts.phases.find((p) => p.title === 'Structural')!;
   assert.equal(structural.subtotal, 4580, '1840 + 500 hidden + 2240');
+  /*
+   * This asserted the drawn lines "deliberately fall short" by the hidden
+   * $500. They no longer do: Eric — "we can hide things but the totals stay
+   * as part of the quote" — so the withheld line keeps its row and its
+   * amount, and the column reaches the phase subtotal. A customer adding it
+   * up gets the figure they are being charged.
+   */
   const drawnSum = structural.lines.reduce((a, l) => a + l.amount, 0);
-  assert.equal(drawnSum, 4080, 'the drawn lines deliberately fall short');
+  assert.equal(drawnSum, 4580, 'the column reaches the subtotal');
+  const withheld = structural.lines.filter((l: any) => l.detailWithheld);
+  assert.equal(withheld.length, 1);
+  assert.equal(withheld[0].amount, 500, 'the hidden money is the row');
 });
 
 test('the server’s phase_costs win over anything computed locally', () => {
@@ -105,10 +115,17 @@ test('a phase whose every line is hidden still appears, at its true cost', () =>
     line_items: [{ description: 'Skip', quantity: 2, unit_price: 450, amount: 900, phase: 'Strip out', visible: false }],
   };
   const parts = invoicePdfParts(allHidden, true);
-  assert.equal(parts.showLines, false);
   assert.deepEqual(parts.phases.map((p) => p.title), ['Strip out']);
   assert.equal(parts.phases[0].subtotal, 900);
-  assert.deepEqual(parts.phases[0].lines, []);
+  /*
+   * The row survives now, carrying its amount and not its name — Eric: "we
+   * can hide things but the totals stay as part of the quote." The phase
+   * used to draw nothing beneath a subtotal of 900, which is the shape of
+   * the defect that printed a short column on the quote PDF.
+   */
+  assert.equal(parts.phases[0].lines.length, 1);
+  assert.equal(parts.phases[0].lines[0].amount, 900);
+  assert.ok(!/Skip/.test(JSON.stringify(parts)), 'what it was stays ours');
 });
 
 test('the phase duration comes across from the job’s steps', () => {

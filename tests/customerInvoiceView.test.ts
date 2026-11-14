@@ -55,7 +55,14 @@ test('a hidden line is not in the customer’s copy', () => {
   const json = JSON.stringify(v);
   assert.ok(!json.includes('Contingency'), 'contingency leaked');
   assert.ok(!json.includes('Skip hire'), 'skip hire leaked');
-  assert.equal(v.line_items.length, 3);
+  /*
+   * The ROW survives; the NAME does not. Eric: "we can hide things but the
+   * totals stay as part of the quote." Five lines, two of them withheld and
+   * carrying only an amount — so the two leak assertions above are still the
+   * load-bearing ones, and the column still reaches the subtotal.
+   */
+  assert.equal(v.line_items.length, 5);
+  assert.equal(v.line_items.filter((l: any) => l.detailWithheld).length, 2);
 });
 
 test('a hidden process step is not in the customer’s copy', () => {
@@ -95,10 +102,17 @@ test('a hidden line’s own fields do not survive on a visible one', () => {
 
 /* ── what the customer must still get ────────────────────────────────────── */
 
-test('the visible lines come through, renumbered without gaps', () => {
+test('every line comes through, withheld ones renamed, renumbered without gaps', () => {
   const v = customerInvoiceView(invoice);
-  assert.deepEqual(v.line_items.map((l) => l.description), ['Steel beam', 'Carpenter', 'Parking permits']);
-  assert.deepEqual(v.line_items.map((l) => l.line_number), [1, 2, 3]);
+  /*
+   * Eric: "we can hide things but the totals stay as part of the quote."
+   * A withheld line keeps its row and its amount and gives up its name, so
+   * the column the customer adds up reaches the subtotal.
+   */
+  assert.deepEqual(v.line_items.map((l) => l.description), [
+    'Steel beam', 'Additional work', 'Carpenter', 'Additional work', 'Parking permits',
+  ]);
+  assert.deepEqual(v.line_items.map((l) => l.line_number), [1, 2, 3, 4, 5]);
 });
 
 test('the invoice still identifies itself and who owes what', () => {
@@ -125,19 +139,28 @@ test('the phase costs sum to the stored subtotal', () => {
   assert.equal(summed, invoice.subtotal, 'the sections must add up to the subtotal');
 });
 
-test('a phase whose every line is hidden still has its cost', () => {
-  // Otherwise "Strip out" renders at $0 and the customer asks why they are
-  // being charged nothing for work they watched happen.
+test('a phase whose every line is hidden keeps its rows and its cost', () => {
+  // It used to vanish from the customer's copy entirely while its money
+  // stayed in the totals — the defect that printed a short column on the
+  // quote PDF, waiting here on invoices.
   const v = customerInvoiceView(invoice);
-  assert.ok(!v.line_items.some((l) => l.phase === 'Strip out'));
+  const stripOut = v.line_items.filter((l) => l.phase === 'Strip out');
+  assert.ok(stripOut.length > 0, 'the phase is still on the page');
+  assert.equal(stripOut.reduce((a, l) => a + l.amount, 0), 900, 'at its real cost');
+  assert.ok(
+    stripOut.every((l) => l.description === 'Additional work'),
+    'without saying what it was',
+  );
   assert.equal(v.phase_costs['Strip out'], 900);
 });
 
 test('the stored totals pass through untouched, never recomputed', () => {
   const v = customerInvoiceView(invoice);
-  const visibleSum = v.line_items.reduce((a, l) => a + l.amount, 0);
-  assert.equal(visibleSum, 4170, 'the drawn lines deliberately fall short');
-  assert.equal(v.subtotal, 5570, 'and the subtotal is NOT reduced to match');
+  const drawnSum = v.line_items.reduce((a, l) => a + l.amount, 0);
+  // The lines no longer fall short: a withheld line keeps its amount, so the
+  // column reaches the stored subtotal instead of leaving a gap.
+  assert.equal(drawnSum, 5570, 'the column reaches the subtotal');
+  assert.equal(v.subtotal, 5570, 'which is still the STORED one, not recomputed');
   assert.equal(v.total_amount, 6057.38);
 });
 

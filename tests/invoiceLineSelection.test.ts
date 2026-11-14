@@ -28,12 +28,22 @@ const items = [
 
 /* ── the customer copy ───────────────────────────────────────────────────── */
 
-test('a hidden line is not on the customer copy', () => {
+test('a hidden line keeps its row and loses its name', () => {
   const sel = selectInvoiceLines(items, true);
   const text = JSON.stringify(sel.lines);
+  // The leak assertions are the load-bearing ones and are unchanged.
   assert.ok(!text.includes('Contingency'), 'contingency leaked');
   assert.ok(!text.includes('Skip hire'), 'skip hire leaked');
-  assert.equal(sel.lines.length, 4);
+  /*
+   * Eric: "we can hide things but the totals stay as part of the quote…
+   * the line item should stay with a total only." Dropping the row left its
+   * money in the totals with nothing on the page accounting for it.
+   */
+  assert.equal(sel.lines.length, 6, 'every row survives');
+  assert.equal(sel.lines.filter((l: any) => l.detailWithheld).length, 2);
+  assert.ok(
+    sel.lines.filter((l: any) => l.detailWithheld).every((l: any) => l.description === 'Additional work'),
+  );
 });
 
 test('a hidden line still counts towards its phase cost', () => {
@@ -71,7 +81,16 @@ test('a credit subtracts, and a hidden credit still subtracts', () => {
     { description: 'Customer-supplied flooring', quantity: 1, unit_price: -1200, phase: 'Finishes', visible: false },
   ];
   const sel = selectInvoiceLines(withCredit, true);
-  assert.equal(sel.lines.length, 1);
+  /*
+   * The credit keeps its row now, carrying its negative amount without
+   * naming what it was for. A customer adding the column up reaches the
+   * same figure the invoice asks them to pay — which is the point, and is
+   * especially true of a credit, where the alternative is a deduction they
+   * can see in the total and nowhere else.
+   */
+  assert.equal(sel.lines.length, 2);
+  const hidden: any = sel.lines.find((l: any) => l.detailWithheld);
+  assert.equal(Number(hidden.amount ?? -1200), -1200, 'the credit is on the page');
   assert.equal(sel.phaseCost.get('Finishes'), 0, 'the credit must still net off');
   assert.equal(sel.hiddenAmount, -1200);
 });
@@ -142,9 +161,9 @@ const mixed = [
 
 test('an excluded line is not charged, a hidden one is', () => {
   const sel = selectInvoiceLines(mixed, true);
-  // Hidden: in the phase cost, not in the lines. Excluded: in neither.
+  // Hidden: in the phase cost AND on the page, unnamed. Excluded: in neither.
   assert.equal(sel.phaseCost.get('Structural'), 1300, '1000 + 300 hidden, NOT the 700 excluded');
-  assert.deepEqual(sel.lines.map((l) => l.description), ['Steel']);
+  assert.deepEqual(sel.lines.map((l) => l.description), ['Steel', 'Additional work']);
 });
 
 test('an excluded line is gone from the office copy too', () => {

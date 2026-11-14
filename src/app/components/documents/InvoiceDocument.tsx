@@ -271,8 +271,18 @@ export default function InvoiceDocument({ invoice, onEdit, forCustomer = false }
                       </span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{item.quantity}</td>
-                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">{formatCurrency(item.unit_price)}</td>
+                  {/*
+                    A withheld line prints its amount and leaves these two
+                    empty. Printing a zero quantity beside a real amount reads
+                    as a broken invoice, which is how the equivalent row on the
+                    quote looked before it was fixed.
+                  */}
+                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">
+                    {(item as any).detailWithheld ? '' : item.quantity}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-400 print:text-gray-600 text-right">
+                    {(item as any).detailWithheld ? '' : formatCurrency(item.unit_price)}
+                  </td>
                   <td className="py-3 px-4 text-sm text-white print:text-gray-900 font-semibold text-right">
                     {formatCurrency(lineAmount(item))}
                   </td>

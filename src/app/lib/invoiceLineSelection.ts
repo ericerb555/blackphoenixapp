@@ -69,6 +69,15 @@ export interface InvoiceLine {
 export const isLineShown = (line: any): boolean => line?.visible !== false;
 
 /**
+ * What a withheld line is called on the customer's copy.
+ *
+ * The same wording the quote uses, deliberately — a customer who gets a
+ * quote and then an invoice for the same job should not find the two
+ * documents describing the same withholding in two different ways.
+ */
+export const WITHHELD_LABEL = 'Additional work';
+
+/**
  * Is this line on the invoice at all?
  *
  * ABSENT MEANS INCLUDED, so no invoice already written changes. Excluded is
@@ -131,7 +140,36 @@ export function selectInvoiceLines(
       hiddenCount += 1;
       hiddenAmount = round2(hiddenAmount + amountOf(line));
     }
-    if (forCustomer && !shown) continue;
+
+    if (!shown && forCustomer) {
+      /*
+       * THE LINE STAYS; ITS NAME DOES NOT.
+       *
+       * Eric, on the quote PDF and it applies identically here: "we can hide
+       * things but the totals stay as part of the quote… the line item
+       * should stay with a total only."
+       *
+       * This used to `continue`, dropping the row from the customer's copy
+       * while its money stayed in the phase cost and the total. The same
+       * defect on the quote side printed a column of $10,032.94 beneath a
+       * total of $12,666.13 with nothing accounting for the difference, and
+       * `hiddenAmount` below has been computed here all along without any
+       * surface ever rendering it.
+       *
+       * So the row is kept, carrying its amount and nothing else. What it
+       * was for stays ours, which is the whole purpose of the flag.
+       */
+      lines.push({
+        ...line,
+        description: WITHHELD_LABEL,
+        quantity: undefined,
+        unit_price: undefined,
+        rate: undefined,
+        detailWithheld: true,
+      });
+      continue;
+    }
+
     lines.push(
       !forCustomer && !shown
         ? { ...line, description: `${line?.description ?? ''}  (hidden from customer)` }
