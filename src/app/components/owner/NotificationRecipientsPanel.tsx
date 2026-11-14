@@ -1,17 +1,31 @@
 /**
  * Notification Recipients — Owner Dashboard
  *
- * Controls who on the team gets emailed when someone signs up for a portal,
- * a payment is captured, or a work request comes in.
+ * Who on the team hears about it when someone signs up, a payment is captured,
+ * a work request arrives or a price goes out — by email, and by text.
+ *
+ * This is also where admins are added: a recipient carries a role, so adding
+ * somebody here is how they start receiving alerts without any other change.
+ *
+ * TEXTS ARE PER PERSON AND PER ALERT
+ *
+ * A phone number on a recipient does not mean they get texted. Each alert they
+ * receive has its own "text me this one too", off by default, because an SMS
+ * costs money per message and arrives wherever somebody is standing — wanting
+ * an email for every portal application is not wanting a phone to buzz for
+ * each one. The list marks which alerts text, and on what number, so that is
+ * answerable without opening anybody's record.
  *
  * The addresses in the ADMIN_NOTIFICATION_EMAILS secret are shown read-only:
  * they always receive everything, so no UI mistake can silence every alert.
+ * There is deliberately no equivalent for phones — see `staffSms.ts` for why
+ * an always-on SMS list was written and then taken out.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import {
   Bell, Plus, Trash2, Mail, ShieldCheck, AlertCircle, Send,
-  Loader2, CheckCircle2, XCircle, RefreshCw, Lock, Pencil,
+  Loader2, CheckCircle2, XCircle, RefreshCw, Lock, Pencil, Smartphone,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
@@ -505,12 +519,44 @@ export function NotificationRecipientsPanel() {
                     )}
                   </div>
                   {r.name && <div className="mt-0.5 truncate text-xs text-gray-500">{r.email}</div>}
+                  {/*
+                    The number, where there is one.
+
+                    Managing who gets texted is impossible from a list that
+                    does not say who has a phone on file — the whole question
+                    is "which number is this going to", and it was only
+                    answerable by opening the edit form one person at a time.
+                  */}
+                  {r.phone && (
+                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400">
+                      <Smartphone className="h-3 w-3 flex-shrink-0" />
+                      {r.phone}
+                      {(r.smsEvents || []).length === 0 && (
+                        <span className="text-gray-600">· no texts switched on</span>
+                      )}
+                    </div>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(r.events || []).map(e => (
-                      <span key={e} className="rounded-full bg-[#ea580c]/10 px-2 py-0.5 text-[11px] text-[#fb923c]">
-                        {eventLabel(e)}
-                      </span>
-                    ))}
+                    {(r.events || []).map(e => {
+                      // An alert that also texts is marked, so the difference
+                      // between emailed and emailed-and-texted is visible
+                      // without opening anything.
+                      const texts = (r.smsEvents || []).includes(e);
+                      return (
+                        <span
+                          key={e}
+                          title={texts ? 'Emailed and texted' : 'Emailed'}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
+                            texts
+                              ? 'bg-[#ea580c]/20 text-[#fdba74] ring-1 ring-[#ea580c]/40'
+                              : 'bg-[#ea580c]/10 text-[#fb923c]'
+                          }`}
+                        >
+                          {texts && <Smartphone className="h-2.5 w-2.5" />}
+                          {eventLabel(e)}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex flex-shrink-0 gap-2">
