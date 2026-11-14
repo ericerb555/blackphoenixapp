@@ -138,13 +138,22 @@ test('an unticked item is off the quote however it is stored', () => {
   assert.equal(sum(sel.lines), r2(TOTAL - 594));
 });
 
-test('a hidden item leaves the customer copy but keeps its money in the phase', () => {
+/**
+ * Hiding withholds the DETAIL, not the row — Eric: "we can hide things but
+ * the totals stay as part of the quote." The row stays with its amount, so
+ * the column a customer adds up still reaches the total.
+ */
+test('a hidden item keeps its row and its amount, and loses its name', () => {
   const quote = jason();
-  (quote.items[3] as any).visible = false;
+  (quote.items[3] as any).visible = false;        // the 94 vanity
   const sel = selectQuoteLines(quote, true);
-  assert.equal(sel.lines.length, 16, 'not drawn for the customer');
+  assert.equal(sel.lines.length, 17, 'nothing is dropped');
+  assert.equal(sum(sel.lines), TOTAL, 'and the column still totals');
+  const hidden = sel.lines.find((l: any) => l.detailWithheld);
+  assert.equal(hidden.amount, 594);
+  assert.ok(!/Vanity/.test(hidden.description), 'what it was is withheld');
   assert.equal(
     r2([...sel.phaseCost.values()].reduce((s, v) => s + v, 0)), TOTAL,
-    'but still charged for, which is what hiding means',
+    'and it is still charged for',
   );
 });

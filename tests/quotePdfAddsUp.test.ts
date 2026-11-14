@@ -113,9 +113,10 @@ const drawnSum = (doc: any) => r2(drawnLines(doc).reduce((s, l) => s + (Number(l
 /**
  * Every money row the page prints, which is what a reader actually adds up.
  *
- * Lines where there are lines, and the "Other work in this phase" row where
- * work is withheld — Eric's rule is that no money is left without a row
- * against it, so this is the sum that has to reach the total.
+ * Since a withheld line keeps its own row and its own amount, this is now
+ * the same figure as `drawnSum` in every case — which is the point. It is
+ * kept separate because it is the question Eric asks of the page: add up
+ * what is printed, and see whether it reaches the total.
  */
 function printedSum(doc: any): number {
   let total = 0;
@@ -219,13 +220,105 @@ test('and still adds up with a line unticked under a margin', () => {
 
 /* ── hiding withholds detail, never money ────────────────────────────────── */
 
-test('a hidden line leaves the column but stays in the phase total', () => {
+/**
+ * HIDING WITHHOLDS THE DETAIL, NOT THE ROW.
+ *
+ * Eric: "we can hide things but the totals stay as part of the quote… the
+ * line item should stay with a total only."
+ *
+ * A hidden line used to be dropped from the customer's copy, which left its
+ * money in the phase subtotal and the total with nothing on the page
+ * accounting for it. It now stays, prints its amount, and prints no quantity
+ * and no rate — which is the part worth withholding.
+ */
+test('a hidden line keeps its row and its amount', () => {
+  const q = sarah();
+  (q.materials[8] as any).visible = false;        // Custom Benches, 1050
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+
+  assert.equal(drawnLines(doc).length, 16, 'the row stays on the page');
+  assert.equal(drawnSum(doc), 12666.13, 'and the column reaches the total');
+  assertAddsUp(doc, 'Sarah hidden');
+
+  const row = drawnLines(doc).find((l: any) => l.detailWithheld);
+  assert.equal(row.amount, 1050, 'its total is printed');
+  assert.equal(row.description, 'Additional work', 'and what it was stays ours');
+});
+
+test('nothing else is marked withheld', () => {
   const q = sarah();
   (q.materials[8] as any).visible = false;
   const doc = quoteToPdfDocument(q, { forCustomer: true });
-  assert.equal(drawnLines(doc).length, 15, 'not drawn');
-  assertAddsUp(doc, 'Sarah hidden');
-  assert.equal(phaseSum(doc), 12666.13, 'still charged for');
+  const marked = drawnLines(doc).filter((l: any) => l.detailWithheld);
+  assert.equal(marked.length, 1);
+});
+
+/**
+ * Eric's report, to the penny: Q-2026-0002 with five lines hidden. The gap
+ * was $2,633.19 — every line in Wall Modifications and Fixture Installation.
+ * All five now print their amounts, so the column reaches the total.
+ */
+test('his five hidden lines all keep their rows, and the column totals', () => {
+  const q = sarah({ processSteps: SARAH_STEPS });
+  for (const name of ['Drywall work', 'Hair Dryers', 'Custom Benches']) {
+    Object.assign((q.materials as any[]).find((r) => r.name === name), { visible: false });
+  }
+  for (const role of ['New Labor Role', 'Bench install']) {
+    Object.assign((q.labor as any[]).find((r) => r.role === role), { visible: false });
+  }
+
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+  assert.equal(drawnLines(doc).length, 16, 'nothing dropped');
+  assert.equal(drawnSum(doc), 12666.13, 'his column now reaches his total');
+  assertAddsUp(doc, 'Eric report');
+
+  const withheld = drawnLines(doc).filter((l: any) => l.detailWithheld);
+  assert.equal(withheld.length, 5);
+  assert.equal(
+    r2(withheld.reduce((s: number, l: any) => s + l.amount, 0)), 2633.19,
+    'and they come to exactly the money that used to vanish',
+  );
+
+  const labels = (doc.phases as any[]).map((p) => p.label);
+  assert.ok(labels.includes('Wall Modifications'));
+  assert.ok(labels.includes('Fixture Installation'));
+});
+
+test('the office copy still shows everything, marked', () => {
+  const q = sarah({ processSteps: SARAH_STEPS });
+  (q.materials[8] as any).visible = false;
+  const doc = quoteToPdfDocument(q, { forCustomer: false });
+  assert.equal(drawnSum(doc), 12666.13);
+  const row = drawnLines(doc).find((l: any) => /Custom Benches/.test(l.description));
+  assert.match(row.description, /hidden from customer/i, 'we can still see which it was');
+  assert.ok(!row.detailWithheld, 'and we still see its quantity and rate');
+});
+
+/** Q-2026-0002's real nine steps — two of them stored as a bare title. */
+const SARAH_STEPS = [
+  { title: 'Site Setup and Protection', included: true, stepNumber: 1 },
+  { title: 'Demolition and Preparation', stepNumber: 2 },
+  { title: 'Bench Construction', stepNumber: 3 },
+  { title: 'Wall Modifications', stepNumber: 4 },
+  { title: 'Electrical Rough-In', stepNumber: 5 },
+  { title: 'Fixture Installation', stepNumber: 6 },
+  { title: 'Lighting Installation', stepNumber: 7 },
+  { title: 'Painting', stepNumber: 8 },
+  { title: 'Final Cleanup and Handover', stepNumber: 9 },
+];
+
+/**
+ * A section switched off is the one case with no lines to carry the money,
+ * so the phase heading and its subtotal are the total — on the page, which
+ * is what "the totals stay as part of the quote" asks for.
+ */
+test('a section switched off still shows every phase and its total', () => {
+  const doc = quoteToPdfDocument(
+    sarah({ processSteps: SARAH_STEPS, customerSections: { labor: true, materials: false, processDetail: true } }),
+    { forCustomer: true },
+  );
+  assert.equal(phaseSum(doc), 12666.13, 'the totals are all still on the page');
+  assertAddsUp(doc, 'materials off');
 });
 
 /* ── edited in the editor, which is where he actually is ─────────────────── */
@@ -319,138 +412,3 @@ test('Jason: the generated PDF foots as well', () => {
   assert.equal(money[money.length - 1], '$7,308.70', 'the printed Total');
 });
 
-/* ── Eric's actual report, to the penny ──────────────────────────────────── */
-
-/**
- * "QT-20261017-7392  10,031.94  total 12,666.13" — Q-2026-0002 with five
- * lines hidden from the customer. The gap is $2,633.19, which is every line
- * in two phases: Wall Modifications, and all four of Fixture Installation.
- *
- * `groupLinesByPhase` only sees lines that are DRAWN, so a phase whose lines
- * are all hidden produced no group and vanished from the customer's copy
- * entirely — heading, subtotal and all — while its money stayed in the
- * total. Nothing on the page accounted for the difference.
- *
- * The office copy draws hidden lines anyway, so it always looked right.
- * That is why every check against the office copy passed while the document
- * a customer reads was wrong.
- */
-const HIDDEN = { visible: false };
-
-/** Q-2026-0002's real nine steps — two of them stored as a bare title. */
-const SARAH_STEPS = [
-  { title: 'Site Setup and Protection', included: true, stepNumber: 1 },
-  { title: 'Demolition and Preparation', stepNumber: 2 },
-  { title: 'Bench Construction', stepNumber: 3 },
-  { title: 'Wall Modifications', stepNumber: 4 },
-  { title: 'Electrical Rough-In', stepNumber: 5 },
-  { title: 'Fixture Installation', stepNumber: 6 },
-  { title: 'Lighting Installation', stepNumber: 7 },
-  { title: 'Painting', stepNumber: 8 },
-  { title: 'Final Cleanup and Handover', stepNumber: 9 },
-];
-
-function sarahWithHiddenPhases() {
-  const q = sarah({ processSteps: SARAH_STEPS });
-  const hide = (list: any[], name: string) => {
-    const row = list.find((r: any) => (r.name || r.role) === name);
-    Object.assign(row, HIDDEN);
-  };
-  hide(q.materials as any[], 'Drywall work');       // all of Wall Modifications
-  hide(q.materials as any[], 'Hair Dryers');        // all four of
-  hide(q.materials as any[], 'Custom Benches');     //   Fixture Installation
-  hide(q.labor as any[], 'New Labor Role');
-  hide(q.labor as any[], 'Bench install');
-  return q;
-}
-
-test('a phase with every line hidden still appears, with its subtotal', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
-  const labels = (doc.phases || []).map((p: any) => p.label);
-  assert.ok(labels.includes('Wall Modifications'), 'Wall Modifications must not vanish');
-  assert.ok(labels.includes('Fixture Installation'), 'Fixture Installation must not vanish');
-
-  const wall = (doc.phases as any[]).find((p) => p.label === 'Wall Modifications');
-  const fixture = (doc.phases as any[]).find((p) => p.label === 'Fixture Installation');
-  assert.equal(wall.lines.length, 0, 'the detail is withheld');
-  assert.equal(wall.subtotal, 235.69, 'the money is not');
-  assert.equal(fixture.subtotal, 2397.5);
-});
-
-test('and the page still reconciles to the printed total', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
-  assertAddsUp(doc, 'Sarah hidden phases');
-  assert.equal(phaseSum(doc), 12666.13);
-  // The named lines are legitimately short by the withheld money — that is
-  // what hiding means — and it is his figure, which was never wrong.
-  assert.equal(drawnSum(doc), 10032.94);
-  /*
-   * "no money total are to be left hidden." Every withheld dollar carries an
-   * "Other work in this phase" row, so the money rows a reader adds up reach
-   * the printed total exactly.
-   */
-  assert.equal(printedSum(doc), 12666.13,
-    'the printed money rows must come to the total with nothing unaccounted for');
-});
-
-test('every phase prints rows that reach its own subtotal', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
-  for (const phase of doc.phases as any[]) {
-    const rows = phase.groups?.length
-      ? phase.groups.reduce((s: number, g: any) => s + (g.balancing
-          ? (Number(g.subtotal) || 0)
-          : (g.lines || []).reduce((t: number, l: any) => t + (Number(l.amount) || 0), 0)), 0)
-      : (phase.lines || []).reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
-    assert.equal(r2(rows), r2(phase.subtotal),
-      `${phase.label}: printed rows must come to its subtotal`);
-  }
-});
-
-test('the phases stay in the job order, not shuffled to the end', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
-  const labels = (doc.phases || []).map((p: any) => p.label);
-  assert.ok(labels.indexOf('Wall Modifications') < labels.indexOf('Electrical Rough-In'));
-  assert.ok(labels.indexOf('Fixture Installation') < labels.indexOf('Lighting Installation'));
-});
-
-test('the office copy is unchanged by any of this', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: false });
-  assert.equal(drawnSum(doc), 12666.13);
-  assert.equal((doc.phases || []).length, 8);
-});
-
-/**
- * "things can be hidden but totals can not."
- *
- * The strongest form of hiding: switch a whole section off. The lines go,
- * and every dollar they carried must still have a row against it.
- */
-test('turning the materials section off still prints its money', () => {
-  const doc = quoteToPdfDocument(
-    sarah({ processSteps: SARAH_STEPS, customerSections: { labor: true, materials: false, processDetail: true } }),
-    { forCustomer: true },
-  );
-  assert.equal(printedSum(doc), 12666.13, 'nothing may go unaccounted for');
-  assertAddsUp(doc, 'materials section off');
-});
-
-test('turning BOTH sections off still prints every phase and its money', () => {
-  const doc = quoteToPdfDocument(
-    sarah({ processSteps: SARAH_STEPS, customerSections: { labor: false, materials: false, processDetail: true } }),
-    { forCustomer: true },
-  );
-  assert.equal(printedSum(doc), 12666.13);
-  assert.equal(phaseSum(doc), 12666.13);
-});
-
-test('a hidden line never leaves its money without a row', () => {
-  const doc = quoteToPdfDocument(sarahWithHiddenPhases(), { forCustomer: true });
-  const withheld = (doc.phases as any[])
-    .flatMap((p) => p.groups || [])
-    .filter((g: any) => g.balancing);
-  assert.ok(withheld.length >= 2, 'both all-hidden phases carry a row');
-  assert.equal(
-    r2(withheld.reduce((s: number, g: any) => s + g.subtotal, 0)), 2633.19,
-    'and those rows come to exactly the money that was hidden',
-  );
-});

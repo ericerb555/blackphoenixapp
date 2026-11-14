@@ -213,7 +213,15 @@ const withExcluded = {
 test('an excluded line is not charged, a hidden one is', () => {
   const sel = selectQuoteLines(withExcluded, true);
   assert.equal(sel.phaseCost.get('Framing'), 1550, '1100 + 450 hidden; the two 700s are out');
-  assert.deepEqual(sel.lines.map((l) => l.description), ['Lumber']);
+  /*
+   * Eric: "we can hide things but the totals stay as part of the quote."
+   * The hidden line keeps its ROW and its amount and gives up its name, so
+   * the column a customer adds up reaches the total. Excluded work is still
+   * gone outright — it is not being charged for.
+   */
+  assert.deepEqual(sel.lines.map((l) => l.description), ['Lumber', 'Additional work']);
+  const hidden = sel.lines.find((l) => l.detailWithheld);
+  assert.equal(hidden?.amount, 450, 'its money is on the page');
 });
 
 test('an excluded line is gone from the internal copy too', () => {
@@ -285,13 +293,20 @@ test('a material is tagged material and a labour line labour', () => {
  * carries it as a balancing row — so this asserts the gap is what we think it
  * is, because a wrong figure here is a quote whose own column does not add up.
  */
-test('what the drawn lines miss is exactly the withheld money', () => {
+/**
+ * The drawn lines now miss NOTHING, which is the point of the change.
+ *
+ * This asserted the opposite while hiding dropped the row: the only Strip
+ * out line was hidden, so the phase drew nothing under a subtotal of 450 and
+ * a customer adding the column up came out short. The row stays now.
+ */
+test('the drawn lines come to the phase cost, with nothing withheld from the sum', () => {
   const sel = selectQuoteLines(quote, true);
-  const drawnInStripOut = sel.lines
-    .filter((l) => l.phase === 'Strip out')
-    .reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
-  assert.equal(drawnInStripOut, 0, 'the only Strip out line is hidden');
-  assert.equal(sel.phaseCost.get('Strip out'), 450, 'but its money is still charged');
+  const stripOut = sel.lines.filter((l) => l.phase === 'Strip out');
+  assert.equal(stripOut.length, 1, 'the hidden line keeps its row');
+  assert.equal(stripOut[0].amount, 450, 'and its amount');
+  assert.equal(stripOut[0].detailWithheld, true, 'what it was stays ours');
+  assert.equal(sel.phaseCost.get('Strip out'), 450, 'and the two agree');
 });
 
 /* ── the floor: a phase and its price, even with everything else off ────── */

@@ -109,6 +109,8 @@ export interface SelectedLine {
    */
   amount: number;
   phase?: string;
+  /** Hidden from the customer: the amount prints, the quantity and rate do not. */
+  detailWithheld?: boolean;
   /**
    * Material or labour, carried so the document can split a phase into the
    * two and subtotal each.
@@ -160,6 +162,21 @@ export interface QuoteSelection {
  * no such flag, and defaulting the other way would empty them.
  */
 export const isIncluded = (line: any): boolean => line?.included !== false;
+
+/**
+ * What a withheld line is called on the customer's copy.
+ *
+ * It keeps its row and its amount — "the line item should stay with a total
+ * only" — and gives up its name, which is the thing hiding exists to
+ * protect. A row reading "Skip hire" with the price beside it would be no
+ * hiding at all, and `tests/quotePdfSelection.test.ts` has asserted that
+ * since the flag was introduced.
+ *
+ * Deliberately says nothing about what it is. A customer can see that the
+ * phase contains work at that price, which is what they are paying for, and
+ * nothing about how it was bought.
+ */
+export const WITHHELD_LABEL = 'Additional work';
 
 /**
  * Is each section shown at all?
@@ -234,8 +251,24 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     ? rateVisibilityOf(quote)
     : { materials: true, labor: true };
 
-  // Excluded first and unconditionally — it is not a customer-facing rule.
-  const keep = (l: any) => isIncluded(l) && (forCustomer ? l?.visible !== false : true);
+  /*
+   * EXCLUDED IS GONE; HIDDEN IS QUIET.
+   *
+   * `included: false` means the work is not on the quote and is not charged,
+   * so it is dropped unconditionally — that is not a customer-facing rule.
+   *
+   * `visible: false` used to drop the line from the customer's copy too,
+   * which left its money in the phase subtotal and the total with nothing on
+   * the page accounting for it. On Q-2026-0002 that silently priced
+   * $2,633.19 of work the customer could not see.
+   *
+   * Eric: "things can be hidden but totals can not… the line item should
+   * stay with a total only." So a hidden line is KEPT and marked. It prints
+   * its description and its amount; `detailWithheld` stops the quantity and
+   * rate from being drawn, which is the part that was worth withholding.
+   */
+  const keep = (l: any) => isIncluded(l);
+  const withheld = (l: any) => forCustomer && l?.visible === false;
   const mark = (desc: string, l: any) =>
     !forCustomer && l?.visible === false ? `${desc}  (hidden from customer)` : desc;
 
@@ -278,7 +311,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     for (const m of materialRows) {
       if (!keep(m)) continue;
       lines.push({
-        description: describeLine(
+        description: withheld(m) ? WITHHELD_LABEL : describeLine(
           mark([m?.name, m?.description].filter(Boolean).join(' — ') || 'Material', m),
           m, Number(m?.quantity) || 0, Number(m?.unitCost) || 0,
         ),
@@ -286,6 +319,7 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
         unit_price: Number(m?.unitCost) || 0,
         amount: amountOfLine(m, Number(m?.quantity) || 0, Number(m?.unitCost) || 0),
         phase: String(m?.phase || '').trim() || undefined,
+        detailWithheld: withheld(m) || undefined,
         kind: 'material',
       });
     }
@@ -294,11 +328,12 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     for (const l of labourRows) {
       if (!keep(l)) continue;
       lines.push({
-        description: mark([l?.role, l?.description].filter(Boolean).join(' — ') || 'Labour', l),
+        description: withheld(l) ? WITHHELD_LABEL : mark([l?.role, l?.description].filter(Boolean).join(' — ') || 'Labour', l),
         quantity: Number(l?.hours) || 0,
         unit_price: Number(l?.hourlyRate) || 0,
         amount: amountOfLine(l, Number(l?.hours) || 0, Number(l?.hourlyRate) || 0),
         phase: String(l?.phase || '').trim() || undefined,
+        detailWithheld: withheld(l) || undefined,
         kind: 'labor',
       });
     }
@@ -327,16 +362,26 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     const phase = String(a?.phase || "").trim();
     if (!phase) continue;
     lines.push({
-      description: mark([a?.name, a?.description].filter(Boolean).join(" — ") || "Additional cost", a),
+      description: withheld(a)
+        ? WITHHELD_LABEL
+        : mark([a?.name, a?.description].filter(Boolean).join(" — ") || "Additional cost", a),
       quantity: 0,
       unit_price: 0,
       amount: round2(Number(a?.amount) || 0),
       phase,
+      detailWithheld: withheld(a) || undefined,
       kind: "material",
     });
   }
 
-  const steps = (Array.isArray(quote?.processSteps) ? quote.processSteps : []).filter(keep);
+  /*
+   * A STEP IS NOT A LINE. Hiding a process step removes it outright — it
+   * carries no money of its own, so there is no total to keep on the page
+   * and nothing to account for. Only priced rows get the keep-the-row
+   * treatment.
+   */
+  const steps = (Array.isArray(quote?.processSteps) ? quote.processSteps : [])
+    .filter((s: any) => isIncluded(s) && (forCustomer ? s?.visible !== false : true));
 
   /**
    * Phase cost counts EVERY line in the phase, drawn or not.

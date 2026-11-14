@@ -47,6 +47,17 @@ export interface QuotePdfLine {
   quantity: number;
   rate: number;
   amount: number;
+  /**
+   * Withheld from the customer: the row and its amount are printed, the
+   * quantity and rate are not.
+   *
+   * Eric: "things can be hidden but totals can not… the line item should
+   * stay with a total only." Hiding a line used to remove it from the page
+   * entirely, which left its money in the total with nothing above it
+   * saying so. The line stays; what it cost to do stops being anybody's
+   * business but ours.
+   */
+  detailWithheld?: boolean;
 }
 
 /**
@@ -382,8 +393,16 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
           head: rated
             ? [['Description', 'Qty', 'Rate', 'Amount']]
             : [['Description', 'Amount']],
+          // A withheld line prints its description and its amount, and leaves
+          // the quantity and rate columns empty rather than printing a zero
+          // — "3 × $0.00" beside $1,050.00 would read as a broken quote.
           body: group.lines.map((l) => (rated
-            ? [l.description, String(l.quantity), money(l.rate), money(l.amount)]
+            ? [
+                l.description,
+                l.detailWithheld ? '' : String(l.quantity),
+                l.detailWithheld ? '' : money(l.rate),
+                money(l.amount),
+              ]
             : [l.description, money(l.amount)])),
           theme: 'plain',
           styles: { fontSize: 8.5, cellPadding: 1.8, textColor: [60, 60, 60] },

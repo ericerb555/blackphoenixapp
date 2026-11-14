@@ -237,6 +237,9 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     quantity: l.quantity,
     rate: l.unit_price,
     amount: amountOf(l),
+    /* Carried through so the layout can print the amount and leave the
+       quantity and rate columns empty. See `detailWithheld`. */
+    detailWithheld: l.detailWithheld || undefined,
   });
 
   let phases: QuotePdfPhase[] = grouped.map((g) => {
@@ -278,17 +281,16 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       });
     }
 
-    const drawn = round2(groups.reduce((sum, grp) => sum + grp.subtotal, 0));
-    const balance = round2(subtotal - drawn);
-    // A penny either way is rounding, not withheld work.
-    if (groups.length && Math.abs(balance) > 0.01) {
-      groups.push({
-        label: 'Other work in this phase',
-        lines: [],
-        subtotal: balance,
-        balancing: true,
-      });
-    }
+    /*
+     * NO BALANCING ROW. The lines themselves carry the money now.
+     *
+     * There used to be an "Other work in this phase" row here, carrying
+     * whatever the drawn lines did not. Eric: "please remove the other work
+     * in this phase.. the line item should stay with a total only." A
+     * withheld line is no longer dropped from the customer's copy, so there
+     * is nothing left over to carry — the groups above already sum to the
+     * phase subtotal because every line is in one of them.
+     */
 
     return {
       title: g.phase,
@@ -366,12 +368,6 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
          * gets below; it was never reached when EVERY line in the phase was
          * hidden, because that path built no groups at all.
          */
-        groups: [{
-          label: 'Other work in this phase',
-          lines: [],
-          subtotal: amount,
-          balancing: true,
-        }],
         subtotal: amount,
         markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
       });
@@ -397,17 +393,12 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
   /*
    * A row for any money a phase carries, wherever the phase came from.
    *
-   * "things can be hidden but totals can not." A phase built from a step
-   * rather than from drawn lines still has a price against it, and a price
-   * with no row under it is a total that has been hidden. The row names no
-   * line, no quantity and no rate — only that the phase contains work at
-   * that price.
+   * "we can hide things but the totals stay as part of the quote." With a
+   * whole section switched off there are no lines to print, so the phase
+   * heading and its subtotal are the total — which is on the page, where it
+   * belongs. No extra row: a hidden LINE now keeps its own amount, so the
+   * only case left is a section the user deliberately withheld entirely.
    */
-  const withheldRow = (amount: number): QuotePdfLineGroup[] | undefined =>
-    Math.abs(amount) > 0.005
-      ? [{ label: 'Other work in this phase', lines: [], subtotal: round2(amount), balancing: true }]
-      : undefined;
-
   if (!phases.length && steps.length) {
     for (const s of steps) {
       const t = String(s?.title || s?.step || '').trim();
@@ -418,7 +409,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         duration: s?.estimatedDuration ? String(s.estimatedDuration) : undefined,
         description: sections.processDetail && s?.description ? String(s.description) : undefined,
         lines: [],
-        groups: withheldRow(amount),
+
         subtotal: amount,
         markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
       });
@@ -448,7 +439,7 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         label: name,
         description: sections.processDetail ? describe.get(name) : undefined,
         lines: [],
-        groups: withheldRow(round2(cost)),
+
         subtotal: round2(cost),
         markup: showMarkup ? { total: markupOn(cost, rates!).total, label: rateLabel } : undefined,
       });
