@@ -211,3 +211,78 @@ export function directCostOf(quote: any): number {
     + (Number(quote?.additionalCostsSubtotal) || 0),
   );
 }
+
+/**
+ * What a line costs us, whichever shape it was stored in.
+ *
+ * Materials keep `quantity`/`unitCost`, labour keeps `hours`/`hourlyRate`,
+ * and both carry a `totalCost` that is authoritative where it exists —
+ * a waste factor lives in the stored figure and not in the unit price.
+ */
+function costOfRow(row: any): number {
+  const stored = Number(row?.totalCost ?? row?.amount);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const qty = Number(row?.quantity ?? row?.hours ?? row?.qty) || 0;
+  const rate = Number(row?.unitCost ?? row?.hourlyRate ?? row?.rate) || 0;
+  return qty * rate;
+}
+
+/**
+ * The cost of the lines that have been taken OFF the quote.
+ *
+ * `included: false` means the work is not on the quote and is not charged —
+ * a different thing from `visible: false`, which hides a line's detail and
+ * keeps its money. Only the first belongs here.
+ */
+export function excludedCostOf(quote: any): number {
+  const rows = [
+    ...(Array.isArray(quote?.materials) ? quote.materials : []),
+    ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    ...(Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []),
+  ];
+  return round2(rows
+    .filter((r: any) => r?.included === false)
+    .reduce((sum: number, r: any) => sum + costOfRow(r), 0));
+}
+
+/**
+ * How much of this quote's stored total still applies.
+ *
+ * THE BUG THIS EXISTS FOR
+ *
+ * Unticking a line removes it from the document and leaves every stored
+ * figure untouched: `preTaxTotal`, `totalCost` and the subtotals are all
+ * written when the quote is priced and never rewritten when a line is taken
+ * off. `preTaxTotalOf` returns the stored number when it has one, so the PDF
+ * drew fifteen lines under a total that still charged for sixteen.
+ *
+ * Reproduced on Q-2026-0002 on 2026-11-14: unticking one $1,050 line left the
+ * column at 11,616.13 beneath a total of 12,666.13 — the exact complaint,
+ * "the line items don't total the total line", and the dangerous direction,
+ * because the customer is billed for work that was removed.
+ *
+ * A SHARE RATHER THAN A SUBTRACTION, AND WHY
+ *
+ * The stored total is direct cost plus overhead, profit and contingency. A
+ * line that leaves takes its share of all four with it — subtracting only its
+ * raw cost would leave the markup it carried behind, quietly raising the
+ * margin on everything else. Scaling by the share of direct cost that
+ * remains removes it proportionally, which is exact for percentage margins
+ * and the defensible reading for fixed ones.
+ *
+ * Returns 1 when nothing is excluded, so a quote nobody has edited is
+ * untouched by this and prices exactly as it did.
+ */
+export function includedShareOf(quote: any): number {
+  const excluded = excludedCostOf(quote);
+  if (!(excluded > 0)) return 1;
+
+  const direct = directCostOf(quote);
+  if (!(direct > 0)) return 1;
+
+  // Everything taken off is not a quote with a negative total; it is a quote
+  // with nothing on it.
+  if (excluded >= direct) return 0;
+
+  return (direct - excluded) / direct;
+}

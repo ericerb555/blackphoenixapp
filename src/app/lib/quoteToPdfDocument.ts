@@ -28,11 +28,13 @@ import { groupLinesByPhase } from './invoicePhases';
 import { selectQuoteLines } from './quotePdfSelection';
 import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup';
 import {
-  customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate,
+  customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate, includedShareOf,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
 import { companyInfo } from './config/companyInfo';
 import type { QuotePdfData, QuotePdfPhase, QuotePdfLineGroup } from './services/quotePdfLayout';
 
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const hexToRgb = (hex: string) => {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
@@ -78,6 +80,15 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * "of which ours" annotations below, which only make sense against costs.
    */
   const pricing = customerPricingOf(quote);
+  /**
+   * How much of the stored total still applies after unticked lines.
+   *
+   * 1 for a quote nobody has edited. See `includedShareOf` — every total on
+   * this document is a stored figure that is not rewritten when a line is
+   * taken off, so without this the page draws fifteen lines beneath a total
+   * that charges for sixteen.
+   */
+  const share = includedShareOf(quote);
   if (forCustomer && pricing.markup > 0) {
     /**
      * Rates are scaled, not re-derived. `toPdfLine` multiplies quantity by
@@ -115,7 +126,15 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
      * quantity. That is the lesser of the two, and it is the line most able to
      * absorb it.
      */
-    const printedSubtotal = preTaxTotalOf(quote, pricing);
+    /*
+     * Scaled first, or the allocation hides the bug instead of showing it.
+     * `allocate` spreads this figure across the lines being drawn — handed
+     * the full stored subtotal with a line unticked, it would inflate the
+     * remaining lines until they reached a total that still included the one
+     * that was removed. The column would add up perfectly and the customer
+     * would be overcharged, which is the worse of the two failures.
+     */
+    const printedSubtotal = round2(share * preTaxTotalOf(quote, pricing));
     const amounts = allocate(
       lines.map((l: any) => (Number(l.quantity) || 0) * (Number(l.unit_price) || 0)),
       printedSubtotal,
@@ -139,7 +158,6 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
   const showMarkup = !!rates && hasMarkup(rates);
   const rateLabel = rates ? describeRates(rates) : '';
 
-  const round2 = (n: number) => Math.round(n * 100) / 100;
 
 
   /**
@@ -350,13 +368,28 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
      * The office copy keeps the cost figure, which is the one that belongs
      * beside the per-phase "of which ours" lines.
      */
-    subtotal: forCustomer
+    /*
+     * SCALED BY WHAT IS STILL ON THE QUOTE.
+     *
+     * Every figure below is a STORED one, written when the quote was priced
+     * and never rewritten when a line is unticked. `preTaxTotalOf` returns
+     * the stored number whenever it has one. So the document drew fifteen
+     * lines under a total that still charged for sixteen, and the gap was the
+     * removed line — exactly "the line items don't total the total line", in
+     * the direction that bills a customer for work that was taken off.
+     *
+     * `includedShareOf` is 1 for a quote nobody has edited, so this changes
+     * nothing about an untouched quote, and it removes an excluded line's
+     * share of overhead and profit along with its cost rather than leaving
+     * the margin it carried on everything else.
+     */
+    subtotal: round2(share * (forCustomer
       ? preTaxTotalOf(quote, pricing)
       : Number(quote?.materialsSubtotal || 0) + Number(quote?.laborSubtotal || 0)
-        || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0),
-    tax: Number(quote?.taxAmount) || 0,
+        || Number(quote?.totalCost || 0) - Number(quote?.taxAmount || 0))),
+    tax: round2(share * (Number(quote?.taxAmount) || 0)),
     taxRate: Number(quote?.taxRate) || undefined,
-    total: Number(quote?.totalCost || quote?.total) || 0,
+    total: round2(share * (Number(quote?.totalCost || quote?.total) || 0)),
     notes: quote?.notes || undefined,
   };
 }
