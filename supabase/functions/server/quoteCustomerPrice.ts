@@ -274,15 +274,54 @@ export function excludedCostOf(quote: any): number {
  * untouched by this and prices exactly as it did.
  */
 export function includedShareOf(quote: any): number {
-  const excluded = excludedCostOf(quote);
-  if (!(excluded > 0)) return 1;
-
   const direct = directCostOf(quote);
   if (!(direct > 0)) return 1;
 
-  // Everything taken off is not a quote with a negative total; it is a quote
-  // with nothing on it.
-  if (excluded >= direct) return 0;
+  /*
+   * MEASURED FROM THE LINES, NOT FROM WHAT WAS TAKEN OFF.
+   *
+   * This counted only `included: false` rows at first, which fixed unticking
+   * and nothing else. The same gap opens whenever the lines move and the
+   * stored totals do not — and in the editor they move constantly: change a
+   * quantity, correct a unit price, add a row. `preTaxTotal` and `totalCost`
+   * were written when the quote was priced and are not rewritten by an edit,
+   * so the PDF drew the new lines beneath the old total.
+   *
+   * Comparing what the rows actually come to against what the quote says
+   * they come to covers every one of those cases with one rule, and gives
+   * the same answer as before for unticking.
+   *
+   * It is a ratio against DIRECT cost, so the margin rides along: a line
+   * whose price doubles takes its overhead, profit and contingency up with
+   * it, which is what the stored total would have done had it been rewritten.
+   */
+  const actual = includedCostOf(quote);
 
-  return (direct - excluded) / direct;
+  // Nothing countable on the quote: trust what is stored rather than wiping
+  // the total out. A quote with no priced rows and a stored total is a
+  // shape this cannot speak to.
+  if (!(actual > 0)) return excludedCostOf(quote) > 0 ? 0 : 1;
+
+  const ratio = actual / direct;
+  // Agreement to the penny is the normal case; leave it exactly alone so an
+  // untouched quote prices bit-for-bit as it always has.
+  return Math.abs(ratio - 1) < 0.0001 ? 1 : ratio;
+}
+
+/** What the rows still on the quote come to, at cost. */
+export function includedCostOf(quote: any): number {
+  const rows = [
+    ...(Array.isArray(quote?.materials) ? quote.materials : []),
+    ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    ...(Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []),
+  ];
+  // A quote that keeps its lines in `items` is read from there, the same
+  // precedence `selectQuoteLines` uses.
+  const source = rows.length
+    ? rows
+    : (Array.isArray(quote?.items) ? quote.items : []);
+
+  return round2(source
+    .filter((r: any) => r?.included !== false)
+    .reduce((sum: number, r: any) => sum + costOfRow(r), 0));
 }

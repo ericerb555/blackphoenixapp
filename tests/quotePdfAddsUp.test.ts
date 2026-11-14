@@ -204,3 +204,39 @@ test('a hidden line leaves the column but stays in the phase total', () => {
   assertAddsUp(doc, 'Sarah hidden');
   assert.equal(phaseSum(doc), 12666.13, 'still charged for');
 });
+
+/* ── edited in the editor, which is where he actually is ─────────────────── */
+
+/**
+ * The general case behind all of this: the lines move and the stored totals
+ * do not. Unticking was one way to cause it; changing a price in the editor
+ * is the everyday way, and the stored `preTaxTotal` is not rewritten by an
+ * edit. The document has to foot to what it draws either way.
+ */
+test('Sarah: raising a line price still foots', () => {
+  const q = sarah();
+  (q.materials[8] as any).totalCost = 2050;        // Custom Benches, was 1050
+  (q.materials[8] as any).unitCost = 683.34;
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+  assertAddsUp(doc, 'Sarah price raised');
+  assert.equal(drawnSum(doc), r2(12666.13 + 1000));
+});
+
+test('Sarah: adding a line still foots', () => {
+  const q = sarah();
+  (q.materials as any).push({
+    id: 'extra', name: 'Extra trim', phase: 'Painting',
+    quantity: 10, unitCost: 12, totalCost: 120, visible: true,
+  });
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+  assertAddsUp(doc, 'Sarah line added');
+  assert.equal(drawnSum(doc), r2(12666.13 + 120));
+});
+
+test('Jason: editing an items-shaped quote foots too', () => {
+  const q = jason();
+  (q.items[3] as any).totalCost = 794;             // Vanity, was 594
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+  assertAddsUp(doc, 'Jason price raised');
+  assert.equal(drawnSum(doc), r2(7308.7 + 200));
+});

@@ -136,13 +136,29 @@ test('everything unticked is a quote with nothing on it, not a negative one', ()
 });
 
 /**
- * A stored subtotal that does not match the lines must not produce a share
- * above 1 — that would inflate the total rather than reduce it, turning a
- * data inconsistency into an overcharge.
+ * THE SHARE CAN EXCEED 1, AND MUST.
+ *
+ * This test originally asserted the opposite, when the rule was only about
+ * unticking and could therefore only ever subtract. The rule is now "the
+ * lines decide", which has to work in both directions: add a row in the
+ * editor, or raise a unit price, and the stored total is too LOW. Capping at
+ * 1 would print the new line and not charge for it — the money-losing
+ * direction, and just as wrong as the other one.
  */
-test('the share never exceeds 1', () => {
-  const q = sarah({ materialsSubtotal: 1, laborSubtotal: 0, preTaxTotal: 1, totalCost: 1 });
-  assert.ok(includedShareOf(q) <= 1);
+test('the share rises when the lines come to more than the stored total', () => {
+  // Lines come to 3,574.50; the quote claims a direct cost of 1,000.
+  const q = sarah({ materialsSubtotal: 1000, laborSubtotal: 0, preTaxTotal: 1000, totalCost: 1000 });
+  const share = includedShareOf(q);
+  assert.ok(share > 1, 'the stored total is stale and low');
+  assert.equal(round2(1000 * share), 3574.5, 'and scales to what the lines actually come to');
+});
+
+/**
+ * The ordinary case, and the one that must not move: a quote whose stored
+ * figures already agree with its lines prices bit-for-bit as it always has.
+ */
+test('a quote that agrees with itself is left exactly alone', () => {
+  assert.equal(includedShareOf(sarah()), 1);
 });
 
 test('soft costs are excludable as well', () => {
