@@ -6,7 +6,7 @@ import { Shield, Home } from 'lucide-react';
 
 const COMPANY = 'Black Phoenix Builds';
 const CONTACT_EMAIL = 'privacy@blackphoenixbuilds.com';
-const LAST_UPDATED = 'July 19, 2026';
+const LAST_UPDATED = 'November 14, 2026';
 
 interface PrivacyPolicyProps {
   onNavigate?: (page: string) => void;
@@ -83,8 +83,8 @@ export default function PrivacyPolicy({ onNavigate }: PrivacyPolicyProps) {
             <ul className="list-disc pl-5 space-y-1.5 mt-2">
               <li>
                 <strong className="text-white">Service providers</strong> who help us operate
-                the Services (e.g., payment processing, hosting, email, and SMS delivery),
-                under contracts that require them to protect your data.
+                the Services, under contracts that require them to protect your data. They are
+                named individually below.
               </li>
               <li>
                 <strong className="text-white">Legal and safety</strong> recipients when
@@ -93,6 +93,85 @@ export default function PrivacyPolicy({ onNavigate }: PrivacyPolicyProps) {
               <li>
                 <strong className="text-white">Business transfers</strong> in connection with
                 a merger, acquisition, or sale of assets.
+              </li>
+            </ul>
+
+            {/*
+              Named, not gestured at.
+
+              Until 2026-11-14 this section said "service providers (e.g.
+              payment processing, hosting, email, and SMS delivery)" and named
+              exactly one company, Stripe — while the platform was in fact
+              sending customer photographs of the insides of their homes to two
+              AI providers. A list of ten that names one is not a disclosure.
+
+              This table is generated from nothing: it is maintained by hand and
+              must be checked whenever a new outbound integration is added. If
+              you are adding one and you are reading this, add it here too.
+            */}
+            <p className="mt-4">
+              The companies that process information on our behalf:
+            </p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm">
+                <tbody>
+                  {[
+                    ['Supabase', 'Database, sign-in, and file storage — where your account and uploads live'],
+                    ['Vercel and Cloudflare', 'Hosting and security filtering; all traffic to the Services passes through them'],
+                    ['Anthropic', 'AI processing of photographs, video frames and job descriptions you submit'],
+                    ['OpenAI', 'AI processing of photographs, drawings and project descriptions you submit'],
+                    ['Stripe', 'Card and bank payments. We never hold your full card number'],
+                    ['Resend', 'Email we send you'],
+                    ['Bird', 'Text messages we send you'],
+                    ['MapTiler, OpenStreetMap', 'Maps and turning an address into a location'],
+                    ['CJdropshipping', 'Fulfilling store orders you place'],
+                  ].map(([name, why]) => (
+                    <tr key={name} className="border-b border-white/10 align-top">
+                      <td className="py-2 pr-4 font-semibold text-white whitespace-nowrap">{name}</td>
+                      <td className="py-2 text-gray-300">{why}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-white mb-2">
+              3a. Photographs, Video, and Automated Estimates
+            </h2>
+            <p>
+              Some of our tools ask you to photograph or film your property — for example to
+              price junk removal, demolition, or a renovation. You should know exactly what
+              happens to those files.
+            </p>
+            <ul className="list-disc pl-5 space-y-1.5 mt-2">
+              <li>
+                <strong className="text-white">They are sent to an AI provider.</strong> Your
+                photographs, and still frames taken from your video, are sent to Anthropic or
+                OpenAI so their systems can describe what is in them. The description comes
+                back to us and our own software works out the price. The AI is never asked
+                what to charge you.
+              </li>
+              <li>
+                <strong className="text-white">They are stored privately.</strong> Uploads are
+                held in private storage, not on the public internet, and are reachable only
+                through short-lived links issued to you or to our staff.
+              </li>
+              <li>
+                <strong className="text-white">They are kept as the record of the price.</strong>{' '}
+                If an estimate is later disputed, the pictures it was based on are the
+                evidence, so we retain them with the estimate.
+              </li>
+              <li>
+                <strong className="text-white">Photograph only what you want read.</strong>{' '}
+                The tools look at whatever is in frame. Please avoid including documents,
+                screens, or other people where you can.
+              </li>
+              <li>
+                <strong className="text-white">A person can do it instead.</strong> If you
+                would rather not have anything read automatically, contact us and we will
+                price the work by visiting.
               </li>
             </ul>
           </section>
