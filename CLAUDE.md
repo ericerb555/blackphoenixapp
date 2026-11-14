@@ -137,3 +137,43 @@ For every task, optimize for:
 6. Maintainability
 
 Do not sacrifice the first three priorities to reduce costs.
+
+## 11. ONE WORKING TREE PER SESSION
+
+More than one session runs against this repository at a time. Do not share a
+working tree with another one.
+
+Start by giving yourself your own:
+
+```
+npm run session <name>
+```
+
+That creates `.claude/worktrees/<name>` on `session/<name>`, branched from
+`origin/main`. Work there, commit there, push the branch, merge to main as
+normal. Remove it afterwards with `git worktree remove`.
+
+### Why — all of this happened in one afternoon, 2026-11-14
+
+- A commit nearly took 141 of another session's staged files with it.
+- Six test failures appeared that were not real; another session was saving
+  files while the suite ran.
+- A deploy shipped another session's uncommitted, half-written
+  `customerQuoteView.ts` to production. It reported success and the health
+  check passed, because the code was syntactically fine — it was just
+  unfinished.
+
+### Rules that still apply, even in your own tree
+
+- **Name paths on every commit** — `git commit -- path/one path/two`. A bare
+  `git commit -a` or a bare `git add .` takes whatever else is lying around.
+- **Never bare `git stash` or `git stash pop`.** The stash stack is shared
+  across every worktree, so a pop can take somebody else's work. Prefer a
+  temporary WIP commit. If you must stash, use a unique message, note the SHA
+  from `git stash list`, and restore with `git stash apply <sha>`.
+- **Never chain a push into a deploy with `&&` through another command.** A
+  pipe to `tail` exits 0 whatever the push did, and production ends up holding
+  a commit that exists on one laptop and nowhere else.
+- **`npm run deploy:server` builds from the working tree, not from a commit.**
+  It now refuses when server source is uncommitted; if you ever find yourself
+  reaching for `DEPLOY_ALLOW_DIRTY=1`, be certain the changes are yours.
