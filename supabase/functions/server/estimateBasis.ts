@@ -160,6 +160,21 @@ export function estimateBasis(takeoff: TrashTakeoff, rates: TrashRates): Estimat
 
   /* ── what is not included ──────────────────────────────────────────────── */
 
+  /*
+   * What they told us to leave, first and in their own terms.
+   *
+   * Above the hazards, because this is the half of "not included" the customer
+   * themselves decided, and it is the half that gets argued about: a crew that
+   * arrives and takes the bed after being told not to, or leaves it and is
+   * asked why the price did not drop. Printing their own words back is how
+   * both of those stop happening.
+   */
+  for (const item of takeoff.excluded || []) {
+    notIncluded.push(
+      `${item.count > 1 ? `${item.count} × ` : ""}${item.name} — left at your request (${item.reason}).`,
+    );
+  }
+
   for (const item of takeoff.refused) {
     notIncluded.push(`${item.label} — ${item.why}`);
   }

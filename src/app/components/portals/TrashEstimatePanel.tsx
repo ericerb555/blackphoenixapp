@@ -92,6 +92,8 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
   const [photos, setPhotos] = useState<Shot[]>([]);
   const [video, setVideo] = useState<{ file: File; url: string } | null>(null);
   const [notes, setNotes] = useState('');
+  /** 'Everything but the bed.' The only typed text that changes what is priced. */
+  const [scope, setScope] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [signedName, setSignedName] = useState(customerName || '');
   const [busy, setBusy] = useState(false);
@@ -225,7 +227,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
         method: 'POST',
         headers: await authedHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          images, notes, mediaRefs,
+          images, notes, scope, mediaRefs,
           agreedToAttestation: true,
           signedName: signedName.trim(),
         }),
@@ -314,6 +316,32 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
 
         <Section icon={<Eye className="w-4 h-4" />} title="What we could not see" tone="amber"
           lines={b.whatWeCouldNotSee} />
+
+        {/*
+          What they told us to leave, read back to them.
+
+          High on the page and before the refusals, because this is the part
+          they can correct in ten seconds and the part that costs the most if
+          we got it wrong — a crew that takes the bed after being told not to.
+        */}
+        {(estimate.excluded || []).length > 0 && (
+          <div className="rounded-xl" style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <p className="flex items-center gap-2 text-sm font-black text-white">
+              <Ban className="w-4 h-4 text-gray-400" /> Left out, because you asked
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {(estimate.excluded || []).map((x: any, i: number) => (
+                <p key={i} className="text-xs text-gray-300">
+                  <span className="font-bold">{x.count > 1 ? `${x.count} × ` : ''}{x.name}</span>
+                  <span className="text-gray-500"> — {x.reason}</span>
+                </p>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-gray-500">
+              Not in the price above. If we have read you wrong, tell us now rather than on the day.
+            </p>
+          </div>
+        )}
 
         {(estimate.refused || []).length > 0 && (
           <div className="rounded-xl p-4" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)' }}>
@@ -489,6 +517,29 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
             <button onClick={() => setVideo(null)} aria-label="Remove the video"><Trash2 className="w-4 h-4 text-red-400" /></button>
           </div>
         )}
+
+        {/*
+          What to take, in their words.
+
+          Separate from the notes box below on purpose. This is the only thing
+          a customer types that changes what gets priced — it can take an item
+          out of the job, and it can do nothing else. Keeping it in its own
+          box, with its own question, is what makes that true for the person
+          typing as well as for the code.
+        */}
+        <label className="block pt-2">
+          <span className="text-sm font-black text-white">What should we take?</span>
+          <span className="block text-xs text-gray-400">
+            Leave it blank and we price everything in the pictures. Tell us otherwise and we
+            will only price what you want gone.
+          </span>
+          <textarea
+            value={scope} onChange={(e) => setScope(e.target.value)} rows={2}
+            placeholder="e.g. everything but the bed · only the stuff on the right · leave the washer and dryer"
+            className="mt-2 w-full rounded-xl text-sm text-white bg-transparent"
+            style={{ border: '1px solid rgba(234,88,12,0.35)', padding: '12px' }}
+          />
+        </label>
 
         <textarea
           value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}

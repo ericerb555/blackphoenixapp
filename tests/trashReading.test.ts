@@ -177,3 +177,39 @@ test('only the verify pass is told to count things once', () => {
 test('the image ceiling is the same one the house reader uses', () => {
   assert.equal(MAX_IMAGES, 12);
 });
+
+/* ── what the customer said to leave ─────────────────────────────────────── */
+
+test('an item marked not-included survives with the words that excluded it', () => {
+  const { observations } = readObservations(reply({
+    items: [{ name: 'bed', count: 1, materialClass: 'mixed-household', volumeLowCuYd: 2, volumeHighCuYd: 2, seenIn: [0], include: false, excludeReason: 'everything but the bed' }],
+  }), 2);
+  assert.equal(observations.items?.[0].include, false);
+  assert.equal(observations.items?.[0].excludeReason, 'everything but the bed');
+});
+
+test('an exclusion with no reason still gets one a customer would recognise', () => {
+  const { observations } = readObservations(reply({
+    items: [{ name: 'bed', count: 1, materialClass: 'wood', volumeLowCuYd: 2, volumeHighCuYd: 2, seenIn: [0], include: false }],
+  }), 2);
+  assert.ok(observations.items?.[0].excludeReason?.includes('asked us to leave'));
+});
+
+test('anything other than an explicit false means take it', () => {
+  for (const value of [true, undefined, null, 'yes', 1, 'false']) {
+    const { observations } = readObservations(reply({
+      items: [{ name: 'sofa', count: 1, materialClass: 'wood', volumeLowCuYd: 2, volumeHighCuYd: 2, seenIn: [0], include: value }],
+    }), 2);
+    assert.equal(observations.items?.[0].include, true, `include: ${String(value)} should not drop the item`);
+  }
+});
+
+test('the prompts say their words decide what is taken and nothing else', () => {
+  for (const prompt of [readingSystem(4), verifySystem(4)]) {
+    assert.ok(/WHAT THEY WANT TAKEN/.test(prompt));
+    assert.ok(/THEIR WORDS DECIDE WHAT IS TAKEN, AND NOTHING ELSE/.test(prompt));
+    // The prompt is hard-wrapped, so the phrase can straddle a line break.
+    assert.ok(/cannot change a\s+volume/.test(prompt));
+    assert.ok(/INCLUDE it/.test(prompt), 'unsure must err towards quoting for it');
+  }
+});

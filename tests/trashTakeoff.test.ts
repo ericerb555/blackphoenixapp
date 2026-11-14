@@ -340,3 +340,60 @@ test("setting only a surcharge is still setting a rate", () => {
   assert.equal(resolveTrashRates({ surcharges: { tyre: 25 } }).source, 'your-rate');
   assert.equal(resolveTrashRates({ surcharges: {} }).source, 'standard');
 });
+
+/* ── "everything but the bed" ────────────────────────────────────────────── */
+
+test("an item the customer asked us to leave is not priced, and is listed", () => {
+  const all = trashTakeoff(obs({ items: [item({ count: 3 }), item({ name: 'bed', count: 1 })] }), rates);
+  const less = trashTakeoff(obs({
+    items: [item({ count: 3 }), item({ name: 'bed', count: 1, include: false, excludeReason: 'everything but the bed' })],
+  }), rates);
+
+  assert.ok(less.cost.likely < all.cost.likely, 'leaving the bed did not make it cheaper');
+  assert.equal(less.excluded.length, 1);
+  assert.equal(less.excluded[0].name, 'bed');
+  assert.equal(less.excluded[0].reason, 'everything but the bed');
+  assert.equal(sum(less), less.cost.likely, 'the lines still add up with something left out');
+});
+
+test("excluded volume is gone from the range, not just from the list", () => {
+  const less = trashTakeoff(obs({
+    items: [item({ count: 1, volumeLowCuYd: 2, volumeHighCuYd: 2 }),
+      item({ name: 'bed', volumeLowCuYd: 4, volumeHighCuYd: 4, include: false })],
+  }), rates);
+  assert.equal(less.volumeCuYd.likely, 2, 'the bed is still in the volume');
+  assert.equal(less.volumeCuYd.high, 2);
+});
+
+test("an excluded item carries no surcharge and is not refused on our behalf", () => {
+  const kept = trashTakeoff(obs({ items: [item({ name: 'queen mattress', materialClass: 'mattress' })] }), rates);
+  const left = trashTakeoff(obs({
+    items: [item({ name: 'queen mattress', materialClass: 'mattress', include: false })],
+  }), rates);
+
+  assert.equal(kept.lines.filter((l: any) => l.kind === 'surcharge').length, 1);
+  assert.equal(left.lines.filter((l: any) => l.kind === 'surcharge').length, 0, 'charged for a mattress we are not taking');
+  assert.equal(left.excluded.length, 1);
+  assert.equal(left.refused.length, 0, 'leaving something is not the same as refusing it');
+});
+
+test("something dangerous that was also excluded is simply left — no double listing", () => {
+  const t = trashTakeoff(obs({
+    items: [item(), item({ name: 'propane tank', include: false, excludeReason: 'only the stuff on the right' })],
+  }), rates);
+  assert.equal(t.excluded.length, 1);
+  assert.equal(t.refused.length, 0, 'it is already out of the job; refusing it too says it twice');
+});
+
+test("include defaults to taking it — silence is never an exclusion", () => {
+  const t = trashTakeoff(obs({ items: [item({ count: 2 }), item({ name: 'bed' })] }), rates);
+  assert.equal(t.excluded.length, 0);
+  assert.ok(t.cost.likely > 0);
+});
+
+test("a job where everything is excluded prices nothing, and says why", () => {
+  const t = trashTakeoff(obs({ items: [item({ include: false, excludeReason: 'leave all of it' })] }), rates);
+  assert.equal(t.cost.likely, 0);
+  assert.equal(t.excluded.length, 1);
+  assert.ok(t.notes.some((n) => /asked us to leave/.test(n)));
+});

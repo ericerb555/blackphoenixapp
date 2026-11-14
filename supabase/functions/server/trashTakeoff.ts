@@ -53,6 +53,16 @@ export interface ObservedItem {
   /** Indices into the image array the reader was sent. Evidence, not decoration. */
   seenIn?: number[];
   confidence?: "low" | "medium" | "high";
+  /**
+   * Whether the customer wants this taken. Absent means yes.
+   *
+   * The only thing a customer's own words are allowed to decide. They can say
+   * "everything but the bed" and the bed stops being priced; they cannot say
+   * anything that changes a volume, a rate or a total.
+   */
+  include?: boolean;
+  /** Which of their words left it out, in their terms, for the estimate. */
+  excludeReason?: string;
 }
 
 export interface Access {
@@ -126,6 +136,14 @@ export interface RefusedItem {
   named: string;
 }
 
+/** Something the customer asked us to leave. Not priced, but said out loud. */
+export interface ExcludedItem {
+  name: string;
+  count: number;
+  /** Which of their own words left it out. */
+  reason: string;
+}
+
 export interface TrashTakeoff {
   lines: TakeoffLine[];
   volumeCuYd: Band<number>;
@@ -141,6 +159,8 @@ export interface TrashTakeoff {
   needsSiteVisit: boolean;
   siteVisitReasons: string[];
   refused: RefusedItem[];
+  /** Things the customer told us to leave. Priced at nothing, listed anyway. */
+  excluded: ExcludedItem[];
   notes: string[];
 }
 
@@ -277,9 +297,29 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
    * customer ends up paying for a propane tank that stayed in the garage.
    */
   const kept: ObservedItem[] = [];
+  const excluded: ExcludedItem[] = [];
   const surchargeHits = new Map<string, { rule: Surcharge; count: number; named: string }>();
 
   for (const item of rawItems) {
+    /*
+     * What the customer said to leave comes out first, before anything is
+     * measured or any hazard is considered.
+     *
+     * Eric asked for a box where somebody can say "everything but the bed" or
+     * "only the stuff on the right". This is the only effect those words are
+     * allowed to have — an item is taken or it is not. They cannot reach a
+     * volume, a rate or a total, which is what keeps a free-text box on a
+     * pricing screen from being a way to set your own price.
+     */
+    if (item?.include === false) {
+      excluded.push({
+        name: String(item?.name ?? "something"),
+        count: Math.max(1, Math.round(num(item?.count, 1))),
+        reason: String(item?.excludeReason || "you asked us to leave this"),
+      });
+      continue;
+    }
+
     const rule = hazardFor(item?.name);
     if (rule?.action === "refuse") {
       refused.push({ id: rule.id, label: rule.label, why: rule.why, named: String(item?.name ?? "") });
@@ -586,6 +626,13 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
   if (refused.length) {
     notes.push("Some items cannot go in our truck. They are listed separately and are not priced here.");
   }
+  if (excluded.length) {
+    notes.push(
+      `${excluded.length} thing${excluded.length === 1 ? "" : "s"} you asked us to leave ` +
+      `${excluded.length === 1 ? "is" : "are"} not in this price. Check the list — if we have ` +
+      "read you wrong, say so before the day rather than after.",
+    );
+  }
 
   return {
     lines,
@@ -599,6 +646,7 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
     needsSiteVisit: siteVisitReasons.length > 0,
     siteVisitReasons,
     refused,
+    excluded,
     notes,
   };
 }
