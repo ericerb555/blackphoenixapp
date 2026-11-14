@@ -61,7 +61,24 @@ const quick = process.argv.includes('--quick');
  * argument escaping is a check people stop reading.
  */
 function run(command) {
-  const result = spawnSync(command, { encoding: 'utf8', shell: true });
+  /*
+   * maxBuffer, and it is not housekeeping.
+   *
+   * spawnSync defaults to 1MB and TRUNCATES silently past it. Every check here
+   * reads its verdict out of the output with a regex, and every one of those
+   * verdicts is printed LAST — "N rendered, M did not report, K threw", "pass
+   * N / fail N". So the moment a run is noisy enough to overflow the buffer,
+   * the one line that says what happened is the first thing lost, and the
+   * check reports "could not read the result" about a run that finished fine.
+   *
+   * That failure mode gets WORSE the worse the run is: a sweep of 376 pages
+   * where many throw produces far more output than a clean one. A check that
+   * breaks precisely when something is wrong is the opposite of a check.
+   *
+   * 64MB. These are short-lived local processes and the memory is only held
+   * while one runs.
+   */
+  const result = spawnSync(command, { encoding: 'utf8', shell: true, maxBuffer: 64 * 1024 * 1024 });
   return {
     output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
     status: result.status,
@@ -176,16 +193,53 @@ if (quick) {
   line('smoke…\n  SKIPPED — --quick was passed');
 } else {
   line('smoke…');
-  const { output, ranAtAll } = run('npm run smoke -- --all --batch 40');
+  /*
+   * NO `--batch 40` — it used to say that, and this is a hedge rather than a
+   * proven fix, so it is worth being honest about which.
+   *
+   * On 2026-11-14 this check reported FAILED on a clean tree while every other
+   * check passed and smoke run by hand passed. Re-running the exact command,
+   * `--all --batch 40`, then PASSED: 376 rendered, 0 did not report, 0 threw.
+   * So batch 40 is not reliably broken and was not proven to be the cause.
+   *
+   * What that re-run did show is that batch 40 is marginal. Its output was
+   * `1..40 (retrying)` — the first batch went silent and only smoke's own
+   * retry rescued it. `smoke.mjs` picks 15 for `--all` and explains why: a
+   * batch mounts its pages into ONE browser under software-rendered WebGL,
+   * and too many starve. When the retry fails too, smoke exits 2 with a
+   * diagnosis and never prints a result line — which is exactly the shape of
+   * what was seen.
+   *
+   * So this stops overriding the harness author's own number from the outside.
+   * If a full sweep is too slow somewhere, change the default in `smoke.mjs`
+   * where the reasoning lives, not here.
+   */
+  const { output, ranAtAll } = run('npm run smoke -- --all');
   const m = output.match(/(\d+) rendered, (\d+) did not report, (\d+) threw/);
   const ok = ranAtAll && !!m && Number(m[2]) === 0 && Number(m[3]) === 0 && Number(m[1]) > 0;
   steps.push({
     name: 'smoke',
     ok,
     detail: !ranAtAll ? 'could not run'
-      : !m ? 'could not read the result'
+      : !m ? 'could not read the result — smoke said this:'
       : `${m[1]} rendered, ${m[2]} did not report, ${m[3]} threw`,
-    noise: ok ? '' : output.split('\n').filter((l) => /threw|did not report|Error/.test(l)).slice(0, 25).join('\n'),
+    /*
+     * WHEN THERE IS NO RESULT LINE, SHOW WHAT SMOKE ACTUALLY SAID.
+     *
+     * This filtered for /threw|did not report|Error/, and smoke's own failure
+     * message is "Nothing reported at all from the first batch", followed by
+     * the two likely causes and the exact command to run next. Not one of
+     * those lines contains any of those words, so the filter threw away a
+     * complete diagnosis and left "could not read the result" — which reads
+     * like the check is broken rather than like the answer is on screen.
+     *
+     * Unparsed output gets shown verbatim; a parsed failure still gets the
+     * filter, because then the interesting lines really are the ones naming
+     * pages that threw.
+     */
+    noise: ok ? ''
+      : !m ? output.split('\n').filter((l) => l.trim()).slice(-15).join('\n')
+      : output.split('\n').filter((l) => /threw|did not report|Error/.test(l)).slice(0, 25).join('\n'),
   });
   line(`  ${ok ? 'ok' : 'FAILED'} — ${steps.at(-1).detail}`);
 }

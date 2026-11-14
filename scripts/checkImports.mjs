@@ -257,7 +257,13 @@ if (wantBuild) {
     console.error('Could not stash, so the build would have read your working tree. Not run.');
     process.exit(2);
   }
-  const build = spawnSync('npx', ['vite', 'build'], { encoding: 'utf8', shell: true });
+  // maxBuffer raised for the same reason it is raised in precommit.mjs: a full
+  // Vite build prints a line per chunk and spawnSync truncates silently past
+  // 1MB. The verdict here comes from the exit status so it cannot be flipped
+  // by truncation — but the error lines printed below come from this output,
+  // and a build that fails loudly is exactly the one that would overflow and
+  // lose its own explanation.
+  const build = spawnSync('npx', ['vite', 'build'], { encoding: 'utf8', shell: true, maxBuffer: 64 * 1024 * 1024 });
   // Restored whatever happened, including on a build failure or a throw above.
   spawnSync('git', ['stash', 'pop', '-q'], { encoding: 'utf8' });
   const output = `${build.stdout ?? ''}${build.stderr ?? ''}`;

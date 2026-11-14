@@ -9,7 +9,7 @@
     "raising to get a change in, the change has added type errors."
   ],
   "typecheck": {
-    "app": 307,
-    "server": 83
+    "app": 306,
+    "server": 82
   }
 }

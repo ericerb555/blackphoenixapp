@@ -92,7 +92,30 @@ const MOODS: Record<PhoenixState, {
   speaking:  { flow: 0.26, spread: 0.055, swirl: 0.09, glow: 1.35, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 1.0 },
   working:   { flow: 0.40, spread: 0.090, swirl: 0.16, glow: 1.30, jitter: 0.008, warm: 0.0, stream: 0.4, audio: 0.0 },
   success:   { flow: 0.34, spread: 0.095, swirl: 0.20, glow: 1.90, jitter: 0.000, warm: 0.0, stream: 0.0, audio: 0.0 },
-  alert:     { flow: 0.32, spread: 0.068, swirl: 0.04, glow: 1.40, jitter: 0.070, warm: 1.0, stream: 0.0, audio: 0.0 },
+  /*
+   * ALERT: jitter 0.018, down from 0.070.
+   *
+   * Eric, watching it fail: "can we stop the hard shaking of the phoenix when
+   * it fails?" At 0.070 this was seven times `thinking` and nine times
+   * `working`, and every other state is zero — so the one moment the bird is
+   * telling you something went wrong was also the one moment it looked like it
+   * was coming apart.
+   *
+   * It is still the most unsettled state in the table, at roughly twice
+   * `thinking`, which is what the column is for: jitter is the tell for
+   * "something is wrong". It just no longer shakes.
+   *
+   * The reason it can come down this far is that alert does not rely on
+   * movement to read. `warm: 1.0` is the only entry in the table that shifts
+   * the colour, and the glow lifts to 1.40 with the swirl dropping to 0.04 —
+   * so the bird goes warm, bright and still, which says "wrong" more clearly
+   * than vibration ever did. The shake was doing redundant work badly.
+   *
+   * Same judgement already applied to the frequency on the line that uses
+   * uJitter: 23 radians/sec was cut to 6 because "the eye reads as a shake
+   * rather than as unease". This is that fix finished, on the amplitude.
+   */
+  alert:     { flow: 0.32, spread: 0.068, swirl: 0.04, glow: 1.40, jitter: 0.018, warm: 1.0, stream: 0.0, audio: 0.0 },
 };
 
 const VERT = /* glsl */`
