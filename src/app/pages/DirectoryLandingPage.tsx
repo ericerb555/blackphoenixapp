@@ -75,7 +75,16 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       headers: { Authorization: `Bearer ${publicAnonKey}` },
     })
       .then(r => r.ok ? r.json() : { reels: [] })
-      .then(data => { if (Array.isArray(data.reels) && data.reels.length > 0) setLiveReels(data.reels); })
+      // A published reel with no artwork is a caption on a gradient, and one of
+      // those was enough to replace the whole curated strip below with a single
+      // empty tile. Only reels that actually carry a picture or a video count as
+      // live; anything else leaves the strip alone.
+      .then(data => {
+        const withMedia = (Array.isArray(data.reels) ? data.reels : []).filter(
+          (r: any) => String(r?.thumbnailUrl || '').trim() || String(r?.videoUrl || '').trim(),
+        );
+        if (withMedia.length > 0) setLiveReels(withMedia);
+      })
       .catch(() => {});
   }, []);
 
