@@ -11,6 +11,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
+import { escapeHtml } from "./escapeHtml.ts";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { sendTextMessage } from "./sendSms.ts";
@@ -165,13 +166,27 @@ fulfillmentRouter.put("/make-server-3eae23a6/fulfillment/orders/:id", async (c) 
     let notifications: any = { email: null, sms: null };
     if (notify && status) {
       const copy = statusCopy(status, order, order.trackingNumber, order.carrier);
+      /*
+       * EVERY VALUE ESCAPED. The shopper types `customerName` at checkout, so
+       * it was the one field here an attacker fully controls — and it went
+       * into this email raw. A name of `<a href="https://evil">click</a>`
+       * arrived as a live link in a message from us; a name of
+       * `<img src=x onerror=...>` would run script wherever this HTML is also
+       * rendered back to staff.
+       *
+       * Tracking number, carrier and order number are escaped as well. They
+       * look like machine values and mostly are, but "mostly" is not a
+       * security property — `trackingNumber` is whatever the fulfilment side
+       * put in the record, and the cost of escaping a value that never needed
+       * it is nothing.
+       */
       const html = `<div style="font-family:sans-serif;max-width:520px">
-        <h2 style="color:#ea580c">${COMPANY}</h2>
-        <p>Hi ${order.customerName || "there"},</p>
-        <p>${copy.line}</p>
-        ${order.trackingNumber ? `<p style="background:#f4f4f4;padding:12px;border-radius:8px"><strong>Tracking:</strong> ${order.trackingNumber}${order.carrier ? ` (${order.carrier})` : ""}</p>` : ""}
+        <h2 style="color:#ea580c">${escapeHtml(COMPANY)}</h2>
+        <p>Hi ${escapeHtml(order.customerName || "there")},</p>
+        <p>${escapeHtml(copy.line)}</p>
+        ${order.trackingNumber ? `<p style="background:#f4f4f4;padding:12px;border-radius:8px"><strong>Tracking:</strong> ${escapeHtml(order.trackingNumber)}${order.carrier ? ` (${escapeHtml(order.carrier)})` : ""}</p>` : ""}
         ${returnsLine(status, order.orderNumber || id)}
-        <p style="color:#888;font-size:12px">Order ${order.orderNumber || id}</p>
+        <p style="color:#888;font-size:12px">Order ${escapeHtml(order.orderNumber || id)}</p>
       </div>`;
       if (order.customerEmail) notifications.email = await sendEmail(order.customerEmail, copy.subject, html);
       const phone = order.shippingAddress?.phone || order.customerPhone;

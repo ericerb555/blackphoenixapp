@@ -11,7 +11,8 @@
  * - Invoice/Payment
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { sanitizeSvg } from '../lib/sanitizeHtml';
 import PipelineMessagePanel from './PipelineMessagePanel';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
 import QuoteDocument from './documents/QuoteDocument';
@@ -337,6 +338,20 @@ function OverviewTab({ item, editMode, setEditedItem }: any) {
 
 // Customer Submission Tab
 function CustomerSubmissionTab({ item, onMediaSelect }: any) {
+  /*
+   * The floor plan, cleaned once per change rather than on every render.
+   *
+   * `svgLayout` is model output shaped by customer-supplied photos and text,
+   * so it is untrusted markup. `sanitizeSvg` keeps the drawing and drops
+   * script, event handlers and foreign content by allowlist, and returns ''
+   * when it cannot parse — which is why the render below checks the result
+   * rather than the source.
+   */
+  const sanitizedFloorPlan = useMemo(
+    () => sanitizeSvg(item?.floorPlan?.svgLayout),
+    [item?.floorPlan?.svgLayout],
+  );
+
   // Build submission from multiple possible sources
   const wr = item.workRequest || {};
   const media = wr.media_attachments || wr.media || {};
@@ -591,12 +606,28 @@ function CustomerSubmissionTab({ item, onMediaSelect }: any) {
             </div>
           )}
 
-          {/* SVG Floor Plan */}
-          {item.floorPlan.svgLayout && (
+          {/*
+            SVG Floor Plan — through the sanitiser, never raw.
+
+            This string is MODEL OUTPUT. `svgLayout` is one field of a JSON
+            object the assistant is asked to return, and what it returns is
+            shaped by the photographs and description somebody else uploaded.
+            An SVG can carry `<script>`, an `onload=` handler, a
+            `<foreignObject>` full of HTML, or a `javascript:` href — so a
+            crafted upload that talks the model into emitting one of those
+            would have run script in the owner's browser, from a modal the
+            owner opened to look at a floor plan.
+
+            `sanitizeSvg` keeps the drawing and drops everything else by
+            allowlist. It returns '' when it cannot parse or has no DOM, which
+            is why the result is checked again below rather than assumed
+            non-empty: a plan that cannot be shown safely is not shown.
+          */}
+          {sanitizedFloorPlan && (
             <div className="bg-white rounded-xl p-4 overflow-auto max-h-64">
               <div
                 className="w-full"
-                dangerouslySetInnerHTML={{ __html: item.floorPlan.svgLayout }}
+                dangerouslySetInnerHTML={{ __html: sanitizedFloorPlan }}
               />
             </div>
           )}

@@ -14,6 +14,7 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { sendTextMessage } from "./sendSms.ts";
+import { escapeHtml } from "./escapeHtml.ts";
 
 const router = new Hono();
 
@@ -223,17 +224,44 @@ router.post("/make-server-3eae23a6/abandoned-carts/:id/recover", async (c) => {
     const subject: string = b.subject || `You left something behind, ${(cart.name || "").split(" ")[0]}!`;
     const bodyText: string = b.body || "Your cart is still waiting for you. Complete your order today!";
 
+    /*
+     * Escaped where the value enters, not where the string is used.
+     *
+     * `itemsHtml` is markup by design and is interpolated raw below, which is
+     * correct — but that only holds if nothing inside it can be markup it did
+     * not intend. A product name is shopper-visible text that reached us from
+     * a catalogue feed, so it gets escaped here, at the point it becomes HTML.
+     */
     const itemsHtml = (cart.items || [])
-      .map((i: any) => `<li>${i.name} × ${i.qty} — $${(i.price * i.qty).toFixed(2)}</li>`)
+      .map((i: any) => `<li>${escapeHtml(i.name)} × ${escapeHtml(i.qty)} — $${(i.price * i.qty).toFixed(2)}</li>`)
       .join("");
     const html = `
       <div style="font-family:Arial,sans-serif;background:#0a0a0a;padding:32px;color:#fff;">
         <div style="max-width:560px;margin:0 auto;background:#111;border-radius:16px;overflow:hidden;">
           <div style="background:linear-gradient(135deg,#ea580c,#c2410c);padding:28px;text-align:center;">
-            <h1 style="margin:0;color:#fff;">${subject}</h1>
+            <h1 style="margin:0;color:#fff;">${escapeHtml(subject)}</h1>
           </div>
           <div style="padding:28px;">
-            <p style="color:#d1d5db;white-space:pre-wrap;">${bodyText.replace(/</g, "&lt;")}</p>
+            <!--
+              escapeHtml, not a replace of the opening bracket alone.
+
+              Replacing only the opening bracket does block a tag, so this was
+              not wide open — but it leaves the ampersand unescaped, which
+              mangles any entity the sender typed, and leaves quotes alone,
+              which matters
+              the moment this string is ever moved into an attribute. Half an
+              escape is the kind of thing that reads as done and is not.
+
+              The paragraph's own white-space:pre-wrap keeps the sender's line
+              breaks, so there is no reason to let any markup through.
+
+              (No backticks in this comment — it sits inside a template
+              literal, and one here ends the string. That is a build break
+              wearing a comment, and it reduced the server typecheck from 82
+              errors to 3 by making the file unparseable, which the ratchet
+              read as an improvement.)
+            -->
+            <p style="color:#d1d5db;white-space:pre-wrap;">${escapeHtml(bodyText)}</p>
             <ul style="color:#fbbf24;">${itemsHtml}</ul>
             <p style="color:#10b981;font-size:18px;font-weight:bold;">Total: $${Number(cart.total).toFixed(2)}</p>
             <p style="text-align:center;margin-top:24px;">
@@ -386,7 +414,7 @@ router.post("/make-server-3eae23a6/exit-intent/capture", async (c) => {
               </div>
               <div style="padding:28px;text-align:center;">
                 <p style="color:#d1d5db;">Use this code at checkout:</p>
-                <div style="display:inline-block;background:rgba(234,88,12,0.15);border:1px solid #ea580c;color:#fb923c;font-size:24px;font-weight:bold;letter-spacing:3px;padding:14px 28px;border-radius:12px;margin:12px 0;">${b.promoCode}</div>
+                <div style="display:inline-block;background:rgba(234,88,12,0.15);border:1px solid #ea580c;color:#fb923c;font-size:24px;font-weight:bold;letter-spacing:3px;padding:14px 28px;border-radius:12px;margin:12px 0;">${escapeHtml(b.promoCode)}</div>
                 <p style="text-align:center;margin-top:24px;">
                   <a href="https://theblackphoenixcompany.com/public-store" style="background:#ea580c;color:#fff;text-decoration:none;padding:14px 32px;border-radius:12px;font-weight:bold;">Shop Now</a>
                 </p>

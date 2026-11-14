@@ -34,6 +34,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { escapeHtml } from "./escapeHtml.ts";
 
 const PREFIX = "/make-server-3eae23a6";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -149,12 +150,24 @@ searchConsoleRouter.post(`${PREFIX}/search-console/connect`, async (c) => {
 
 // ── Google returns here, forwarded by the public doorway ─────────────────────
 searchConsoleRouter.get(`${PREFIX}/search-console/callback`, async (c) => {
+  /*
+   * `msg` is escaped INSIDE this helper, not at each call site.
+   *
+   * One caller passes `Google reported: ${error}`, and `error` is
+   * `c.req.query("error")` — a query parameter, so whoever sends somebody to
+   * this URL writes it. `?error=<img src=x onerror=…>` put a live tag on the
+   * page. Escaping here covers that caller and the six others, and any future
+   * one, which is the only version of this fix that stays fixed.
+   *
+   * `ok` is interpolated into the script block below and is a boolean, so it
+   * renders as `true` or `false` and can carry nothing.
+   */
   const html = (msg: string, ok: boolean) =>
     c.html(`<!doctype html><html><head><meta charset="utf-8"><title>${ok ? "Connected" : "Failed"}</title></head>
 <body style="font-family:system-ui;background:#0A0A0A;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="text-align:center;max-width:26rem;padding:1.5rem">
 <h1 style="color:${ok ? "#16a34a" : "#ea580c"};font-size:1.1rem">${ok ? "Search Console connected" : "Could not connect"}</h1>
-<p style="color:#9ca3af;font-size:.9rem">${msg}</p>
+<p style="color:#9ca3af;font-size:.9rem">${escapeHtml(msg)}</p>
 <p style="color:#6b7280;font-size:.8rem">You can close this window.</p>
 <script>try{window.opener&&window.opener.postMessage({source:'search-console',ok:${ok}},'*')}catch(e){}</script>
 </div></body></html>`);

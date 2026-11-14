@@ -261,6 +261,27 @@ for roughly 25 of the app's.
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
 
+### The typecheck ratchet reads a syntax error as an improvement
+`precommit.mjs` compares the NUMBER of typecheck findings against a baseline
+and passes when the number does not rise. A parse error defeats that: `tsc`
+stops analysing a file it cannot parse, so the semantic errors it was holding
+up simply vanish from the count.
+
+**Measured, 2026-11-14.** A stray backtick inside a template literal in
+`growth-marketing.tsx` took the server count from **82 to 3**, and `precommit`
+reported `typecheck ok — server 3 (under baseline)` and **passed all five
+checks**. The file did not compile. The number went the right way, so the
+ratchet applauded.
+
+Had the baseline then been lowered to 3 as the ratchet's own note invites
+("1 fewer, lower the baseline"), the 82 real errors would have been locked out
+of view permanently.
+
+**The fix** is to fail on error CLASS, not only on count: any `TS1xxx` (syntax)
+error should fail outright regardless of the total, because it means the rest
+of the check did not happen. A sharp drop is also worth treating as suspicious
+rather than celebrated — real cleanups remove errors one or two at a time.
+
 ### Smoke trusts whoever answers on its port, and drives the wrong app
 `smoke.mjs` starts Vite on `SMOKE_PORT`, then health-checks
 `http://localhost:<port>/smoke.html` and proceeds when it gets a 200. It never

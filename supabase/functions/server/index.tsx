@@ -343,6 +343,7 @@ import growthTools2Router from "./growth-tools2.tsx";
 import growthTools3Router from "./growth-tools3.tsx";
 import { leadsRouter } from "./leads.tsx";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";
+import { escapeHtml, escapeHtmlWithBreaks } from "./escapeHtml.ts";
 /**
  * The identity pair the auth wall runs on, moved out of this file so that the
  * routes that depend on them can follow. See `identity.ts` — the bodies are
@@ -7602,14 +7603,16 @@ app.post('/make-server-3eae23a6/email/order-confirmation', async (c) => {
     const currency = String(body.currency || 'usd').toUpperCase();
     const money = (cents: number) => `${currency === 'USD' ? '$' : ''}${((Number(cents) || 0) / 100).toFixed(2)}`;
     const items = Array.isArray(body.items) ? body.items : [];
+    // Item names and quantities come off the submitted order, so they are
+    // caller-supplied however much they look like catalogue data.
     const rows = items.map((i: any) =>
-      `<tr><td style="padding:8px 0;color:#333">${i?.name || 'Item'} × ${i?.quantity || 1}</td>` +
+      `<tr><td style="padding:8px 0;color:#333">${escapeHtml(i?.name || 'Item')} × ${escapeHtml(i?.quantity || 1)}</td>` +
       `<td style="padding:8px 0;text-align:right;color:#333">${money((i?.unitAmount || 0) * (i?.quantity || 1))}</td></tr>`,
     ).join('');
 
     const html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
       <h1 style="color:#ea580c;margin:0 0 8px">Order confirmed</h1>
-      <p style="color:#333">Thanks${body.name ? `, ${String(body.name).split(' ')[0]}` : ''} — we've received your order${body.orderId ? ` <strong>${body.orderId}</strong>` : ''}.</p>
+      <p style="color:#333">Thanks${body.name ? `, ${escapeHtml(String(body.name).split(' ')[0])}` : ''} — we've received your order${body.orderId ? ` <strong>${escapeHtml(body.orderId)}</strong>` : ''}.</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0">${rows}
         <tr><td style="padding:12px 0;border-top:1px solid #eee;font-weight:bold">Total</td>
             <td style="padding:12px 0;border-top:1px solid #eee;text-align:right;font-weight:bold;color:#ea580c">${money(body.total)}</td></tr>
@@ -8945,8 +8948,33 @@ app.get('/make-server-3eae23a6/social/callback', async (c) => {
     existing[platform] = tokenData;
     await setSocialTokens(userId, existing);
 
-    // Return HTML that posts message to parent window and closes popup
-    return c.html(`<html><body><script>window.opener?.postMessage({type:'social_connected',platform:'${platform}'},'*');window.close();</script><p>Connected! You can close this window.</p></body></html>`);
+    /*
+     * THIS VALUE GOES INSIDE A <script> BLOCK, AND THAT CHANGES THE RULES.
+     *
+     * `platform` is `c.req.param('platform')` — a path segment, so whoever
+     * calls the URL chooses it. It used to be interpolated straight into a
+     * JavaScript string literal:
+     *
+     *     platform:'${platform}'
+     *
+     * A single quote closes that literal and everything after it is code. A
+     * request to `…/callback/'+alert(document.cookie)+'` ran arbitrary script
+     * on this origin.
+     *
+     * HTML-ESCAPING WOULD NOT HAVE FIXED IT. Inside a script block the HTML
+     * parser is not looking for tags, so `&#39;` is delivered to the
+     * JavaScript parser as an apostrophe and the break-out still works. The
+     * escaper that matters here is a JavaScript one, which is what
+     * `JSON.stringify` is — it emits the quotes itself, escapes what is
+     * inside, and cannot produce a value that ends the literal early.
+     *
+     * The allowlist is the belt to that pair of braces: this callback only
+     * ever serves the five platforms the connect flow offers, so anything
+     * else is a probe and is answered with a name that can carry nothing.
+     */
+    const KNOWN_PLATFORMS = ['facebook', 'instagram', 'tiktok', 'linkedin', 'twitter'];
+    const safePlatform = KNOWN_PLATFORMS.includes(String(platform)) ? String(platform) : 'unknown';
+    return c.html(`<html><body><script>window.opener?.postMessage({type:'social_connected',platform:${JSON.stringify(safePlatform)}},'*');window.close();</script><p>Connected! You can close this window.</p></body></html>`);
   } catch (e: any) {
     console.error('[Social Callback] Error:', e);
     return c.text(`Error: ${e.message}`, 500);
@@ -11347,7 +11375,11 @@ async function deliverGiftCardEmail(card: any, recipientEmail: string) {
       from,
       to: [recipientEmail],
       subject: `You've received a $${Number(card.amount).toFixed(2)} Black Phoenix gift card`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto"><h1 style="color:#ea580c">A gift from Black Phoenix</h1><p>${card.from || 'Someone special'} sent you a $${Number(card.amount).toFixed(2)} gift card.</p><p><strong>Code: ${card.code}</strong></p>${card.message ? `<blockquote>${card.message}</blockquote>` : ''}<p>Use this code at checkout with Black Phoenix.</p></div>`,
+      // Every one of these is typed by the buyer — who it is from, and the
+      // personal message. They went into this email raw, which made a gift
+      // card the easiest way to send somebody markup over our signature.
+      // `message` keeps its line breaks and loses everything else.
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto"><h1 style="color:#ea580c">A gift from Black Phoenix</h1><p>${escapeHtml(card.from || 'Someone special')} sent you a $${Number(card.amount).toFixed(2)} gift card.</p><p><strong>Code: ${escapeHtml(card.code)}</strong></p>${card.message ? `<blockquote>${escapeHtmlWithBreaks(card.message)}</blockquote>` : ''}<p>Use this code at checkout with Black Phoenix.</p></div>`,
     }),
   });
   return { attempted: true, delivered: response.ok };

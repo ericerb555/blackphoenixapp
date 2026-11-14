@@ -976,11 +976,50 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // CRITICAL: Platform owner OR elevated users get full access - skip ALL checks
-    // Also allow access to admin routes for elevated users
-    if (isPlatformOwner || isElevated || adminRoutes.includes(currentPath)) {
-      console.log('👑 [ProtectedRoutes] Platform owner, elevated user, or admin route - FULL ACCESS GRANTED to:', currentPath);
-      console.log('👑 isPlatformOwner:', isPlatformOwner, 'isElevated:', isElevated, 'isAdminRoute:', adminRoutes.includes(currentPath));
+    /*
+     * STAFF GET THROUGH. AN ADMIN ROUTE DOES NOT LET ANYBODY ELSE THROUGH.
+     *
+     * This read:
+     *
+     *     if (isPlatformOwner || isElevated || adminRoutes.includes(currentPath))
+     *
+     * — a third OR, so BEING ON AN ADMIN ROUTE granted full access. The list
+     * written to restrict the admin pages was exempting them from every check
+     * instead, and any signed-in account of any role could open
+     * owners-dashboard, master-admin-dashboard, user-management-hub,
+     * module-manager or settings by typing the path.
+     *
+     * Eric, 2026-11-14: "no admin page should render without a verified
+     * session from a user with explicit admin privileges period" and "not a
+     * regular user session an admin session with role based verification".
+     *
+     * So the admin list is now a GATE rather than a key: staff pass on their
+     * own identity, and anybody else asking for one of those paths is sent to
+     * their own portal.
+     */
+    const isStaff = isPlatformOwner || isElevated;
+    if (isStaff) {
+      console.log('👑 [ProtectedRoutes] Staff — full access to:', currentPath);
+      return;
+    }
+
+    if (adminRoutes.includes(currentPath)) {
+      console.warn(
+        '⛔ [ProtectedRoutes] Admin route refused to a non-admin account:',
+        currentPath, 'accountType:', accountType,
+      );
+      setRedirecting(true);
+      /*
+       * The landing page, not the login screen and NOT a dashboard.
+       *
+       * Login would read as a broken session and invite them to try the same
+       * account again. And every dashboard worth sending them to is itself in
+       * `adminRoutes` — `unified-dashboard` is the first entry — so
+       * redirecting there would bounce straight back into this branch and
+       * loop. The public front door is the one destination this check cannot
+       * refuse.
+       */
+      window.location.href = '/directory-landing-page';
       return;
     }
 

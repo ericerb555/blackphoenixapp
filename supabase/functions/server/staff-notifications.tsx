@@ -193,7 +193,11 @@ function renderEmail(payload: StaffNotificationPayload): { html: string; text: s
     .join('');
 
   const cta = payload.ctaPath
-    ? `<a href="${appUrl()}${payload.ctaPath}" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px">${escapeHtml(payload.ctaLabel || 'Open the dashboard')} →</a>`
+    // The label was escaped and the href was not — the easy half to miss,
+    // because a path looks like a machine value. It is still a string a
+    // caller supplies, and a quote in it ends the attribute and starts
+    // whatever follows. Everything inside a tag gets escaped too.
+    ? `<a href="${escapeHtml(appUrl())}${escapeHtml(payload.ctaPath)}" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#ea580c;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:14px">${escapeHtml(payload.ctaLabel || 'Open the dashboard')} →</a>`
     : '';
 
   const note = payload.note
