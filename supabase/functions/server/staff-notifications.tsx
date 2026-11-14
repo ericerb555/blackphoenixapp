@@ -37,7 +37,7 @@ export const STAFF_NOTIFICATION_EVENT_LABELS: Record<StaffNotificationEvent, str
   emergency: 'Emergency on-call calls',
   application: 'New portal applications',
   message: 'New messages from customers',
-  estimate: 'Junk & demo prices',
+  estimate: 'Junk & demo price to confirm',
 };
 
 export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEvent, string> = {
@@ -57,7 +57,7 @@ export const STAFF_NOTIFICATION_EVENT_DESCRIPTIONS: Record<StaffNotificationEven
    * mattered.
    */
   message: 'Emailed whenever a customer, vendor or tenant sends a message through the portal.',
-  estimate: 'A price from the junk and demo estimator — when a customer gets one, and when they ask you to confirm it.',
+  estimate: 'A customer has a junk or demo price from their own photographs and is asking you to confirm it. Producing an estimate alone does not alert anybody — only asking for it to be confirmed does.',
   application: 'Emailed whenever anybody applies to any portal — vendor, subcontractor, investor, advertiser, tenant, territory or property manager.',
 };
 

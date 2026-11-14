@@ -392,41 +392,22 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     await kv.set(`estimate:${estimate.id}`, estimate);
 
     /*
-     * Tell the office a price went out.
+     * NOTHING IS SENT HERE, AND THAT IS ERIC'S CALL.
      *
-     * Eric: "i should get sms messaged when a price come in as well." This is
-     * the moment he means — a customer has a number in their hand, and whether
-     * it becomes a job now depends on somebody following it up.
+     * This used to raise the `estimate` event too, so the office heard twice
+     * about one job: once when a customer produced a price, and again when
+     * they asked for it to be confirmed. Asked which he wanted — "lets just
+     * have one send when they want a conformation."
      *
-     * Best-effort and after the record is written: an estimate that was
-     * produced and stored is not a failure because a text could not be sent,
-     * and the customer is waiting on this response.
+     * It is the better of the two anyway. A self-serve estimate is somebody
+     * trying the tool, and they can make several in a minute while they
+     * photograph different corners of a garage; a confirmation request is a
+     * person asking for the job. Alerting on the first would make the second
+     * one easier to miss, which is the opposite of the point.
+     *
+     * The estimate is still recorded and still appears in the dashboard list,
+     * so nothing is lost — it is just not worth a phone buzzing.
      */
-    try {
-      notifyStaffInBackground("estimate", {
-        subject: `Junk & demo estimate: ${money(takeoff.cost.likely)}`,
-        heading: "A customer just priced a job from photographs",
-        rows: [
-          ["Customer", email],
-          ["Likely", money(takeoff.cost.likely)],
-          ["Range", `${money(takeoff.cost.low)} – ${money(takeoff.cost.high)}`],
-          ["Volume", `about ${takeoff.volumeCuYd.likely} cu yd in ${takeoff.loads} load(s)`],
-          ["Needs a visit", takeoff.needsSiteVisit ? `yes — ${takeoff.siteVisitReasons.join("; ")}` : "no"],
-          ["Could not see", takeoff.unseenCuYd ? `about ${takeoff.unseenCuYd} cu yd` : "nothing flagged"],
-          ["They want left", (takeoff.excluded || []).map((x: any) => x.name).join(", ") || "nothing"],
-          ["Not carried", (takeoff.refused || []).map((r: any) => r.label).join(", ") || "nothing refused"],
-        ],
-        // A text is a tap on the shoulder, so it carries the price, who it is
-        // for, and whether it needs eyes. The rest waits in the email.
-        smsRows: ["Likely", "Customer", "Needs a visit"],
-        ctaLabel: "Open the estimate",
-        ctaPath: `/owners-dashboard`,
-        dedupeKey: `estimate:${estimate.id}`,
-      });
-    } catch (notifyError: any) {
-      console.log(`[trash-estimator] could not notify staff: ${notifyError?.message || notifyError}`);
-    }
-
     return c.json({ success: true, estimate });
   } catch (err: any) {
     await refund(user, "trash", units);
