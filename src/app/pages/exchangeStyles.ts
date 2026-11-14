@@ -54,7 +54,8 @@ export const EXCHANGE_CSS = `
 .bpx-search { position:relative; flex:1 1 260px; min-width:0; }
 .bpx-search svg { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--bpx-faint); pointer-events:none; }
 .bpx-search input { width:100%; min-height:46px; padding:12px 14px 12px 42px; border-radius:14px;
-  background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text); font-size:14.5px; outline:none; }
+  background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text); font-size:16px; outline:none; }
+@media (min-width:641px) { .bpx-search input { font-size:14.5px; } }
 .bpx-search input:focus { border-color:rgba(234,88,12,.55); box-shadow:0 0 0 3px rgba(234,88,12,.13); }
 
 .bpx-btn { min-height:46px; padding:0 16px; border-radius:14px; border:1px solid var(--bpx-line);
@@ -69,7 +70,8 @@ export const EXCHANGE_CSS = `
   font-size:11px; font-weight:800; display:grid; place-items:center; }
 
 .bpx-select { min-height:46px; padding:0 12px; border-radius:14px; background:var(--bpx-raised);
-  border:1px solid var(--bpx-line); color:var(--bpx-text); font-size:13.5px; font-weight:600; outline:none; cursor:pointer; }
+  border:1px solid var(--bpx-line); color:var(--bpx-text); font-size:16px; font-weight:600; outline:none; cursor:pointer; }
+@media (min-width:641px) { .bpx-select { font-size:13.5px; } }
 
 .bpx-seg { display:inline-flex; padding:4px; gap:3px; border-radius:14px; background:var(--bpx-raised); border:1px solid var(--bpx-line); }
 .bpx-seg button { width:40px; height:38px; border:none; border-radius:10px; background:transparent;
@@ -193,7 +195,8 @@ export const EXCHANGE_CSS = `
 .bpx-field { display:flex; flex-direction:column; gap:7px; }
 .bpx-field > label { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--bpx-faint); font-weight:700; }
 .bpx-input { width:100%; min-height:44px; padding:11px 13px; border-radius:12px; background:#0F0F0F;
-  border:1px solid var(--bpx-line); color:var(--bpx-text); outline:none; font-size:14px; }
+  border:1px solid var(--bpx-line); color:var(--bpx-text); outline:none; font-size:16px; }
+@media (min-width:641px) { .bpx-input { font-size:14px; } }
 .bpx-input:focus { border-color:rgba(234,88,12,.55); }
 .bpx-grid2 { display:grid; grid-template-columns:1fr; gap:14px; }
 @media (min-width:560px){ .bpx-grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); } }

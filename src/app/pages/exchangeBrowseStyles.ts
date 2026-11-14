@@ -61,7 +61,8 @@ export const BROWSE_CSS = `
   margin-inline:auto; text-align:left; }
 .bpxb-missing input { width:100%; min-height:46px; padding:0 14px; border-radius:13px;
   background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
-  font-size:14px; outline:none; }
+  font-size:16px; outline:none; }
+@media (min-width:641px) { .bpxb-missing input { font-size:14px; } }
 .bpxb-missing input:focus { border-color:rgba(234,88,12,.55); }
 .bpxb-said { font-size:13px; color:#86efac; font-weight:600; }
 .bpxb-failed { font-size:13px; color:#fca5a5; font-weight:600; }
@@ -78,9 +79,25 @@ export const BROWSE_CSS = `
 .bpxb-find-row { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
 .bpxb-find-field { position:relative; flex:1 1 220px; min-width:0; display:flex; align-items:center; }
 .bpxb-find-field > svg { position:absolute; left:13px; color:var(--bpx-faint); pointer-events:none; }
+/* 16px, not 14px, and the reason is iOS rather than taste.
+   Safari zooms the page in when a focused field is under 16px and does not
+   zoom back out when the field is left. This is the Exchange's main search
+   box — the first thing a resident touches — so that zoom happened on the
+   first tap of the whole product.
+
+   globals.css sets 16px on every bare input under 640px, but the selector
+   '.bpxb-find-field input' is a class selector and wins on specificity, so
+   this had to be fixed where it is set. FOUND BY MEASURING THE LIVE PAGE at
+   390px; no amount of reading the stylesheet would have shown which rule won.
+
+   (No backticks in this comment — the whole file is one template literal and
+   a backtick here ends it, which is a build break disguised as a comment.)
+
+   Desktop is unchanged: the 14px is restored from 641px up, below. */
 .bpxb-find-field input { width:100%; min-height:44px; padding:0 38px 0 36px; border-radius:13px;
   background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
-  font-size:14px; outline:none; }
+  font-size:16px; outline:none; }
+@media (min-width:641px) { .bpxb-find-field input { font-size:14px; } }
 .bpxb-find-field input:focus { border-color:rgba(234,88,12,.55); }
 /* type="search" brings its own clear button in WebKit, which sat beside ours.
    Two crosses in one field is a puzzle rather than a convenience, and the
@@ -194,7 +211,8 @@ export const BROWSE_CSS = `
   color:var(--bpx-dim); font-weight:650; }
 .bpxb-form input, .bpxb-form textarea { width:100%; padding:10px 13px; border-radius:11px;
   background:var(--bpx-raised); border:1px solid var(--bpx-line); color:var(--bpx-text);
-  font-size:14px; font-family:inherit; outline:none; }
+  font-size:16px; font-family:inherit; outline:none; }
+@media (min-width:641px) { .bpxb-form input, .bpxb-form textarea { font-size:14px; } }
 .bpxb-form input:focus, .bpxb-form textarea:focus { border-color:rgba(234,88,12,.55); }
 .bpxb-form textarea { min-height:96px; resize:vertical; }
 .bpxb-form-row { display:flex; gap:10px; flex-wrap:wrap; }

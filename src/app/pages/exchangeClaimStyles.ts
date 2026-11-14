@@ -35,7 +35,8 @@ export const CLAIM_CSS = `
 
 .bpxc-input { min-height:44px; padding:0 13px; border-radius:12px;
   background:var(--bpx-surface); border:1px solid var(--bpx-line);
-  color:var(--bpx-text); font-size:14px; outline:none; flex:1 1 220px; min-width:0; }
+  color:var(--bpx-text); font-size:16px; outline:none; flex:1 1 220px; min-width:0; }
+@media (min-width:641px) { .bpxc-input { font-size:14px; } }
 .bpxc-input:focus { border-color:rgba(234,88,12,.55); }
 .bpxc-input-code { flex:0 0 140px; letter-spacing:.18em; font-variant-numeric:tabular-nums;
   text-align:center; }
