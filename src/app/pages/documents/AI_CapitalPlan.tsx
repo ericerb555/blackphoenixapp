@@ -263,7 +263,7 @@ export default function AI_CapitalPlan() {
             </p>
           </div>
 
-          <div className="mt-6 grid grid-cols-3 gap-6">
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-6">
             {["Prepared by", "Board President", "Date Approved"].map((label, i) => (
               <div key={i}>
                 <div className="border-b border-gray-600 h-8 mb-1"></div>

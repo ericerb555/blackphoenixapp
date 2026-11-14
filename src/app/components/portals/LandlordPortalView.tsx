@@ -877,7 +877,7 @@ export default function LandlordPortalView() {
             {/* Scenario teaser */}
             <div className="rounded-xl p-5" style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}>
               <p className="text-sm font-bold text-white mb-1">Example: 12-unit property adding 3 quick wins</p>
-              <div className="grid grid-cols-3 gap-3 mt-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
                 {[
                   { label: 'Storage (6 units)', value: '+$3,240/yr' },
                   { label: 'Laundry upgrade', value: '+$3,024/yr' },

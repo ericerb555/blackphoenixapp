@@ -347,7 +347,7 @@ export default function SmartRoomDetector({
           
           {/* Info Panel */}
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-6 mb-6">
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
               <div>
                 <p className="text-gray-400 text-sm mb-1">Walls Detected</p>
                 <p className="text-white text-2xl font-bold">{walls.length}</p>

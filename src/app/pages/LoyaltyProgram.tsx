@@ -234,7 +234,7 @@ export default function LoyaltyProgram() {
                 </button>
               </div>
               {/* Tier preview */}
-              <div className="grid grid-cols-4 gap-2 mt-8">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-8">
                 {TIERS.map(t => (
                   <div key={t.id} className="flex flex-col items-center gap-1 p-2 rounded-xl"
                     style={{ background: 'rgba(255,255,255,0.04)' }}>

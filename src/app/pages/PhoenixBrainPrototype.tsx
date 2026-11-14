@@ -222,7 +222,7 @@ export default function PhoenixBrainPrototype({
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               The voice
             </p>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {VOICES.map((x) => (
                 <button
                   key={x.id}

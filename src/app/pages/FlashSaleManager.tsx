@@ -428,7 +428,7 @@ export default function FlashSaleManager() {
                 {/* Duration */}
                 <div>
                   <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 block">Duration</label>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                     {[2, 6, 24, 48, 72, 96, 168].map(h => (
                       <button key={h} onClick={() => setF('hours', h)}
                         className="py-2 rounded-xl text-xs font-bold transition"

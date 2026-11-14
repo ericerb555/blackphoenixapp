@@ -249,7 +249,7 @@ export default function FloorPlanMeasurementsPanel({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
               <div className="bg-[#2A2A2A] rounded-lg p-2">
                 <p className="text-xl font-bold text-white">{walls.length}</p>
                 <p className="text-xs text-gray-400">Walls</p>

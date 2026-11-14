@@ -1096,7 +1096,7 @@ export default function PropertyRevenueHub() {
               </div>
               <div className="p-5 space-y-4">
                 {/* Revenue at a glance */}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
                     { label: 'Monthly Rev', value: fmtRange(selectedOpp.monthlyRevenue) },
                     { label: 'Annual Rev', value: fmtRange(selectedOpp.annualRevenue) },
@@ -1108,7 +1108,7 @@ export default function PropertyRevenueHub() {
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
                     { label: 'Payback', value: `${selectedOpp.paybackMonths[0]}–${selectedOpp.paybackMonths[1]} mo`, color: '#60a5fa' },
                     { label: 'Difficulty', value: selectedOpp.difficulty, color: DIFFICULTY_COLOR[selectedOpp.difficulty] },

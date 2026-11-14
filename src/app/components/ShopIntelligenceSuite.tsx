@@ -903,7 +903,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
           </div>
 
           {/* Alert summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {[
               { label: 'Critical Alerts', value: criticalAlerts.length, color: 'text-red-400 bg-red-500/10 border-red-500/20', icon: '🚨' },
               { label: 'Active Opportunities', value: activeAlerts.length, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20', icon: '📈' },
@@ -1270,7 +1270,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {[
                       { label: 'Followers', value: formatNum(creator.followers) },
                       { label: 'Engagement', value: `${creator.engagementRate}%` },

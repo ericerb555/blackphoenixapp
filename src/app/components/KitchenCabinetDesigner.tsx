@@ -425,7 +425,7 @@ export default function KitchenCabinetDesigner({ onClose, onSave, initialData }:
                         </select>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <div>
                           <label className="block text-xs text-gray-400 mb-1">Width</label>
                           <input

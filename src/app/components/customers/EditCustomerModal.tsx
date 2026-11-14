@@ -238,7 +238,7 @@ export default function EditCustomerModal({ isOpen, onClose, onSuccess, customer
                   placeholder="Suite 100"
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">City</label>
                   <input
@@ -342,7 +342,7 @@ export default function EditCustomerModal({ isOpen, onClose, onSuccess, customer
           {/* Stats Display (Read-only) */}
           <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
             <h3 className="text-sm font-semibold text-gray-400 mb-3">Customer Statistics</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-gray-500 mb-1">Total Spent</p>
                 <p className="text-lg font-bold text-orange-400">${customer.total_spent?.toLocaleString() || '0'}</p>

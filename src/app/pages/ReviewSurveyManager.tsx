@@ -191,7 +191,7 @@ function ResponseDetail({ r, onMarkReviewLeft, onClose }: { r: SurveyResponse; o
           </div>
 
           {r.rating > 0 && (
-            <div className="grid grid-cols-3 gap-3 bg-[#111] border border-[#1a1a1a] rounded-xl p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-[#111] border border-[#1a1a1a] rounded-xl p-4">
               <div className="text-center">
                 <p className="text-xs text-gray-500 mb-1">Rating</p>
                 <StarRating value={r.rating} />
@@ -406,7 +406,7 @@ Owner, Black Phoenix Builds
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Surveys Sent', value: responses.length },
           { label: 'Avg Rating', value: avgRating, color: 'text-yellow-400' },

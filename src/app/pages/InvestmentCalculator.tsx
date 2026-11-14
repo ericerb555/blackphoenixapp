@@ -209,7 +209,7 @@ export default function InvestmentCalculator({ onNavigate }: InvestmentCalculato
           <p className="text-gray-600">Detailed breakdown of returns, timelines, and profit distribution</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
           {/* Left Column - Investment Inputs */}
           <div className="space-y-6">
             {/* Investment Amount */}

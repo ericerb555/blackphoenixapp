@@ -202,7 +202,7 @@ export default function SentInvitesPanel() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
           <div className="flex items-center gap-2 text-gray-400 text-xs font-medium"><Users className="w-4 h-4" /> Total sent</div>
           <div className="text-2xl font-bold text-white mt-1">{stats.total}</div>

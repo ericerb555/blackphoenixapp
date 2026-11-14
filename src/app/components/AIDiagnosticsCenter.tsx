@@ -467,7 +467,7 @@ export default function AIDiagnosticsCenter() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* System Health Grid */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#0A0A0A] border border-green-500/30 rounded-xl p-5 hover:border-green-500 hover:shadow-lg hover:shadow-green-500/20 transition-all duration-300">
               <CheckCircle className="w-6 h-6 text-green-400 mb-3" />
               <p className="text-3xl font-bold text-white mb-1">{healthySystems}/{totalSystems}</p>

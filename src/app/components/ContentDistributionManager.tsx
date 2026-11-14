@@ -322,7 +322,7 @@ export function ContentDistributionManager({
 
                       {/* Performance Metrics */}
                       {isPublished && (dist.impressions > 0 || dist.clicks > 0 || dist.engagement > 0) && (
-                        <div className="grid grid-cols-3 gap-2 pt-2 border-t">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t">
                           <div className="text-center">
                             <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
                               <Eye className="h-3 w-3" />

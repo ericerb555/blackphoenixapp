@@ -207,7 +207,7 @@ export default function PropertyManagementTest() {
       {testResults.length > 0 && (
         <div className="mt-6 p-4 bg-blue-50 border-2 border-blue-500 rounded-lg">
           <h3 className="font-bold mb-2">Summary</h3>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold text-green-600">
                 {testResults.filter(r => r.status === 'PASS').length}

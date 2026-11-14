@@ -634,7 +634,7 @@ export default function SocialMediaSchedulerTab() {
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Media Type
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {[
                     { id: 'text', label: 'Text Only', icon: FileText },
                     { id: 'image', label: 'Image', icon: ImageIcon },

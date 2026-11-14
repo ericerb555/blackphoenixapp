@@ -36,7 +36,7 @@ export function AssetLibrary({ settings, onUpdate, selectedCategory, onCategoryC
     <div className="space-y-6">
       {/* Category Selection */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {settings.categories.map((category) => {
             const IconComponent = getIconComponent(category.icon);
 
@@ -83,7 +83,7 @@ export function AssetLibrary({ settings, onUpdate, selectedCategory, onCategoryC
               <p className="text-sm text-gray-500">Click "Upload Asset" to add your first file</p>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {selectedCat.assets.map((asset) => (
                 <div key={asset.id} className="group relative p-3 bg-[#0A0A0A] rounded-xl border border-[#2A2A2A] hover:border-[#ea580c]/50 transition">
                   <div className="aspect-square rounded-lg bg-[#1A1A1A] mb-2 flex items-center justify-center">

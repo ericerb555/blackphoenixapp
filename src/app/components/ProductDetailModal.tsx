@@ -359,7 +359,7 @@ export default function ProductDetailModal({
             </div>
 
             {/* Trust Badges */}
-            <div className="grid grid-cols-3 gap-3 pt-6 border-t border-[#2A2A2A]">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-6 border-t border-[#2A2A2A]">
               <div className="text-center">
                 <Truck className="w-8 h-8 text-[#ea580c] mx-auto mb-2" />
                 <div className="text-xs text-gray-400">Fast Shipping</div>

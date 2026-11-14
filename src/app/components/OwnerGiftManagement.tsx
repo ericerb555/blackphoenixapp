@@ -769,7 +769,7 @@ function GrantGiftModal({ template, onClose, onGrant }: {
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Recipient Type *</label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
               {(['customer', 'subcontractor', 'vendor', 'advertiser'] as RecipientType[]).map((type) => (
                 <button
                   key={type}

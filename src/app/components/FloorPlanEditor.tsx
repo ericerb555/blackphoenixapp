@@ -208,7 +208,7 @@ export default function FloorPlanEditor({ plan, onChange, onAddToScope }: {
                     className="text-gray-600 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
 
-                <div className="grid grid-cols-4 gap-1.5 mb-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 mb-2">
                   <Num v={w.a.x} t="from X" on={v => patchWall(w.id, { a: { ...w.a, x: v } })} />
                   <Num v={w.a.y} t="from Y" on={v => patchWall(w.id, { a: { ...w.a, y: v } })} />
                   <Num v={w.b.x} t="to X" on={v => patchWall(w.id, { b: { ...w.b, x: v } })} />

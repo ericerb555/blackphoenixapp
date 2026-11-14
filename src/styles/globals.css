@@ -365,8 +365,25 @@ input::placeholder, textarea::placeholder {
   /* Flex children default to min-width:auto and refuse to shrink
      below their content. That single default is the mechanism
      behind both the sideways overflow and buttons colliding in a
-     row. Opt every flex row inside an overlay into shrinking. */
-  .fixed.inset-0 .flex > * {
+     row.
+
+     THIS USED TO APPLY ONLY INSIDE `.fixed.inset-0` — overlays —
+     and the same defect was everywhere else. A 390px sweep of all
+     376 pages put `portal-global-settings` 134px past the screen
+     on a `div.flex-1`; that file has eight `flex-1` children and
+     not one `min-w-0`, which is the whole story. Patching eight
+     sites in one file would have left the other 375 pages alone.
+
+     So every flex child opts into shrinking, on phones only. A
+     `flex-1` that can shrink does what the author meant; one that
+     cannot drags the page sideways.
+
+     Phones only, because the trade is real: `min-width: 0` lets a
+     long unbroken string squash its column rather than widen it,
+     which is right on a 390px screen and not always right on a
+     desk. The 640px ceiling keeps desktop exactly as it was. */
+  .flex > *,
+  .inline-flex > * {
     min-width: 0;
   }
 

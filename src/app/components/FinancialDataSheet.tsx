@@ -54,7 +54,7 @@ export function FinancialDataSheet({ project, onClose }: FinancialDataSheetProps
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
           {/* Key Metrics */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/30 rounded-lg p-4">
               <div className="text-blue-400 text-sm mb-1 flex items-center gap-2">
                 <FileText className="w-4 h-4" />

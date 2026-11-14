@@ -706,7 +706,7 @@ export default function VideoStudio() {
                   <p className="text-xs leading-5 text-emerald-200">
                     Uploaded and ready to post. It stays available for seven days.
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {(['instagram', 'facebook', 'tiktok'] as const).map((platform) => (
                       <Button
                         key={platform}

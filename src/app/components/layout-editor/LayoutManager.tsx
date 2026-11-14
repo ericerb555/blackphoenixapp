@@ -93,7 +93,7 @@ export default function LayoutManager({
             <div className="space-y-5">
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Density</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {(['comfortable', 'compact', 'spacious'] as const).map(d => (
                     <button
                       key={d}
@@ -112,7 +112,7 @@ export default function LayoutManager({
 
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Card Style</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {(['default', 'flat', 'bordered'] as const).map(s => (
                     <button
                       key={s}
@@ -131,7 +131,7 @@ export default function LayoutManager({
 
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sidebar Width</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {(['narrow', 'normal', 'wide'] as const).map(w => (
                     <button
                       key={w}

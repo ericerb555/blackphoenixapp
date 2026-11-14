@@ -226,7 +226,7 @@ export default function RetargetingPixelSetup() {
       </div>
 
       {/* Status */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-[#111] border border-[#222] rounded-xl p-4 text-center">
           <p className="text-2xl font-bold text-white">{configuredCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">Pixels Configured</p>

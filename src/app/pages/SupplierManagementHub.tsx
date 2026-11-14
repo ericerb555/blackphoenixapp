@@ -291,7 +291,7 @@ export default function SupplierManagementHub() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                       <div className="bg-[#0A0A0A] border border-zinc-800 rounded-lg p-3">
                         <p className="text-sm text-zinc-400 mb-1">Total Orders</p>
                         <p className="text-xl font-bold text-white">{supplier.totalOrders}</p>

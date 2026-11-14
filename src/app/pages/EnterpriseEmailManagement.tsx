@@ -532,7 +532,7 @@ export default function EnterpriseEmailManagement() {
                   </div>
 
                   {/* Stats Grid */}
-                  <div className="grid grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                     <div className="bg-[#0A0A0A] rounded-lg p-3 border border-[#2A2A2A]">
                       <p className="text-sm text-gray-400 mb-1">Total Accounts</p>
                       <p className="text-2xl font-bold text-white">{domain.totalAccounts}</p>

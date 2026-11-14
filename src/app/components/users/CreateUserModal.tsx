@@ -218,7 +218,7 @@ export default function CreateUserModal({ isOpen, onClose, onUserCreated }: Crea
             <Briefcase className="w-4 h-4 text-orange-400" />
             Employment Details
           </h4>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <TextInput
               label="Job Title"
               value={formData.job_title}

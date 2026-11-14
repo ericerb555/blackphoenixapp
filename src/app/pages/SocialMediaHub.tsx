@@ -317,7 +317,7 @@ function AIOnboardingWizard({ onClose, onAdd, existingAccounts }: {
                     </div>
                     {/* Platform grid inside AI bubble */}
                     {msg.role === 'ai' && msg.type === 'platform-select' && msg.platforms && i === messages.length - 1 && !awaitingHandle && (
-                      <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {msg.platforms.map(p => (
                           <button key={p.id} onClick={() => handlePlatformSelect(p)}
                             className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-all active:scale-95 hover:scale-105"
@@ -471,7 +471,7 @@ function AddAccountModal({ onClose, onAdd }: { onClose: () => void; onAdd: (acct
         {step === 'pick' && (
           <div className="p-5">
             <p className="text-xs text-gray-500 mb-4 uppercase tracking-widest font-semibold">Select a platform</p>
-            <div className="grid grid-cols-3 gap-2.5 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-80 overflow-y-auto">
               {PLATFORM_PRESETS.map(p => (
                 <button key={p.id} onClick={() => { setSelected(p); setStep('details'); }}
                   className="flex flex-col items-center gap-2 p-3 rounded-xl border border-[#2A2A2A] hover:border-[#3A3A3A] bg-[#1A1A1A] hover:bg-[#222] transition group">

@@ -384,7 +384,7 @@ export default function LiveVideoPreviewPlayer({
 
       {/* Video Info */}
       <div className="px-4 pb-4 border-t border-[#2A2A2A]">
-        <div className="grid grid-cols-4 gap-3 text-xs pt-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs pt-3">
           <div>
             <p className="text-gray-500 mb-1">Resolution</p>
             <p className="text-white font-medium">

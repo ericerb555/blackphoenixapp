@@ -409,7 +409,7 @@ export default function AutopilotCampaigns() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div>
                 <Label>Budget ($)</Label>
                 <Input className="mt-1" type="number" placeholder="Optional" value={budget} onChange={(e) => setBudget(e.target.value)} />

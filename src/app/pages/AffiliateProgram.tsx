@@ -166,7 +166,7 @@ export default function AffiliateProgram() {
           </div>
 
           {/* Mini how-it-works */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {HOW_IT_WORKS.map(h => (
               <div key={h.step} className="rounded-xl p-3 text-center" style={{ background: '#111', border: '1px solid #1e1e1e' }}>
                 <h.icon className="w-5 h-5 mx-auto mb-2" style={{ color: h.color }} />

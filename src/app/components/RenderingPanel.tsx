@@ -265,7 +265,7 @@ export default function RenderingPanel({
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-3">Lighting Type</label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {(['natural', 'studio', 'custom'] as const).map((type) => (
                     <button
                       key={type}

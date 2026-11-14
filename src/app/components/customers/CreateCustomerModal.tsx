@@ -228,7 +228,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onSuccess }: Crea
                   placeholder="Suite 100"
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">City</label>
                   <input

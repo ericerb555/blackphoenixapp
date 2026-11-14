@@ -261,6 +261,21 @@ for roughly 25 of the app's.
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
 
+### The smoke harness uses fixed ports, so two runs collide
+`SMOKE_PORT` 5177 and `SMOKE_REPORT_PORT` 9911 are defaults, and a second run
+cannot bind them. That is correct behaviour and it says so clearly — but it
+means a `precommit` started while any other sweep is running fails on a check
+that has nothing wrong with it.
+
+This is what the unexplained 2026-11-14 "could not read the result" was: a
+concurrent run holding the port, with smoke's own explanation thrown away by
+precommit's keyword filter. Both halves are fixed — the filter now prints what
+smoke said — so this is no longer invisible, just still inconvenient.
+
+**The fix, when somebody wants it:** have the harness pick a free port instead
+of a fixed one, and pass it to the browser. Everything needed is already in
+`smoke.mjs`; it is the default values that are hardcoded, not the mechanism.
+
 ### `q3probe.mjs` is untracked in the repo root
 Appeared in `git status` during this session and is not mine. Either it belongs
 in `scripts/` or it should go.

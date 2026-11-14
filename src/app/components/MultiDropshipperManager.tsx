@@ -1562,7 +1562,7 @@ export default function MultiDropshipperManager() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Strategy</label>
-                  <div className="grid grid-cols-3 gap-2 mt-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
                     {([
                       { id: 'value', label: 'Value', desc: 'Win on price' },
                       { id: 'competitive', label: 'Competitive', desc: 'Match market' },

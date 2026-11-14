@@ -172,7 +172,7 @@ export default function JobTrackingHub() {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                     <div>
                       <p className="text-sm text-zinc-400 mb-1">Budget</p>
                       <p className="text-lg font-bold text-green-400">${job.budget.toLocaleString()}</p>
@@ -310,7 +310,7 @@ export default function JobTrackingHub() {
                               <AlertTriangle className="w-5 h-5 text-yellow-400" />
                             )}
                           </div>
-                          <div className="grid grid-cols-3 gap-2 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                             <div>
                               <p className="text-gray-500">Date</p>
                               <p className="text-white">{new Date(entry.date).toLocaleDateString()}</p>
@@ -360,7 +360,7 @@ export default function JobTrackingHub() {
                               <AlertTriangle className="w-5 h-5 text-yellow-400" />
                             )}
                           </div>
-                          <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm mb-2">
                             <div>
                               <p className="text-gray-500">Date</p>
                               <p className="text-white">{new Date(purchase.date).toLocaleDateString()}</p>
@@ -503,7 +503,7 @@ export default function JobTrackingHub() {
                 </div>
                 <Cloud className="w-12 h-12 text-blue-400" />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <p className="text-sm text-blue-200 mb-1">Temperature</p>
                   <p className="text-2xl font-bold">72°F</p>

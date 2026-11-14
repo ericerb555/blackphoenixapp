@@ -913,7 +913,7 @@ export default function ExportFloorPlanModal({
             <label className="block text-sm font-medium text-gray-300 mb-3">
               Export Format
             </label>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <button
                 onClick={() => setFormat('pdf')}
                 className={`p-4 rounded-lg border-2 transition-all ${

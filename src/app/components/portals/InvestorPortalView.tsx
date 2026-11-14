@@ -420,7 +420,7 @@ export default function InvestorPortalView() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                       <div className="bg-[#0A0A0A] border border-blue-500/20 rounded-lg p-4">
                         <p className="text-xs text-gray-400 mb-1">Minimum to Start</p>
                         <p className="text-xl font-bold text-white">${(selectedOpportunity.minimumToStart / 1000000).toFixed(1)}M</p>
@@ -1001,7 +1001,7 @@ export default function InvestorPortalView() {
                           <p className="text-xs text-gray-400 mb-2">{opp.description}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-3 text-sm mb-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mb-3">
                         <div>
                           <p className="text-gray-500 text-xs">Min Investment</p>
                           <p className="text-white font-semibold">${(opp.minInvestment / 1000)}K</p>
@@ -1052,7 +1052,7 @@ export default function InvestorPortalView() {
                           <p className="text-xs text-gray-400 mb-2">{opp.description}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-3 text-sm mb-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mb-3">
                         <div>
                           <p className="text-gray-500 text-xs">Min Investment</p>
                           <p className="text-white font-semibold">${(opp.minInvestment / 1000)}K</p>
@@ -1232,7 +1232,7 @@ export default function InvestorPortalView() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-3 mb-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                         <div>
                           <p className="text-xs text-gray-500">Min Investment</p>
                           <p className="text-white font-semibold">${(opp.minInvestment / 1000)}K</p>
@@ -1303,7 +1303,7 @@ export default function InvestorPortalView() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-3 mb-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                         <div>
                           <p className="text-xs text-gray-500">Min Investment</p>
                           <p className="text-white font-semibold">${(opp.minInvestment / 1000)}K</p>

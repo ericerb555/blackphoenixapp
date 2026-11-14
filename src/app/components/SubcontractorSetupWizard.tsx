@@ -564,7 +564,7 @@ export default function SubcontractorSetupWizard({
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">City</label>
                   <input
@@ -631,7 +631,7 @@ export default function SubcontractorSetupWizard({
                   Trade License
                 </h3>
                 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">License Number</label>
                     <input
@@ -700,7 +700,7 @@ export default function SubcontractorSetupWizard({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">Expiration Date</label>
                     <input
@@ -780,7 +780,7 @@ export default function SubcontractorSetupWizard({
                 <label className="block text-sm font-medium text-gray-300 mb-3">
                   Primary Trade <span className="text-red-400">*</span>
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {TRADES.map(trade => {
                     const Icon = trade.icon;
                     const isSelected = formData.primaryTrade === trade.id;
@@ -805,7 +805,7 @@ export default function SubcontractorSetupWizard({
               {/* Secondary Trades */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-3">Secondary Trades (Multi-select)</label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {TRADES.filter(t => t.id !== formData.primaryTrade).map(trade => {
                     const Icon = trade.icon;
                     const isSelected = formData.secondaryTrades.includes(trade.id);
@@ -921,7 +921,7 @@ export default function SubcontractorSetupWizard({
                   Hourly Rates
                 </h3>
                 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">Standard Rate</label>
                     <div className="relative">

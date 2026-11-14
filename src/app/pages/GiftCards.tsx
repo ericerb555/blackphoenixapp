@@ -291,7 +291,7 @@ export default function GiftCards() {
             <div className="space-y-5 max-w-lg mx-auto">
               <div>
                 <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">Choose Amount</p>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
                   {AMOUNTS.map(a => (
                     <button key={a} onClick={() => { setAmount(a); setCustomAmount(''); }}
                       className="py-3 rounded-2xl font-black text-sm transition"

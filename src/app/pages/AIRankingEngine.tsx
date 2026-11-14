@@ -728,7 +728,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
                 </div>
 
                 {/* Score bars */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
                     { label: 'SEO', score: piece.seoScore, color: '#4ade80' },
                     { label: 'AI/GEO', score: piece.geoScore, color: '#a78bfa' },
@@ -956,7 +956,7 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
           </div>
 
           {/* Platform breakdown */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {[
               { platform: 'Google Assistant', icon: '🔍', wins: 3, total: 5, color: 'blue' },
               { platform: 'Siri', icon: '🍎', wins: 2, total: 5, color: 'gray' },

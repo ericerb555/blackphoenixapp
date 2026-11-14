@@ -199,7 +199,7 @@ export default function SubscribeAndSave() {
       </div>
 
       {/* Value props */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {[
           { icon: Shield, color: '#22c55e', label: 'Skip or cancel', desc: 'Anytime, no fees' },
           { icon: Zap,    color: '#f59e0b', label: 'Up to 15% off', desc: 'Every shipment' },
@@ -290,7 +290,7 @@ export default function SubscribeAndSave() {
                 <div className="absolute top-0 right-0 w-40 h-40 pointer-events-none"
                   style={{ background: 'radial-gradient(ellipse at top right, rgba(6,182,212,0.12) 0%, transparent 70%)' }} />
                 <p className="text-[10px] font-black text-cyan-600 uppercase tracking-widest mb-3">Your Subscription Summary</p>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
                     { label: 'Active Plans', value: activeSubs.filter(s => s.status === 'active').length },
                     { label: 'Total Orders', value: activeSubs.reduce((a, s) => a + s.totalOrders, 0) },

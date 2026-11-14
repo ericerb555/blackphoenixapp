@@ -800,7 +800,7 @@ export default function SubcontractorPortal() {
                 {/* Preview grid */}
                 {mediaUploading && <p className="text-xs text-orange-300">Uploading attachment…</p>}
                 {bidMedia.length > 0 && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {bidMedia.map((m, i) => (
                       <div key={i} className="relative rounded-lg overflow-hidden bg-[#0A0A0A] border border-[#2A2A2A] group aspect-square">
                         {m.type === 'image' ? (

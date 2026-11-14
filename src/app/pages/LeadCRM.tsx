@@ -431,7 +431,7 @@ export default function LeadCRM() {
             <div className="rounded-2xl p-5" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.07)' }}>
               <h3 className="font-black text-white mb-1 flex items-center gap-2"><Star className="w-4 h-4 text-yellow-400" /> Lead Score Distribution</h3>
               <p className="text-xs text-gray-600 mb-4">80+ Hot · 60–79 Warm · Below 60 Cold</p>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {[
                   { label: 'Hot (80+)',    count: leads.filter(l => l.score >= 80).length, color: '#4ade80' },
                   { label: 'Warm (60–79)', count: leads.filter(l => l.score >= 60 && l.score < 80).length, color: '#fb923c' },
@@ -493,7 +493,7 @@ export default function LeadCRM() {
                   {/* Stage mover */}
                   <div>
                     <p className="text-xs font-black text-gray-500 mb-2">Move to Stage</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {STAGES.map(s => (
                         <button key={s.key} onClick={() => moveStage(lead.id, s.key)}
                           className="py-2 rounded-xl text-xs font-black transition hover:brightness-110"
@@ -523,7 +523,7 @@ export default function LeadCRM() {
                   </div>
 
                   {/* Quick actions */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
                       { icon: Mail,    label: 'Email',  color: '#fb923c', action: () => toast.info(`Opening email to ${lead.email}`) },
                       { icon: Phone,   label: 'Call',   color: '#4ade80', action: () => toast.info(`Calling ${lead.phone || 'no phone on file'}`) },

@@ -335,7 +335,7 @@ export default function ProjectLinkPanel({ designId, link, onLink, onFilerReady 
           {/* What already exists for this customer. Read-only on purpose: this
               is here so a second quote does not get written for a job that
               already has one. */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <Tally icon={ClipboardList} n={context.requests?.length || 0} label="requests" />
             <Tally icon={FileText} n={context.quotes?.length || 0} label="quotes" />
             <Tally icon={Receipt} n={context.invoices?.length || 0} label="invoices" />

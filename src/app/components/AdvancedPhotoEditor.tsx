@@ -212,7 +212,7 @@ export default function AdvancedPhotoEditor({
           {/* Sidebar - Controls */}
           <div className="w-80 border-r border-[#2A2A2A] bg-[#0A0A0A] overflow-y-auto">
             {/* Tab Navigation */}
-            <div className="grid grid-cols-4 gap-1 p-3 border-b border-[#2A2A2A]">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-1 p-3 border-b border-[#2A2A2A]">
               {[
                 { id: 'text', label: 'Text', icon: Type },
                 { id: 'filters', label: 'Filters', icon: Sparkles },
@@ -255,7 +255,7 @@ export default function AdvancedPhotoEditor({
 
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-2">Position</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {['top', 'center', 'bottom'].map((pos) => (
                         <button
                           key={pos}
@@ -274,7 +274,7 @@ export default function AdvancedPhotoEditor({
 
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-2">Alignment</label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {[
                         { value: 'left', icon: AlignLeft },
                         { value: 'center', icon: AlignCenter },

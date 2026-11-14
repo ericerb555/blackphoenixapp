@@ -516,7 +516,7 @@ export default function VideoTimelineEditor({
         {selectedTrack && tracks.find(t => t.id === selectedTrack) && (
           <div className="mt-4 p-4 bg-[#1A1A1A] rounded-lg border border-[#2A2A2A]">
             <h4 className="text-sm font-bold text-white mb-3">Track Properties</h4>
-            <div className="grid grid-cols-3 gap-4 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
               {tracks.filter(t => t.id === selectedTrack).map(track => (
                 <React.Fragment key={track.id}>
                   <div>

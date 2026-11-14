@@ -818,7 +818,7 @@ export default function ProductCatalogAdmin({ onNavigate }: { onNavigate?: (page
               {/* Strategy */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Pricing strategy</label>
-                <div className="grid grid-cols-3 gap-2 mt-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
                   {([
                     { k: 'value', t: 'Value', d: 'Lowest' },
                     { k: 'competitive', t: 'Competitive', d: 'Market' },

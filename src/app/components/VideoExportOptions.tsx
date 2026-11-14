@@ -322,7 +322,7 @@ export default function VideoExportOptions({
               <Film className="w-5 h-5 text-[#ea580c]" />
               Resolution
             </h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {resolutionOptions.map((option) => (
                 <button
                   key={option.value}
@@ -346,7 +346,7 @@ export default function VideoExportOptions({
               <ImageIcon className="w-5 h-5 text-[#ea580c]" />
               Aspect Ratio
             </h3>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {aspectRatioOptions.map((option) => (
                 <button
                   key={option.value}
@@ -419,7 +419,7 @@ export default function VideoExportOptions({
           {/* FPS */}
           <div>
             <h3 className="text-lg font-bold text-white mb-3">Frame Rate</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[24, 30, 60].map((fps) => (
                 <button
                   key={fps}

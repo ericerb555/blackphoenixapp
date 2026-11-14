@@ -302,10 +302,20 @@ const CSS = `
 .bplt-toolbar { display:flex; gap:10px; flex-wrap:wrap; }
 .bplt-search { position:relative; flex:1 1 260px; }
 .bplt-search svg { position:absolute; left:13px; top:50%; transform:translateY(-50%); color:#6b7280; }
+/* 16px on phones, original sizes restored at 641px.
+   Safari zooms the page in on a focused field under 16px and never zooms back
+   out. globals.css sets 16px on every bare input under 640px, but these are
+   class selectors and win on specificity — so it has to be fixed where it is
+   set. This screen was the worst in the app: a sweep at 390px found 221 fields
+   under 16px here, because every task row carries several. */
 .bplt-search input { width:100%; min-height:44px; padding:11px 13px 11px 40px; border-radius:12px;
-  background:#141414; border:1px solid #2A2A2A; color:#f4f4f5; font-size:14px; outline:none; }
+  background:#141414; border:1px solid #2A2A2A; color:#f4f4f5; font-size:16px; outline:none; }
 .bplt-select { min-height:44px; padding:0 12px; border-radius:12px; background:#141414;
-  border:1px solid #2A2A2A; color:#f4f4f5; font-size:13.5px; font-weight:600; }
+  border:1px solid #2A2A2A; color:#f4f4f5; font-size:16px; font-weight:600; }
+@media (min-width:641px) {
+  .bplt-search input { font-size:14px; }
+  .bplt-select { font-size:13.5px; }
+}
 
 .bplt-grid { display:grid; grid-template-columns:1fr; gap:12px; }
 @media (min-width:760px){ .bplt-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -326,8 +336,12 @@ const CSS = `
 .bplt-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 .bplt-fields label { display:flex; flex-direction:column; gap:5px; }
 .bplt-fields span { font-size:10.5px; color:#6b7280; text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
+/* 16px for the same reason as the search box above — these are the hour
+   fields, and there are several on every row, which is why this one screen
+   accounted for 221 of the zooming fields in the app. */
 .bplt-fields input { min-height:44px; padding:9px 10px; border-radius:10px; background:#0F0F0F;
-  border:1px solid #2A2A2A; color:#f4f4f5; font-size:14px; font-variant-numeric:tabular-nums; outline:none; }
+  border:1px solid #2A2A2A; color:#f4f4f5; font-size:16px; font-variant-numeric:tabular-nums; outline:none; }
+@media (min-width:641px) { .bplt-fields input { font-size:14px; } }
 .bplt-fields input:focus { border-color:rgba(234,88,12,.55); }
 
 .bplt-example { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px;

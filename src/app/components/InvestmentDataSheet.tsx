@@ -214,7 +214,7 @@ export function InvestmentDataSheet({ opportunity: opp, onClose, onNavigate }: I
             </div>
 
             {/* Profit Projection Results */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="bg-black/30 border border-blue-500/30 rounded-lg p-4 text-center">
                 <div className="text-blue-400 text-xs mb-1 uppercase font-semibold">Your Investment</div>
                 <div className="text-2xl font-bold text-white">{formatCurrency(investmentAmount)}</div>

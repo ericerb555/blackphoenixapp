@@ -270,7 +270,7 @@ function PostEditor({ post, onSave, onClose, onView }: { post: BlogPost; onSave:
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-5 py-8 grid grid-cols-3 gap-6">
+      <div className="max-w-4xl mx-auto px-5 py-8 grid grid-cols-2 sm:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="col-span-2 space-y-5">
           {preview ? (
@@ -547,7 +547,7 @@ export default function BlogManager() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Total Posts', value: posts.length },
           { label: 'Published', value: published, color: 'text-emerald-400' },

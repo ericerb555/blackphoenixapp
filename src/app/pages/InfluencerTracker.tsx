@@ -272,7 +272,7 @@ export default function InfluencerTracker() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Total Partners', value: ambassadors.length },
           { label: 'Active', value: active.length, color: 'text-emerald-400' },

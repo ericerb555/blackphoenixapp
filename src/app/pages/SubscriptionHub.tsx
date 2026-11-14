@@ -606,7 +606,7 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
 
               {/* Hours tracking (for customer subscriptions) */}
               {sub.hoursIncluded !== undefined && (
-                <div className="grid grid-cols-4 gap-4 mb-4 p-4 bg-[#2a2a2a] rounded-lg">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4 p-4 bg-[#2a2a2a] rounded-lg">
                   <div>
                     <div className="text-sm text-gray-400 mb-1">Hours Included</div>
                     <div className="text-lg font-semibold text-white">{sub.hoursIncluded}h</div>
@@ -1146,7 +1146,7 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
                     <div className="text-sm text-gray-500">Available</div>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-3">
                     <div className="text-sm text-gray-400 mb-1">Included</div>
                     <div className="text-lg font-semibold text-blue-400">{sub.hoursIncluded}h</div>

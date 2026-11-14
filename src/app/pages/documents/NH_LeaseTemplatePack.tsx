@@ -157,7 +157,7 @@ export default function NH_LeaseTemplatePack() {
           <p className="text-gray-300 mb-4">This Addendum is attached to and made part of the Lease Agreement dated <Field label="Date" /> for premises at <Field label="Address" width="full" />.</p>
 
           <p className="text-gray-300 mb-4"><Bold>APPROVED PETS:</Bold></p>
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
             <div><p className="text-xs text-gray-500">Type/Breed</p><Field label="e.g. Dog / Lab mix" width="full" /></div>
             <div><p className="text-xs text-gray-500">Name</p><Field label="Pet Name" width="full" /></div>
             <div><p className="text-xs text-gray-500">Weight</p><Field label="___ lbs" width="full" /></div>

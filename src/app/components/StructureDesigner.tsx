@@ -153,7 +153,7 @@ export default function StructureDesigner({ groundSnowPsf = 60, townName, house 
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mt-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
           <div>
             <label className={label}>Rafters at (in)</label>
             <select className={field} value={m.rafterSpacingIn}
@@ -179,7 +179,7 @@ export default function StructureDesigner({ groundSnowPsf = 60, townName, house 
           Snow is the load that sizes a roof, and all three of these move it by a fifth or more.
           {townName ? ` Ground snow taken from ${townName}.` : ' Confirm the ground snow with the building department.'}
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Num label="Ground snow (psf)" value={snow} onChange={setSnow} step={5} />
           <div>
             <label className={label}>Exposure</label>

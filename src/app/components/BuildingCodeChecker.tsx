@@ -340,7 +340,7 @@ export default function BuildingCodeChecker({ elements, onClose }: BuildingCodeC
           )}
 
           {checks.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-center">
                 <CheckCircle2 className="w-6 h-6 text-green-400 mx-auto mb-1" />
                 <p className="text-2xl font-bold text-green-400">{passCount}</p>

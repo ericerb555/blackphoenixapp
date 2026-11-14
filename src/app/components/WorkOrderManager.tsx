@@ -587,7 +587,7 @@ function WorkRequestDetailModal({
                   <ImageIcon className="w-5 h-5 text-orange-500" />
                   Photos ({request.photos.length})
                 </h3>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {request.photos.map((photo, index) => (
                     <img
                       key={index}

@@ -485,7 +485,7 @@ export default function MaintenancePlanTracker({ portalRole, ownerName }: Props)
         </div>
 
         {/* Plan fee info */}
-        <div className="grid grid-cols-3 gap-4 mt-5 pt-4 border-t border-[#2A2A2A]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5 pt-4 border-t border-[#2A2A2A]">
           <div>
             <p className="text-xs text-gray-500">Monthly Fee</p>
             <p className="text-sm font-bold text-white mt-0.5">${plan.monthlyFee}/mo</p>

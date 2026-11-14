@@ -458,7 +458,7 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
                   </div>
                   {o.description && <p className="text-sm text-gray-400 mt-2 line-clamp-2">{o.description}</p>}
 
-                  <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4 text-center">
                     <div>
                       <p className="text-[10px] text-gray-500 uppercase">Proj. ROI</p>
                       <p className="text-sm font-bold text-emerald-400">{o.projectedROI ? `${o.projectedROI}%` : '—'}</p>
@@ -559,7 +559,7 @@ export default function InvestmentTab({ portalType, ownerName }: Props) {
 
             {selected.description && <p className="text-sm text-gray-400 mt-3">{selected.description}</p>}
 
-            <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4 text-center">
               <div className="bg-[#0A0A0A] rounded-lg p-2 border border-[#2A2A2A]">
                 <p className="text-[10px] text-gray-500 uppercase">Proj. ROI</p>
                 <p className="text-sm font-bold text-emerald-400">{selected.projectedROI ? `${selected.projectedROI}%` : '—'}</p>

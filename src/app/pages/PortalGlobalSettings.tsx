@@ -1258,7 +1258,7 @@ export default function PortalGlobalSettings({ onBack }: PortalGlobalSettingsPro
             <label className="block text-sm font-semibold text-white mb-3">
               Default Visibility
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {['private', 'restricted', 'public'].map((visibility) => (
                 <button
                   key={visibility}

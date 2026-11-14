@@ -205,7 +205,7 @@ export default function RecordPaymentDialog({ doc, onClose, onRecorded }: {
 
           <div>
             <label className={label}>How it came in</label>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
               {METHODS.map(m => (
                 <button key={m.id} onClick={() => setMethod(m.id)}
                   className={`px-2 py-2 rounded-lg text-xs font-semibold border transition ${

@@ -432,7 +432,7 @@ export default function CustomersNew() {
               )}
 
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-2 pt-4 border-t border-[#2A2A2A]">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-4 border-t border-[#2A2A2A]">
                 <div className="text-center">
                   <p className="text-lg font-bold text-orange-400">${(customer.total_spent / 1000).toFixed(1)}k</p>
                   <p className="text-sm text-gray-500">Spent</p>
@@ -448,7 +448,7 @@ export default function CustomersNew() {
               </div>
 
               {/* Actions */}
-              <div className="grid grid-cols-4 gap-2 mt-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
                 <button 
                   onClick={(e) => handleEditClick(customer, e)}
                   className="flex items-center justify-center gap-1 px-2 py-2 bg-blue-600/10 hover:bg-blue-600/20 rounded-lg text-blue-400 text-sm font-semibold transition border border-blue-500/20"

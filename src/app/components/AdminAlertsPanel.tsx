@@ -1015,7 +1015,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
 
       {/* ── Tab Bar ────────────────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-[#0A0A0A] border-b border-[#2A2A2A]">
-        <div className="grid grid-cols-3 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 w-full">
           {/* Tab 1 — Work Requests */}
           <button
             onClick={() => setActivePane('work-requests')}
@@ -1558,7 +1558,7 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
                 <p className="text-white mt-1">{selectedAlert.description}</p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="text-gray-400 text-sm">Priority</label>
                   <div className="mt-1">

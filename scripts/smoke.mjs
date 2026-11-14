@@ -81,6 +81,11 @@ const BATCH = Number(argFor('--batch') || (process.argv.includes('--all') ? 15 :
 // properly rather than call a heavy page a failure. A full sweep has
 // twenty-two, where the same generosity costs minutes.
 const TARGETED = !process.argv.includes('--all');
+/**
+ * `--mobile` — audit every page at 390x844 instead of only asking whether it
+ * rendered. See `measure()` in smoke-entry.tsx for what is and is not checked.
+ */
+const MOBILE = process.argv.includes('--mobile');
 const WAIT_S = Number(argFor('--wait') || (TARGETED ? 60 : 20));
 
 const EDGE = [
@@ -231,11 +236,20 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
     ? `only=${encodeURIComponent(only.join(','))}`
     : `from=${from}&to=${to}`;
   const url = `http://localhost:${PORT}/smoke.html?${range}`
-    + `&report=${encodeURIComponent(`http://localhost:${REPORT_PORT}/report`)}`;
+    + `&report=${encodeURIComponent(`http://localhost:${REPORT_PORT}/report`)}`
+    + (MOBILE ? '&mobile=1' : '');
 
   browser = spawn(EDGE, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     '--use-gl=swiftshader', '--enable-unsafe-swiftshader',
+    /*
+     * 390x844 is an iPhone 14/15/16. The window, not a device-emulation flag:
+     * headless Edge honours --window-size directly, and the thing that matters
+     * for a layout audit is the CSS viewport width that media queries see.
+     * Width is what every `sm:` breakpoint and every max-width:640px rule in
+     * globals.css keys off, so this is the measurement that counts.
+     */
+    ...(MOBILE ? ['--window-size=390,844'] : []),
     `--user-data-dir=${profileDir}`,
     url,
   ], { stdio: 'ignore' });
@@ -505,8 +519,61 @@ if (hung.length) {
 }
 
 console.log(`${ok.length} rendered, ${hung.length} did not report, ${threw.length} threw`);
+
+/*
+ * The phone-width report.
+ *
+ * Printed as a ranked worklist rather than a dump: 376 pages each with four
+ * numbers is not something anybody reads, and a report nobody reads is the
+ * same failure as a check nobody runs.
+ *
+ * The result line above is deliberately unchanged, and this is additive, so
+ * `precommit.mjs` still parses the same sentence whether or not --mobile ran.
+ */
+if (MOBILE) {
+  const seen = all.filter((r) => r.mobile);
+  const bleeding = seen.filter((r) => r.mobile.bleed > 0)
+    .sort((a, b) => b.mobile.widest - a.mobile.widest);
+  const zooming = seen.filter((r) => r.mobile.tinyFields > 0)
+    .sort((a, b) => b.mobile.tinyFields - a.mobile.tinyFields);
+
+  console.log(`\n── phone width (390px), ${seen.length} page(s) measured ──\n`);
+
+  if (!bleeding.length) {
+    console.log('  nothing bleeds past the right edge.');
+  } else {
+    console.log(`  ${bleeding.length} page(s) reach past 390px — these are what scroll sideways:`);
+    for (const r of bleeding.slice(0, 30)) {
+      console.log(`    ${r.name.padEnd(34)} ${String(r.mobile.widest).padStart(5)}px  ${r.mobile.bleedWorst || ''}`);
+    }
+    if (bleeding.length > 30) console.log(`    …and ${bleeding.length - 30} more, all in last-run.json`);
+  }
+
+  console.log('');
+  if (!zooming.length) {
+    console.log('  no form field under 16px — nothing zooms iOS on focus.');
+  } else {
+    console.log(`  ${zooming.length} page(s) carry a field under 16px, which zooms iOS Safari and never zooms back:`);
+    for (const r of zooming.slice(0, 20)) {
+      console.log(`    ${r.name.padEnd(34)} ${String(r.mobile.tinyFields).padStart(3)}  ${r.mobile.tinyFieldWorst || ''}`);
+    }
+  }
+
+  /*
+   * Tap targets are COUNTED AND NOT RANKED, because this cannot be trusted
+   * here. The 44px floor in globals.css is behind `@media (pointer: coarse)`,
+   * which does not match in a headless desktop browser — so every count below
+   * is the unstyled size, not what a phone gets. Reported so the number is not
+   * mistaken for zero, and flagged so it is not mistaken for a defect.
+   */
+  const targets = seen.reduce((n, r) => n + r.mobile.smallTargets, 0);
+  console.log(`\n  ${targets} control(s) under 40px — NOT a finding: the 44px floor is`);
+  console.log('  behind @media (pointer: coarse), which a desktop browser never matches.');
+  console.log('  Confirming that rule needs a real device.');
+}
+
 writeFileSync(join(tmp, 'last-run.json'), JSON.stringify(all, null, 2));
-console.log('Full result: node_modules/.smoke/last-run.json');
+console.log('\nFull result: node_modules/.smoke/last-run.json');
 
 stop();
 process.exit(threw.length ? 1 : 0);

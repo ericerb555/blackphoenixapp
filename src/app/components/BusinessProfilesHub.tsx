@@ -452,7 +452,7 @@ export default function BusinessProfilesHub() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-white mb-2">
                     City

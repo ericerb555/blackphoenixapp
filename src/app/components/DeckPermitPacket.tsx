@@ -127,7 +127,7 @@ export default function DeckPermitPacket({
 
       {/* One drawing is live at a time — see the note on `mounted`. Everything
           else shows its captured image, or a placeholder if not captured yet. */}
-      <div className="no-print grid grid-cols-4 gap-2 mb-4">
+      <div className="no-print grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
         {VIEWS.map(v => (
           <div key={v.mode}>
             {mounted === v.mode ? (

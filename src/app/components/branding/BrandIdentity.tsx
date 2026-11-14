@@ -218,7 +218,7 @@ export function BrandIdentity({ settings, onUpdate }: BrandIdentityProps) {
                 )}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {palette.colors.map((color, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <input

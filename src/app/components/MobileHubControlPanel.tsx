@@ -1016,7 +1016,7 @@ export default function MobileHubControlPanel({
                         onClick={() => setSelectedElement('stats')}
                       >
                         <div className="bg-gray-50 px-6 py-8">
-                          <div className="grid grid-cols-4 gap-4">
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             {[
                               { label: 'Projects', value: '24', icon: Briefcase, color: 'blue' },
                               { label: 'Tasks', value: '156', icon: CheckCircle, color: 'green' },
@@ -1071,7 +1071,7 @@ export default function MobileHubControlPanel({
                             <h2 className="text-3xl font-bold text-gray-900 mb-2">Powerful Features</h2>
                             <p className="text-gray-600">Everything you need for your business</p>
                           </div>
-                          <div className="grid grid-cols-3 gap-6">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                             {[
                               { icon: Zap, title: 'Lightning Fast', desc: 'Optimized performance' },
                               { icon: Shield, title: 'Secure', desc: 'Bank-level security' },
@@ -1168,7 +1168,7 @@ export default function MobileHubControlPanel({
                         onClick={() => setSelectedElement('footer')}
                       >
                         <div className="bg-[#1A1A1A] px-6 py-8 border-t border-[#2A2A2A]">
-                          <div className="grid grid-cols-4 gap-6 mb-6">
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                             {['Company', 'Product', 'Support', 'Legal'].map((section, i) => (
                               <div key={i}>
                                 <h3 className="text-white font-bold mb-3 text-sm">{section}</h3>

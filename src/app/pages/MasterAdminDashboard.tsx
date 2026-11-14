@@ -858,7 +858,7 @@ export default function MasterAdminDashboard({ onNavigate }: MasterAdminDashboar
                     />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-white mb-2">
                         City *

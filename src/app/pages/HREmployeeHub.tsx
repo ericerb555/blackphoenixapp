@@ -683,7 +683,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
             { label: 'Active Employees', value: active.length, icon: Users, color: '#fb923c' },
             { label: 'Hours This Week', value: totalHours, icon: Clock, color: '#60a5fa' },
@@ -791,7 +791,7 @@ export default function HREmployeeHub({ onNavigate }: { onNavigate?: (p: string)
                     </div>
                   </div>
                   {open && (
-                    <div className="border-t px-4 pb-3 pt-2 grid grid-cols-3 gap-2 text-xs" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                    <div className="border-t px-4 pb-3 pt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
                       <div><p className="text-gray-600">Email</p><p className="text-gray-300">{emp.email}</p></div>
                       <div><p className="text-gray-600">Phone</p><p className="text-gray-300">{emp.phone}</p></div>
                       <div><p className="text-gray-600">Start Date</p><p className="text-gray-300">{emp.startDate}</p></div>

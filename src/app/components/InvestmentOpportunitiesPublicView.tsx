@@ -949,7 +949,7 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
               </div>
 
               {/* Key Metrics */}
-              <div className="grid grid-cols-3 gap-4 px-6 py-4 bg-[#0A0A0A] border-y border-[#2A2A2A]">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 px-6 py-4 bg-[#0A0A0A] border-y border-[#2A2A2A]">
                 <div>
                   <div className="text-xs text-gray-500 mb-1">Projected ROI</div>
                   <div className="text-2xl font-bold text-green-400 flex items-baseline gap-1">
@@ -998,7 +998,7 @@ export default function InvestmentOpportunitiesPublicView({ onNavigate }: Invest
                 </div>
 
                 {/* Quick Stats */}
-                <div className="grid grid-cols-3 gap-3 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                   <div className="flex flex-col items-center p-3 bg-[#0A0A0A] rounded-lg border border-[#2A2A2A]">
                     <Users className="w-4 h-4 text-gray-400 mb-1" />
                     <div className="font-semibold text-white">{opp.investors}</div>

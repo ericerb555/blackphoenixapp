@@ -381,7 +381,7 @@ export default function Services() {
                     </div>
                     <p className="text-sm font-semibold text-white flex-1">{service.name}</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                     <div>
                       <p className="text-gray-400">Revenue</p>
                       <p className="text-white font-bold">{service.revenue}</p>

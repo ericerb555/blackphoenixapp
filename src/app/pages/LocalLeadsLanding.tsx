@@ -228,7 +228,7 @@ export default function LocalLeadsLanding() {
             </div>
 
             {/* ── TRUST STRIP ───────────────────────────────────────────────────── */}
-            <div className="grid grid-cols-3 gap-3 mb-8">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
               {[
                 { icon: Shield, label: 'Secure &\nPrivate' },
                 { icon: Users, label: 'Family\nOwned' },

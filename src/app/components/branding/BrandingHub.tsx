@@ -125,7 +125,7 @@ export function BrandingHub({ settings, updateSettings, updateAssets }: Branding
     <div className="space-y-6">
       {/* Sub-tab Navigation */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-2">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {subTabs.map((tab) => {
             const Icon = tab.icon;
             return (

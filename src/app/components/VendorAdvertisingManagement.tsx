@@ -375,7 +375,7 @@ export default function VendorAdvertisingManagement({ vendorId, onClose }: Vendo
       {activeView === 'overview' && (
         <div className="space-y-4">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[#0A0A0A] border border-orange-500/30 rounded-lg p-4 text-white hover:border-orange-500 hover:shadow-lg hover:shadow-orange-500/20 transition-all duration-300 cursor-pointer">
               <Eye className="w-6 h-6 mb-2 text-orange-400" />
               <p className="text-2xl font-bold mb-1">{vendorData.monthlyReach.toLocaleString()}</p>
@@ -476,7 +476,7 @@ export default function VendorAdvertisingManagement({ vendorId, onClose }: Vendo
       {/* Packages */}
       {activeView === 'packages' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {advertisingPackages.map((pkg) => {
               const Icon = pkg.icon;
               const isCurrentPackage = pkg.id === vendorData.currentPackage;
@@ -591,7 +591,7 @@ export default function VendorAdvertisingManagement({ vendorId, onClose }: Vendo
 
           {/* Products Grid */}
           {productViewMode === 'grid' ? (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {filteredProducts.map((product) => (
                 <div
                   key={product.id}

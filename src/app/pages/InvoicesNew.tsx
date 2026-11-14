@@ -913,7 +913,7 @@ export default function InvoicesNew() {
             </div>
 
             <div className="space-y-3">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 {([['check', 'Check'], ['cash', 'Cash'], ['bank_transfer', 'Transfer'], ['other', 'Other']] as const).map(([id, label]) => (
                   <button key={id} onClick={() => setPayMethod(id)}
                     className={`rounded-lg px-2 py-2 text-xs font-bold transition ${

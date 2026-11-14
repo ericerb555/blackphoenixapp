@@ -504,7 +504,7 @@ export default function AutoJobScheduleGenerator({
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-6">
               <Calendar className="w-6 h-6 text-blue-400 mb-2" />
               <p className="text-sm text-gray-400 mb-1">Total Duration</p>
@@ -585,7 +585,7 @@ export default function AutoJobScheduleGenerator({
                           <p className="text-sm text-gray-400">{phase.description}</p>
                         )}
 
-                        <div className="grid grid-cols-3 gap-4 mt-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-3">
                           <div>
                             <label className="block text-xs text-gray-500 mb-1">Duration (days)</label>
                             {isEditing ? (

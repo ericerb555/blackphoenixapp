@@ -576,7 +576,7 @@ export default function AutoProductPilot() {
                     </div>
                   </div>
                   <div className="p-4 space-y-3">
-                    <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                       <div className="bg-[#0A0A0A] rounded-lg p-2">
                         <p className="text-[10px] text-gray-500">Our Price</p>
                         <p className="text-sm font-black text-white">${p.ourPrice}</p>

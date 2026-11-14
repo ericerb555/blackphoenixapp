@@ -746,7 +746,7 @@ export default function EmployeeMobileApp() {
                 {recentUploads.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-6">No uploads yet.</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {recentUploads.map((item) => (
                       <div key={item.id} className="aspect-square bg-slate-100 rounded-lg relative overflow-hidden flex flex-col items-center justify-center p-2 text-center">
                         {item.type === 'image' && <Image className="w-6 h-6 text-blue-500 mb-1" />}

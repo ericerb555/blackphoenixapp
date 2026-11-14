@@ -151,7 +151,7 @@ export default function AIPropertyHealthReport() {
           {SYSTEM_NAMES.map(system => (
             <div key={system} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-4">
               <p className="text-sm font-bold text-white mb-3">{system}</p>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-1">
                 {(['excellent', 'good', 'fair', 'poor'] as SystemRating[]).map(r => (
                   <button key={r} onClick={() => setRating(system, r)}
                     className={`px-2 py-1.5 text-xs font-bold rounded border capitalize transition-all ${ratings[system] === r

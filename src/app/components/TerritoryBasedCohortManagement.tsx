@@ -611,7 +611,7 @@ export function TerritoryBasedCohortManagement() {
                     </div>
 
                     {/* Stats Grid */}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       <div className="bg-[#0A0A0A] border border-zinc-800 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-1">
                           <Wrench className="w-4 h-4 text-orange-400" />
@@ -1152,7 +1152,7 @@ export function TerritoryBasedCohortManagement() {
                   <p className="text-xs text-zinc-500 mt-1">Territory radius is calculated from this address</p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-white mb-2">
                       ZIP Code <span className="text-red-400">*</span>
@@ -1245,7 +1245,7 @@ export function TerritoryBasedCohortManagement() {
                 <div className="border-t border-zinc-800 pt-4">
                   <h3 className="text-lg font-semibold text-white mb-4">Capacity Limits</h3>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-white mb-2">
                         Subcontractors per Trade

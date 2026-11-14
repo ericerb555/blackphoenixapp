@@ -302,7 +302,7 @@ export default function SpocketIntegration() {
                         </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 mt-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
                       <div className="rounded-lg p-2 text-center" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <p className="text-xs font-black text-gray-400">${p.cost.toFixed(2)}</p>
                         <p className="text-[9px] text-gray-600">Your cost</p>

@@ -1054,7 +1054,7 @@ export default function InvestmentOpportunityManager() {
                     <p className="text-sm text-gray-400">{fundingProgress.toFixed(1)}%</p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
                     <div>
                       <p className="text-xs text-gray-400">Min to Start</p>
                       <p className="text-sm font-bold text-white">${(data.minimumToStart / 1000000).toFixed(1)}M</p>

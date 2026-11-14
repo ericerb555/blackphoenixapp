@@ -663,7 +663,7 @@ export default function MediaLibraryManager({
 
             {/* Media Grid/List */}
             {viewMode === 'grid' ? (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {filteredItems.map(item => (
                   <div
                     key={item.id}

@@ -170,7 +170,7 @@ export default function StockPhotoFinder({ onSelect }: Props) {
       ) : loading ? (
         <p className="text-sm text-gray-500 text-center py-8">Searching Unsplash…</p>
       ) : photos.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2">{photos.map(tile)}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{photos.map(tile)}</div>
       ) : searched ? (
         <p className="text-sm text-gray-500 text-center py-8">No photos matched that search.</p>
       ) : (
@@ -191,7 +191,7 @@ export default function StockPhotoFinder({ onSelect }: Props) {
               <Trash2 className="w-3 h-3" /> Clear
             </button>
           </div>
-          <div className="grid grid-cols-4 gap-2">{recents.map(tile)}</div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{recents.map(tile)}</div>
         </div>
       )}
     </div>

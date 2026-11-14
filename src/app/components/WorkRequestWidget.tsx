@@ -216,7 +216,7 @@ export default function WorkRequestWidget() {
                       {/* Urgency */}
                       <div>
                         <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">How Soon?</p>
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {URGENCY.map(u => (
                             <button key={u.value} onClick={() => f('urgency', u.value)}
                               className="py-2.5 px-2 rounded-xl text-center transition"

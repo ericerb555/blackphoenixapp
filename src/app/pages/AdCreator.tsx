@@ -438,7 +438,7 @@ export default function AdCreator() {
                 {/* Step 3: Theme */}
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">3. Color Theme</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {THEMES.map(t => (
                       <button key={t.id} onClick={() => setTheme(t)}
                         className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border transition ${theme.id === t.id ? 'border-orange-500' : 'border-[#2A2A2A] hover:border-[#3A3A3A]'}`}>

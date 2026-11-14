@@ -141,7 +141,7 @@ export default function InspectionReportTemplate() {
         </div>
 
         {/* Summary bar */}
-        <div className="grid grid-cols-4 gap-3 my-6 sticky top-4 z-10">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 my-6 sticky top-4 z-10">
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-3 text-center">
             <p className="text-xl font-black text-gray-400">{ratedCount}/{totalCount}</p>
             <p className="text-xs text-gray-500 mt-0.5">Rated</p>

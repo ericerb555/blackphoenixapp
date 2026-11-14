@@ -216,7 +216,7 @@ export default function AdvancedCanvasTools({
           <div className="space-y-3">
             <div>
               <p className="text-xs text-gray-400 mb-2 font-semibold">Alignment</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {alignmentActions.slice(0, 6).map((action) => (
                   <button
                     key={action.id}

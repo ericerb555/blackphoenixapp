@@ -329,7 +329,7 @@ export function CohortSettingsModal({ isOpen, onClose, onSave }: CohortSettingsM
                   <DollarSign className="w-5 h-5 text-green-400" />
                   <h3 className="text-lg font-bold text-white">Subscription Rates (Monthly)</h3>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-2">Subcontractor</label>
                     <div className="relative">
@@ -433,7 +433,7 @@ export function CohortSettingsModal({ isOpen, onClose, onSave }: CohortSettingsM
                   <DollarSign className="w-5 h-5 text-blue-400" />
                   <h3 className="text-lg font-bold text-white">Vendor Plans (Monthly)</h3>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-2">Starter</label>
                     <div className="relative">
@@ -479,7 +479,7 @@ export function CohortSettingsModal({ isOpen, onClose, onSave }: CohortSettingsM
                   <DollarSign className="w-5 h-5 text-purple-400" />
                   <h3 className="text-lg font-bold text-white">Advertiser Plans (Monthly)</h3>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-2">Basic</label>
                     <div className="relative">

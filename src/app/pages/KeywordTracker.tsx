@@ -230,7 +230,7 @@ export default function KeywordTracker() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         {[
           { label: 'Total Keywords', value: keywords.length },
           { label: 'Top 3', value: top3, color: 'text-emerald-400' },

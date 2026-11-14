@@ -254,7 +254,7 @@ export default function CustomerDocs({ onNavigate }: CustomerDocsProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
           {/* Documents List */}
           <div className="col-span-2 bg-white rounded-lg shadow overflow-hidden">
             <div className="overflow-x-auto">

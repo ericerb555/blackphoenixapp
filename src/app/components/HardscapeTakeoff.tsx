@@ -113,7 +113,7 @@ export default function HardscapeTakeoff({ house }: { house?: House | null } = {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 mb-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
                     <select className={tiny} value={s.use}
                       onChange={e => patchSurface(s.id, { use: e.target.value as SurfaceUse })}>
                       {USES.map(u => <option key={u.id} value={u.id}>{u.label}</option>)}
@@ -128,7 +128,7 @@ export default function HardscapeTakeoff({ house }: { house?: House | null } = {
                     </select>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                     <NumTiny v={s.lengthFt} t="Length (ft)" on={v => patchSurface(s.id, { lengthFt: v })} />
                     <NumTiny v={s.widthFt} t="Width (ft)" on={v => patchSurface(s.id, { widthFt: v })} />
                     <NumTiny v={s.areaSqFt ?? 0} t="Or area (sq ft)"

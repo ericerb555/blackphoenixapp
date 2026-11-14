@@ -951,7 +951,7 @@ function CohortCard({ cohort, onEdit, onDelete, onDuplicate, onToggleStatus }: C
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 pt-4 border-t border-zinc-800">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-zinc-800">
         {/*
           Members and payers are deliberately two different numbers. A trial
           and an account in arrears are both being served and both occupy a

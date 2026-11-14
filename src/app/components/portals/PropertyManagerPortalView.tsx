@@ -446,7 +446,7 @@ export default function PropertyManagerPortalView() {
 
             <div className="bg-[#1A1A1A] border border-amber-500/20 rounded-xl p-6">
               <p className="text-sm font-semibold text-amber-400 mb-3">Portfolio Scenario — 3 Properties × 3 Programs</p>
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
                 {[
                   { label: 'Bulk Internet Resale', value: '+$4,800/yr' },
                   { label: 'EV Charging (6 ports)', value: '+$7,200/yr' },

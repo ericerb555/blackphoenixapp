@@ -1104,7 +1104,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
               {photos.length > 0 && (
                 <div className="mt-6">
                   <h3 className="font-semibold mb-3">Captured Photos ({photos.length})</h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {photos.map((photo, index) => (
                       <div key={photo.id} className="relative group">
                         <img
@@ -1574,7 +1574,7 @@ export default function ChangeOrderCameraApp({ onNavigate }: { onNavigate?: (pag
 
                 <div>
                   <label className="text-sm text-gray-400 mb-2 block">Photos ({photos.length})</label>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                     {photos.map((photo, index) => (
                       <img
                         key={photo.id}

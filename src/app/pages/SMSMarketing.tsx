@@ -434,7 +434,7 @@ export default function SMSMarketing() {
               </div>
               <p className="text-xs text-gray-500 italic mb-4 line-clamp-2">"{c.message}"</p>
               {c.status === 'sent' && (
-                <div className="grid grid-cols-3 gap-3 pt-3" style={{ borderTop: '1px solid #1e1e1e' }}>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3" style={{ borderTop: '1px solid #1e1e1e' }}>
                   {[
                     { label: 'Sent', value: c.sentTo, color: '#22c55e' },
                     { label: 'Clicks', value: c.clicks, color: '#3b82f6' },

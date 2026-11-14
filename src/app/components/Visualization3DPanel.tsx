@@ -328,7 +328,7 @@ export function Visualization3DPanel({ elements, selectedElementId }: Visualizat
 
       {/* Stats */}
       {elements.length > 0 && (
-        <div className="grid grid-cols-4 gap-2 pt-2 border-t border-[#2A2A2A]">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t border-[#2A2A2A]">
           {['beam', 'column', 'foundation', 'slab'].map((type) => {
             const count = elements.filter(e => e.type === type).length;
             return (

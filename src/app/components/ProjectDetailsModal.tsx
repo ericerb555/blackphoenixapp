@@ -377,7 +377,7 @@ function CustomerSubmissionTab({ item, onMediaSelect }: any) {
             <ImageIcon className="w-5 h-5 text-[#ea580c]" />
             Photos ({submission.photos.length})
           </h3>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {submission.photos.map((photo: any) => (
               <div
                 key={photo.id}
@@ -401,7 +401,7 @@ function CustomerSubmissionTab({ item, onMediaSelect }: any) {
             <Video className="w-5 h-5 text-[#ea580c]" />
             Videos ({submission.videos.length})
           </h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {submission.videos.map((video: any) => (
               <div
                 key={video.id}
@@ -481,7 +481,7 @@ function CustomerSubmissionTab({ item, onMediaSelect }: any) {
             <Sparkles className="w-5 h-5 text-blue-400" />
             AI Blueprint Analysis
           </h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div className="bg-black/40 border border-gray-700 rounded-lg p-4">
               <p className="text-gray-400 text-sm mb-1">Rooms Detected</p>
               <p className="text-2xl font-bold text-white">{submission.blueprintAnalysis.rooms?.length || 0}</p>
@@ -790,7 +790,7 @@ function MaterialsSearchTab({ item, onUpdate }: any) {
           />
         </div>
         
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <button className="flex flex-col items-center justify-center p-6 bg-gradient-to-br from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-xl hover:border-orange-500 transition-colors">
             <img src="https://upload.wikimedia.org/wikipedia/commons/7/76/Grainger_Logo.svg" alt="Grainger" className="h-8 mb-2 opacity-80" />
             <span className="text-white font-semibold">Grainger</span>

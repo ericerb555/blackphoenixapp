@@ -71,7 +71,7 @@ export default function AISubscribersPanel() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
         <Stat icon={Users} label="Total" value={String(stats.total)} />
         <Stat icon={CheckCircle2} label="Active" value={String(stats.active)} accent="text-emerald-400" />
         <Stat icon={DollarSign} label="MRR" value={`$${stats.mrr.toLocaleString()}`} accent="text-orange-400" />

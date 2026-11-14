@@ -492,12 +492,12 @@ If you cannot read the drawing — it is too blurry, it is not a floor plan, or 
             {/* Tab: Rooms */}
             {activeTab === 'rooms' && (
               <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-                <div className="grid grid-cols-4 gap-0 px-4 py-2.5 text-xs font-black text-gray-600 uppercase tracking-wide"
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 px-4 py-2.5 text-xs font-black text-gray-600 uppercase tracking-wide"
                   style={{ background: '#111' }}>
                   <p>Room</p><p className="text-right">W</p><p className="text-right">H</p><p className="text-right">Sqft</p>
                 </div>
                 {analysis.rooms.map((r, i) => (
-                  <div key={i} className="grid grid-cols-4 gap-0 px-4 py-3 text-sm border-t"
+                  <div key={i} className="grid grid-cols-2 lg:grid-cols-4 gap-0 px-4 py-3 text-sm border-t"
                     style={{ background: i % 2 === 0 ? '#0d0d0d' : '#111', borderColor: 'rgba(255,255,255,0.05)' }}>
                     <p className="text-white font-medium">{r.name}</p>
                     <p className="text-right text-gray-400">{r.width}'</p>
@@ -505,7 +505,7 @@ If you cannot read the drawing — it is too blurry, it is not a floor plan, or 
                     <p className="text-right text-purple-400 font-bold">{fmt(r.sqft)}</p>
                   </div>
                 ))}
-                <div className="grid grid-cols-4 gap-0 px-4 py-3 border-t" style={{ background: '#1a1a1a', borderColor: 'rgba(147,51,234,0.2)' }}>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 px-4 py-3 border-t" style={{ background: '#1a1a1a', borderColor: 'rgba(147,51,234,0.2)' }}>
                   <p className="text-white font-black">TOTAL</p>
                   <p /><p />
                   <p className="text-right text-purple-400 font-black">{fmt(totalSqft)} sqft</p>

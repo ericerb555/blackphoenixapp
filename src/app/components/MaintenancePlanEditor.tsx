@@ -512,7 +512,7 @@ export default function MaintenancePlanEditor({
               </div>
 
               {/* Property Details */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-white mb-2">
                     Minimum Units
@@ -649,7 +649,7 @@ export default function MaintenancePlanEditor({
                   <label className="block text-sm font-semibold text-white mb-2">
                     Color Theme
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {colorThemes.map((theme) => (
                       <button
                         key={theme.value}
@@ -955,7 +955,7 @@ export default function MaintenancePlanEditor({
               {/* Price Preview */}
               <div className="bg-gradient-to-br from-cyan-600/10 to-cyan-700/10 rounded-2xl border border-cyan-500/30 p-6">
                 <h3 className="text-lg font-semibold text-white mb-4">Price Preview</h3>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="text-center">
                     <p className="text-sm text-gray-400 mb-1">Monthly</p>
                     <p className="text-3xl font-bold text-cyan-400">
@@ -1370,7 +1370,7 @@ export default function MaintenancePlanEditor({
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
-            <div className="p-4 grid grid-cols-3 gap-4">
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-4">
               {(showMediaPicker === 'reel' ? availableReels : availableSocialPosts).map((media) => (
                 <button
                   key={media.id}

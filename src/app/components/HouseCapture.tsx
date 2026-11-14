@@ -498,7 +498,7 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
       </p>
 
       {/* Capture */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
         <button onClick={() => cameraInput.current?.click()} disabled={!!busy}
           className={btn} style={{ background: '#ea580c', color: '#fff' }}>
           <Camera className="w-4 h-4" /> Camera
@@ -628,7 +628,7 @@ export default function HouseCapture({ model, site, onApply, incoming, onRead, c
               <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-2">
                 <Ruler className="w-4 h-4 text-[#ea580c]" /> A starting point
               </h3>
-              <div className="grid grid-cols-3 gap-3 mb-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-2">
                 <Big label="Width" value={analysis.suggested.widthFt ? `${analysis.suggested.widthFt}'` : '—'} />
                 <Big label="Depth" value={analysis.suggested.depthFt ? `${analysis.suggested.depthFt}'` : '—'} />
                 <Big label="Height" value={analysis.suggested.deckHeightFt ? `${analysis.suggested.deckHeightFt}'` : '—'} />

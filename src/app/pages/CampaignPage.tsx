@@ -284,7 +284,7 @@ export default function CampaignPage({ previewCampaign }: { previewCampaign?: Ca
 
       {/* Trust bar */}
       <div style={{ background: surface, borderTop: `1px solid ${ink}12`, borderBottom: `1px solid ${ink}12` }}>
-        <div className={`${BAND} py-5 grid grid-cols-3 gap-4 text-center text-sm`} style={{ color: `${ink}a0` }}>
+        <div className={`${BAND} py-5 grid grid-cols-2 sm:grid-cols-3 gap-4 text-center text-sm`} style={{ color: `${ink}a0` }}>
           <div className="flex items-center justify-center gap-2"><Truck className="w-4 h-4" style={{ color: accent }} /> Fast shipping</div>
           <div className="flex items-center justify-center gap-2"><ShieldCheck className="w-4 h-4" style={{ color: accent }} /> Secure checkout</div>
           <div className="flex items-center justify-center gap-2"><RefreshCcw className="w-4 h-4" style={{ color: accent }} /> Easy returns</div>

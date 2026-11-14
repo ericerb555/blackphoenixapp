@@ -256,7 +256,7 @@ export function ThemeManager() {
               {/* Presets */}
               <div>
                 <h3 className="text-sm font-semibold text-white mb-3">Presets</h3>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <button
                     onClick={() => setCustomTheme({ primary: '#ea580c', secondary: '#dc2626' })}
                     className="p-3 bg-zinc-900 border border-zinc-800 rounded-lg hover:bg-zinc-800 transition-colors"

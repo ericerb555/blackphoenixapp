@@ -281,7 +281,7 @@ export default function PhotoToVideoConverter({
         <div className="p-6 border-b border-[#2A2A2A] bg-[#1A1A1A]">
           <h4 className="text-sm font-bold text-white mb-4">Global Settings</h4>
           
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {/* Default Duration */}
             <div>
               <label className="block text-xs text-gray-400 mb-2">Default Duration (seconds)</label>

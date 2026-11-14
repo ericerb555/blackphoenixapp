@@ -384,7 +384,7 @@ export default function SidingTakeoff({ initial, stage, link: linkProp, onLink, 
                     )}
                   </div>
 
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                     {([
                       ['widthFt', 'Length ft', e.widthFt],
                       ['heightFt', 'To eave ft', e.heightFt],
@@ -456,7 +456,7 @@ export default function SidingTakeoff({ initial, stage, link: linkProp, onLink, 
             <div className={`${card} ${at('design') ? '' : 'hidden'}`}>
               <h2 className="mb-3 text-sm font-bold text-white">The job</h2>
 
-              <div className="mb-3 grid grid-cols-4 gap-1.5">
+              <div className="mb-3 grid grid-cols-2 lg:grid-cols-4 gap-1.5">
                 {MATERIALS.map(m => (
                   <button key={m.id} onClick={() => setModel(v => ({ ...v, material: m.id }))}
                     className={`rounded-lg px-2 py-2 text-[11px] font-bold transition ${
@@ -467,7 +467,7 @@ export default function SidingTakeoff({ initial, stage, link: linkProp, onLink, 
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {([
                   ['outsideCorners', 'Outside corners'],
                   ['insideCorners', 'Inside corners'],

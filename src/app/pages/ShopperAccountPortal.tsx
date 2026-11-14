@@ -277,7 +277,7 @@ export default function ShopperAccountPortal() {
                       <p className="text-xs font-black tracking-widest uppercase text-orange-400 mb-1">🔥 {loyalty.tier} Member</p>
                       <p className="text-5xl font-black">{loyalty.points.toLocaleString()}</p>
                       <p className="text-sm text-gray-400">points available</p>
-                      <div className="grid grid-cols-3 gap-3 mt-5">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-5">
                         {[
                           { label: 'Lifetime pts', value: loyalty.lifetimePoints.toLocaleString() },
                           { label: 'Total spent', value: money(loyalty.lifetimeSpend) },

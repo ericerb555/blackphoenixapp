@@ -407,7 +407,7 @@ export default function AbandonedCart() {
               <div className="p-5 space-y-4">
                 <div>
                   <p className="text-xs font-black text-gray-500 mb-2">Choose Template</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {TEMPLATES.map((tpl, i) => (
                       <button key={tpl.id} onClick={() => setTemplateIdx(i)}
                         className="p-2.5 rounded-xl text-left transition"

@@ -395,7 +395,7 @@ export default function CRMSection({ portalType }: Props) {
             <div className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 mb-1.5">Type</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {[{ v: 'call', label: 'Call', icon: Phone }, { v: 'email', label: 'Email', icon: Mail }, { v: 'meeting', label: 'Meeting', icon: Calendar }, { v: 'note', label: 'Note', icon: FileText }].map(({ v, label, icon: Icon }) => (
                     <button key={v} onClick={() => setInterForm(f => ({ ...f, type: v as any }))}
                       className={`flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium transition ${interForm.type === v ? 'bg-orange-600 text-white' : 'bg-[#0A0A0A] border border-[#2A2A2A] text-gray-400 hover:text-white'}`}>

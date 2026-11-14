@@ -472,7 +472,7 @@ export default function MarketingAutomation() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Total Workflows', value: workflows.length },
           { label: 'Active', value: active, color: 'text-emerald-400' },

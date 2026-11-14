@@ -158,7 +158,7 @@ function ClientPortalView({ client, onBack, onMessage }: { client: PortalClient;
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
         {[
           { label: 'Jobs', value: client.jobs.length, icon: CheckCircle, color: 'text-blue-400' },
           { label: 'Invoices', value: client.invoices.length, icon: DollarSign, color: 'text-yellow-400' },
@@ -277,7 +277,7 @@ function ClientPortalView({ client, onBack, onMessage }: { client: PortalClient;
         allPhotos.length === 0
           ? <div className="text-center py-12 text-gray-600 text-sm">No project photos yet.</div>
           : (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {allPhotos.map((url, i) => (
                 <div key={i} className="aspect-square rounded-xl overflow-hidden bg-[#1a1a1a]">
                   <img src={url} alt="" className="w-full h-full object-cover hover:scale-105 transition duration-300" />
@@ -364,7 +364,7 @@ export default function CustomerPortal() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Clients', value: clients.length },
           { label: 'Active Jobs', value: activeJobs, color: 'text-blue-400' },

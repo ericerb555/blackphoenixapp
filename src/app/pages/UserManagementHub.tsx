@@ -134,7 +134,7 @@ export default function UserManagementHub() {
           </div>
 
           {/* Sample Stats */}
-          <div className="grid grid-cols-3 gap-4 mt-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-8">
             <div className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A]">
               <div className="text-3xl font-bold text-[#ea580c] mb-1">24</div>
               <div className="text-sm text-gray-400">Total</div>

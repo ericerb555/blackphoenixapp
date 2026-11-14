@@ -257,7 +257,7 @@ export default function PortalAccess() {
         </div>
 
         {/* Bottom Stats */}
-        <div className="relative z-10 grid grid-cols-3 gap-4">
+        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
             <p className="text-3xl font-bold text-white">500+</p>
             <p className="text-sm text-white/80">Active Users</p>
@@ -463,7 +463,7 @@ export default function PortalAccess() {
                 </div>
 
                 {/* Quick Stats */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div className="bg-[#0A0A0A] rounded-xl p-4 border border-[#2A2A2A]">
                     <p className="text-2xl font-bold text-white">12</p>
                     <p className="text-sm text-gray-400">Active Projects</p>

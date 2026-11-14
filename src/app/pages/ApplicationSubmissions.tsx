@@ -665,7 +665,7 @@ export default function ApplicationSubmissions() {
               {/* Status Update */}
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Update Status</h3>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   {(['new', 'reviewed', 'approved', 'rejected'] as Application['status'][]).map((status) => (
                     <button
                       key={status}

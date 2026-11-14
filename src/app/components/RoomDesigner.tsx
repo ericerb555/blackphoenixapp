@@ -267,7 +267,7 @@ export default function RoomDesigner({ kind, house, stage = 'design', onAddToSco
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div>
             <label className={label}>Length (ft)</label>
             <input type="number" step={0.5} className={input}

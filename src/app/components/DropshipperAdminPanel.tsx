@@ -696,7 +696,7 @@ function OrdersTab() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                 <div>
                   <p className="text-gray-500">Items</p>
                   <p className="text-white">{(order.items ?? []).length}</p>

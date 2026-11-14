@@ -417,7 +417,7 @@ export default function PropertyAIStudio() {
                   <section className="bg-[#141414] border border-[#2A2A2A] rounded-2xl p-6">
                     <h3 className="flex items-center gap-2 font-semibold text-white mb-3"><TrendingUp className="w-5 h-5 text-orange-400" /> Local market</h3>
                     <p className="text-sm text-gray-300 mb-3">{analysis.marketSnapshot.summary}</p>
-                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center mb-3">
                       <Mini label="Median value" value={analysis.marketSnapshot.medianValue} />
                       <Mini label="Rent trend" value={analysis.marketSnapshot.rentTrend} />
                       <Mini label="Demand" value={analysis.marketSnapshot.demandLevel} />

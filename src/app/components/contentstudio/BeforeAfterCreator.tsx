@@ -615,7 +615,7 @@ export default function BeforeAfterCreator() {
                   </select>
                 )}
 
-                <div className="grid grid-cols-4 gap-2 max-h-44 overflow-y-auto">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 max-h-44 overflow-y-auto">
                   {shown.map((p) => (
                     <button
                       key={p.id}
@@ -663,7 +663,7 @@ export default function BeforeAfterCreator() {
             <p className="text-xs font-semibold text-gray-400 uppercase">
               <Tag className="w-3.5 h-3.5 inline mr-1" />Size and labels
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {(Object.keys(OUTPUT_SIZES) as BeforeAfterSize[]).map((s) => (
                 <button
                   key={s}

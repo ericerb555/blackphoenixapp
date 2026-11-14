@@ -194,7 +194,7 @@ export default function SketchImport({ model, onApply, incoming, onRead }: {
 
       {shots.length > 0 && (
         <>
-          <div className="grid grid-cols-4 gap-2 mb-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
             {shots.map((s, i) => (
               <div key={i} className="relative aspect-[4/3] rounded-lg overflow-hidden border border-[#2A2A2A]">
                 <img src={s} alt={`Sketch ${i + 1}`} className="w-full h-full object-cover" />

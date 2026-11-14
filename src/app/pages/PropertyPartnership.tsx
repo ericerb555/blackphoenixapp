@@ -352,7 +352,7 @@ export default function PropertyPartnership() {
                   </div>
 
                   {/* Key metrics */}
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                     <div className="bg-[#0F0F0F] rounded-lg py-2">
                       <p className="text-xs text-gray-500">Cap rate</p>
                       <p className="text-sm font-semibold text-white">{recommendation.metrics.capRate}%</p>
