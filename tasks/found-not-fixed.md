@@ -344,3 +344,21 @@ smoke said — so this is no longer invisible, just still inconvenient.
 of a fixed one, and pass it to the browser. Everything needed is already in
 `smoke.mjs`; it is the default values that are hardcoded, not the mechanism.
 
+
+### Supabase Auth bypasses Cloudflare entirely
+`src/app/lib/supabase.ts` builds its client against
+`https://<projectId>.supabase.co`, so every `/auth/v1/*` call — sign-in,
+sign-up, token refresh, password reset — goes straight to Supabase and never
+passes through the proxied hostname.
+
+The API does go through it: `SUPABASE_ORIGIN` is
+`api.theblackphoenixcompany.com`, confirmed in the live bundle 2026-11-14.
+
+So a WAF on that zone protects the API and **nothing that handles
+credentials**, which is the half a WAF is usually bought for. Credential
+stuffing, signup abuse and token-refresh floods all land on `/auth/v1`.
+
+**The fix:** Supabase's custom-domain add-on for the auth hostname, or route
+auth through the `api-origin-proxy` Worker as well. Either way it is a
+prerequisite for calling the perimeter finished — see
+`docs/security/owasp-crs-runbook.md`, which says the same at the top.
