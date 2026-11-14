@@ -54,6 +54,7 @@ import CustomerMarketplace from '../CustomerMarketplace';
 import ClientWorkRequestForm from '../forms/ClientWorkRequestForm';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import FloorVisualiser from './FloorVisualiser';
+import TrashEstimatePanel from './TrashEstimatePanel';
 import HomeVisualiser from './HomeVisualiser';
 import CustomerDesignTab from './CustomerDesignTab';
 import { useAuth } from '../../contexts/AuthContext';
@@ -86,7 +87,7 @@ interface Message {
 export default function CustomerPortalView() {
   const { user, session } = useAuth();
   const { profile, displayName } = useUserProfile();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'on-call' | 'guide'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'projects' | 'trash-estimate' | 'quotes' | 'contracts' | 'payments' | 'plan-tracker' | 'plan-builder' | 'messages' | 'shopping' | 'investments' | 'referrals' | 'documents' | 'floor-visualiser' | 'visualiser' | 'design' | 'deals' | 'on-call' | 'guide'>('dashboard');
   const [showPortalSettings, setShowPortalSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'account' | 'notifications'>('account');
   const [showWorkRequestModal, setShowWorkRequestModal] = useState(false);
@@ -141,13 +142,31 @@ export default function CustomerPortalView() {
       : null,
   });
 
-  // Check URL for tab query parameter
+  /**
+   * Which tab to open on, if the link said.
+   *
+   * `trash-estimate` is on this list for a reason that is the whole point of
+   * the landing-page route: somebody who taps "Get a junk removal price" has
+   * not got an account yet, so they go through sign-up and arrive here — and
+   * they must land ON the estimator, not on a dashboard they then have to
+   * search. The destination survives the registration because it is carried in
+   * the URL rather than in memory that the redirect throws away.
+   *
+   * It re-reads on `app:navigate` as well as on mount: `navigate()` in App.tsx
+   * dispatches that event precisely so a hub page already mounted can re-sync
+   * when only the query string changed.
+   */
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const tab = urlParams.get('tab');
-    if (tab && ['dashboard', 'projects', 'quotes', 'contracts', 'shopping', 'payments', 'messages', 'referrals'].includes(tab)) {
-      setActiveTab(tab as any);
-    }
+    const sync = () => {
+      const tab = new URLSearchParams(window.location.search).get('tab');
+      if (tab && ['dashboard', 'projects', 'trash-estimate', 'quotes', 'contracts',
+        'shopping', 'payments', 'messages', 'referrals'].includes(tab)) {
+        setActiveTab(tab as any);
+      }
+    };
+    sync();
+    window.addEventListener('app:navigate', sync);
+    return () => window.removeEventListener('app:navigate', sync);
   }, []);
 
   // Load work requests from API
@@ -744,6 +763,7 @@ export default function CustomerPortalView() {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'projects', label: 'Projects', icon: Briefcase },
+    { id: 'trash-estimate', label: 'Junk & Demo Quote', icon: Trash2 },
     { id: 'quotes', label: 'Quotes & Invoices', icon: FileText },
     { id: 'contracts', label: 'Contracts', icon: FileCheck },
     { id: 'payments', label: 'Payments', icon: CreditCard },
@@ -944,6 +964,9 @@ export default function CustomerPortalView() {
         )}
         {activeTab === 'floor-visualiser' && <FloorVisualiser accent="orange" />}
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
+        {activeTab === 'trash-estimate' && (
+          <TrashEstimatePanel customerName={customerInfo.name} onNavigate={(page) => (window as any).__navigateApp?.(page)} />
+        )}
         {/*
           A homeowner has one property and no site office, which is exactly the
           account for which an unanswered emergency line is worst: there is

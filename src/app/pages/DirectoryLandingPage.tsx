@@ -17,6 +17,7 @@ import SponsoredMarquee from '../components/SponsoredMarquee';
 import ShowreelStrip from '../components/ShowreelStrip';
 import { publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { supabase } from '../lib/supabase';
 
 interface DirectoryLandingPageProps {
   onNavigate?: (page: string) => void;
@@ -228,6 +229,33 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
     } else {
       window.location.href = `/${page}`;
     }
+  };
+
+  /**
+   * Into the junk and demo estimator, through registration if they need one.
+   *
+   * Eric, 2026-11-14: "on the landing page that will bring you to a portal sign
+   * up then straight into the trash removal quote section".
+   *
+   * The destination travels in the URL — `sign-up?next=trash-estimate` — rather
+   * than in anything this component remembers, because registration redirects
+   * and whatever was held in memory goes with it. `SignUp` resolves that
+   * against an allow-list and lands them on the estimator tab.
+   *
+   * Somebody already signed in skips the form entirely. Without this check they
+   * would be shown a registration page for an account they already have: the
+   * guard in App.tsx that moves a signed-in visitor off an auth page returns
+   * early for `signup` on purpose, so nothing else would rescue them.
+   */
+  const startTrashQuote = async () => {
+    let signedIn = false;
+    try {
+      const { data } = await supabase.auth.getSession();
+      signedIn = Boolean(data?.session);
+    } catch {
+      // Can't tell? Send them to sign-up; it offers a way to sign in instead.
+    }
+    handleNavigate(signedIn ? 'customer-portal-app?tab=trash-estimate' : 'sign-up?next=trash-estimate');
   };
 
   // Route to the correct quote form based on cohort type
@@ -1211,6 +1239,37 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         </div>
       </div>
 
+      {/* ── JUNK & DEMO: A PRICE FROM YOUR OWN PHOTOGRAPHS ──────────────────── */}
+      <div className="w-full px-4 pb-8 flex justify-center">
+        <motion.button
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          onClick={() => void startTrashQuote()}
+          className="w-full max-w-4xl text-left rounded-2xl p-5 sm:p-6 group"
+          style={{ background: "linear-gradient(135deg, rgba(234,88,12,0.12), rgba(0,0,0,0))", border: "1px solid rgba(234,88,12,0.35)" }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(234,88,12,0.18)" }}>
+              <Trash2 className="w-6 h-6 text-orange-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-black tracking-widest uppercase text-orange-500">Junk removal · Demolition · Haul-away</p>
+              <h3 className="mt-1 text-lg sm:text-xl font-black text-white">Photograph the pile. Get a price.</h3>
+              <p className="mt-1 text-sm text-gray-400">
+                Send photos and a short video. We read them twice and come back with a range, what
+                we could not see, and exactly what would change the price. No visit needed first.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 px-5 py-3 rounded-xl font-black text-sm text-black whitespace-nowrap group-hover:gap-3 transition-all"
+              style={{ background: "linear-gradient(90deg,#f97316,#ea580c)" }}>
+              Get my price
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </div>
+          </div>
+        </motion.button>
+      </div>
       {/* ── SERVICE PILLS ROW ────────────────────────────────────────────────── */}
       <div className="w-full px-4 pb-10 flex justify-center">
         <div className="w-full max-w-4xl mx-auto">
@@ -1219,7 +1278,9 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             {[
               { label: 'Home Services', icon: Building, navigate: 'handyman-landing-page' },
               { label: 'Builds & Renovation', icon: Building2, navigate: 'builds-landing-page' },
-              { label: 'Junk Removal', icon: Trash2, navigate: 'demo-landing-page' },
+              // Was pointed at 'demo-landing-page', which routes back to THIS page —
+              // a pill that reloaded the landing page. It goes to the estimator now.
+              { label: 'Junk & Demo Quote', icon: Trash2, navigate: 'demo-landing-page', action: 'trash-quote' },
               { label: 'Property Management', icon: Building, navigate: 'property-management-landing-page' },
               { label: 'Contractor Network', icon: Users, navigate: 'contractor-network-landing-page' },
               { label: 'Advertise With Us', icon: Megaphone, navigate: 'advertiser-application' },
@@ -1232,7 +1293,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3, delay: 0.05 * i }}
-                onClick={() => handleNavigate(pill.navigate)}
+                onClick={() => ((pill as any).action === 'trash-quote' ? void startTrashQuote() : handleNavigate(pill.navigate))}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 hover:bg-[#2A2A2A] text-gray-300 hover:text-white text-sm font-semibold transition-all"
               >
                 <pill.icon className="w-3.5 h-3.5 text-orange-400" />

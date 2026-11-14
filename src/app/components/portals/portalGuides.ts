@@ -86,6 +86,20 @@ export const GUIDES: Record<PortalGuideKey, Guide> = {
           "The request is the job. Your quote, contract, invoice and any materials ordered all attach to it, so raise one request per piece of work rather than one per conversation.",
       },
       {
+        name: "Junk & Demo Quote",
+        purpose:
+          "A price for taking things away, or for tearing something out, worked out from photographs and video you take on your phone.",
+        steps: [
+          "Take photographs of everything that needs to go. Three or four is usually enough; the whole pile, then closer shots of what it is made of.",
+          "Photograph the way out as well — the stairs, the doorway, and where a truck could park. That is half of what the job costs.",
+          "Add a short video if you can: a slow walk round the pile, about a minute. It sees what a photograph taken from the doorway cannot.",
+          "Confirm that the pictures show everything and type your name. That is what lets us price it without coming out first.",
+          "Press Price it. You get a range, what the number is made of, and — said plainly — anything we could not see.",
+        ],
+        note:
+          "It is an estimate, not a visit. If what we find on the day is different, you get photographs of the difference and the new price to approve before anybody starts, and you can say no. Anything we are not allowed to carry — gas bottles, suspected asbestos, paint and solvents — is named and left out rather than quietly priced in.",
+      },
+      {
         name: "Quotes & Invoices",
         purpose:
           "Prices waiting on your decision, and the bills for work already done.",

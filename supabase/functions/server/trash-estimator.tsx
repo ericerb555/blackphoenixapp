@@ -50,7 +50,8 @@ import { resolveTrashRates } from "./trashRates.ts";
 import {
   MAX_IMAGES, parseReply, readObservations, readingSystem, verifySystem,
 } from "./trashReading.ts";
-import { estimateBasis } from "./estimateBasis.ts";
+import { ATTESTATION, estimateBasis } from "./estimateBasis.ts";
+import { signMediaValues } from "./mediaSigning.ts";
 
 export const trashEstimatorRouter = new Hono();
 
@@ -134,6 +135,42 @@ trashEstimatorRouter.post("/read", async (c: any) => {
 
   const notes = String(body?.notes || "").slice(0, 2000);
   const workRequestId = String(body?.workRequestId || "") || null;
+
+  /*
+   * The customer's half of the writing, and it is required.
+   *
+   * Eric asked for "something in writing if something is changed or not seen in
+   * quote process prrices could change". `estimateBasis.ts` writes our half —
+   * what we saw, what we could not, and what moves the price. THIS is theirs:
+   * that the pictures show everything and the access is as described.
+   *
+   * Required rather than offered, because it is the sentence that makes a
+   * re-price on the day fair instead of a surprise, and an estimate issued
+   * without it is one nobody can point at later. The name is typed by them;
+   * the time and the email are stamped here, from the verified session, for
+   * the same reason `quoteActor` gives: "?userId= is a request, not a proof."
+   */
+  const signedName = String(body?.signedName || "").trim().slice(0, 120);
+  if (body?.agreedToAttestation !== true || !signedName) {
+    return c.json({
+      success: false,
+      error: "Please confirm the pictures show everything and type your name before we price it.",
+      code: "ATTESTATION_REQUIRED",
+    }, 400);
+  }
+
+  /*
+   * Where the pictures themselves went.
+   *
+   * `storage://` refs into the private job-media buckets, uploaded by the
+   * browser before this call — never the images themselves, which is what
+   * `stripBase64` exists to prevent. Kept so that when a number is disputed
+   * the first question — what was the estimator looking at — has an answer.
+   */
+  const mediaRefs: string[] = (Array.isArray(body?.mediaRefs) ? body.mediaRefs : [])
+    .map((v: unknown) => String(v || ""))
+    .filter((v: string) => v.startsWith("storage://"))
+    .slice(0, 40);
 
   /*
    * Numbered for the model, so `seenIn` can only ever be an index.
@@ -291,6 +328,15 @@ trashEstimatorRouter.post("/read", async (c: any) => {
        * the work request's own bucket, and a data URI on a record is what
        * `stripBase64` exists to prevent.
        */
+      /** Their words, their name, our clock and our copy of their email. */
+      attestation: {
+        text: ATTESTATION,
+        agreed: true,
+        signedName,
+        signedAt: now.toISOString(),
+        signedBy: email,
+      },
+      mediaRefs,
       evidence: {
         imageCount: blocks.length,
         firstPass: first.observations,
@@ -339,5 +385,20 @@ trashEstimatorRouter.get("/estimates/:id", async (c: any) => {
     // One answer for missing and not-yours, so an id cannot be probed.
     return c.json({ success: false, error: "No such estimate." }, 404);
   }
-  return c.json({ success: true, estimate: record });
+
+  /*
+   * The buckets are private, so there is no durable link to keep. Signed on the
+   * way out, an hour at a time — the rule `mediaSigning.ts` already sets for
+   * every other piece of job media on this platform.
+   */
+  let media: string[] = [];
+  try {
+    const signed = await signMediaValues(serviceClient(), record.mediaRefs || []);
+    media = signed.map((v) => String(v || "")).filter(Boolean);
+  } catch {
+    // A picture we cannot sign is an estimate without its pictures, not a 500.
+    media = [];
+  }
+
+  return c.json({ success: true, estimate: { ...record, media } });
 });

@@ -1,0 +1,427 @@
+/**
+ * Photograph the pile, get a price.
+ *
+ * Eric, 2026-11-14: "i want them to take a picture and video of the trash
+ * needed to be hauled, also and demo and haul."
+ *
+ * BUILT FOR A PHONE HELD IN A BASEMENT
+ *
+ * Which is where this is used, so the native camera comes first — a `capture`
+ * file input opens the phone's own camera on iOS Safari, Android Chrome and
+ * every in-app browser, needs no getUserMedia permission prompt, survives the
+ * browser being backgrounded mid-recording, and hands back a full-resolution
+ * file with the phone's own processing already applied. The library picker sits
+ * beside it, because a camera declined once months ago must not be a dead end.
+ *
+ * THE VIDEO IS READ IN THIS BROWSER, NOT ON THE SERVER
+ *
+ * There is no ffmpeg in Deno, and a 200MB clip as base64 is a ~270MB request
+ * body that would fail even if something at the far end could decode it. So
+ * `framesFromVideo` seeks the clip and draws frames into a canvas here — the
+ * same shared helper `HouseCapture`, `SidingTakeoff`, `RoomCapture` and
+ * `BidIntakePanel` already use. The clip itself is uploaded whole regardless,
+ * because a person wants to watch it and it is the evidence behind the number.
+ *
+ * WHAT THIS SCREEN WILL NOT DO
+ *
+ * It will not send a price. It sends pictures; every figure on the way back was
+ * computed on the server from the rate card. And it will not submit without the
+ * attestation — the sentence that says the pictures show everything and the
+ * access is as described — because that is the half of the writing that makes a
+ * re-price on the day fair rather than a surprise.
+ */
+import { useRef, useState } from 'react';
+import {
+  Camera, Image as ImageIcon, Video, Trash2, Loader2, AlertTriangle,
+  CheckCircle2, Info, Eye, Ban, ChevronDown, ChevronUp,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { supabase } from '../../lib/supabase';
+import { authedHeaders } from '../../utils/authHeaders';
+import { API_BASE_URL } from '../../lib/apiConfig';
+import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../../lib/imageCapture';
+import { extensionForMimeType } from '../../lib/videoCapture';
+
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
+
+/** The model is sent at most this many images; the server caps it again. */
+const MAX_IMAGES = 12;
+/** Frames pulled from the clip, before photographs are added. */
+const FRAMES_PER_VIDEO = 6;
+/**
+ * The budget a request has to fit inside.
+ *
+ * Same figure and same loop as `HouseCapture.tsx`: extract, then drop frames
+ * until the payload fits, rather than discovering the limit at the far end.
+ */
+const MAX_PAYLOAD_BYTES = 4_000_000;
+
+interface Props {
+  /** Shown on the estimate, and the address the job is at. */
+  customerName?: string;
+  /** Jump the customer to their work requests once they ask us to confirm it. */
+  onNavigate?: (page: string) => void;
+}
+
+interface Shot { id: string; file: File; preview: string }
+
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+export default function TrashEstimatePanel({ customerName, onNavigate }: Props) {
+  const [photos, setPhotos] = useState<Shot[]>([]);
+  const [video, setVideo] = useState<{ file: File; url: string } | null>(null);
+  const [notes, setNotes] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [signedName, setSignedName] = useState(customerName || '');
+  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState('');
+  const [estimate, setEstimate] = useState<any>(null);
+  const [showLines, setShowLines] = useState(false);
+
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+  const libraryRef = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLInputElement | null>(null);
+
+  const addPhotos = (files: FileList | null) => {
+    if (!files?.length) return;
+    const next: Shot[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/') && !/\.(heic|heif)$/i.test(file.name)) continue;
+      next.push({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        preview: URL.createObjectURL(file),
+      });
+    }
+    setPhotos((current) => [...current, ...next].slice(0, MAX_IMAGES));
+  };
+
+  /**
+   * Upload the originals, then send the server what it can read.
+   *
+   * The buckets are private and the refs are `storage://` — the same shape
+   * `ClientWorkRequestForm` writes, so the server signs them on read through
+   * `mediaSigning.ts` rather than anything here holding a durable link.
+   */
+  const submit = async () => {
+    if (!photos.length) { toast.error('Add at least one photograph of what needs taking away.'); return; }
+    if (!agreed || !signedName.trim()) {
+      toast.error('Please confirm the pictures show everything, and type your name.');
+      return;
+    }
+
+    setBusy(true);
+    setEstimate(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const owner = user?.id || 'guest';
+      const mediaRefs: string[] = [];
+
+      /* ── the originals, kept ─────────────────────────────────────────── */
+      setStage('Uploading your pictures…');
+      for (const shot of photos) {
+        const path = `${owner}/trash-estimate/${Date.now()}_${shot.file.name.replace(/[^\w.-]+/g, '_')}`;
+        const { error } = await supabase.storage.from('project-photos')
+          .upload(path, shot.file, { contentType: shot.file.type || 'image/jpeg' });
+        if (!error) mediaRefs.push(`storage://project-photos/${path}`);
+      }
+
+      if (video) {
+        setStage('Uploading your video…');
+        const type = video.file.type || 'video/mp4';
+        const path = `${owner}/trash-estimate/${Date.now()}.${extensionForMimeType(type)}`;
+        const { error } = await supabase.storage.from('project-videos')
+          .upload(path, video.file, { contentType: type });
+        if (!error) mediaRefs.push(`storage://project-videos/${path}`);
+      }
+
+      /* ── what the reader actually sees ───────────────────────────────── */
+      let images: string[] = [];
+      if (video) {
+        setStage('Reading your video…');
+        const room = Math.max(0, MAX_IMAGES - photos.length);
+        if (room > 0) {
+          const frames = await framesFromVideo(
+            video.file, Math.min(FRAMES_PER_VIDEO, room), undefined,
+            (done, total) => setStage(`Reading your video — frame ${done} of ${total}…`),
+          );
+          images.push(...frames);
+        }
+      }
+
+      setStage('Preparing your photographs…');
+      for (const shot of photos) images.push(await fileToDataUrl(shot.file));
+
+      images = images.slice(0, MAX_IMAGES);
+      // Drop frames until it fits, rather than finding out at the far end.
+      while (images.length > 1 && images.reduce((n, u) => n + dataUrlBytes(u), 0) > MAX_PAYLOAD_BYTES) {
+        images.pop();
+      }
+
+      setStage('Reading them, then checking the reading…');
+      const res = await fetch(`${SERVER}/trash-estimator/read`, {
+        method: 'POST',
+        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          images, notes, mediaRefs,
+          agreedToAttestation: true,
+          signedName: signedName.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `That did not go through (${res.status}).`);
+
+      setEstimate(data.estimate);
+      toast.success('Here is your estimate.');
+    } catch (err: any) {
+      console.error('[TrashEstimate]', err);
+      toast.error(err?.message || 'Could not price that. Try again, or send fewer pictures.');
+    } finally {
+      setBusy(false);
+      setStage('');
+    }
+  };
+
+  /* ── the estimate ──────────────────────────────────────────────────────── */
+
+  if (estimate) {
+    const b = estimate.basis || {};
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl p-5 sm:p-6" style={{ background: '#0d0d0d', border: '1px solid rgba(234,88,12,0.25)' }}>
+          <p className="text-[11px] font-black tracking-widest uppercase text-orange-500">Estimate</p>
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-4xl font-black text-white">{money(estimate.cost?.likely || 0)}</span>
+            <span className="text-sm font-bold text-gray-400">
+              range {money(estimate.cost?.low || 0)} – {money(estimate.cost?.high || 0)}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-gray-400">
+            About {estimate.volumeCuYd?.likely} cubic yards · {estimate.loads} truck
+            {estimate.loads === 1 ? '' : 's'} · {estimate.labourHours} crew hours
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Valid until {String(estimate.validUntil || '').slice(0, 10)}. This is an estimate from your
+            pictures, not a visit.
+          </p>
+        </div>
+
+        {estimate.needsSiteVisit && (
+          <div className="rounded-xl p-4" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
+            <p className="flex items-center gap-2 text-sm font-black text-yellow-400">
+              <AlertTriangle className="w-4 h-4" /> We want to look at this one before we confirm a price
+            </p>
+            <ul className="mt-2 space-y-1">
+              {(estimate.siteVisitReasons || []).map((r: string, i: number) => (
+                <li key={i} className="text-xs text-yellow-200/80">· {r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <Section icon={<Eye className="w-4 h-4" />} title="What we could not see" tone="amber"
+          lines={b.whatWeCouldNotSee} />
+
+        {(estimate.refused || []).length > 0 && (
+          <div className="rounded-xl p-4" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            <p className="flex items-center gap-2 text-sm font-black text-red-400">
+              <Ban className="w-4 h-4" /> We cannot take these, and they are not in the price
+            </p>
+            {(estimate.refused || []).map((r: any, i: number) => (
+              <p key={i} className="mt-2 text-xs text-gray-300"><span className="font-bold">{r.label}</span> — {r.why}</p>
+            ))}
+          </div>
+        )}
+
+        <Section icon={<CheckCircle2 className="w-4 h-4" />} title="What we saw" lines={b.whatWeSaw} />
+        <Section icon={<Info className="w-4 h-4" />} title="What we assumed" lines={b.whatWeAssumed} />
+        <Section icon={<Info className="w-4 h-4" />} title="Not included" lines={b.notIncluded} />
+
+        <div className="rounded-xl p-4" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <p className="text-sm font-black text-white">What could change this price</p>
+          <div className="mt-2 space-y-2">
+            {(b.whatChangesThisPrice || []).map((t: any, i: number) => (
+              <div key={i} className="text-xs">
+                <p className="font-bold text-gray-200">{t.trigger}</p>
+                <p className="text-gray-400">{t.rate}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-gray-500">{b.terms}</p>
+        </div>
+
+        <button onClick={() => setShowLines((s) => !s)}
+          className="flex items-center gap-1 text-xs font-bold text-orange-400">
+          {showLines ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          How the number is made up
+        </button>
+        {showLines && (
+          <div className="rounded-xl overflow-x-auto" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <table className="w-full text-xs">
+              <tbody>
+                {(estimate.lines || []).map((l: any, i: number) => (
+                  <tr key={i} style={{ borderTop: i ? '1px solid rgba(255,255,255,0.06)' : undefined }}>
+                    <td className="p-3 text-gray-300">
+                      {l.label}
+                      <span className="block text-[10px] text-gray-600">{l.from}</span>
+                    </td>
+                    <td className="p-3 text-right text-gray-400 whitespace-nowrap">{l.quantity} {l.unit}</td>
+                    <td className="p-3 text-right font-bold text-white whitespace-nowrap">{money(l.cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={() => { setEstimate(null); setPhotos([]); setVideo(null); setAgreed(false); }}
+            className="flex-1 rounded-xl py-3 text-sm font-black text-gray-300"
+            style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+          >
+            Price another one
+          </button>
+          <button
+            onClick={() => onNavigate?.('customer-portal-app?tab=projects')}
+            className="flex-1 rounded-xl py-3 text-sm font-black text-black"
+            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}
+          >
+            Ask us to confirm it
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── the capture screen ────────────────────────────────────────────────── */
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl p-5" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <h3 className="text-lg font-black text-white">Trash, demo and haul-away — a price from your pictures</h3>
+        <p className="mt-1 text-sm text-gray-400">
+          Photograph the pile, and walk a slow video round it if you can. Show the way out too —
+          the stairs, the door, and where a truck could park. We read all of it twice.
+        </p>
+      </div>
+
+      <div className="rounded-2xl p-5 space-y-3" style={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <p className="text-sm font-black text-white">Photographs <span className="text-gray-500 font-normal">({photos.length} of {MAX_IMAGES})</span></p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button onClick={() => cameraRef.current?.click()} disabled={busy}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-black text-black"
+            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}>
+            <Camera className="w-4 h-4" /> Take a photo
+          </button>
+          <button onClick={() => libraryRef.current?.click()} disabled={busy}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-black text-gray-200"
+            style={{ border: '1px solid rgba(255,255,255,0.15)' }}>
+            <ImageIcon className="w-4 h-4" /> Choose from library
+          </button>
+        </div>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => { addPhotos(e.target.files); e.currentTarget.value = ''; }} />
+        <input ref={libraryRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={(e) => { addPhotos(e.target.files); e.currentTarget.value = ''; }} />
+
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {photos.map((p) => (
+              <div key={p.id} className="relative rounded-lg overflow-hidden" style={{ aspectRatio: '1' }}>
+                <img src={p.preview} alt="" className="w-full h-full object-cover" />
+                <button
+                  onClick={() => setPhotos((c) => c.filter((x) => x.id !== p.id))}
+                  aria-label="Remove this photo"
+                  className="absolute top-1 right-1 rounded-md p-1.5"
+                  style={{ background: 'rgba(0,0,0,0.7)' }}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-sm font-black text-white pt-2">Video <span className="text-gray-500 font-normal">(optional, about a minute)</span></p>
+        <button onClick={() => videoRef.current?.click()} disabled={busy}
+          className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-black text-gray-200"
+          style={{ border: '1px solid rgba(255,255,255,0.15)' }}>
+          <Video className="w-4 h-4" /> {video ? 'Replace the video' : 'Record or choose a video'}
+        </button>
+        <input ref={videoRef} type="file" accept="video/*" capture="environment" className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) setVideo({ file, url: URL.createObjectURL(file) });
+            e.currentTarget.value = '';
+          }} />
+        {video && (
+          <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <span className="text-xs text-gray-300 truncate">{video.file.name}</span>
+            <button onClick={() => setVideo(null)} aria-label="Remove the video"><Trash2 className="w-4 h-4 text-red-400" /></button>
+          </div>
+        )}
+
+        <textarea
+          value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+          placeholder="Anything the pictures do not show — stairs, parking, a gate code, what is behind the pile."
+          className="w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+        />
+      </div>
+
+      {/* The customer's half of the writing. Required, and said plainly. */}
+      <div className="rounded-2xl p-5" style={{ background: 'rgba(234,88,12,0.05)', border: '1px solid rgba(234,88,12,0.25)' }}>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-1 w-5 h-5 flex-shrink-0 accent-orange-500" />
+          <span className="text-xs leading-relaxed text-gray-300">
+            These pictures show everything that needs taking away, and the access is as I have
+            described it. I understand this is an estimate made from pictures, not a visit, and that
+            if what you find is different you will show me the difference and what it costs
+            <strong className="text-white"> before any extra work is done</strong>.
+          </span>
+        </label>
+        <input
+          value={signedName} onChange={(e) => setSignedName(e.target.value)}
+          placeholder="Type your name"
+          className="mt-3 w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+        />
+      </div>
+
+      <button
+        onClick={submit}
+        disabled={busy || !photos.length || !agreed || !signedName.trim()}
+        className="w-full rounded-xl py-4 text-sm font-black text-black disabled:opacity-40"
+        style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}
+      >
+        {busy ? (
+          <span className="flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> {stage || 'Working…'}
+          </span>
+        ) : 'Price it'}
+      </button>
+    </div>
+  );
+}
+
+function Section({ icon, title, lines, tone }: {
+  icon: any; title: string; lines?: string[]; tone?: 'amber';
+}) {
+  if (!lines?.length) return null;
+  const amber = tone === 'amber';
+  return (
+    <div className="rounded-xl p-4" style={{
+      background: amber ? 'rgba(234,179,8,0.06)' : '#0d0d0d',
+      border: `1px solid ${amber ? 'rgba(234,179,8,0.25)' : 'rgba(255,255,255,0.08)'}`,
+    }}>
+      <p className={`flex items-center gap-2 text-sm font-black ${amber ? 'text-yellow-400' : 'text-white'}`}>
+        {icon} {title}
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {lines.map((l, i) => <li key={i} className="text-xs leading-relaxed text-gray-400">· {l}</li>)}
+      </ul>
+    </div>
+  );
+}

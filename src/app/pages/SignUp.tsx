@@ -169,7 +169,28 @@ export default function SignUp({ onNavigate }: SignUpProps) {
        * anything but a client. Anyone who is more than that got there through
        * an invitation, and signs in rather than registering.
        */
-      onNavigate('customer-portal-app');
+      /**
+       * …and onto the thing they came to do, where the link said so.
+       *
+       * Eric, 2026-11-14: a landing-page route that goes "to a portal sign up
+       * then straight into the trash removal quote section". Somebody who taps
+       * "Get a junk removal price" wants a price, not a dashboard — and being
+       * dropped on one after registering is where that intent gets lost.
+       *
+       * The destination rides in the URL (`?next=trash-estimate`) rather than
+       * in state, because registration is the one moment a redirect throws
+       * component memory away. It is an ALLOW-LIST, not a free redirect: an
+       * open `?next=` is how somebody sends our own sign-up page to their site
+       * wearing our name. Anything unrecognised falls through to the portal.
+       */
+      const want = new URLSearchParams(window.location.search).get('next') || '';
+      const DESTINATIONS: Record<string, string> = {
+        'trash-estimate': 'customer-portal-app?tab=trash-estimate',
+        'projects': 'customer-portal-app?tab=projects',
+        'quotes': 'customer-portal-app?tab=quotes',
+        'shop': 'customer-portal-app?tab=shopping',
+      };
+      onNavigate(DESTINATIONS[want] || 'customer-portal-app');
     } catch (error) {
       console.error('Sign up error:', error);
       toast.error(error instanceof Error ? error.message : 'An unexpected error occurred');
