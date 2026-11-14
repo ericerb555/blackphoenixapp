@@ -16,6 +16,7 @@ import { Building2, CreditCard, CheckCircle2, AlertCircle, Lock } from 'lucide-r
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
+import { cardFeeFor, CARD_FEE_LINE, CARD_FEE_LABEL, CARD_FEE_NOTICE } from '../lib/cardFee';
 import { STRIPE_PUBLISHABLE_KEY } from '../utils/stripe/config';
 import { API_BASE_URL } from '../lib/apiConfig';
 
@@ -103,6 +104,15 @@ function CheckoutForm({
         <Lock className="w-4 h-4" />
         {processing ? 'Processing…' : `Pay $${amount.toFixed(2)}`}
       </button>
+      {/*
+        THE DISCLAIMER, at the moment of paying.
+        Eric: "add a disclaimer that 3percent will be added when using a card
+        to process payment checks and cash are accepted as well."
+        A surcharge has to be disclosed before the customer commits, and the
+        alternatives named — a fee you cannot avoid is a charge, a fee you can
+        is a choice.
+      */}
+      <p className="text-xs text-amber-300/90 text-center">{CARD_FEE_NOTICE}</p>
       <p className="text-xs text-gray-500 text-center flex items-center justify-center gap-1">
         <Lock className="w-3 h-3" /> Secured by Stripe · funds route to {companyCode}
       </p>
@@ -155,8 +165,27 @@ export default function StripeCheckout() {
     }
     try {
       setStarting(true);
+      /*
+       * THE CARD FEE IS PART OF WHAT IS CHARGED, not a note beside it.
+       *
+       * Eric: "3percent will be added when using a card to process payment".
+       * This screen only ever takes a card — Stripe's Payment Element is the
+       * whole of it — so the fee always applies here, and the figure sent to
+       * Stripe is the one the customer's statement will show.
+       *
+       * The description carries it too. A cardholder reading "Order payment
+       * $1,030" against a $1,000 invoice disputes it; one reading "Order
+       * payment (incl. 3% card fee)" does not.
+       */
+      const fee = cardFeeFor(amt, 'card');
+      const charged = Math.round((amt + fee) * 100) / 100;
       const res = await api('/stripe/create-payment-intent', 'POST', {
-        companyId, amount: amt, description, customerEmail: email || undefined,
+        companyId,
+        amount: charged,
+        description: fee > 0
+          ? `${description} (incl. ${CARD_FEE_LABEL} card fee $${fee.toFixed(2)})`
+          : description,
+        customerEmail: email || undefined,
       });
       setClientSecret(res.clientSecret);
       setPaymentId(res.paymentId);
@@ -197,9 +226,27 @@ export default function StripeCheckout() {
           </div>
         ) : clientSecret ? (
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-400">Paying</span>
-              <span className="font-semibold">${parseFloat(amount).toFixed(2)} → {companyCode}</span>
+            {/*
+              The breakdown the cardholder is entitled to before they pay:
+              what the work cost, what the fee is, and what will leave their
+              account. A single "Paying $1,030" over a $1,000 invoice is the
+              line that generates the chargeback.
+            */}
+            <div className="space-y-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Amount</span>
+                <span>${parseFloat(amount).toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">{CARD_FEE_LINE}</span>
+                <span>${cardFeeFor(parseFloat(amount), 'card').toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between pt-1.5 border-t border-[#2A2A2A]">
+                <span className="font-semibold">Total charged</span>
+                <span className="font-semibold">
+                  ${(parseFloat(amount) + cardFeeFor(parseFloat(amount), 'card')).toFixed(2)} → {companyCode}
+                </span>
+              </div>
             </div>
             <Elements
               stripe={stripePromise}
@@ -208,7 +255,14 @@ export default function StripeCheckout() {
               <CheckoutForm
                 paymentId={paymentId!}
                 companyCode={companyCode}
-                amount={parseFloat(amount)}
+                /*
+                 * THE AMOUNT THAT WILL ACTUALLY BE CHARGED, fee included.
+                 * This passed the pre-fee figure, so the button would have
+                 * read "Pay $1,000.00" while Stripe took $1,030.00 — the
+                 * button saying one thing and the money doing another, which
+                 * is the whole of what went wrong on the quote PDF this week.
+                 */
+                amount={parseFloat(amount) + cardFeeFor(parseFloat(amount), 'card')}
                 onDone={() => setDone(true)}
               />
             </Elements>
@@ -248,7 +302,14 @@ export default function StripeCheckout() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-gray-400">Amount (USD)</label>
+                {/*
+                  LABELLED "BEFORE THE CARD FEE" because the fee is added
+                  below. Without that word somebody types the figure they
+                  intend to collect, the 3% goes on top, and the customer is
+                  charged more than they were quoted — or it gets added by
+                  hand here and charged twice.
+                */}
+                <label className="text-xs text-gray-400">Amount before card fee (USD)</label>
                 <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
                   className="w-full mt-1 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-sm" />
               </div>

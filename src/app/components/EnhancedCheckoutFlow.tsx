@@ -19,8 +19,12 @@ import {
   Calendar,
   Shield,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Info,
 } from 'lucide-react';
+import {
+  cardFeeFor, CARD_FEE_LINE, CARD_FEE_LABEL, CARD_FEE_NOTICE,
+} from '../lib/cardFee';
 
 interface CheckoutFlowProps {
   cartItems: any[];
@@ -140,8 +144,19 @@ export default function EnhancedCheckoutFlow({
     return safeCartTotal * 0.08; // 8% tax
   };
 
+  /**
+   * The card processing fee, on the whole transaction.
+   *
+   * Goods, shipping and tax — that is what a processor takes its percentage
+   * of, so it is what the surcharge has to recover. Charged only on the
+   * methods `cardFee` says carry it, which is why the figure and the notice
+   * beside it cannot drift apart.
+   */
+  const calculateCardFee = () =>
+    cardFeeFor(safeCartTotal + calculateShippingCost() + calculateTax(), paymentMethod);
+
   const calculateTotal = () => {
-    return safeCartTotal + calculateShippingCost() + calculateTax();
+    return safeCartTotal + calculateShippingCost() + calculateTax() + calculateCardFee();
   };
 
   return (
@@ -424,6 +439,31 @@ export default function EnhancedCheckoutFlow({
                   icon={CreditCard}
                 >
                   <div className="space-y-6">
+                    {/*
+                      THE DISCLAIMER, ABOVE THE CHOICE RATHER THAN BELOW IT.
+                      Eric: "add a disclaimer that 3percent will be added when
+                      using a card to process payment checks and cash are
+                      accepted as well."
+                      A surcharge has to be disclosed BEFORE the customer
+                      commits to the method, which means above the buttons —
+                      and naming the alternatives is what turns a disclosure
+                      into a choice.
+                    */}
+                    <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-sm font-semibold text-amber-300">
+                            {CARD_FEE_LABEL} processing fee on credit cards
+                          </div>
+                          <div className="text-xs text-amber-200/80 mt-1">
+                            {CARD_FEE_NOTICE} The fee is shown as its own line in the
+                            summary before you pay.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Payment Method Selection */}
                     <div className="grid grid-cols-2 gap-3">
                       {paymentMethods.map((method) => {
@@ -805,6 +845,18 @@ export default function EnhancedCheckoutFlow({
                   <span>Tax</span>
                   <span className="font-semibold">${calculateTax().toFixed(2)}</span>
                 </div>
+                {/*
+                  A LINE, not just a notice. The fee is in the total either
+                  way; a total that includes a charge the breakdown does not
+                  name is a surprise on a card statement, and this codebase
+                  has spent a week on exactly that failure in quotes.
+                */}
+                {calculateCardFee() > 0 && (
+                  <div className="flex justify-between text-slate-300">
+                    <span>{CARD_FEE_LINE}</span>
+                    <span className="font-semibold">${calculateCardFee().toFixed(2)}</span>
+                  </div>
+                )}
               </div>
 
               {/* Total */}
