@@ -98,6 +98,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
   const [stage, setStage] = useState('');
   const [estimate, setEstimate] = useState<any>(null);
   const [showLines, setShowLines] = useState(false);
+  const [asking, setAsking] = useState(false);
 
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const libraryRef = useRef<HTMLInputElement | null>(null);
@@ -243,6 +244,37 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
     }
   };
 
+  /**
+   * The handoff — where a self-serve number becomes a job.
+   *
+   * This is the commercially important button on the screen. Without it the
+   * customer gets their price, nothing reaches the office, and the lead is
+   * gone. It files the estimate for staff and tells them, and it says so
+   * afterwards rather than leaving somebody wondering whether it sent.
+   */
+  const askUsToConfirm = async () => {
+    if (!estimate?.id || asking) return;
+    setAsking(true);
+    try {
+      const res = await fetch(`${SERVER}/trash-estimator/estimates/${estimate.id}/ask-us-to-confirm`, {
+        method: 'POST',
+        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ message: notes }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `That did not send (${res.status}).`);
+      setEstimate(data.estimate);
+      toast.success('Sent to the office', {
+        description: 'We have your estimate and the pictures. Somebody will come back to you.',
+      });
+    } catch (err: any) {
+      console.error('[TrashEstimate] confirm', err);
+      toast.error(err?.message || 'Could not send that. Try again in a moment.');
+    } finally {
+      setAsking(false);
+    }
+  };
+
   /* ── the estimate ──────────────────────────────────────────────────────── */
 
   if (estimate) {
@@ -344,11 +376,14 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
             Price another one
           </button>
           <button
-            onClick={() => onNavigate?.('customer-portal-app?tab=projects')}
-            className="flex-1 rounded-xl py-3 text-sm font-black text-black"
-            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}
+            onClick={() => void askUsToConfirm()}
+            disabled={asking || Boolean(estimate.confirmationRequestedAt)}
+            className="flex-1 rounded-xl text-sm font-black text-black disabled:opacity-60"
+            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
           >
-            Ask us to confirm it
+            {estimate.confirmationRequestedAt
+              ? 'We have it — we will come back to you'
+              : asking ? 'Sending…' : 'Ask us to confirm it'}
           </button>
         </div>
       </div>

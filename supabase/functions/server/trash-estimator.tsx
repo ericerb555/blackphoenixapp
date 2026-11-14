@@ -52,6 +52,11 @@ import {
 } from "./trashReading.ts";
 import { ATTESTATION, estimateBasis } from "./estimateBasis.ts";
 import { signMediaValues } from "./mediaSigning.ts";
+import { trustedRole } from "./trustedRole.ts";
+import { notifyStaffInBackground } from "./staff-notifications.tsx";
+
+/** Whole dollars, for a subject line somebody reads on a phone. */
+const money = (n: unknown): string => "$" + Math.round(Number(n) || 0).toLocaleString();
 
 export const trashEstimatorRouter = new Hono();
 
@@ -371,10 +376,109 @@ trashEstimatorRouter.post("/read", async (c: any) => {
 trashEstimatorRouter.get("/estimates", async (c: any) => {
   const email = c.get("actorEmail");
   const rows = (await kv.getByPrefix("estimate:").catch(() => [])) as any[];
-  const mine = (Array.isArray(rows) ? rows : [])
-    .filter((r) => r && String(r.customerEmail || "").toLowerCase() === email)
+
+  /*
+   * Staff see every estimate; a customer sees their own.
+   *
+   * This read was customer-only when it was written, which meant the office
+   * could not see a single estimate anybody made — and Eric's decision for this
+   * feature was "the customer gets a range at once and the office confirms it".
+   * A confirmation step nobody can see is not a step.
+   *
+   * Authority from `app_metadata` through `trustedRole`, never from
+   * `user_metadata`, which the browser can write.
+   */
+  const staff = ["owner", "admin", "master_admin", "management"].includes(
+    trustedRole(c.get("actor")),
+  );
+
+  const visible = (Array.isArray(rows) ? rows : [])
+    .filter((r) => r && (staff || String(r.customerEmail || "").toLowerCase() === email))
     .sort((a, b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
-  return c.json({ success: true, estimates: mine });
+
+  return c.json({ success: true, estimates: visible, staff });
+});
+
+/**
+ * POST /trash-estimator/estimates/:id/ask-us-to-confirm
+ *
+ * The handoff, and the commercially important half of the feature.
+ *
+ * Without it a self-serve estimate answers a question and loses the customer:
+ * they get their number, nothing reaches the office, and nobody follows it up.
+ * The button existed before this route did and only moved them to another tab,
+ * which is worse than not offering it — it looks like it worked.
+ */
+trashEstimatorRouter.post("/estimates/:id/ask-us-to-confirm", async (c: any) => {
+  const email = c.get("actorEmail");
+  const id = c.req.param("id");
+  const record = (await kv.get(`estimate:${id}`).catch(() => null)) as any;
+
+  // Their own, or nothing — and one answer for missing and not-yours.
+  if (!record || String(record.customerEmail || "").toLowerCase() !== email) {
+    return c.json({ success: false, error: "No such estimate." }, 404);
+  }
+  if (record.confirmationRequestedAt) {
+    return c.json({ success: true, estimate: record, already: true });
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const updated = {
+    ...record,
+    status: "confirmation-requested",
+    confirmationRequestedAt: new Date().toISOString(),
+    customerMessage: String(body?.message || "").slice(0, 1000) || null,
+    updatedAt: new Date().toISOString(),
+  };
+  await kv.set(`estimate:${id}`, updated);
+
+  /*
+   * Onto the desk two ways, because they fail differently: the alert list is
+   * in the app and survives a mail outage, the email reaches somebody who is
+   * not looking at the app. Both are best-effort — a customer's request is
+   * recorded above whether or not anybody can be told about it.
+   */
+  try {
+    const alerts = (await kv.get("admin_alerts") as any[]) || [];
+    alerts.unshift({
+      id: `alert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "trash_estimate",
+      title: "Junk & demo estimate wants confirming",
+      message:
+        `${email} asked us to confirm ${money(updated.cost?.likely)} ` +
+        `(${updated.cost?.low}–${updated.cost?.high}) for about ${updated.volumeCuYd?.likely} cu yd` +
+        (updated.needsSiteVisit ? " — flagged for a site visit" : ""),
+      estimateId: id,
+      timestamp: new Date().toISOString(),
+      status: "unread",
+    });
+    await kv.set("admin_alerts", alerts.slice(0, 200));
+  } catch (err) {
+    console.log(`[trash-estimator] could not write the alert: ${err}`);
+  }
+
+  try {
+    notifyStaffInBackground("work_request", {
+      subject: "Junk & demo estimate wants confirming",
+      heading: "A customer priced a job from photographs and wants it confirmed",
+      rows: [
+        ["Customer", email],
+        ["Likely", money(updated.cost?.likely)],
+        ["Range", `${money(updated.cost?.low)} – ${money(updated.cost?.high)}`],
+        ["Volume", `about ${updated.volumeCuYd?.likely} cu yd in ${updated.loads} load(s)`],
+        ["Needs a visit", updated.needsSiteVisit ? `yes — ${(updated.siteVisitReasons || []).join("; ")}` : "no"],
+        ["Could not see", updated.unseenCuYd ? `about ${updated.unseenCuYd} cu yd` : "nothing flagged"],
+        ["Not carried", (updated.refused || []).map((r: any) => r.label).join(", ") || "nothing refused"],
+        ["They said", updated.customerMessage || updated.customerNotes || "—"],
+      ],
+      ctaLabel: "Open the estimate",
+      ctaPath: `/customer-portal-app?tab=trash-estimate&estimate=${id}`,
+    });
+  } catch (err) {
+    console.log(`[trash-estimator] could not notify staff: ${err}`);
+  }
+
+  return c.json({ success: true, estimate: updated });
 });
 
 /** GET /trash-estimator/estimates/:id — the caller's own, or nothing. */
