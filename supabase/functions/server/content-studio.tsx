@@ -14,7 +14,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { beginAiCall, recordedOpenAIFetch, type LedgerContext } from "./aiLedger.ts";
+import { beginAiCall, recordedOpenAIFetch, ledgerContextFor, type LedgerContext } from "./aiLedger.ts";
 import { imageModel } from "./imageModel.ts";
 import { reserve as reserveAiSpend, refund as refundAiSpend } from "./aiSpend.ts";
 import { safeFetch } from "./safeFetch.ts";
@@ -1342,6 +1342,173 @@ contentStudioRouter.post("/content-studio/reel", async (c) => {
     await unmeterAi(aiUser, 4);
     console.log(`[Content Studio] reel error: ${error}`);
     return c.json({ success: false, error: String((error as any)?.message || error) }, 500);
+  }
+});
+
+/**
+ * Which of these photographs is the before, and which is the after.
+ *
+ * WHAT IT IS ALLOWED TO ANSWER
+ *
+ * Two positions in the array it was sent. Not a URL, not a filename, not an
+ * id — the browser holds the photographs and the model only ever gets to
+ * point at one of them by number. An index can only name something that was
+ * already chosen for it, which is the cheapest way there is to stop a model
+ * inventing a photograph.
+ *
+ * Validated here as well as in the browser. `beforeAfterPick.readPick` runs
+ * client-side for the same answer, and this route repeats the check because a
+ * rule enforced in only one of two places is a rule that holds until somebody
+ * writes a second caller.
+ *
+ * IT IS ALLOWED TO DECLINE, AND SAYING SO IS THE POINT
+ *
+ * A vision model cannot reliably tell a finished room from a tidy mid-job
+ * one, and these two photographs become an advertisement a customer checks
+ * against their own memory of the room. So the prompt offers `unsure` and
+ * asks for it by name. A refusal with a reason is a better answer than a
+ * confident pair of unrelated rooms, and it is the one a person can act on.
+ *
+ * WHY gpt-4.1-mini AND WHY THE IMAGES ARE SMALL
+ *
+ * Every image is billed. The browser downscales before sending and the count
+ * is capped, because the question — which of these is the earliest mess and
+ * which is the finished room — survives a small picture, and sixty progress
+ * photographs would cost sixty photographs to answer a question about two.
+ */
+contentStudioRouter.post("/content-studio/pick-before-after", async (c) => {
+  const { refuse } = await meterAi(c, 1, "picks");
+  if (refuse) return c.json({ success: false, error: refuse.error, used: refuse.used, limit: refuse.limit }, 429);
+
+  // Checked before the ledger row opens, so a stopped agent leaves no record
+  // of work it never did.
+  try {
+    await assertAiAllowed('content-studio');
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || 'AI is paused.', stopped: true }, 503);
+  }
+
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key) return c.json({ success: false, error: "Photo picking is not configured." }, 503);
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const images: string[] = (Array.isArray(body?.images) ? body.images : [])
+      .map((v: unknown) => String(v || ""))
+      .filter((v: string) => v.startsWith("data:image/"))
+      .slice(0, 8);
+
+    if (images.length < 2) {
+      return c.json({ success: false, error: "Send at least two photographs." }, 400);
+    }
+
+    const jobTitle = String(body?.jobTitle || "").trim().slice(0, 120);
+
+    const call = await beginAiCall({
+      agent: "content-studio", operation: "pick a before and after",
+      provider: "openai", model: "gpt-4.1-mini", bucket: "ai",
+      input: `${images.length} photos${jobTitle ? ` · ${jobTitle}` : ""}`,
+      ...ledgerContextFor(c),
+    });
+
+    try {
+      const instruction =
+        "You are looking at photographs of one construction job, numbered from 0 in the order they were taken.\n"
+        + "Choose which is the BEFORE (the earliest state of the work) and which is the AFTER (the finished state).\n\n"
+        + "Answer with JSON only: {\"before\": <number>, \"after\": <number>, \"why\": \"<one short sentence>\"}\n\n"
+        + "Use the numbers of the photographs as given. Do not describe a photograph that is not there.\n\n"
+        + "If you cannot tell — they look like different rooms, none looks finished, or the work in them is "
+        + "not comparable — answer {\"unsure\": true, \"why\": \"<one short sentence>\"} instead. "
+        + "A wrong pair becomes an advertisement a customer checks against their own memory of the room, "
+        + "so saying you cannot tell is a better answer than guessing.";
+
+      const content: any[] = [{ type: "text", text: instruction }];
+      images.forEach((dataUrl, i) => {
+        content.push({ type: "text", text: `Photograph ${i}:` });
+        content.push({ type: "image_url", image_url: { url: dataUrl, detail: "low" } });
+      });
+
+      const res = await recordedOpenAIFetch(
+        { agent: "content-studio", operation: "pick a before and after", bucket: "ai" },
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content }],
+            max_tokens: 200,
+            temperature: 0,
+          }),
+        },
+      );
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const why = data?.error?.message || `HTTP ${res.status}`;
+        await call.failed({ summary: `pick failed: ${why}` }, why);
+        return c.json({ success: false, error: why }, 502);
+      }
+
+      const choice = data?.choices?.[0] || {};
+      // `refusal` as well as `content`: in JSON mode a declining model leaves
+      // content null and its sentence in refusal, and dropping that turns a
+      // stated reason into a blank answer.
+      const text = String(choice?.message?.content || choice?.message?.refusal || "");
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch { parsed = null; }
+
+      const usage = {
+        tokensIn: Number(data?.usage?.prompt_tokens) || undefined,
+        tokensOut: Number(data?.usage?.completion_tokens) || undefined,
+      };
+
+      if (!parsed || typeof parsed !== "object") {
+        await call.ok({ ...usage, summary: "no usable answer" });
+        return c.json({ success: true, pick: null, why: "The picker did not answer in a usable form." });
+      }
+
+      if (parsed.unsure === true) {
+        const why = String(parsed.why || "").trim().slice(0, 240) || "Not sure enough to choose.";
+        await call.ok({ ...usage, summary: `declined: ${why}` });
+        return c.json({ success: true, pick: null, unsure: true, why });
+      }
+
+      /*
+       * The same check the browser makes, made again.
+       *
+       * An index outside the range sent is rejected rather than clamped:
+       * clamping 9 to 7 would hand back a confident pick of a photograph the
+       * model never considered, carrying the model's own reasoning as its
+       * explanation.
+       */
+      const n = images.length;
+      const idx = (v: unknown): number | null => {
+        const i = Number(v);
+        if (!Number.isInteger(i) || i < 0 || i >= n) return null;
+        return i;
+      };
+      const before = idx(parsed.before);
+      const after = idx(parsed.after);
+
+      if (before === null || after === null || before === after) {
+        await call.ok({ ...usage, summary: `unusable indices (${parsed.before}, ${parsed.after}) of ${n}` });
+        return c.json({
+          success: true, pick: null,
+          why: "The picker chose a photograph that was not in the set, so nothing has been applied.",
+        });
+      }
+
+      const why = String(parsed.why || "").trim().slice(0, 240);
+      await call.ok({ ...usage, summary: `picked ${before} → ${after}` });
+      return c.json({ success: true, pick: { before, after, why, unsure: false } });
+    } catch (err: any) {
+      await call.failed(err, { summary: "pick threw" });
+      throw err;
+    }
+  } catch (error: any) {
+    return c.json({ success: false, error: String(error?.message || error) }, 500);
   }
 });
 

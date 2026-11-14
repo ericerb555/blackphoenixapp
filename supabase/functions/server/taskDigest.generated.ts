@@ -12,7 +12,7 @@
  * PlanSnapshot type and casts on load.
  */
 
-export const GENERATED_AT = "2026-11-13T21:56:06.520Z";
+export const GENERATED_AT = "2026-11-14T01:38:16.861Z";
 export const PLANS = [
   {
     "file": "todo.md",
@@ -201,7 +201,7 @@ export const PLANS = [
     "title": "On-call, the portals and Phoenix Exchange — one path",
     "open": 0,
     "done": 10,
-    "lastTouched": "2026-11-13T15:06:40-05:00"
+    "lastTouched": "2026-11-13T16:56:06-05:00"
   },
   {
     "file": "one-job-identity.md",

@@ -41,6 +41,9 @@ import { screenChannel, describeFindings } from '../../lib/captionFacts';
 import {
   photoSrc, usablePhotos, jobsWithPhotos, photosForJob, NO_JOB, type JobPhoto,
 } from '../../lib/jobPhotoGrouping';
+import {
+  candidatesFor, guessPair, readPick, isApplicable,
+} from '../../lib/beforeAfterPick';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -98,7 +101,9 @@ export default function BeforeAfterCreator() {
   /** '' = every photo, '__none' = the ones with no job, otherwise a job id. */
   const [jobFilter, setJobFilter] = useState('');
   const [picking, setPicking] = useState<Slot | null>(null);
-  const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing'>('');
+  const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing' | 'picking'>('');
+  /** What Phoenix said about the pair it proposed, shown beside the slots. */
+  const [pickNote, setPickNote] = useState('');
 
   /* The copy, and the facts it is allowed to use. */
   const [projectNote, setProjectNote] = useState('');
@@ -154,6 +159,116 @@ export default function BeforeAfterCreator() {
   }, [brand.logoUrl]);
 
   /* ── loading a chosen photograph ───────────────────────────────────────── */
+  /**
+   * One photograph, small enough to ask a question about.
+   *
+   * Every image sent is billed by the pixel, and the question — which of
+   * these is the earliest mess and which is the finished room — survives a
+   * 512px JPEG comfortably. Sending the originals would cost several times
+   * more to get the same answer.
+   *
+   * A photo that will not load is skipped rather than failing the batch: one
+   * unreachable file on a job of twelve should not stop the pick.
+   */
+  const smallCopy = useCallback(async (src: string): Promise<string | null> => {
+    try {
+      const img = await loadImage(src);
+      const max = 512;
+      const scale = Math.min(1, max / Math.max(img.naturalWidth || max, img.naturalHeight || max));
+      const w = Math.max(1, Math.round((img.naturalWidth || max) * scale));
+      const h = Math.max(1, Math.round((img.naturalHeight || max) * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL('image/jpeg', 0.6);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /**
+   * Ask the model which two photographs these are.
+   *
+   * The free answer goes in FIRST — earliest and latest, which is right most
+   * of the time and costs nothing — so the slots are filled while the model
+   * is still looking. If the model comes back with something better, it
+   * replaces them and says why. If it declines, or picks a photograph that
+   * was not in the set, what the ordering chose simply stays.
+   *
+   * Nothing here publishes. The person exporting decides, which is the whole
+   * reason the reason is shown.
+   */
+  const pickWithAi = useCallback(async () => {
+    const pool = candidatesFor(shown);
+    if (pool.length < 2) {
+      toast.error('Pick a job with at least two photographs first.');
+      return;
+    }
+
+    setBusy('picking');
+    setPickNote('');
+
+    // The free ordering, applied immediately.
+    const free = guessPair(pool);
+    if (isApplicable(free)) {
+      await take('before', photoSrc(pool[free!.before]));
+      await take('after', photoSrc(pool[free!.after]));
+      setPickNote(free!.why);
+    }
+
+    try {
+      const encoded = await Promise.all(pool.map((p) => smallCopy(photoSrc(p))));
+      // Keep the photographs that survived, and keep them in step with the
+      // numbers the model will answer with.
+      const usable = pool.filter((_, i) => encoded[i]);
+      const images = encoded.filter(Boolean) as string[];
+      if (images.length < 2) {
+        toast.error('Those photographs could not be read for picking.');
+        return;
+      }
+
+      const res = await fetch(`${SERVER}/content-studio/pick-before-after`, {
+        method: 'POST',
+        headers: { ...(await authedHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images,
+          jobTitle: jobsInGallery.find((j) => j.id === jobFilter)?.label || '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.success === false) {
+        toast.error(String(data?.error || 'The picker could not answer.'), {
+          description: isApplicable(free) ? 'Earliest and latest are in the slots.' : undefined,
+        });
+        return;
+      }
+
+      const pick = readPick(data?.pick, usable.length);
+      if (!isApplicable(pick)) {
+        const why = String(data?.why || pick?.why || '').trim();
+        setPickNote(why ? `Phoenix would not choose: ${why}` : '');
+        toast.info('Phoenix would not choose these', {
+          description: why || 'Left on earliest and latest — change them by hand.',
+        });
+        return;
+      }
+
+      await take('before', photoSrc(usable[pick!.before]));
+      await take('after', photoSrc(usable[pick!.after]));
+      setPickNote(pick!.why || 'Phoenix chose these two.');
+      toast.success('Phoenix picked a pair', {
+        description: pick!.why || 'Check them before you export.',
+      });
+    } catch (err: any) {
+      toast.error(String(err?.message || 'The picker could not be reached.'));
+    } finally {
+      setBusy('');
+    }
+  }, [shown, smallCopy, jobsInGallery, jobFilter]);
+
   const take = useCallback(async (slot: Slot, src: string) => {
     try {
       const img = await loadImage(src);
@@ -440,6 +555,36 @@ export default function BeforeAfterCreator() {
         <div className="space-y-4">
           <div className="bg-[#111] border border-gray-700 rounded-xl p-4">
             <div className="flex gap-3">{slotCard('before', beforeSrc)}{slotCard('after', afterSrc)}</div>
+
+            {/*
+              Phoenix proposes the pair; the person exporting decides.
+
+              Offered only when there are two photographs to choose between.
+              It fills the slots with the earliest and latest first — free and
+              usually right — and replaces them only if the model comes back
+              with something it will stand behind.
+            */}
+            {shown.length >= 2 && (
+              <div className="mt-3 border-t border-gray-800 pt-3">
+                <button
+                  onClick={() => void pickWithAi()}
+                  disabled={busy !== ''}
+                  className="w-full px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#ea580c)' }}
+                >
+                  {busy === 'picking'
+                    ? <><Loader2 className="w-4 h-4 inline mr-1 animate-spin" />Looking at {Math.min(shown.length, 8)} photos…</>
+                    : <><Wand2 className="w-4 h-4 inline mr-1" />Let Phoenix pick the pair</>}
+                </button>
+                {pickNote && (
+                  <p className="mt-2 text-xs text-gray-400">
+                    {pickNote}
+                    {' '}
+                    <span className="text-gray-500">— check them before you export.</span>
+                  </p>
+                )}
+              </div>
+            )}
 
             {picking && (
               <div className="mt-3 border-t border-gray-800 pt-3">
