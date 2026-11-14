@@ -226,3 +226,45 @@ test('versions never collide or get reused', () => {
   // Even if the highest is not last in the array.
   assert.equal(nextVersion(policy([version({ version: 7 }), version({ version: 2 })])), 8);
 });
+
+/*
+ * The default argument, which is the one production actually uses.
+ *
+ * Every existing test here passed a date STRING. `currentPolicy` defaults to
+ * `Date.now()` — a NUMBER — and `policyInForce` stringified it before parsing,
+ * so `Date.parse("1794693579399")` was NaN and the function returned null for
+ * every real call. The public route answered `policy: null` beside
+ * `publishedVersionCount: 1`, which is the contradiction that exposed it.
+ */
+
+test('currentPolicy with no date given finds the policy in force', () => {
+  const p = {
+    companyId: 'bpb-8544',
+    versions: [{
+      version: 1,
+      effectiveFrom: '2020-01-01T00:00:00Z',
+      publishedAt: '2020-01-01T00:00:00Z',
+      sections: [{ heading: 'Completed work', body: 'No refund once the haul is done.' }],
+    }],
+  } as any;
+
+  assert.equal(currentPolicy(p)?.version, 1, 'the default Date.now() path returned nothing');
+});
+
+test('a timestamp number is a time, not a string to be parsed', () => {
+  const p = {
+    companyId: 'bpb-8544',
+    versions: [{
+      version: 1,
+      effectiveFrom: '2020-01-01T00:00:00Z',
+      publishedAt: '2020-01-01T00:00:00Z',
+      sections: [{ heading: 'X', body: 'Y' }],
+    }],
+  } as any;
+
+  assert.equal(policyInForce(p, Date.parse('2021-01-01T00:00:00Z'))?.version, 1, 'number');
+  assert.equal(policyInForce(p, '2021-01-01T00:00:00Z')?.version, 1, 'string');
+  assert.equal(policyInForce(p, new Date('2021-01-01T00:00:00Z'))?.version, 1, 'Date');
+  // And a number from BEFORE it took effect still finds nothing.
+  assert.equal(policyInForce(p, Date.parse('2019-01-01T00:00:00Z')), null);
+});

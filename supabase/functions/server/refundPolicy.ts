@@ -161,7 +161,26 @@ export function policyInForce(
   policy: CompanyPolicy | null | undefined,
   at: string | number | Date,
 ): PolicyVersion | null {
-  const when = at instanceof Date ? at.getTime() : Date.parse(String(at));
+  /*
+   * A NUMBER IS ALREADY A TIMESTAMP. DO NOT STRINGIFY IT.
+   *
+   * This read `Date.parse(String(at))` for anything that was not a Date — and
+   * `currentPolicy` passes `Date.now()`, a number. `Date.parse("1794693579399")`
+   * is NaN, so every call through the default argument failed the finite check
+   * below and returned null.
+   *
+   * The effect was total and silent: `GET /refund-policy/:companyId` answered
+   * `policy: null` no matter what had been published, so the page Stripe is
+   * given as the refund disclosure showed a customer nothing. Found on
+   * 2026-11-14 by publishing a real policy and watching the live route report
+   * `publishedVersionCount: 1` next to `policy: null` — the two cannot both be
+   * right, and that is what gave it away.
+   */
+  const when = at instanceof Date
+    ? at.getTime()
+    : typeof at === 'number'
+      ? at
+      : Date.parse(String(at));
   if (!Number.isFinite(when)) return null;
 
   // Newest first, so the first one that had already taken effect is the one.
