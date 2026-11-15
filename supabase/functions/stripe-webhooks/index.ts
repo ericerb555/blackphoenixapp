@@ -841,7 +841,26 @@ Deno.serve(async (req) => {
        * "forbidden" confirms that something is — and the whole purpose of a
        * secret path is to not confirm that.
        */
-      console.log('[stripe-webhooks] rejected: path secret did not match.');
+      /*
+       * The segment that was tried is logged, and it is the difference
+       * between a five-minute fix and an afternoon.
+       *
+       * Several Stripe endpoints point at this function — two live accounts
+       * and test mode — and they are updated by hand, one at a time. The
+       * predictable mistake is updating some and missing one, and the symptom
+       * is identical either way: 404s. This line tells the two cases apart.
+       *
+       *   tried="stripe-webhooks"   an endpoint somebody forgot to update.
+       *                             Go and change that URL.
+       *   tried=<anything else>     a stranger guessing, or a stale link.
+       *                             Nothing to do.
+       *
+       * Safe to log because it is only ever written on a MISMATCH, so our own
+       * secret never reaches the log.
+       */
+      console.log(
+        `[stripe-webhooks] rejected: path secret did not match. tried="${supplied.slice(0, 40)}"`,
+      );
       return new Response('Not found', { status: 404 });
     }
   }
