@@ -97,6 +97,13 @@ import { normalisePhone } from "./staffSms.ts";
 import { signMediaValues } from "./mediaSigning.ts";
 import { invoiceAfterRefund, planRefund, refundableOf } from "./refundMath.ts";
 import { quoteDepositPrice } from "./quoteDepositPrice.ts";
+import { ensurePlanPrice } from "./planStripePrice.ts";
+import {
+  expectationFrom,
+  expectationKey,
+  priceIdsFromParams,
+  type PurchaseKind,
+} from "./checkoutExpectation.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -10263,6 +10270,21 @@ app.post('/make-server-3eae23a6/plan-checkout', async (c) => {
     const session = rehearsing
       ? await stripeSessionWithKey(params, stripeTestKey())
       : await stripeCheckoutSession(params, 'services');
+    /*
+     * The subtotal Stripe quotes here is the tier plus every extra, each from
+     * its own Price id — so one recorded figure covers a basket the webhook
+     * would otherwise have to re-derive, including per-unit and size-banded
+     * extras priced off a count only this server made.
+     */
+    await recordCheckoutExpectation({
+      session,
+      params,
+      kind: 'portal_plan',
+      subject: tierId,
+      email,
+      account: 'services',
+      createdBy: email,
+    });
     console.log(`[Subscriptions] ${email} starting ${mode} checkout for ${audience}/${tierId}`);
     return c.json({ url: session.url, sessionId: session.id });
   } catch (error: any) {
@@ -11341,6 +11363,58 @@ const attachStripePrice = (kind: SellableKind) => async (c: any) => {
 app.post('/make-server-3eae23a6/plan-tiers/:audience/:id/attach-price', attachStripePrice('tier'));
 app.post('/make-server-3eae23a6/plan-addons/:audience/:id/attach-price', attachStripePrice('addon'));
 
+
+/**
+ * Write down what we just asked Stripe to charge.
+ *
+ * Eric: "verify payment through webhooks before granting any access ... it
+ * confirms the payment event validates the amount against our product price
+ * and only then provisions access."
+ *
+ * The webhook cannot do that on its own. A `checkout.session.completed` says
+ * what was paid; only this server knows what SHOULD have been paid, because
+ * it is the only party that read the price out of our database. So the figure
+ * is recorded here, keyed by the session id, and the webhook refuses to
+ * provision anything it cannot match against one of these records.
+ *
+ * `amount_subtotal` comes back from Stripe rather than being recomputed, which
+ * matters for a basket: a tier plus three extras is four line items, each at
+ * its own Price, and Stripe adding them up is the same arithmetic the webhook
+ * will later be checking — not a second implementation of it.
+ *
+ * A FAILED WRITE FAILS THE CHECKOUT.
+ *
+ * Deliberate. Without the record the webhook will refuse to provision, so a
+ * checkout that opens without one sends somebody to pay for something they
+ * will not receive. Better they see an error now than a charge later.
+ */
+async function recordCheckoutExpectation(input: {
+  session: any;
+  params?: URLSearchParams;
+  kind: PurchaseKind;
+  subject: string;
+  email?: string | null;
+  account: string;
+  createdBy?: string | null;
+}) {
+  const record = expectationFrom({
+    session: input.session,
+    kind: input.kind,
+    subject: input.subject,
+    email: input.email,
+    account: input.account,
+    priceIds: input.params ? priceIdsFromParams(input.params) : [],
+    createdBy: input.createdBy,
+  });
+  if (!record.sessionId) throw new Error('Stripe returned a checkout session with no id.');
+  await kv.set(expectationKey(record.sessionId), record);
+  console.log(
+    `[Checkout] expecting ${((record.subtotalCents ?? 0) / 100).toFixed(2)} `
+    + `${record.currency.toUpperCase()} for ${record.kind} ${record.subject} `
+    + `on ${record.sessionId}`,
+  );
+  return record;
+}
 
 async function stripeSessionWithKey(params: URLSearchParams, key: string) {
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -14186,6 +14260,82 @@ app.get('/make-server-3eae23a6/payments/:id/refunds', async (c) => {
 });
 
 /**
+ * GET /payments/held — money that arrived for something we did not hand over.
+ *
+ * The webhook's verification gate fails closed: a payment it cannot match
+ * against a checkout this server opened, or one that does not match the price
+ * we recorded, provisions nothing. That is the right answer and it is only half
+ * an answer — the charge still happened. Each refusal writes a `payment_held:`
+ * record, and this is how a person finds them.
+ *
+ * If anything is ever in this list, somebody paid and did not get what they
+ * paid for. It is a queue, not a log: the right outcome for each row is either
+ * a refund or a deliberate manual grant, and then `resolve`.
+ */
+app.get('/make-server-3eae23a6/payments/held', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const rows = ((await kv.getByPrefix('payment_held:').catch(() => [])) as any[])
+      .filter(Boolean)
+      // Unresolved first, then newest — the ones costing somebody money now.
+      .sort((a, b) => {
+        const byState = Number(Boolean(a?.resolved)) - Number(Boolean(b?.resolved));
+        if (byState !== 0) return byState;
+        return String(b?.firstSeenAt || '').localeCompare(String(a?.firstSeenAt || ''));
+      });
+
+    return c.json({
+      success: true,
+      held: rows,
+      open: rows.filter((r) => !r?.resolved).length,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not read held payments.' }, 500);
+  }
+});
+
+/**
+ * POST /payments/held/:sessionId/resolve — this one has been dealt with.
+ *
+ * Records who closed it and what they did. It does NOT grant anything: the
+ * refund or the manual grant happens through the route that properly owns it,
+ * and this only marks the queue. A button that both decided and provisioned
+ * would be a second way into the thing the gate exists to control.
+ */
+app.post('/make-server-3eae23a6/payments/held/:sessionId/resolve', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    const key = `payment_held:${sessionId}`;
+    const record = await kv.get(key) as any;
+    if (!record) return c.json({ success: false, error: 'No held payment with that session id.' }, 404);
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const note = String(body?.note || '').trim();
+    if (!note) return c.json({ success: false, error: 'Say what was done about it.' }, 400);
+
+    const now = new Date().toISOString();
+    await kv.set(key, {
+      ...record,
+      resolved: true,
+      resolution: note,
+      resolvedBy: String(user.email).toLowerCase(),
+      resolvedAt: now,
+      updatedAt: now,
+    });
+    console.log(`[Checkout] held payment ${sessionId} resolved by ${user.email}: ${note}`);
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not update that record.' }, 500);
+  }
+});
+/**
  * GET /tips — what has been left, and who it is owed to.
  *
  * Staff see every tip; a customer sees the ones they left. A tip is somebody's
@@ -15123,6 +15273,80 @@ function planBillingTerms(plan: any) {
   return { annual, interval: annual ? 'year' : 'month', amount: Math.round(amount * 100) / 100 };
 }
 
+/**
+ * The Stripe PRICE ID for what this plan bills, minted once and then reused.
+ *
+ * Eric: "use stripe price ids instead of raw dallor amounts."
+ *
+ * This route was the one real offender in the checkout flow. It opened a
+ * subscription checkout with an inline price_data[recurring] block, which makes
+ * Stripe create a brand new anonymous price on every single attempt. For a
+ * RECURRING charge that is the wrong shape three times over: the amount that
+ * will be billed every month afterwards lives in a price object nobody can find
+ * in the dashboard, editing the plan's figure silently changes what the next
+ * checkout creates with nothing recording that the two now differ, and Stripe's
+ * own reporting cannot group subscribers because each one sits on a price of
+ * their own.
+ *
+ * It is also what lets the webhook check its work. A session that carries a
+ * price id can be validated against the price we meant to charge. A session
+ * built from a raw amount can only be validated against the amount the request
+ * itself supplied, which proves nothing.
+ *
+ * The decision of WHETHER to mint lives in planStripePrice.ts and is tested
+ * there. This half is the Stripe call, which cannot be unit tested.
+ */
+async function planStripePriceId(plan: any, amount: number, interval: string) {
+  const key = stripeKeyFor('services');
+  if (!key) throw new Error(`${stripeAccountLabel('services')} Stripe is not configured.`);
+
+  const post = async (path: string, body: URLSearchParams) => {
+    const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${key}:`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload?.error?.message || `Stripe refused the ${path} call.`);
+    return payload;
+  };
+
+  let productId = String(plan?.stripeProductId || '');
+
+  const result = await ensurePlanPrice(plan, amount, interval, async ({ amount: a, interval: i, productName }) => {
+    /*
+     * ONE PRODUCT PER PLAN, reused across every price change.
+     *
+     * Stripe prices are immutable, so changing a plan's monthly figure means a
+     * new Price. Hanging each of those off the same Product keeps the plan as
+     * one line in Stripe's reporting instead of one line per amount it has ever
+     * been.
+     */
+    if (!productId) {
+      const product = await post('products', new URLSearchParams({
+        name: productName,
+        'metadata[bp_plan_id]': String(plan?.id || ''),
+        'metadata[bp_kind]': 'maintenance_plan',
+      }));
+      productId = String(product.id);
+    }
+    const price = await post('prices', new URLSearchParams({
+      product: productId,
+      currency: 'usd',
+      unit_amount: String(Math.round(a * 100)),
+      'recurring[interval]': i,
+      'metadata[bp_plan_id]': String(plan?.id || ''),
+      'metadata[bp_kind]': 'maintenance_plan',
+    }));
+    return String(price.id);
+  });
+
+  return { ...result, productId };
+}
+
 // Start (or restart) a recurring subscription for a maintenance plan.
 app.post('/make-server-3eae23a6/maintenance-plans/:id/subscribe', async (c) => {
   try {
@@ -15146,16 +15370,23 @@ app.post('/make-server-3eae23a6/maintenance-plans/:id/subscribe', async (c) => {
       return c.json({ error: 'This plan already has an active subscription.', billing: plan.billing }, 409);
     }
 
+    /*
+     * The price id is settled BEFORE the session is opened, so a checkout is
+     * never created against an amount with no price object behind it. `annual`
+     * is still read above, because it names the product.
+     */
+    const { priceId, prices, created, productId } = await planStripePriceId(plan, amount, interval);
+    if (created) {
+      console.log(`[PlanBilling] minted ${priceId} (${amount} / ${interval}) for plan ${plan.id}`);
+    }
+
     const app_url = planAppUrl();
     const params = new URLSearchParams({
       mode: 'subscription',
       customer_email: owner,
       success_url: `${app_url}/portal?tab=plan&billing=active&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${app_url}/portal?tab=plan&billing=cancelled`,
-      'line_items[0][price_data][currency]': 'usd',
-      'line_items[0][price_data][product_data][name]': `${plan.planName || 'Maintenance Plan'}${annual ? ' (annual)' : ''}`,
-      'line_items[0][price_data][recurring][interval]': interval,
-      'line_items[0][price_data][unit_amount]': String(Math.round(amount * 100)),
+      'line_items[0][price]': priceId,
       'line_items[0][quantity]': '1',
       'metadata[plan_id]': String(plan.id),
       'metadata[kind]': 'maintenance_plan',
@@ -15164,13 +15395,30 @@ app.post('/make-server-3eae23a6/maintenance-plans/:id/subscribe', async (c) => {
     });
 
     const session = await stripeCheckoutSession(params, 'services');
+    await recordCheckoutExpectation({
+      session,
+      params,
+      kind: 'maintenance_plan',
+      subject: String(plan.id),
+      email: owner,
+      account: 'services',
+      createdBy: user.email,
+    });
 
+    /*
+     * Stored so the next checkout reuses the price rather than minting another,
+     * and so the webhook has a figure of our own to validate the payment
+     * against rather than taking Stripe's word for what we charged.
+     */
+    plan.stripePrices = prices;
+    plan.stripeProductId = productId;
     plan.billing = {
       ...(plan.billing || {}),
       status: 'checkout_pending',
       account: 'services',
       interval,
       amount,
+      stripePriceId: priceId,
       checkoutSessionId: session.id,
       startedBy: user.email,
       updatedAt: new Date().toISOString(),
@@ -15253,6 +15501,20 @@ app.post('/make-server-3eae23a6/maintenance-plans/:id/invoice', async (c) => {
       createdAt: new Date().toISOString(),
     };
     await kv.set(`plan_invoice:${plan.id}:${invoice.id}`, invoice);
+    /*
+     * Written after the invoice id exists, because the id is what the webhook
+     * checks the session against. Nothing is granted on an invoice the server
+     * did not open a checkout for.
+     */
+    await recordCheckoutExpectation({
+      session,
+      params,
+      kind: 'maintenance_invoice',
+      subject: invoice.id,
+      email: owner,
+      account: 'services',
+      createdBy: user.email,
+    });
 
     return c.json({ success: true, invoice });
   } catch (error: any) {

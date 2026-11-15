@@ -28,7 +28,7 @@
  * the crew stops being owed it.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, RotateCcw, AlertTriangle, Receipt, Heart } from 'lucide-react';
+import { Loader2, RotateCcw, AlertTriangle, Receipt, Heart, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
@@ -52,6 +52,37 @@ interface Payment {
   stripePaymentIntentId?: string | null;
 }
 
+/**
+ * A payment the webhook refused to provision against.
+ *
+ * Written by the verification gate in `checkoutExpectation.ts` whenever a paid
+ * event cannot be matched to a checkout this server opened at the price it
+ * recorded. Shown here rather than in its own tab because the person reading
+ * it is almost always about to refund it.
+ */
+interface HeldPayment {
+  sessionId: string;
+  kind?: string;
+  subject?: string | null;
+  code?: string;
+  reason?: string;
+  paidCents?: number | null;
+  expectedCents?: number | null;
+  appliedAnyway?: boolean;
+  resolved?: boolean;
+  resolution?: string;
+  resolvedBy?: string;
+  firstSeenAt?: string;
+  stripe?: {
+    paymentStatus?: string;
+    amountTotal?: number | null;
+    currency?: string;
+    customerEmail?: string | null;
+    paymentIntent?: string | null;
+    livemode?: boolean;
+  };
+}
+
 /** Mirrors refundMath.refundableOf, for display only. The server decides. */
 function refundable(p: Payment) {
   const past = Array.isArray(p.refunds) ? p.refunds : [];
@@ -71,6 +102,9 @@ export default function RefundsPanel() {
   const [includeTip, setIncludeTip] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [held, setHeld] = useState<HeldPayment[]>([]);
+  const [resolving, setResolving] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -87,7 +121,50 @@ export default function RefundsPanel() {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  /*
+   * The held queue, read separately and allowed to fail quietly.
+   *
+   * It is additional information on this screen, not the screen itself — a
+   * refund must still be possible if this request does not come back.
+   */
+  const loadHeld = async () => {
+    try {
+      const res = await fetch(`${SERVER}/payments/held`, { headers: await authedHeaders() });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) setHeld(Array.isArray(data.held) ? data.held : []);
+    } catch {
+      /* left empty on purpose: see above */
+    }
+  };
+
+  useEffect(() => { void load(); void loadHeld(); }, []);
+
+  const markResolved = async (row: HeldPayment) => {
+    if (!resolveNote.trim()) {
+      toast.error('Say what was done about it first.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${SERVER}/payments/held/${encodeURIComponent(row.sessionId)}/resolve`, {
+        method: 'POST',
+        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ note: resolveNote.trim() }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Could not update it (${res.status}).`);
+      toast.success('Marked as dealt with.');
+      setResolving('');
+      setResolveNote('');
+      await loadHeld();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not update that record.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openHeld = useMemo(() => held.filter((h) => !h.resolved), [held]);
 
   /*
    * Only captured payments, newest first. A pending checkout cannot be
@@ -162,6 +239,102 @@ export default function RefundsPanel() {
           store credit. This screen is for services payments.
         </p>
       </div>
+
+      {/*
+        * PAID, AND NOT PROVISIONED. The top of the screen, when it happens.
+        *
+        * These are the only rows on this page where somebody is out of pocket
+        * for something they did not receive, so they sit above the refund list
+        * rather than below it. Each one needs a decision: refund it, or grant
+        * the thing by hand and say so.
+        */}
+      {openHeld.length > 0 && (
+        <div className="rounded-2xl" style={{ padding: '20px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.35)' }}>
+          <h3 className="flex items-center gap-2 text-sm font-black text-red-300">
+            <ShieldAlert className="w-4 h-4" />
+            {openHeld.length} payment{openHeld.length === 1 ? '' : 's'} held — paid, not granted
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-gray-400">
+            A card was charged and the webhook refused to hand the thing over, because the payment
+            did not match a checkout this server opened at the price it recorded. Nothing was
+            granted. Each of these needs either a refund below or a manual grant.
+          </p>
+
+          <div className="mt-3 space-y-3">
+            {openHeld.map((row) => (
+              <div
+                key={row.sessionId}
+                className="rounded-xl"
+                style={{ padding: '14px', background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-bold text-white">{row.kind || 'purchase'}</span>
+                  {row.subject && <span className="text-xs text-gray-500">{row.subject}</span>}
+                  <span className="rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-red-300" style={{ background: 'rgba(239,68,68,0.15)' }}>
+                    {row.code || 'refused'}
+                  </span>
+                  {row.appliedAnyway && (
+                    <span className="rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-300" style={{ background: 'rgba(245,158,11,0.15)' }}>
+                      renewed anyway
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-gray-400">{row.reason}</p>
+                <div className="mt-2 grid gap-1 text-[11px] text-gray-500 sm:grid-cols-2">
+                  {row.stripe?.customerEmail && <span>{row.stripe.customerEmail}</span>}
+                  {typeof row.paidCents === 'number' && typeof row.expectedCents === 'number' && (
+                    <span>
+                      paid {money(row.paidCents / 100)} · expected {money(row.expectedCents / 100)}
+                    </span>
+                  )}
+                  <span className="break-all">{row.sessionId}</span>
+                  {row.stripe?.paymentIntent && <span className="break-all">{row.stripe.paymentIntent}</span>}
+                </div>
+
+                {resolving === row.sessionId ? (
+                  <div className="mt-3 space-y-2">
+                    <input
+                      value={resolveNote}
+                      onChange={(e) => setResolveNote(e.target.value)}
+                      placeholder="What did you do about it? (refunded, granted by hand…)"
+                      className="w-full rounded-lg bg-black text-sm text-white"
+                      style={{ padding: '10px', border: '1px solid rgba(255,255,255,0.15)' }}
+                    />
+                    <p className="text-[11px] text-gray-600">
+                      This only closes the queue entry. It does not refund and it does not grant
+                      anything — do that first, then record it here.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={busy}
+                        onClick={() => void markResolved(row)}
+                        className="rounded-lg text-xs font-black text-black disabled:opacity-50"
+                        style={{ padding: '8px 14px', background: '#f97316' }}
+                      >
+                        {busy ? 'Saving…' : 'Mark dealt with'}
+                      </button>
+                      <button
+                        onClick={() => { setResolving(''); setResolveNote(''); }}
+                        className="rounded-lg text-xs font-bold text-gray-400"
+                        style={{ padding: '8px 14px', border: '1px solid rgba(255,255,255,0.15)' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setResolving(row.sessionId); setResolveNote(''); }}
+                    className="mt-3 text-xs font-bold text-orange-400"
+                  >
+                    Mark dealt with
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl" style={{ padding: '16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>

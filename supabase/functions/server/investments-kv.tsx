@@ -27,6 +27,12 @@ import type Stripe from 'npm:stripe@17';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { trustedRole } from './trustedRole.ts';
+import {
+  type CheckoutExpectation,
+  expectationFrom,
+  expectationKey,
+  verifySessionPayment,
+} from './checkoutExpectation.ts';
 
 const investmentsRouter = new Hono();
 
@@ -56,6 +62,81 @@ const AI_TIER_PRICING: Record<string, { amount: number; label: string }> = {
   professional: { amount: 7900, label: 'Property Intelligence — Pro Investor' },
   enterprise: { amount: 19900, label: 'Property Intelligence — Condo Association' },
 };
+
+/**
+ * A Stripe PRICE for an AI tier, minted on first sale and reused after.
+ *
+ * Eric: "use stripe price ids instead of raw dallor amounts."
+ *
+ * This checkout used to pass `price_data` with `recurring: { interval: month }`
+ * and a raw `unit_amount`, which makes Stripe invent a fresh anonymous price
+ * for every subscriber. Three tiers sold to thirty people became thirty
+ * prices, none of them groupable in Stripe's reporting, and the figure that
+ * would be charged every month afterwards lived only inside an expired
+ * checkout session. The table above is a catalogue of three fixed tiers, which
+ * is precisely the case Stripe Prices exist for.
+ *
+ * CACHED PER MODE, because a price minted with a test key does not exist to a
+ * live one. Keying on the mode means swapping the secret key mints a fresh
+ * price rather than sending customers at a `No such price` error.
+ *
+ * CACHED PER AMOUNT, because Stripe prices are immutable. Editing a tier's
+ * figure in the table above has to produce a new Price, or the catalogue and
+ * the card would disagree — the exact failure the plan catalogue's attach
+ * route refuses by hand.
+ */
+/**
+ * The client `getStripe` hands back.
+ *
+ * Derived rather than written as `Stripe`, because the SDK is imported here as
+ * `import type` from an npm specifier and tsc will not accept that default
+ * export as a type annotation — the same complaint it already makes about
+ * `getStripe`'s own signature. Deriving it keeps the real type without adding
+ * another one of those.
+ */
+type StripeClient = NonNullable<Awaited<ReturnType<typeof getStripe>>>;
+
+async function aiTierPriceId(stripe: StripeClient, tier: string): Promise<string> {
+  const pricing = AI_TIER_PRICING[tier];
+  if (!pricing) throw new Error(`Unknown subscription tier: ${tier}`);
+
+  const live = !String(Deno.env.get('STRIPE_SECRET_KEY') || '').startsWith('sk_test_');
+  const cacheKey = `property_ai_price:${live ? 'live' : 'test'}:${tier}`;
+  const cached = await kv.get(cacheKey) as any;
+  if (cached?.id && Number(cached.amountCents) === Number(pricing.amount)) {
+    return String(cached.id);
+  }
+
+  // One product per tier, reused across price changes, so the tier stays one
+  // line in Stripe's reporting rather than one line per amount it has been.
+  let productId = String(cached?.productId || '');
+  if (!productId) {
+    const product = await stripe.products.create({
+      name: pricing.label,
+      metadata: { bp_kind: 'property_ai', bp_tier: tier },
+    });
+    productId = product.id;
+  }
+
+  const price = await stripe.prices.create({
+    product: productId,
+    currency: 'usd',
+    unit_amount: pricing.amount,
+    recurring: { interval: 'month' },
+    metadata: { bp_kind: 'property_ai', bp_tier: tier },
+  });
+
+  await kv.set(cacheKey, {
+    id: price.id,
+    productId,
+    amountCents: pricing.amount,
+    interval: 'month',
+    livemode: Boolean(price.livemode),
+    createdAt: new Date().toISOString(),
+  });
+  console.log(`[PropertyAI] minted ${price.id} for ${tier} at ${pricing.amount} (${live ? 'live' : 'test'})`);
+  return price.id;
+}
 
 // ── Regrid parcel data ──────────────────────────────────────────────────────
 // Grounds the AI feasibility study in the real parcel record (zoning, acreage,
@@ -1272,22 +1353,34 @@ investmentsRouter.post(`${PREFIX}/investments/ai-subscription/checkout`, async (
     if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
 
     const origin = String(body.origin || '').replace(/\/$/, '');
+    const priceId = await aiTierPriceId(stripe, tier);
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: email,
-      line_items: [{
-        quantity: 1,
-        price_data: {
-          currency: 'usd',
-          recurring: { interval: 'month' },
-          unit_amount: pricing.amount,
-          product_data: { name: pricing.label },
-        },
-      }],
+      line_items: [{ quantity: 1, price: priceId }],
       metadata: { kind: 'property_ai', email, tier, audience: body.audience || 'landlord' },
       success_url: `${origin}/property-ai-studio?ai_sub=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/property-ai-studio?ai_sub=cancel`,
     });
+
+    /*
+     * WHAT WE EXPECT TO BE PAID, written before the customer is sent to pay.
+     *
+     * The webhook activates this subscription, and it now refuses to do so for
+     * any session it cannot match against one of these records — so without
+     * this write the customer would be charged and left without access. The
+     * tier is the subject, which is what stops a starter-tier payment
+     * switching on the enterprise tier.
+     */
+    await kv.set(expectationKey(session.id), expectationFrom({
+      session,
+      kind: 'property_ai',
+      subject: tier,
+      email,
+      account: 'services',
+      priceIds: [priceId],
+      createdBy: email,
+    }));
 
     return c.json({ success: true, url: session.url, sessionId: session.id });
   } catch (error: any) {
@@ -1307,9 +1400,40 @@ investmentsRouter.post(`${PREFIX}/investments/ai-subscription/confirm`, async (c
     if (!stripe) return c.json({ error: 'Billing is not configured (missing STRIPE_SECRET_KEY).' }, 500);
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    const paid = session.payment_status === 'paid' || session.status === 'complete';
-    if (!paid) {
-      return c.json({ success: false, active: false, error: 'Payment not completed yet.' }, 402);
+
+    /*
+     * COMPLETED IS NOT PAID, and this route used to accept either.
+     *
+     * The test was `payment_status === 'paid' || status === 'complete'`, and the
+     * second half of that or makes the first half pointless: Stripe marks a
+     * session `complete` when the customer finishes it, including when
+     * `payment_status` is still `unpaid`. A delayed payment method — or a card
+     * that fails on the asynchronous confirmation — produced a complete,
+     * unpaid session, and this route switched the subscription on.
+     *
+     * Now the one check runs, against the figure the server wrote down when it
+     * opened the checkout: paid, in the currency we priced, for at least our
+     * price, for the tier the session was actually opened to buy. Same gate the
+     * webhook uses, deliberately — two provisioning paths that disagree about
+     * what counts as paid is how one of them becomes the way in.
+     */
+    const expectation = (await kv.get(expectationKey(session.id))) as CheckoutExpectation | null;
+    const verdict = verifySessionPayment(session, expectation, {
+      kind: 'property_ai',
+      subject: String(session.metadata?.tier || ''),
+    });
+    if (!verdict.ok) {
+      console.log(`[PropertyAI] confirm refused for ${session.id}: ${verdict.code} — ${verdict.reason}`);
+      return c.json({
+        success: false,
+        active: false,
+        // 402 for a payment that has not landed, 409 for one that does not
+        // match what we sold — they need different answers from the caller.
+        error: verdict.code === 'not-paid'
+          ? 'Payment has not completed yet.'
+          : 'That payment could not be verified against what we charged. We have recorded it '
+            + 'and will sort it out — please contact us rather than paying again.',
+      }, verdict.code === 'not-paid' ? 402 : 409);
     }
 
     const email = (session.metadata?.email || session.customer_email || '').toLowerCase();

@@ -20,6 +20,15 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import Stripe from 'npm:stripe@17';
+import {
+  type CheckoutExpectation,
+  type GateResult,
+  type PurchaseKind,
+  expectationKey,
+  heldPaymentKey,
+  verifyRenewalPrices,
+  verifySessionPayment,
+} from '../server/checkoutExpectation.ts';
 
 const KV_TABLE = 'kv_store_57095a78';
 
@@ -36,6 +45,67 @@ async function kvGet(key: string): Promise<any> {
 
 async function kvSet(key: string, value: any) {
   await db.from(KV_TABLE).upsert({ key, value }, { onConflict: 'key' });
+}
+
+/**
+ * May this paid session provision what it says it bought?
+ *
+ * The decision is in `_shared/checkoutExpectation.ts` and tested there. This
+ * reads the expectation the server wrote when it opened the session, and on a
+ * refusal parks the payment where a person can find it.
+ *
+ * THE REFUSAL IS RECORDED, NOT ONLY LOGGED.
+ *
+ * A refused payment is money that arrived for something we did not hand over.
+ * Edge function logs roll off; a kv record does not, and it is what a refund or
+ * a manual grant will be decided from.
+ */
+async function gateSession(
+  object: any,
+  want: { kind: PurchaseKind; subject?: string },
+): Promise<GateResult> {
+  const sessionId = String(object?.id || '');
+  const expectation = sessionId
+    ? ((await kvGet(expectationKey(sessionId))) as CheckoutExpectation | null)
+    : null;
+  const verdict = verifySessionPayment(object, expectation, want);
+
+  if (!verdict.ok) {
+    console.log(
+      `[stripe-webhooks/gate] REFUSED ${want.kind}${want.subject ? ' ' + want.subject : ''} on `
+      + `session ${sessionId || '(none)'}: ${verdict.code} — ${verdict.reason}`,
+    );
+    if (sessionId) {
+      const existing = await kvGet(heldPaymentKey(sessionId));
+      await kvSet(heldPaymentKey(sessionId), {
+        ...(existing || {}),
+        sessionId,
+        kind: want.kind,
+        subject: want.subject || null,
+        code: verdict.code,
+        reason: verdict.reason,
+        checked: verdict.checked,
+        paidCents: verdict.paidCents ?? null,
+        expectedCents: verdict.expectedCents ?? null,
+        // What Stripe said, so the review does not need the dashboard open.
+        stripe: {
+          paymentStatus: String(object?.payment_status || ''),
+          amountSubtotal: object?.amount_subtotal ?? null,
+          amountTotal: object?.amount_total ?? null,
+          currency: String(object?.currency || ''),
+          customerEmail: object?.customer_email || object?.customer_details?.email || null,
+          paymentIntent: object?.payment_intent || null,
+          subscription: object?.subscription || null,
+          livemode: object?.livemode !== false,
+        },
+        resolved: existing?.resolved ?? false,
+        firstSeenAt: existing?.firstSeenAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return verdict;
 }
 
 async function kvByPrefix(prefix: string): Promise<any[]> {
@@ -445,6 +515,26 @@ async function handlePropertyAiEvent(event: any): Promise<Record<string, unknown
       if (String(object?.metadata?.kind || '') !== 'property_ai') return null;
       const email = String(object?.metadata?.email || object?.customer_email || '').toLowerCase();
       if (!email) return null;
+
+      /*
+       * PAID, AND PAID WHAT WE ASKED, BEFORE THE SUBSCRIPTION IS SWITCHED ON.
+       *
+       * The tier is the subject, so a session opened for the cheaper tier
+       * cannot activate the dearer one even though both carry
+       * `kind: property_ai`.
+       */
+      const aiTier = String(object?.metadata?.tier || '');
+      const aiGate = await gateSession(object, { kind: 'property_ai', subject: aiTier });
+      if (!aiGate.ok) {
+        return {
+          aiSubscription: email,
+          activated: false,
+          held: true,
+          reason: aiGate.reason,
+          code: aiGate.code,
+        };
+      }
+
       const existing = await kvGet(AI_SUB(email));
       const now = new Date().toISOString();
       await kvSet(AI_SUB(email), {
@@ -560,6 +650,29 @@ async function handlePortalPlanEvent(event: any): Promise<Record<string, unknown
       if (!subscriptionId) {
         console.log(`[stripe-webhooks/plan] ${email} completed checkout with no subscription id`);
         return { portalPlan: email, granted: false, reason: 'no subscription on the session' };
+      }
+
+      /*
+       * THE GRANT IS THE ACCESS, so this is the check that matters most in the
+       * whole function.
+       *
+       * `feature_grant:{email}` is what every limit, every portal section and
+       * `holdsOnCallFeature` read. Writing it on an unverified event is handing
+       * out the product. The expectation names the tier, so a session opened
+       * for the starter tier cannot grant the top one, and the recorded
+       * subtotal covers the extras as well — they were line items on the same
+       * session, so their price is inside the figure being checked.
+       */
+      const gate = await gateSession(object, { kind: 'portal_plan', subject: tierId });
+      if (!gate.ok) {
+        return {
+          portalPlan: email,
+          tierId,
+          granted: false,
+          held: true,
+          reason: gate.reason,
+          code: gate.code,
+        };
       }
       await kvSet(key, {
         ...grant,
@@ -726,10 +839,41 @@ async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
         const invoices = await kvByPrefix(`plan_invoice:${planId}:`);
         const match = invoices.find((i: any) => i.checkoutSessionId === object.id);
         if (match && match.status !== 'paid') {
+          /*
+           * An invoice is marked paid only for what it asked for. The amount
+           * here is per-invoice rather than from a catalogue, which is exactly
+           * why the expectation is recorded at creation: there is no price
+           * object to look up afterwards, only what we charged at the time.
+           */
+          const invoiceGate = await gateSession(object, {
+            kind: 'maintenance_invoice',
+            subject: String(match.id),
+          });
+          if (!invoiceGate.ok) {
+            return {
+              invoicePaid: false,
+              invoiceId: match.id,
+              held: true,
+              reason: invoiceGate.reason,
+              code: invoiceGate.code,
+            };
+          }
           await kvSet(`plan_invoice:${planId}:${match.id}`, { ...match, status: 'paid', paidAt: now });
           return { invoicePaid: match.id };
         }
         return { ignored: 'invoice already settled or not found' };
+      }
+
+      /*
+       * A maintenance plan going active is access too — hours, priority
+       * response and the entitlement ledger all key off `billing.status`.
+       */
+      const planGate = await gateSession(object, {
+        kind: 'maintenance_plan',
+        subject: planId,
+      });
+      if (!planGate.ok) {
+        return { planActivated: false, planId, held: true, reason: planGate.reason, code: planGate.code };
       }
       plan.billing = {
         ...(plan.billing || {}),
@@ -743,6 +887,42 @@ async function handlePlanEvent(event: any): Promise<Record<string, unknown>> {
       return { planActivated: planId };
     }
     case 'invoice.payment_succeeded': {
+      /*
+       * A RENEWAL IS CHECKED BY PRICE, AND A MISMATCH FLAGS RATHER THAN CUTS
+       * OFF.
+       *
+       * There is no session behind a renewal — Stripe bills the subscription
+       * on its own schedule — so there is no expectation to hold it against.
+       * What an invoice does carry is the price it billed, and the plan now
+       * stores the prices it was sold with, so the two can be compared.
+       *
+       * A stranger price means somebody changed the subscription in the Stripe
+       * dashboard rather than through this app. That is worth knowing about,
+       * but it is not grounds to stop the plan: the money did arrive, and
+       * cancelling service on a customer who paid is the worse error. So it
+       * renews and records the discrepancy.
+       */
+      const sold = Object.values((plan?.stripePrices || {}) as Record<string, any>)
+        .map((v: any) => String(v?.id || ''))
+        .filter(Boolean);
+      const renewal = verifyRenewalPrices(object, sold);
+      if (!renewal.ok) {
+        console.log(`[stripe-webhooks/plan] ${planId} renewal price mismatch: ${renewal.reason}`);
+        await kvSet(heldPaymentKey(String(object?.id || `inv-${planId}-${now}`)), {
+          sessionId: String(object?.id || ''),
+          kind: 'maintenance_plan',
+          subject: planId,
+          code: renewal.code,
+          reason: renewal.reason,
+          checked: renewal.checked,
+          // Renewed anyway, deliberately. This record says it needs a look,
+          // not that the customer was cut off.
+          appliedAnyway: true,
+          resolved: false,
+          firstSeenAt: now,
+          updatedAt: now,
+        });
+      }
       const periodEnd = object?.lines?.data?.[0]?.period?.end;
       plan.billing = {
         ...(plan.billing || {}),
