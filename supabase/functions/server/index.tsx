@@ -96,6 +96,7 @@ import { crewFromJob, readTipAmount, tipRecord } from "./tips.ts";
 import { normalisePhone } from "./staffSms.ts";
 import { signMediaValues } from "./mediaSigning.ts";
 import { invoiceAfterRefund, planRefund, refundableOf } from "./refundMath.ts";
+import { quoteDepositPrice } from "./quoteDepositPrice.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -13870,19 +13871,66 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
      * taken twice: once by applying it, and once by posting the lower figure it
      * produced.
      *
-     * A posted amount is still honoured where there is no invoice to read, which
-     * is how a deposit or an ad-hoc payment is taken. It is also honoured when it
-     * is SMALLER than the balance, because a part payment is a real thing a
-     * customer may choose. What it can no longer do is exceed what is owed.
+     * A posted amount is still honoured when it is SMALLER than the balance,
+     * because a part payment is a real thing a customer may choose. What it can
+     * no longer do is exceed what is owed.
+     *
+     * AND, 2026-11-15: THERE IS NO LONGER A BRANCH THAT TRUSTS A BARE AMOUNT.
+     *
+     * This used to end `: asked` — with no invoice, it charged whatever the
+     * browser posted, "which is how a deposit or an ad-hoc payment is taken".
+     * Two screens took it at its word and computed deposits client-side:
+     *
+     *   CustomerPortalView     amount: Math.round(quote.total * 0.30)
+     *   CustomerQuoteApproval  amount: depositAmount
+     *
+     * Neither sent an `invoiceId`, so both landed in that branch. Anybody with
+     * the developer tools open could have paid a one-dollar deposit on a
+     * ten-thousand-dollar job, and the payment record would have looked
+     * entirely ordinary afterwards.
+     *
+     * Every figure now comes from a record this server holds: an invoice's
+     * balance, or a quote's own deposit resolved by `quoteDepositPrice.ts`. A request
+     * naming neither is refused rather than priced by its sender — the rule
+     * `/store/checkout` already states, that an item which cannot be priced is
+     * refused rather than sold at the price the browser suggested.
+     *
+     * The one thing still taken from the request is a GRATUITY, and that is not
+     * a price: it is a figure the customer chooses for themselves, bounded by
+     * `MAX_TIP`, and it buys nothing.
      */
     const owed = money(
       invoice?.balance_due ?? invoice?.balanceDue ?? invoice?.amountDue
       ?? invoice?.total_amount ?? invoice?.total ?? invoice?.amount ?? 0,
     );
     const asked = money(body.amount ?? 0);
+
+    /** A deposit, priced from the stored quote and never from the request. */
+    let depositBasis: string | null = null;
+    let quoteDeposit = 0;
+    const quoteId = String(body.quoteId || '').trim();
+    if (!invoice && quoteId) {
+      const quote = await kv.get(`quote:${quoteId}`) as any;
+      if (!quote) return c.json({ success: false, error: 'Quote not found.' }, 404);
+      /*
+       * Theirs, or an administrator's. `quoteActor` states the rule this
+       * follows — a customer may only act on their own quote, and the email on
+       * the verified session is the proof, never a body field.
+       */
+      if (!admin && !ownsFinancialRecord(quote, user.email)) {
+        return c.json({ success: false, error: 'You may only pay your own quote.' }, 403);
+      }
+      const deposit = quoteDepositPrice(quote);
+      if (deposit.error || deposit.amount <= 0) {
+        return c.json({ success: false, error: deposit.error || 'That quote has no deposit to pay.' }, 400);
+      }
+      quoteDeposit = deposit.amount;
+      depositBasis = deposit.basis;
+    }
+
     const amount = invoice
       ? (asked > 0 ? Math.min(asked, owed) : owed)
-      : asked;
+      : quoteDeposit;
     if (invoice && asked > owed) {
       console.log(`[payments] asked ${asked} against a balance of ${owed} on invoice ${invoice.id}; charging the balance`);
     }
@@ -13938,7 +13986,7 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
       'metadata[payment_id]': paymentId, 'metadata[invoice_id]': String(invoice?.id || ''),
       'metadata[tip]': String(tip || 0),
     }), rail);
-    const payment = { id: paymentId, invoiceId: invoice?.id || null, amount, tip, tipWorkRequestId: String(body.workRequestId || invoice?.workRequestId || invoice?.work_request_id || '') || null, tipMessage: String(body.tipMessage || '').slice(0, 500) || null, status: 'pending_confirmation', paymentMethod, customerEmail: user.email, recipientPortal: portal, paymentRail: rail, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const payment = { id: paymentId, invoiceId: invoice?.id || null, quoteId: quoteId || null, depositBasis, amount, tip, tipWorkRequestId: String(body.workRequestId || invoice?.workRequestId || invoice?.work_request_id || '') || null, tipMessage: String(body.tipMessage || '').slice(0, 500) || null, status: 'pending_confirmation', paymentMethod, customerEmail: user.email, recipientPortal: portal, paymentRail: rail, stripeCheckoutSessionId: session.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     await kv.set(`payment:${paymentId}`, payment);
     if (invoice) await kv.set(`invoice:${invoice.id}`, { ...invoice, paymentId, checkoutSessionId: session.id, status: invoice.status === 'draft' ? 'sent' : invoice.status, updatedAt: new Date().toISOString() });
     return c.json({ success: true, paymentId, checkoutUrl: session.url });

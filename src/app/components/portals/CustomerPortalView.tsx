@@ -1607,7 +1607,10 @@ export default function CustomerPortalView() {
                               const token = session?.access_token || publicAnonKey;
                               const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/payments/create-checkout`, {
                                 method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ amount: Math.round((quote.amount || quote.total || 0) * 0.30), description: `30% Deposit — ${quote.title || 'Project'}`, clientName: user?.email, clientEmail: user?.email, workRequestId: quote.workRequestId }),
+                                // The deposit is NOT computed here any more. The server prices it from
+                                // the stored quote — see quoteDepositPrice.ts. This used to post
+                                // `quote.total * 0.30`, which the route charged as given.
+                                body: JSON.stringify({ quoteId: quote.id, description: `Deposit — ${quote.title || 'Project'}`, clientName: user?.email, clientEmail: user?.email, workRequestId: quote.workRequestId }),
                               });
                               const data = await res.json();
                               if (data.checkoutUrl) window.location.assign(data.checkoutUrl);

@@ -1156,7 +1156,19 @@ export default function CustomerQuoteApproval() {
                   method: 'POST',
                   headers: await authedHeadersOrAnon(publicAnonKey),
                   body: JSON.stringify({
-                    amount: depositAmount,
+                    /*
+                     * The FIGURE is no longer sent. The server prices the
+                     * deposit from the stored quote — `quoteDepositPrice.ts`,
+                     * preferring the payment schedule the customer was shown
+                     * over a percentage of a total.
+                     *
+                     * This posted `depositAmount` and the route charged it as
+                     * given, because there was no invoice to check it against.
+                     * The figure on the button is still `depositAmount`, which
+                     * is computed from the same schedule, so the two agree —
+                     * but the server no longer takes anybody's word for it.
+                     */
+                    quoteId: tokenRecord?.quoteId || quote.id,
                     description: `${Math.round(DEPOSIT_RATE * 100)}% Deposit — ${quote.projectTitle || 'your project'}`,
                     clientName: quote.customerName,
                     clientEmail: quote.customerEmail,
