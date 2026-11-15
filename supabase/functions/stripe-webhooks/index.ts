@@ -125,6 +125,49 @@ async function verifiedEvent(
 }
 
 /**
+ * Where the request says it came from, and how much of that to believe.
+ *
+ * MEASURED BEFORE BEING TRUSTED, WHICH IS THE WHOLE POINT OF THIS HELPER
+ *
+ * An IP allowlist is only as good as the IP it reads. This function sits behind
+ * Supabase's infrastructure, so there is no socket address to read — the
+ * client address arrives in a forwarded header, and a forwarded header is a
+ * claim made by whoever sent it unless the platform ahead of us rewrites it.
+ *
+ * `x-forwarded-for` is a chain, appended to left-to-right: the ORIGINAL client
+ * is first and each proxy adds itself. So the FIRST entry is the one an
+ * attacker controls — they simply send the header themselves — and the LAST
+ * entry is the hop nearest us, which we may be able to trust. Reading the
+ * first entry is the classic way an IP allowlist becomes decorative.
+ *
+ * This returns the whole chain rather than a guess, so the allowlist below can
+ * be built on something measured and the log can show what was actually seen
+ * when a delivery is wrongly rejected.
+ */
+function forwardingChain(req: Request): string[] {
+  const xff = req.headers.get('x-forwarded-for') || '';
+  return xff.split(',').map((p) => p.trim()).filter(Boolean);
+}
+
+/** Every header that claims to carry a client address, for diagnosis. */
+function addressHeaders(req: Request): Record<string, string> {
+  const names = [
+    'x-forwarded-for',
+    'x-real-ip',
+    'cf-connecting-ip',
+    'true-client-ip',
+    'x-client-info',
+    'fly-client-ip',
+  ];
+  const out: Record<string, string> = {};
+  for (const name of names) {
+    const value = req.headers.get(name);
+    if (value) out[name] = value;
+  }
+  return out;
+}
+
+/**
  * Processing each event once, and only once.
  *
  * WHY A VERIFIED SIGNATURE IS NOT ENOUGH ON ITS OWN
@@ -685,6 +728,44 @@ Deno.serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } });
   }
 
+  /**
+   * A NON-GUESSABLE URL, WHEN ONE IS CONFIGURED.
+   *
+   * The function's own address is derivable from its name, so anybody who
+   * guesses "stripe-webhooks" has found the door. The signature is what keeps
+   * them out, and it does — but there is no reason to let a stranger reach the
+   * verifier at all, and a path they cannot guess costs nothing.
+   *
+   * Set STRIPE_WEBHOOK_PATH_SECRET and register the endpoint in Stripe as
+   *
+   *     .../functions/v1/stripe-webhooks/<that value>
+   *
+   * UNSET MEANS OFF, DELIBERATELY. Turning this on by default would silently
+   * reject every delivery the moment it shipped, because the endpoint
+   * registered in Stripe would no longer match. So it stays inert until
+   * somebody sets the secret AND updates the endpoint — in that order.
+   *
+   * Compared in constant time. A length check first would leak the length,
+   * which is why the comparison runs over a fixed span.
+   */
+  const pathSecret = (Deno.env.get('STRIPE_WEBHOOK_PATH_SECRET') || '').trim();
+  if (pathSecret) {
+    const supplied = new URL(req.url).pathname.split('/').filter(Boolean).pop() || '';
+    const a = new TextEncoder().encode(supplied.padEnd(64, '\0').slice(0, 64));
+    const b = new TextEncoder().encode(pathSecret.padEnd(64, '\0').slice(0, 64));
+    let diff = supplied.length === pathSecret.length ? 0 : 1;
+    for (let i = 0; i < 64; i++) diff |= a[i] ^ b[i];
+    if (diff !== 0) {
+      /*
+       * 404, not 403. A wrong path should look like nothing is there, because
+       * "forbidden" confirms that something is — and the whole purpose of a
+       * secret path is to not confirm that.
+       */
+      console.log('[stripe-webhooks] rejected: path secret did not match.');
+      return new Response('Not found', { status: 404 });
+    }
+  }
+
   const raw = await req.text();
   const header = req.headers.get('stripe-signature') || '';
 
@@ -755,7 +836,18 @@ Deno.serve(async (req) => {
    * forged delivery should not be queued for redelivery.
    */
   if (!event) {
-    console.log(`[stripe-webhooks] REJECTED: signature did not verify (${lastError})`);
+    /*
+     * The forwarding chain is logged on rejection, not on success.
+     *
+     * It is the only way to answer "why was a real delivery refused" without
+     * guessing, and it is also how the IP allowlist below was calibrated —
+     * what this platform actually puts in `x-forwarded-for` had to be measured
+     * rather than assumed before anything was allowed to depend on it.
+     */
+    console.log(
+      `[stripe-webhooks] REJECTED: signature did not verify (${lastError}). `
+      + `Seen from: ${JSON.stringify(addressHeaders(req))}`,
+    );
     return new Response(JSON.stringify({ received: false, error: 'Invalid signature.' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
