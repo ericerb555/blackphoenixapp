@@ -23,6 +23,7 @@
     "precommit": "node scripts/precommit.mjs",
     "build:server": "node scripts/build-server.mjs",
     "session": "node scripts/session-worktree.mjs",
+    "deploy:webhooks": "node scripts/predeploy-check.mjs && supabase functions deploy stripe-webhooks --project-ref plzsvzwwcdopnawtiwzm",
     "deploy:server": "node scripts/predeploy-check.mjs && node scripts/build-task-digest.mjs && node scripts/build-server.mjs && supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm",
     "build:digest": "node scripts/build-task-digest.mjs"
   },

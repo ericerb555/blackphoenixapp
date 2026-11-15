@@ -39,7 +39,15 @@
  */
 import { execSync } from 'node:child_process';
 
-const SERVER_DIR = 'supabase/functions/server/';
+/*
+ * Every deployed function directory, not just the main one.
+ *
+ * It watched only `server/` at first, which left `stripe-webhooks/` — the one
+ * route on the platform running with verify_jwt = false — able to be deployed
+ * half-written by anybody. Narrowing a guard to the directory that happened to
+ * burn you once is how the same accident finds a different door.
+ */
+const WATCHED = 'supabase/functions/';
 const GENERATED = 'supabase/functions/server/taskDigest.generated.ts';
 
 const run = (cmd) => {
@@ -54,18 +62,18 @@ const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const amber = (s) => `\x1b[33m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
-/* ── 1. is anybody mid-edit in the server? ───────────────────────────────── */
+/* ── 1. is anybody mid-edit in a deployed function? ─────────────────────── */
 
-const dirty = run('git status --porcelain -- supabase/functions/server')
+const dirty = run(`git status --porcelain -- ${WATCHED}`)
   .split('\n')
   .map((line) => line.trim())
   .filter(Boolean)
   // "XY path" — take the path, and keep renames' destination.
   .map((line) => line.replace(/^\S+\s+/, '').split(' -> ').pop())
-  .filter((path) => path && path.startsWith(SERVER_DIR) && path !== GENERATED);
+  .filter((path) => path && path.startsWith(WATCHED) && path !== GENERATED);
 
 if (dirty.length && !process.env.DEPLOY_ALLOW_DIRTY) {
-  console.error(red('\n  Not deploying: the server has uncommitted changes.\n'));
+  console.error(red('\n  Not deploying: a deployed function has uncommitted changes.\n'));
   for (const path of dirty) console.error(`    ${path}`);
   console.error(dim(`
   A deploy builds from the working tree, so these would go to production
@@ -91,5 +99,5 @@ if (unpushed && unpushed !== '0') {
 }
 
 if (dirty.length) {
-  console.error(amber('  Deploying with a dirty server tree because DEPLOY_ALLOW_DIRTY is set.\n'));
+  console.error(amber('  Deploying with uncommitted function changes because DEPLOY_ALLOW_DIRTY is set.\n'));
 }

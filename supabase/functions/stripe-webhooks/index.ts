@@ -19,6 +19,7 @@
  *   STRIPE_WEBHOOK_SECRET           — legacy single-account fallback
  */
 import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
+import Stripe from 'npm:stripe@17';
 
 const KV_TABLE = 'kv_store_57095a78';
 
@@ -43,44 +44,156 @@ async function kvByPrefix(prefix: string): Promise<any[]> {
 }
 
 /**
- * Verify Stripe's signature header.
+ * Verify with STRIPE'S OWN VERIFIER, and take the event back from the thing
+ * that verified it.
  *
- * Signature is HMAC-SHA256 over "<timestamp>.<raw body>". The raw body must be
- * the exact bytes Stripe sent — parsing and re-serialising changes them and the
- * signature will never match.
+ * WHAT THIS REPLACED, AND THE BUG THAT MADE IT WORTH REPLACING
  *
- * The timestamp is checked against a five-minute window so a captured delivery
- * cannot be replayed indefinitely, and the comparison is constant-time so a
- * wrong signature leaks nothing about how wrong it was.
+ * There was a hand-rolled HMAC check here. It was careful — raw bytes, a
+ * five-minute window, a constant-time compare — and it had one flaw that only
+ * bites at the worst possible moment:
+ *
+ *     const parts = Object.fromEntries(header.split(',').map(...))
+ *
+ * The `stripe-signature` header may carry MORE THAN ONE `v1=` signature.
+ * Stripe sends several while a signing secret is being rotated, so that both
+ * the old and the new secret verify during the changeover. `Object.fromEntries`
+ * keeps only the LAST value for a repeated key — so if the signature matching
+ * our secret was not the last in the header, verification failed and a
+ * legitimate event was rejected with a 400. Stripe would retry, fail again and
+ * eventually give up, and the outage would land in the middle of a secret
+ * rotation, which is exactly when nobody wants to be debugging this.
+ *
+ * Measured on 2026-11-15 against the real SDK: a header carrying our signature
+ * first and another account's last verifies correctly through
+ * `constructEventAsync`, and the old parser kept the other account's.
+ *
+ * IT ALSO PARSES, WHICH CLOSES A SMALLER GAP
+ *
+ * The old flow verified the raw string and then separately ran `JSON.parse` on
+ * it. Two passes over the same bytes is one chance for them to diverge. The
+ * event now comes back FROM the verifier, so what gets processed is exactly
+ * what was validated, and an unparseable body fails verification rather than
+ * passing it and failing later.
+ *
+ * WHY THE API KEY HERE IS A PLACEHOLDER
+ *
+ * Verification is local HMAC and makes no API call, so no key is needed for
+ * it. A real one would be actively misleading: two separate Stripe accounts
+ * deliver to this endpoint, so no single secret key belongs to all of it. One
+ * instance verifies both because the signing secret is passed per call.
  */
-async function verifySignature(raw: string, header: string, secret: string): Promise<boolean> {
+
+const stripeVerifier = new Stripe('sk_signature_verification_only', {
+  apiVersion: '2024-12-18.acacia',
+  httpClient: Stripe.createFetchHttpClient(),
+});
+
+/**
+ * Deno has no synchronous HMAC, so the async verifier and the SubtleCrypto
+ * provider are both required. The sync `constructEvent` throws here.
+ */
+const cryptoProvider = Stripe.createSubtleCryptoProvider();
+
+/** The same five minutes the hand-rolled check allowed, and Stripe's default. */
+const TOLERANCE_SECONDS = 300;
+
+/**
+ * The verified event, or the reason this secret was not the one.
+ *
+ * Returns rather than throws because the caller tries each configured secret in
+ * turn — a mismatch is the expected answer for the wrong account, not an error.
+ * A genuinely malformed or forged delivery fails every secret and is rejected.
+ */
+async function verifiedEvent(
+  raw: string,
+  header: string,
+  secret: string,
+): Promise<{ event: any } | { error: string }> {
   try {
-    const parts = Object.fromEntries(
-      header.split(',').map((p) => p.trim().split('=') as [string, string]),
+    const event = await stripeVerifier.webhooks.constructEventAsync(
+      raw,
+      header,
+      secret,
+      TOLERANCE_SECONDS,
+      cryptoProvider,
     );
-    const timestamp = parts['t'];
-    const expected = parts['v1'];
-    if (!timestamp || !expected) return false;
+    return { event };
+  } catch (err: any) {
+    return { error: String(err?.message || err).slice(0, 200) };
+  }
+}
 
-    const age = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
-    if (!Number.isFinite(age) || age > 300) return false;
+/**
+ * Processing each event once, and only once.
+ *
+ * WHY A VERIFIED SIGNATURE IS NOT ENOUGH ON ITS OWN
+ *
+ * Stripe delivers at least once, not exactly once. The same event legitimately
+ * arrives twice when a delivery times out, when a handler returns 500 and the
+ * retry succeeds, or when somebody clicks resend in the dashboard. And a
+ * captured delivery can be replayed verbatim inside the five-minute tolerance
+ * window — the signature is still perfectly valid, because it IS Stripe's
+ * signature. Verification proves the event came from Stripe; it says nothing
+ * about whether we already acted on it.
+ *
+ * Acting twice is not harmless here. These handlers mark invoices paid, grant
+ * plan access, create store orders and file chargebacks.
+ *
+ * THE CLAIM IS AN INSERT, NOT A READ-THEN-WRITE
+ *
+ * `key` is unique, so an INSERT either succeeds — we are the first and only
+ * processor of this event — or fails with a unique violation, which is a
+ * definite "somebody already has this". A check-then-set would leave a window
+ * between the two in which a concurrent redelivery passes the same check, and
+ * two deliveries arriving together is exactly the case this exists for.
+ *
+ * A FAILED HANDLER RELEASES ITS CLAIM
+ *
+ * This is the part that matters most. If handling throws, the claim is
+ * deleted before the 500 goes back, so Stripe's retry is processed rather than
+ * dismissed as a duplicate. Without that, one transient database blip would
+ * turn a real payment into an event that is permanently "already handled" and
+ * silently never applied — strictly worse than the double-processing this
+ * guards against.
+ */
+const EVENT_KEY = (id: string) => `stripe_event:${id}`;
 
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${raw}`));
-    const actual = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+type ClaimResult = 'claimed' | 'duplicate' | 'unavailable';
 
-    if (actual.length !== expected.length) return false;
-    let diff = 0;
-    for (let i = 0; i < actual.length; i++) diff |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
-    return diff === 0;
-  } catch {
-    return false;
+async function claimEvent(event: any, verifiedBy: string | null): Promise<ClaimResult> {
+  const id = String(event?.id || '').trim();
+  // No id means we cannot dedupe it. Stripe always sends one; a body without
+  // one did not come from Stripe, and it has already failed verification.
+  if (!id) return 'unavailable';
+
+  const { error } = await db.from(KV_TABLE).insert({
+    key: EVENT_KEY(id),
+    value: {
+      id,
+      type: String(event?.type || ''),
+      livemode: event?.livemode === true,
+      verifiedBy,
+      receivedAt: new Date().toISOString(),
+    },
+  });
+
+  if (!error) return 'claimed';
+  // 23505 is Postgres' unique violation: the row was already there.
+  if (String((error as any)?.code) === '23505') return 'duplicate';
+  console.log(`[stripe-webhooks] could not record event ${id}: ${error.message}`);
+  return 'unavailable';
+}
+
+/** Give the claim back so a retry is not mistaken for a duplicate. */
+async function releaseEvent(event: any): Promise<void> {
+  const id = String(event?.id || '').trim();
+  if (!id) return;
+  try {
+    await db.from(KV_TABLE).delete().eq('key', EVENT_KEY(id));
+  } catch (err: any) {
+    // Loud, because the consequence is a real event that can never be retried.
+    console.log(`[stripe-webhooks] FAILED to release claim on ${id}: ${err?.message || err}`);
   }
 }
 
@@ -610,25 +723,89 @@ Deno.serve(async (req) => {
    * answer to "whose chargeback is this". Guessing instead would file one
    * business's dispute, and one business's evidence, against another's money.
    */
-  let verified = false;
+  let event: any = null;
   let verifiedBy: string | null = null;
+  /*
+   * Kept for the log only, and it is the LAST failure that is worth printing.
+   * Every secret is tried, so earlier failures mean "not this account" and say
+   * nothing useful. What somebody debugging a rejected delivery needs is
+   * Stripe's own description — "No signatures found matching the expected
+   * signature" versus "Timestamp outside the tolerance zone" are different
+   * problems with different fixes.
+   */
+  let lastError = 'no signing secret matched';
+
   for (const { name, secret } of secrets) {
-    if (await verifySignature(raw, header, secret)) { verified = true; verifiedBy = name; break; }
+    const result = await verifiedEvent(raw, header, secret);
+    if ('event' in result) { event = result.event; verifiedBy = name; break; }
+    lastError = result.error;
   }
-  if (!verified) {
-    console.log('[stripe-webhooks] signature verification failed.');
+
+  /*
+   * REJECTED IMMEDIATELY, BEFORE ANYTHING IS READ OR ACTED ON.
+   *
+   * Nothing below this line runs for an unsigned, wrongly signed, replayed or
+   * unparseable delivery. That is the entire purpose of this function: it is
+   * the one route on the platform running with verify_jwt = false, so the
+   * signature is the ONLY thing between a stranger who finds this URL and an
+   * event that marks an invoice paid or a subscription active.
+   *
+   * 400 rather than 500, deliberately. Stripe retries a 5xx with backoff,
+   * which is right for "we broke" and wrong for "that was not from you" — a
+   * forged delivery should not be queued for redelivery.
+   */
+  if (!event) {
+    console.log(`[stripe-webhooks] REJECTED: signature did not verify (${lastError})`);
     return new Response(JSON.stringify({ received: false, error: 'Invalid signature.' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  let event: any;
-  try { event = JSON.parse(raw); } catch {
-    return new Response(JSON.stringify({ received: false, error: 'Invalid payload.' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  /*
+   * Claimed before anything is acted on, and after the signature is proven.
+   *
+   * In that order for a reason: claiming first would let an unsigned stranger
+   * fill the table with whatever ids they liked, and — far worse — poison it,
+   * so that the real Stripe delivery of that id later arrived and was dismissed
+   * as a duplicate. A forged event must not be able to suppress a genuine one.
+   */
+  const claim = await claimEvent(event, verifiedBy);
+
+  if (claim === 'duplicate') {
+    /*
+     * 200, and nothing done.
+     *
+     * A duplicate is not an error — it is Stripe's at-least-once delivery
+     * behaving exactly as documented, or a replay that this check exists to
+     * absorb. Returning non-2xx would make Stripe retry something we have
+     * already handled, forever.
+     */
+    console.log(`[stripe-webhooks] duplicate ${event.type} (${event.id}); already handled, ignoring.`);
+    return new Response(JSON.stringify({
+      received: true,
+      duplicate: true,
+      id: event.id,
+      type: event.type,
+      applied: false,
+      note: 'This event was already processed. Nothing was done again.',
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (claim === 'unavailable') {
+    /*
+     * We could not record the event, so we will not process it.
+     *
+     * Failing CLOSED on purpose. Processing without being able to dedupe risks
+     * applying the same payment twice; refusing returns 500, Stripe retries
+     * with backoff, and the event is applied once when the store recovers.
+     * A delay is recoverable. A double-applied payment is somebody's money.
+     */
+    console.log(`[stripe-webhooks] cannot record ${event.id}; refusing so Stripe retries.`);
+    return new Response(JSON.stringify({
+      received: false,
+      error: 'Could not record the event for idempotency; retry expected.',
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 
   /**
@@ -856,6 +1033,16 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
+    /*
+     * Give the claim back BEFORE answering, or the retry is dismissed.
+     *
+     * Stripe retries a 500, and that retry must be processed rather than met
+     * with "already handled". Holding the claim through a failure would turn
+     * one transient error into a payment event that is permanently recorded as
+     * done and never actually applied — quieter than the error, and much worse.
+     */
+    await releaseEvent(event);
+
     // Return 500 so Stripe retries — swallowing the error would silently drop
     // a real payment event.
     console.log('[stripe-webhooks] handler error:', error?.message || error);
