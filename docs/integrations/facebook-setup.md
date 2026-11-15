@@ -32,9 +32,32 @@ the internal destination and this file's own header said it until
 2. **Add the Facebook Login product.** Left sidebar → *Add Product* →
    *Facebook Login* → *Set Up*. Web is fine; the quickstart can be skipped.
 
+   Newer consoles have no *Add Product* at all: Dashboard → *Use cases*
+   → **Authentication and account creation** → *Customize*. Same product,
+   different doorway.
+
 3. **Facebook Login → Settings.** Put the URL above into **Valid OAuth
    Redirect URIs** and save. Leave *Client OAuth Login* and *Web OAuth Login*
    on. This is the step whose absence produces "URL Blocked".
+
+   ### If you cannot find that field
+
+   Eric, 2026-11-15: *"i cant find the redirect in fb"*. In order of
+   likelihood:
+
+   - **Step 2 never happened.** The field does not exist until Facebook
+     Login is added. No *Facebook Login* in the sidebar means the field is
+     nowhere at all — go back to step 2.
+   - **Go straight at it by URL.** Open your app so the address bar reads
+     `developers.facebook.com/apps/<APP_ID>/...`, then replace everything
+     after the App ID with `/fb-login/settings/`. That page *is* the field,
+     whatever the sidebar happens to be calling itself this quarter.
+   - **Newer consoles file it under Use cases.** *Use cases* → *Authentication
+     and account creation* → *Customize* → *Settings*. The redirect field
+     is on that settings panel, not on the use-case summary page.
+   - **Do not confuse it with** *App settings → Basic*, which has **App
+     domains** and **Site URL**. Different fields; filling those in does
+     nothing for OAuth.
 
 4. **Check the App ID and secret match ours.** Settings → Basic. They must be
    byte-identical to the Supabase secrets `FACEBOOK_APP_ID` and
