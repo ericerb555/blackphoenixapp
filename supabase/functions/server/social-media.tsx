@@ -16,8 +16,22 @@
  * TikTok returns a clear "requires app setup" response until its app is configured.
  *
  * SECRETS USED: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, OPENAI_API_KEY.
- * The Facebook app MUST whitelist this redirect URI:
- *   {SUPABASE_URL}/functions/v1/make-server-3eae23a6/social/callback/facebook
+ *
+ * THE REDIRECT URI THE FACEBOOK APP MUST WHITELIST:
+ *   {SUPABASE_URL}/functions/v1/social-oauth/facebook
+ *
+ * This said `.../make-server-3eae23a6/social/callback/facebook` until
+ * 2026-11-15, and that is the INTERNAL destination, not the redirect URI.
+ * Facebook never sees it: it redirects to the `social-oauth` function —
+ * deployed with `verify_jwt = false`, because a browser coming back from
+ * Facebook carries no Supabase token — and that function forwards to
+ * `/social/callback/:platform` with the anon key attached.
+ *
+ * Whitelisting the old string meant Facebook refusing the redirect, which
+ * presents as "URL Blocked" on their consent screen and as nothing at all in
+ * our logs: the connect call returns 200 with an authUrl and no callback ever
+ * arrives. `fbRedirectUri` below is the authority, and `/social/platforms`
+ * serves the exact string to paste — the UI has always shown the right one.
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -28,7 +42,33 @@ import {
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const PREFIX = "/make-server-3eae23a6";
-const GRAPH = "https://graph.facebook.com/v18.0";
+
+/**
+ * WHICH GRAPH API VERSION, AND WHY IT IS NOT WRITTEN DOWN HERE.
+ *
+ * `v18.0` was hardcoded in three places: the Graph base, the OAuth dialog
+ * URL and the video upload host. Meta ships a version roughly quarterly and
+ * RETIRES each one about two years after release. v18.0 came out in September
+ * 2023, so it has been past its sunset for over a year — and a retired
+ * version does not degrade, it errors. On the dialog URL that means Facebook
+ * refuses the login before the user sees a consent screen, which looks
+ * exactly like "it is not letting me connect".
+ *
+ * So the version is no longer a literal. Unset — the default — means the
+ * UNVERSIONED endpoints, which Meta resolves to whatever the app itself is
+ * configured for. That cannot go stale on its own, which a date-stamped
+ * string in a source file always eventually does.
+ *
+ * Pin it only to reproduce something:
+ *   supabase secrets set FACEBOOK_API_VERSION=v21.0
+ */
+const FB_API_VERSION = String(Deno.env.get("FACEBOOK_API_VERSION") ?? "").trim();
+/** `/v21.0` when pinned, empty when not. */
+const FB_V = FB_API_VERSION ? `/${FB_API_VERSION.replace(/^\/+/, "")}` : "";
+
+const GRAPH = `https://graph.facebook.com${FB_V}`;
+const FB_OAUTH_DIALOG = `https://www.facebook.com${FB_V}/dialog/oauth`;
+const FB_VIDEO_UPLOAD = `https://rupload.facebook.com/video-upload${FB_V}`;
 
 const socialRouter = new Hono();
 
@@ -227,7 +267,7 @@ socialRouter.post(`${PREFIX}/social/connect/:platform`, async (c) => {
         "business_management",
       ].join(",");
       const authUrl =
-        `https://www.facebook.com/v18.0/dialog/oauth` +
+        FB_OAUTH_DIALOG +
         `?client_id=${FB_APP_ID}` +
         `&redirect_uri=${encodeURIComponent(fbRedirectUri("facebook"))}` +
         `&scope=${encodeURIComponent(scopes)}` +
@@ -1120,7 +1160,7 @@ async function publishReelToFacebook(account: SocialAccount, content: string, vi
 
   // Facebook fetches the file itself from the URL we hand it, which is why the
   // rendered video has to live somewhere reachable without our credentials.
-  const uploadRes = await fetch(`https://rupload.facebook.com/video-upload/v18.0/${start.video_id}`, {
+  const uploadRes = await fetch(`${FB_VIDEO_UPLOAD}/${start.video_id}`, {
     method: "POST",
     headers: {
       Authorization: `OAuth ${token}`,
