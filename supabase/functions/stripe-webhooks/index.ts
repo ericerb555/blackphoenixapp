@@ -168,6 +168,86 @@ function addressHeaders(req: Request): Record<string, string> {
 }
 
 /**
+ * Stripe's own published webhook addresses, and whether this delivery came
+ * from one.
+ *
+ * WHICH HEADER, AND WHY THAT ONE — MEASURED, NOT ASSUMED
+ *
+ * Probed from a known address on 2026-11-15:
+ *
+ *   x-forwarded-for   "70.109.187.2,70.109.187.2, 13.248.108.72"
+ *   cf-connecting-ip  "70.109.187.2"          <- exactly the real caller
+ *
+ * A request that tried to SET `x-forwarded-for` was logged without the forged
+ * value — the platform overwrites what the client claims. And a request that
+ * tried to set `cf-connecting-ip` never reached the function at all: the edge
+ * answered 403 on its own. So `cf-connecting-ip` is written by Cloudflare,
+ * cannot be overridden by the caller, and is the address to trust. The first
+ * entry of `x-forwarded-for` is the same value and is used only as a fallback.
+ *
+ * Had the probe come back the other way — the forged value arriving intact —
+ * this whole control would have been decorative, and the honest thing would
+ * have been to say so rather than ship it.
+ *
+ * THE LIST IS FETCHED, CACHED, AND NEVER THE ONLY GUARD
+ *
+ * Stripe publishes the addresses and says plainly that they change, which is
+ * why they are fetched rather than pasted into this file, cached for a day so
+ * a request never waits on stripe.com, and why the signature remains the
+ * authoritative check. Pasting fifteen addresses into source is signing up to
+ * an outage on the day Stripe adds a sixteenth.
+ *
+ * FAILS OPEN WHEN THE LIST IS UNAVAILABLE, AND THAT IS DELIBERATE
+ *
+ * If the list cannot be fetched and nothing is cached, the delivery is allowed
+ * through and the fact is logged loudly. The signature still has to verify, so
+ * nothing unsigned gets in either way — and the alternative is dropping real
+ * payment events because stripe.com was briefly unreachable. An IP allowlist
+ * is a second lock on the door, not the door.
+ *
+ * OPT-IN, for the same reason the path secret is: switching it on by default
+ * could silently drop live events. Set STRIPE_WEBHOOK_IP_ALLOWLIST=on.
+ */
+const STRIPE_IPS_URL = 'https://stripe.com/files/ips/ips_webhooks.json';
+const IP_CACHE_KEY = 'stripe_webhook_ips';
+const IP_CACHE_MS = 24 * 60 * 60 * 1000;
+
+/** The caller's address, from the header that cannot be forged. */
+function callerIp(req: Request): string {
+  const cf = (req.headers.get('cf-connecting-ip') || '').trim();
+  if (cf) return cf;
+  // Fallback only. Measured to hold the same value, and the platform rewrites
+  // whatever the caller put there.
+  return forwardingChain(req)[0] || '';
+}
+
+async function stripeWebhookIps(): Promise<{ ips: string[]; source: 'fresh' | 'cached' | 'none' }> {
+  const cached = await kvGet(IP_CACHE_KEY).catch(() => null);
+  const fresh = cached?.fetchedAt
+    && Date.now() - Date.parse(cached.fetchedAt) < IP_CACHE_MS
+    && Array.isArray(cached.ips)
+    && cached.ips.length > 0;
+  if (fresh) return { ips: cached.ips, source: 'cached' };
+
+  try {
+    const res = await fetch(STRIPE_IPS_URL, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`stripe.com answered ${res.status}`);
+    const body = await res.json();
+    const ips = Array.isArray(body?.WEBHOOKS) ? body.WEBHOOKS.map(String) : [];
+    if (!ips.length) throw new Error('the published list was empty');
+    await kvSet(IP_CACHE_KEY, { ips, fetchedAt: new Date().toISOString() });
+    return { ips, source: 'fresh' };
+  } catch (err: any) {
+    console.log(`[stripe-webhooks] could not refresh Stripe's IP list: ${err?.message || err}`);
+    // A stale cache is far better than no list. Only a cold cache gives up.
+    if (Array.isArray(cached?.ips) && cached.ips.length) {
+      return { ips: cached.ips, source: 'cached' };
+    }
+    return { ips: [], source: 'none' };
+  }
+}
+
+/**
  * Processing each event once, and only once.
  *
  * WHY A VERIFIED SIGNATURE IS NOT ENOUGH ON ITS OWN
@@ -762,6 +842,58 @@ Deno.serve(async (req) => {
        * secret path is to not confirm that.
        */
       console.log('[stripe-webhooks] rejected: path secret did not match.');
+      return new Response('Not found', { status: 404 });
+    }
+  }
+
+  /**
+   * THE IP ALLOWLIST, when switched on.
+   *
+   * Before the body is read, because there is no reason to read a megabyte
+   * from somebody who is not Stripe. After the path check, because a wrong
+   * path should look like nothing exists rather than like something guarded.
+   */
+  const allowlistMode = (Deno.env.get('STRIPE_WEBHOOK_IP_ALLOWLIST') || '').trim().toLowerCase();
+
+  /*
+   * THREE MODES, AND `log` IS THE ONE TO USE FIRST.
+   *
+   *   unset / off   no check at all. The default.
+   *   log           compare and report, never reject. Turn this on, wait for a
+   *                 real delivery, read the line it writes.
+   *   on            reject anything not on Stripe's published list.
+   *
+   * The middle mode exists because enforcing an allowlist you have never seen
+   * genuine traffic through is how a payment event gets silently 404'd. The
+   * header to trust was measured, but what Stripe's own deliveries look like
+   * ARRIVING HERE has not been — nobody has sent one yet. `log` answers that
+   * from one real event, and then `on` is a safe flip rather than a gamble.
+   */
+  if (allowlistMode === 'log' || allowlistMode === 'on') {
+    const ip = callerIp(req);
+    const { ips, source } = await stripeWebhookIps();
+    const known = Boolean(ip) && ips.includes(ip);
+
+    if (allowlistMode === 'log') {
+      console.log(
+        `[stripe-webhooks] IP CHECK (observe only): caller=${ip || 'unknown'} `
+        + `onStripeList=${known} list=${ips.length} (${source}). Nothing rejected.`,
+      );
+    } else if (source === 'none') {
+      // Fail open, loudly. The signature still has to verify.
+      console.log(
+        `[stripe-webhooks] IP allowlist ON but no list available; allowing ${ip} `
+        + 'on the signature alone.',
+      );
+    } else if (!ip) {
+      console.log('[stripe-webhooks] IP allowlist ON but no caller address seen; allowing on the signature alone.');
+    } else if (!known) {
+      /*
+       * 404 rather than 403, matching the path secret above: a stranger
+       * learns that there is nothing here, not that there is something they
+       * are not allowed to touch.
+       */
+      console.log(`[stripe-webhooks] REJECTED: ${ip} is not one of Stripe's ${ips.length} published addresses (${source}).`);
       return new Response('Not found', { status: 404 });
     }
   }
