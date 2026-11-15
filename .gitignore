@@ -26,3 +26,7 @@ supabase/functions/server-dist/
 
 # Per-machine Claude Code permissions. Local only; never shared.
 .claude/settings.local.json
+
+# Git worktrees Claude Code checks out in-tree. A whole second copy of the repo;
+# a bare `git add -A` would otherwise commit it.
+.claude/worktrees/
