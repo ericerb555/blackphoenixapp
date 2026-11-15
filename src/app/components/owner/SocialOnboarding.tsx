@@ -239,6 +239,52 @@ export default function SocialOnboarding() {
         </p>
       )}
 
+      {/*
+        THE CALLBACK URL STAYS VISIBLE ONCE THE SECRETS ARE SET.
+        Eric: "trying to connect facebook but its not allowing me to?" then
+        "not sure i am doing the facebook side right".
+
+        Setting the two secrets moves a platform from `waiting` to `ready`,
+        and this block — which holds the one string the platform's own console
+        needs — only rendered for `waiting`. So the moment somebody finished
+        the Supabase half, the app stopped telling them about the OTHER half,
+        and left a Connect button that the provider refuses.
+
+        Whitelisting the redirect URI is a separate step from issuing the
+        keys, and it is the step that fails silently: our side returns 200
+        with a login URL, the provider blocks the redirect, and nothing
+        reaches our logs at all.
+      */}
+      {state === 'ready' && p.auth === 'oauth' && (
+        <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-2">
+          <p className="text-[11px] text-amber-200/90 flex items-start gap-1.5">
+            <Info className="w-3 h-3 flex-shrink-0 mt-0.5" />
+            <span>
+              Before Connect will work, this exact URL has to be whitelisted as an OAuth
+              redirect in {p.label}&apos;s console. If it is missing, {p.label} blocks the
+              login and we never hear about it.
+            </span>
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="text-[11px] text-gray-200 bg-[#111] border border-[#2A2A2A] rounded px-2 py-1 break-all">
+              {p.redirectUri}
+            </code>
+            <CopyButton value={p.redirectUri} label="callback URL" />
+          </div>
+          {p.setup.console && (
+            <a
+              href={p.setup.console}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-orange-400 hover:text-orange-300"
+            >
+              <ExternalLink className="w-3 h-3" /> Open {p.label}&apos;s console
+            </a>
+          )}
+          <p className="text-[10px] text-gray-500">{p.setup.how}</p>
+        </div>
+      )}
+
       {state === 'waiting' && (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-400">{p.setup.how}</p>
