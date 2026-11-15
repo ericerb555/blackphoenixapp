@@ -92,6 +92,23 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+/**
+ * WHERE THE CONSOLE KEEPS THE FIELD
+ *
+ * Eric, 2026-11-15: *"i cant find the redirect in fb"*. Copying the URL was
+ * never the hard part; finding the box was. Facebook has moved that box
+ * twice and both paths are live depending on when the app was created, so
+ * name both rather than betting on one.
+ */
+function redirectWhere(id: string): string {
+  if (id === 'facebook' || id === 'instagram') {
+    return 'paste into Facebook Login → Settings → Valid OAuth Redirect URIs '
+      + '(newer consoles: Use cases → Authentication and account creation '
+      + '→ Customize → Settings)';
+  }
+  return 'paste as the OAuth redirect URI';
+}
+
 export default function SocialOnboarding() {
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [callbackBase, setCallbackBase] = useState('');
@@ -270,6 +287,7 @@ export default function SocialOnboarding() {
               {p.redirectUri}
             </code>
             <CopyButton value={p.redirectUri} label="callback URL" />
+            <span className="text-[10px] text-gray-500">{redirectWhere(p.id)}</span>
           </div>
           {p.setup.console && (
             <a
@@ -307,7 +325,7 @@ export default function SocialOnboarding() {
                 {p.redirectUri}
               </code>
               <CopyButton value={p.redirectUri} label="callback URL" />
-              <span className="text-[10px] text-gray-500">paste as the OAuth redirect</span>
+              <span className="text-[10px] text-gray-500">{redirectWhere(p.id)}</span>
             </div>
           )}
 
