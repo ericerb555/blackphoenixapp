@@ -32,7 +32,7 @@ import {
   Megaphone, Store, ShoppingCart, Truck, RefreshCw, Filter,
   LayoutDashboard, Network, HardDrive, Cpu, Server, Terminal,
   Camera, Cloud, Wrench, Smartphone,
-  PhoneCall, Trash2, Heart, ShieldCheck,
+  PhoneCall, Trash2, Heart, ShieldCheck, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RoleManagementSystem from '../components/RoleManagementSystem';
@@ -64,6 +64,7 @@ import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import TrashRatesPanel from '../components/owner/TrashRatesPanel';
 import TipsPanel from '../components/owner/TipsPanel';
 import InsurancePanel from '../components/owner/InsurancePanel';
+import RefundsPanel from '../components/owner/RefundsPanel';
 import SentInvitesPanel from '../components/portals/SentInvitesPanel';
 import TierFeatureManager from '../components/TierFeatureManager';
 import * as SupabaseData from '../lib/supabase-data';
@@ -80,7 +81,7 @@ interface OwnersDashboardProps {
   onNavigate?: (page: string) => void;
 }
 
-type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing' | 'trash-rates' | 'tips' | 'insurance' | 'messages';
+type MainTab = 'overview' | 'companies' | 'roles' | 'alerts' | 'review-queue' | 'notifications' | 'transfers' | 'users' | 'settings' | 'financials' | 'ads' | 'modules' | 'access-control' | 'tier-features' | 'plans' | 'on-call-pricing' | 'trash-rates' | 'tips' | 'insurance' | 'refunds' | 'messages';
 
 export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const { user } = useAuth();
@@ -512,6 +513,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
     { id: 'trash-rates' as MainTab, label: 'Junk & Demo Rates', icon: Trash2 },
     { id: 'tips' as MainTab, label: 'Crew Tips', icon: Heart },
     { id: 'insurance' as MainTab, label: 'Insurance', icon: ShieldCheck },
+    { id: 'refunds' as MainTab, label: 'Refunds', icon: RotateCcw },
     { id: 'financials' as MainTab, label: 'Financial Controls', icon: DollarSign },
     { id: 'ads' as MainTab, label: 'Ad Performance', icon: Megaphone },
     { id: 'tier-features' as MainTab, label: 'Tier Features', icon: Layers },
@@ -845,6 +847,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         {activeTab === 'trash-rates' && <TrashRatesPanel />}
         {activeTab === 'tips' && <TipsPanel />}
         {activeTab === 'insurance' && <InsurancePanel />}
+        {activeTab === 'refunds' && <RefundsPanel />}
 
         {/*
           Reels, advertisements and offers submitted by tenants. None of them

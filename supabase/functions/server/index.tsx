@@ -95,6 +95,7 @@ import { trashEstimatorRouter } from "./trash-estimator.tsx";
 import { crewFromJob, readTipAmount, tipRecord } from "./tips.ts";
 import { normalisePhone } from "./staffSms.ts";
 import { signMediaValues } from "./mediaSigning.ts";
+import { invoiceAfterRefund, planRefund, refundableOf } from "./refundMath.ts";
 import designLinksRouter from "./design-links.tsx";
 import designAssistantRouter from "./design-assistant.tsx";
 import authRouter from "./auth.tsx";
@@ -13942,6 +13943,198 @@ app.post('/make-server-3eae23a6/payments/create-checkout', async (c) => {
     if (invoice) await kv.set(`invoice:${invoice.id}`, { ...invoice, paymentId, checkoutSessionId: session.id, status: invoice.status === 'draft' ? 'sent' : invoice.status, updatedAt: new Date().toISOString() });
     return c.json({ success: true, paymentId, checkoutUrl: session.url });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to start secure checkout.' }, 500); }
+});
+
+/**
+ * POST /payments/:id/refund — give back an invoice or deposit payment.
+ *
+ * Eric: "build refunds for invoices and deposits."
+ *
+ * `returns.tsx` already refunds STORE orders well. This is the other half, and
+ * until now there was none: a services payment taken through
+ * `payments/create-checkout` could only be reversed by hand in the Stripe
+ * dashboard, which moved the money and left this platform's records saying the
+ * invoice was still paid.
+ *
+ * FOUR THINGS IT GETS RIGHT ON PURPOSE
+ *
+ * The money goes back on the ACCOUNT THAT TOOK IT, read from the payment's own
+ * `paymentRail`. Refunding a services payment out of the store's Stripe account
+ * would mix two businesses' books, which is the reasoning `returns.tsx` already
+ * records.
+ *
+ * The GRATUITY IS NOT TOUCHED by a partial refund. It was charged as its own
+ * line and it is recorded as owed to named people; taking £20 off what two
+ * people are owed because somebody refunded £50 of a job is not a rounding
+ * decision. `planRefund` holds that rule and is tested.
+ *
+ * An IDEMPOTENCY KEY goes to Stripe, derived from the refund id we minted. A
+ * retried request cannot double-refund, which on this route is somebody's
+ * money twice.
+ *
+ * And a REFUNDED TIP STOPS BEING OWED. If the crew's gratuity is given back,
+ * the tip record is marked refunded rather than left sitting in the "owed to
+ * crew" total on the dashboard.
+ */
+app.post('/make-server-3eae23a6/payments/:id/refund', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrators only.' }, 403);
+
+    const paymentId = c.req.param('id');
+    const payment = await kv.get(`payment:${paymentId}`) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const plan = planRefund(payment, {
+      amount: body?.amount === undefined ? undefined : Number(body.amount),
+      includeTip: body?.includeTip === true,
+    });
+    if (plan.error) return c.json({ success: false, error: plan.error }, 400);
+
+    const intent = String(payment.stripePaymentIntentId || '').trim();
+    if (!intent) {
+      /*
+       * No payment intent means Stripe never confirmed this one to us, so there
+       * is nothing to reverse and guessing would be worse than refusing.
+       */
+      return c.json({
+        success: false,
+        error: 'This payment has no Stripe payment intent recorded, so it cannot be refunded automatically.',
+      }, 409);
+    }
+
+    const refundId = `rfnd_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+    const rail = payment.paymentRail === 'tbpco_ecommerce' ? 'tbpco_ecommerce' : 'services';
+    const envName = rail === 'tbpco_ecommerce'
+      ? 'TBPCO_ECOMMERCE_STRIPE_SECRET_KEY'
+      : 'STRIPE_SECRET_KEY_SERVICES';
+    const key = (Deno.env.get(envName)
+      || (rail === 'tbpco_ecommerce' ? '' : Deno.env.get('STRIPE_SECRET_KEY') || '')).trim();
+    if (!key) {
+      return c.json({
+        success: false,
+        error: `Stripe is not configured for the ${stripeAccountLabel(rail)} account (${envName}).`,
+      }, 503);
+    }
+
+    const res = await fetch('https://api.stripe.com/v1/refunds', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${key}:`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // Our own id, so a retry of this request reaches the same refund
+        // rather than making a second one.
+        'Idempotency-Key': refundId,
+      },
+      body: new URLSearchParams({
+        payment_intent: intent,
+        amount: String(Math.round(plan.total * 100)),
+        ...(body?.reason === 'requested_by_customer' ? { reason: 'requested_by_customer' } : {}),
+      }).toString(),
+    });
+    const stripePayload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = stripePayload?.error?.message || `Stripe refused the refund (${res.status}).`;
+      console.log(`[refunds] Stripe refused ${refundId} on ${paymentId}: ${message}`);
+      return c.json({ success: false, error: message }, 502);
+    }
+
+    const now = new Date().toISOString();
+    const record = {
+      id: refundId,
+      paymentId,
+      invoiceId: payment.invoiceId || null,
+      principal: plan.principal,
+      tip: plan.tip,
+      total: plan.total,
+      rail,
+      stripeRefundId: stripePayload?.id || null,
+      reason: String(body?.reason || '').slice(0, 300) || null,
+      note: String(body?.note || '').slice(0, 500) || null,
+      refundedBy: user.email,
+      refundedAt: now,
+    };
+    await kv.set(`refund:${refundId}`, record);
+
+    // Recorded on the payment too, because `refundableOf` reads it to stop the
+    // same money going back twice.
+    const refunds = Array.isArray(payment.refunds) ? payment.refunds : [];
+    refunds.push({ id: refundId, principal: plan.principal, tip: plan.tip, at: now });
+    const refundedTotal = Math.round(
+      refunds.reduce((s: number, r: any) => s + (Number(r.principal) || 0) + (Number(r.tip) || 0), 0) * 100,
+    ) / 100;
+    await kv.set(`payment:${paymentId}`, {
+      ...payment, refunds, refundedTotal, updatedAt: now,
+    });
+
+    /* ── reopen the invoice, by the principal only ───────────────────────── */
+    let invoice = null;
+    if (payment.invoiceId) {
+      const current = await kv.get(`invoice:${payment.invoiceId}`) as any;
+      const patch = invoiceAfterRefund(current, plan.principal);
+      if (current && patch) {
+        invoice = { ...current, ...patch, updatedAt: now };
+        await kv.set(`invoice:${invoice.id}`, invoice);
+      }
+    }
+
+    /* ── a refunded gratuity stops being owed to anybody ─────────────────── */
+    if (plan.tip > 0 && payment.tipId) {
+      try {
+        const tip = await kv.get(`tip:${payment.tipId}`) as any;
+        if (tip && tip.status !== 'refunded') {
+          await kv.set(`tip:${payment.tipId}`, {
+            ...tip,
+            status: 'refunded',
+            refundedAt: now,
+            refundedBy: user.email,
+            refundId,
+            note: 'Refunded with the payment it arrived on.',
+          });
+        }
+      } catch (tipError: any) {
+        // Loud: the alternative is a crew still shown as owed money that was
+        // handed back to the customer.
+        console.log(`[refunds] FAILED to mark tip ${payment.tipId} refunded: ${tipError?.message || tipError}`);
+      }
+    }
+
+    console.log(
+      `[refunds] ${refundId}: ${plan.total} back on ${stripeAccountLabel(rail)} `
+      + `(job ${plan.principal}, tip ${plan.tip}) by ${user.email}`,
+    );
+
+    return c.json({ success: true, refund: record, invoice, refundable: refundableOf({ ...payment, refunds }) });
+  } catch (error: any) {
+    console.log(`[refunds] error: ${error?.message || error}`);
+    return c.json({ success: false, error: error?.message || 'Could not refund that payment.' }, 500);
+  }
+});
+
+/** GET /payments/:id/refunds — what has been given back, and what is left. */
+app.get('/make-server-3eae23a6/payments/:id/refunds', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+
+    const paymentId = c.req.param('id');
+    const payment = await kv.get(`payment:${paymentId}`) as any;
+    if (!payment) return c.json({ success: false, error: 'Payment not found.' }, 404);
+    // A customer may see refunds on their own payment; staff see any.
+    if (!admin && String(payment.customerEmail || '').toLowerCase() !== String(user.email).toLowerCase()) {
+      return c.json({ success: false, error: 'Payment not found.' }, 404);
+    }
+
+    const rows = ((await kv.getByPrefix('refund:').catch(() => [])) as any[])
+      .filter((r) => r && r.paymentId === paymentId)
+      .sort((a, b) => String(b?.refundedAt || '').localeCompare(String(a?.refundedAt || '')));
+
+    return c.json({ success: true, refunds: rows, refundable: refundableOf(payment) });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not read refunds.' }, 500);
+  }
 });
 
 /**
