@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { labourDiscountAmount } from '../../../supabase/functions/server/discounts.ts';
+import { CARD_FEE_NOTICE } from '../lib/cardFee';
 
 interface PaymentScheduleItem {
   id: string;
@@ -772,6 +773,21 @@ export default function CustomerQuoteApproval() {
                   You saved ${discountAmount.toLocaleString()} on labour with your subscription
                 </div>
               )}
+
+              {/*
+                HOW IT CAN BE PAID, beside the figure being agreed to.
+                Eric: "yes add it to the invoices and quote approval too."
+
+                The total above is NOT increased by it, and that is the point.
+                This is the number the customer is approving — the cost of the
+                work. The surcharge is the cost of one way of settling it, and
+                folding it in would overcharge everyone who pays cash or by
+                check, which are the two alternatives this names. The 3% is
+                applied at the moment a card is actually used.
+              */}
+              <div className="pt-3 border-t border-[#2A2A2A] text-sm text-amber-300/90">
+                {CARD_FEE_NOTICE}
+              </div>
             </div>
           </div>
 

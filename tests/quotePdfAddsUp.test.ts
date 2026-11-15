@@ -412,3 +412,33 @@ test('Jason: the generated PDF foots as well', () => {
   assert.equal(money[money.length - 1], '$7,308.70', 'the printed Total');
 });
 
+
+/* ── the card surcharge, on the document itself ──────────────────────────── */
+
+/**
+ * Eric: "yes add it to the invoices and quote approval too."
+ *
+ * One layout draws the quote and the invoice — an invoice is mapped onto
+ * `QuotePdfData` and comes through `buildQuotePdf` — so this notice reaching
+ * the page proves it on both.
+ */
+test('the generated PDF carries the card fee notice', () => {
+  const data = quoteToPdfDocument(sarah(), { forCustomer: true, company: LETTERHEAD as any });
+  const printed = printedText(data).join(' ');
+  assert.match(printed, /3%/, 'the rate is on the page');
+  assert.match(printed, /credit card/i, 'and it says CREDIT card');
+  assert.match(printed, /cash/i, 'and names cash');
+  assert.match(printed, /check/i, 'and check');
+});
+
+/**
+ * THE SURCHARGE IS NOT IN THE TOTAL on a quote or an invoice. The total is
+ * what the work costs; the fee is the cost of one way of paying for it, and
+ * adding it here would overcharge everybody who pays by the two methods the
+ * notice exists to offer.
+ */
+test('the notice does not change what the document totals', () => {
+  const doc = quoteToPdfDocument(sarah(), { forCustomer: true, company: LETTERHEAD as any });
+  assert.equal(doc.total, 12666.13, 'unchanged by the disclosure');
+  assertAddsUp(doc, 'with the card notice');
+});

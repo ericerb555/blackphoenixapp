@@ -41,6 +41,7 @@
  */
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { CARD_FEE_NOTICE } from '../cardFee.ts';
 
 export interface QuotePdfLine {
   description: string;
@@ -530,6 +531,35 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
   doc.line(right - 80, y - 2, right, y - 2);
   y += 3;
   totalRow('Total', money(data.total), true, 12);
+
+  /*
+   * THE CARD SURCHARGE, UNDER THE TOTAL AND ON BOTH DOCUMENTS.
+   *
+   * Eric: "add a disclaimer that 3percent will be added when using a card to
+   * process payment checks and cash are accepted as well", and then
+   * "yes add it to the invoices and quote approval too".
+   *
+   * One layout draws the quote and the invoice — an invoice is mapped onto
+   * `QuotePdfData` and comes through here — so this puts it on both.
+   *
+   * IT IS NOT ADDED TO THE TOTAL ABOVE, and that is the important part. The
+   * total is what the work costs; the surcharge is a cost of one way of
+   * paying for it. Adding it here would overcharge every customer who pays
+   * cash or by check, which are the two this notice exists to offer them.
+   * The 3% goes on at the moment a card is actually used — see
+   * `src/app/lib/cardFee.ts` and the checkout.
+   */
+  y += 2;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(110, 110, 110);
+  for (const wrapped of doc.splitTextToSize(CARD_FEE_NOTICE, 80) as string[]) {
+    y = pageBreak(doc, y);
+    doc.text(wrapped, right, y, { align: 'right' });
+    y += 3.2;
+  }
+  doc.setTextColor(17, 17, 17);
+  y += 2;
 
   /* ── Notes and terms ────────────────────────────────────────────────── */
   for (const [label, body] of [['Notes', data.notes], ['Terms', data.terms]] as Array<[string, string | undefined]>) {

@@ -24,6 +24,7 @@
  */
 import { Edit2 } from 'lucide-react';
 import { companyInfo } from '../../lib/config/companyInfo';
+import { CARD_FEE_NOTICE } from '../../lib/cardFee';
 import type { Invoice } from '../../lib/services/invoiceService';
 import { groupLinesByPhase, hasPhaseStructure, lineAmount } from '../../lib/invoicePhases';
 import { selectInvoiceLines, isLineShown } from '../../lib/invoiceLineSelection';
@@ -350,6 +351,20 @@ export default function InvoiceDocument({ invoice, onEdit, forCustomer = false }
       <p className="text-xs text-gray-300 print:text-gray-700 whitespace-pre-wrap leading-relaxed">{invoice.terms}</p>
     </div>
   )}
+
+  {/*
+    HOW TO PAY, AND WHAT EACH WAY COSTS.
+    Eric: "yes add it to the invoices and quote approval too."
+    Outside the banking block on purpose — that block is conditional on
+    `companyInfo.banking` being configured, and the surcharge applies whether
+    or not bank details are printed. Deliberately NOT added to the total
+    above: the total is what the work costs, and adding it would overcharge
+    the customer who pays by the two methods this notice exists to offer.
+  */}
+  <div className="mb-8 p-4 bg-amber-950/30 print:bg-amber-50 rounded-lg border border-amber-800/50 print:border-amber-200">
+    <h3 className="text-xs font-bold text-amber-400 print:text-amber-700 uppercase mb-1">Paying this invoice</h3>
+    <p className="text-xs text-gray-300 print:text-gray-700">{CARD_FEE_NOTICE}</p>
+  </div>
 
   {/* Banking Information */}
   {companyInfo.banking && (
