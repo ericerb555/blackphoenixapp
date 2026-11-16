@@ -407,6 +407,21 @@ export default function TeamAccessPanel() {
           answers, so changing it here changes what that person can reach everywhere —
           on the next request, with no need for them to sign in again.
         </p>
+        {/*
+          There are two separate notions of "employee" in this system and it is
+          worth saying so rather than letting somebody hunt. This screen manages
+          the ACCOUNT — who they are and what they may reach. `HREmployeeHub`
+          manages the time-tracking EMPLOYEE RECORD — pay rate, burden, shifts —
+          against a different API, keyed separately. Neither creates the other.
+        */}
+        <p className="text-xs text-gray-500">
+          Pay rates, labour burden and timesheets are a separate record, kept in{' '}
+          <a href="/payroll" className="text-red-400 hover:text-red-300 underline underline-offset-2">
+            HR &amp; Employee Hub
+          </a>
+          . Inviting somebody here gives them an account and its access; it does not
+          put them on the payroll.
+        </p>
       </div>
     </div>
   );
