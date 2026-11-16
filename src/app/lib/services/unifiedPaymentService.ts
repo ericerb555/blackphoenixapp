@@ -850,6 +850,12 @@ class UnifiedPaymentService {
         stripe: 0,
         paypal: 0,
         square: 0,
+        // Bank of America was added to PaymentGateway and to the gateway list
+        // the payment centre renders, but not to this initialiser. Totals were
+        // never wrong — the `|| 0` below covers a missing key — but the figure
+        // read back before a first BoA payment was `undefined` rather than 0,
+        // so a dashboard showed a blank where every other gateway showed $0.
+        bank_of_america: 0,
         stellar: 0,
         xdc: 0,
         manual: 0,
