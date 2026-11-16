@@ -130,9 +130,24 @@ mkdirSync(tmp, { recursive: true });
  */
 const profileDir = join(tmp, `profile-${process.pid}`);
 
+/**
+ * A token unique to this run, stamped into the page and checked on arrival.
+ *
+ * Stepping over a busy port fixes the collision in front of us. It does not
+ * fix the CLASS: any stray dev server that outlives its session, on whatever
+ * port we end up choosing, still answers /smoke.html with a 200 - because it
+ * is serving ITS worktree copy of this same file. Every individual step
+ * behaves correctly and the run is still measuring the wrong tree.
+ *
+ * So the question waitForServer asks is no longer "did something answer" but
+ * "did the server I started answer". Those two differ exactly when it
+ * matters.
+ */
+const runToken = `run-${process.pid}-${Date.now().toString(36)}`;
+
 const htmlPath = join(process.cwd(), 'smoke.html');
 writeFileSync(htmlPath, `<!doctype html>
-<html><head><meta charset="utf-8"><title>smoke</title></head>
+<html><head><meta charset="utf-8"><title>smoke</title><meta name="smoke-run" content="${runToken}"></head>
 <body><div id="root"></div><script type="module" src="/scripts/smoke-entry.tsx"></script></body></html>
 `);
 
@@ -263,12 +278,44 @@ server.on('exit', (code) => {
   serverDied = `vite exited with code ${code} — port ${vitePort} is most likely already in use.`;
 });
 
+let foreignServer = false;
+let ownedServer = false;
 let browser = null;
 function stop() {
   for (const p of [browser, server]) {
     if (!p) continue;
     try { p.kill(); } catch {}
     try { spawnSync('taskkill', ['/F', '/T', '/PID', String(p.pid)], { stdio: 'ignore' }); } catch {}
+  }
+  /**
+   * The vite that `taskkill /T` did not reach.
+   *
+   * `server.pid` is cmd.exe, because of `shell: true`. npx exits as soon as it
+   * has handed off, vite is re-parented out from under the tree kill, and the
+   * dev server outlives the run that started it. Three from this session alone
+   * were still listening afterwards — and one from two days earlier, which is
+   * what every smoke run since has quietly been measuring.
+   *
+   * Kills by PORT rather than by process tree, because the port is the thing
+   * we actually care about being free and the only handle still reliable by
+   * the time the tree has been rearranged.
+   *
+   * Guarded on `ownedServer`: only runs when the token check confirmed the
+   * server there was OURS. On the foreign-server path the holder belongs to
+   * somebody else, and killing it would be worse than the bug.
+   */
+  if (ownedServer) {
+    try {
+      const out = spawnSync('netstat', ['-ano'], { encoding: 'utf8' }).stdout || '';
+      const here = new RegExp('[:.]' + vitePort + '\\s');
+      for (const line of out.split(/\r?\n/)) {
+        if (!/LISTENING/.test(line) || !here.test(line)) continue;
+        const pid = line.trim().split(/\s+/).pop();
+        if (pid && pid !== '0' && Number(pid) !== process.pid) {
+          spawnSync('taskkill', ['/F', '/PID', pid], { stdio: 'ignore' });
+        }
+      }
+    } catch {}
   }
   try { listener.close(); } catch {}
   try { unlinkSync(htmlPath); } catch {}
@@ -285,7 +332,18 @@ async function waitForServer() {
     if (serverDied) return false;
     try {
       const res = await fetch(`http://localhost:${vitePort}/smoke.html`);
-      if (res.ok) return true;
+      if (res.ok) {
+        const body = await res.text();
+        if (body.includes(runToken)) { ownedServer = true; return true; }
+        /**
+         * A 200 from a server this run did not start.
+         *
+         * Refused at once rather than polled at for another minute: it will
+         * keep answering, and it will keep being the wrong tree.
+         */
+        foreignServer = true;
+        return false;
+      }
     } catch {}
     await sleep(1000);
   }
@@ -346,6 +404,12 @@ if (!(await waitForServer())) {
     console.error('Another smoke run, or a vite left behind by an earlier one, is holding it.');
     console.error('Run yours on different ports:');
     console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
+  } else if (foreignServer) {
+    console.error(`\nPort ${vitePort} is served by a dev server this run did not start.`);
+    console.error('It answered /smoke.html without this run token, so it is serving another');
+    console.error('worktree - every verdict would have been about the wrong tree.');
+    console.error(`Find it with:  netstat -ano | findstr LISTENING | findstr ${vitePort}`);
+    console.error('or pick another port:  SMOKE_PORT=5200 npm run smoke\n');
   } else {
     console.error(`The dev server did not come up on ${vitePort} within 60s, and vite did not exit either.`);
   }
