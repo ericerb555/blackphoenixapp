@@ -176,9 +176,21 @@ const listener = createServer((req, res) => {
  * more than the number of sweeps anybody runs at once, and past that the
  * original message still stands — at that point something really is wrong.
  *
- * Only the REPORT port is auto-stepped. Vite's port is handed to the browser
- * in a URL built later, and moving it would need that to follow; it is also
- * the one a person might deliberately set to watch a run by hand.
+ * The VITE port is stepped too, as of 2026-11-16, and a busy one turned out
+ * to be far worse than a crash. `--strictPort` makes our vite exit — but
+ * `waitForServer` then fetches http://localhost:5177/smoke.html and gets a
+ * 200, because ANOTHER session's vite is answering on it. The run proceeds
+ * against a different worktree's dev server, loads a harness that is not the
+ * one under test, and nothing reports. That is the exact shape of "Nothing
+ * reported at all from the first batch", and it is silent: no error, no
+ * EADDRINUSE, just an empty result blamed on the route map.
+ *
+ * CLAUDE.md now asks every session to work in its own worktree, so two vites
+ * at once is the normal case rather than the rare one.
+ *
+ * An explicitly set SMOKE_PORT is never moved — that one is a person watching
+ * a run by hand, and moving it would defeat the point. Vite's port is handed
+ * to the browser in a URL built later, so every use reads `vitePort`.
  */
 let reportPort = REPORT_PORT;
 let portTries = 0;
@@ -201,7 +213,33 @@ listener.on('error', (err) => {
 });
 listener.listen(REPORT_PORT);
 
-const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
+/**
+ * Is anything already answering there?
+ *
+ * A refused connection is the answer we want. A timeout means something IS
+ * listening and merely slow, which still counts as taken — that is the case
+ * that used to hand the run somebody else's dev server.
+ */
+async function portAnswers(port) {
+  try {
+    await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(700) });
+    return true;
+  } catch (err) {
+    return err?.name === 'TimeoutError';
+  }
+}
+
+let vitePort = PORT;
+if (!process.env.SMOKE_PORT) {
+  for (let tries = 0; tries < 10 && (await portAnswers(vitePort)); tries++) {
+    vitePort = PORT + tries + 1;
+  }
+  if (vitePort !== PORT) {
+    console.log(`port ${PORT} is already answering — using ${vitePort} instead.`);
+  }
+}
+
+const server = spawn('npx', ['vite', '--port', String(vitePort), '--strictPort'], {
   stdio: 'ignore', shell: true,
 });
 
@@ -222,7 +260,7 @@ const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
 let serverDied = null;
 server.on('exit', (code) => {
   if (code === 0) return;
-  serverDied = `vite exited with code ${code} — port ${PORT} is most likely already in use.`;
+  serverDied = `vite exited with code ${code} — port ${vitePort} is most likely already in use.`;
 });
 
 let browser = null;
@@ -246,7 +284,7 @@ async function waitForServer() {
     // cannot change the answer, and the wait is what made this look like a hang.
     if (serverDied) return false;
     try {
-      const res = await fetch(`http://localhost:${PORT}/smoke.html`);
+      const res = await fetch(`http://localhost:${vitePort}/smoke.html`);
       if (res.ok) return true;
     } catch {}
     await sleep(1000);
@@ -266,7 +304,7 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
   const range = only
     ? `only=${encodeURIComponent(only.join(','))}`
     : `from=${from}&to=${to}`;
-  const url = `http://localhost:${PORT}/smoke.html?${range}`
+  const url = `http://localhost:${vitePort}/smoke.html?${range}`
     // reportPort, not REPORT_PORT: the listener may have stepped past a busy
     // one, and the browser has to post back to where it actually bound.
     + `&report=${encodeURIComponent(`http://localhost:${reportPort}/report`)}`
@@ -309,7 +347,7 @@ if (!(await waitForServer())) {
     console.error('Run yours on different ports:');
     console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
   } else {
-    console.error(`The dev server did not come up on ${PORT} within 60s, and vite did not exit either.`);
+    console.error(`The dev server did not come up on ${vitePort} within 60s, and vite did not exit either.`);
   }
   process.exit(2);
 }
