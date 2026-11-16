@@ -1184,7 +1184,17 @@ export default function App() {
         await import("./utils/cleanupLocalStorage");
         await import("./utils/dataPersistence");
         await Promise.all([
-          import("./utils/autoBackup"),
+          /*
+           * `./utils/autoBackup` was here, and this is where it started.
+           *
+           * A bare import with no binding and no call, which looked like one
+           * more optional setup module and was in fact the whole trigger: the
+           * file self-started a thirty-second loop as an import side effect.
+           * That loop copied localStorage into other localStorage keys and
+           * deleted data when it hit the quota. See the note at the bottom of
+           * that file for what it was doing and what actually backs this data
+           * up instead.
+           */
           import("./utils/ensureDefaultCompany"),
           import("./utils/initializeBrandingProfile"),
           import("./utils/syncBrandingFromDatabase"),

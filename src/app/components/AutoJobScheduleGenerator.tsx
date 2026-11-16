@@ -7,6 +7,10 @@ import {
 import { toast } from 'sonner';
 import { PrimaryButton } from './ui/button/PrimaryButton';
 import { SecondaryButton } from './ui/button/SecondaryButton';
+import { authedHeaders } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
+
+const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
 interface JobPhase {
   id: string;
@@ -375,7 +379,7 @@ export default function AutoJobScheduleGenerator({
     return milestones;
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setIsGenerating(true);
 
     const totalDuration = phases.reduce((sum, phase) => sum + phase.duration, 0);
@@ -395,10 +399,49 @@ export default function AutoJobScheduleGenerator({
       milestones
     };
 
-    // Save to localStorage
-    const existingSchedules = JSON.parse(localStorage.getItem('jobSchedules') || '[]');
-    existingSchedules.push(schedule);
-    localStorage.setItem('jobSchedules', JSON.stringify(existingSchedules));
+    /*
+     * The server first, and the local copy as a fallback — not the other way
+     * round, which is how this started.
+     *
+     * Until 2026-11-16 this component had no network calls at all. A generated
+     * schedule — phases, milestones, dates and a total cost — was written to
+     * `localStorage` and nowhere else, so it was invisible to everyone but the
+     * browser that made it, gone with a cleared cache, and outside the nightly
+     * database backup for the simple reason that it had never reached the
+     * database.
+     *
+     * The local write stays, because an estimator mid-plan on bad signal should
+     * not lose the schedule they just generated. It is a fallback now rather
+     * than the record.
+     */
+    try {
+      localStorage.setItem(
+        'jobSchedules',
+        JSON.stringify([...JSON.parse(localStorage.getItem('jobSchedules') || '[]'), schedule]),
+      );
+    } catch {
+      // Quota, private mode, or storage blocked. The server call below is the
+      // one that matters, so this must not stop it.
+    }
+
+    try {
+      const res = await fetch(`${SERVER}/schedule/job-schedules`, {
+        method: 'POST',
+        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ schedule }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'The server would not take it.');
+    } catch (err: any) {
+      /*
+       * Said out loud rather than swallowed. A schedule that exists only in
+       * this browser looks identical to a saved one, and the estimator who
+       * generated it is the only person who can do anything about that — but
+       * only if they are told.
+       */
+      console.error('[AutoJobScheduleGenerator] server save failed:', err);
+      toast.error('Saved on this device only — could not reach the server. Generate it again when you are back online.');
+    }
 
     setTimeout(() => {
       setIsGenerating(false);
