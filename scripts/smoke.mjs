@@ -289,6 +289,33 @@ function stop() {
     try { spawnSync('taskkill', ['/F', '/T', '/PID', String(p.pid)], { stdio: 'ignore' }); } catch {}
   }
   /**
+   * The browsers `taskkill /T` did not reach either, and these cost more.
+   *
+   * Edge fans out into a renderer, a GPU process, a network service and more,
+   * and re-parents them away from the launcher exactly as npx does to vite. Ten
+   * headless Edges from this session's runs were still resident holding 517 MB
+   * between them — enough that the machine ran out of memory and killed a
+   * verification run mid-sweep, which is how they were noticed at all.
+   *
+   * Matched on OUR OWN profile directory, which carries this process's pid, so
+   * it cannot touch a browser somebody is actually using — or another run's.
+   * That precision is the whole reason this is safe to do by name rather than
+   * by tree.
+   */
+  try {
+    /*
+     * Through PowerShell rather than `wmic`, which is not on this machine —
+     * Windows has been removing it since 2024, so a script that needs a
+     * process command line has to ask CIM for it.
+     */
+    spawnSync('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\""
+        + ` | Where-Object { $_.CommandLine -like '*${profileDir.replace(/'/g, "''")}*' }`
+        + ' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+    ], { stdio: 'ignore' });
+  } catch {}
+  /**
    * The vite that `taskkill /T` did not reach.
    *
    * `server.pid` is cmd.exe, because of `shell: true`. npx exits as soon as it
