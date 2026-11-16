@@ -47,6 +47,7 @@ const MODAL_TARGETS = (() => {
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { identityTag, serverVerdict } from './smokeServerIdentity.mjs';
 
 /**
  * Both ports are overridable, because this harness is a SHARED resource.
@@ -147,7 +148,7 @@ const runToken = `run-${process.pid}-${Date.now().toString(36)}`;
 
 const htmlPath = join(process.cwd(), 'smoke.html');
 writeFileSync(htmlPath, `<!doctype html>
-<html><head><meta charset="utf-8"><title>smoke</title><meta name="smoke-run" content="${runToken}"></head>
+<html><head><meta charset="utf-8"><title>smoke</title>${identityTag(runToken)}</head>
 <body><div id="root"></div><script type="module" src="/scripts/smoke-entry.tsx"></script></body></html>
 `);
 
@@ -332,18 +333,19 @@ async function waitForServer() {
     if (serverDied) return false;
     try {
       const res = await fetch(`http://localhost:${vitePort}/smoke.html`);
-      if (res.ok) {
-        const body = await res.text();
-        if (body.includes(runToken)) { ownedServer = true; return true; }
-        /**
-         * A 200 from a server this run did not start.
-         *
-         * Refused at once rather than polled at for another minute: it will
-         * keep answering, and it will keep being the wrong tree.
-         */
-        foreignServer = true;
-        return false;
-      }
+      const verdict = serverVerdict({
+        ok: res.ok,
+        body: res.ok ? await res.text() : '',
+        token: runToken,
+      });
+      if (verdict === 'ours') { ownedServer = true; return true; }
+      /**
+       * A 200 from a server this run did not start.
+       *
+       * Refused at once rather than polled at for another minute: it will
+       * keep answering, and it will keep being the wrong tree.
+       */
+      if (verdict === 'foreign') { foreignServer = true; return false; }
     } catch {}
     await sleep(1000);
   }
