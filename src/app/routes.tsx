@@ -37,6 +37,7 @@ import ResetPassword from "./pages/ResetPassword";
 // App Pages
 const UnifiedDashboard = lazy(() => import("./pages/UnifiedDashboard"));
 const ArchitectReview = lazy(() => import("./pages/ArchitectReview"));
+const JunkQuoteLink = lazy(() => import("./pages/JunkQuoteLink"));
 const AutopilotCampaigns = lazy(() => import("./pages/AutopilotCampaigns"));
 const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
@@ -727,6 +728,7 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // design. The token in the path is the only thing that opens it, and it is
   // checked on the server against a stored hash.
   "architect-review":        ArchitectReview,
+  "junk-quote":              JunkQuoteLink,
   // Public: shoppers check out as guests, so the portal must be reachable
   // without a login. The order number alone proves nothing — the server also
   // requires the email on the order to match.

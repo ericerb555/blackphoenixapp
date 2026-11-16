@@ -37,7 +37,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { authedHeaders } from '../../utils/authHeaders';
+import { authedHeaders, authedHeadersOrAnon } from '../../utils/authHeaders';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../../lib/imageCapture';
 import { extensionForMimeType } from '../../lib/videoCapture';
@@ -61,6 +62,14 @@ interface Props {
   customerName?: string;
   /** Jump the customer to their work requests once they ask us to confirm it. */
   onNavigate?: (page: string) => void;
+  /**
+   * A texted pricing link, when the visitor arrived on one.
+   *
+   * Present means nobody is signed in and the estimate spends as the link.
+   * The panel does not interpret it — it forwards it, and the server decides
+   * whether it is still good. See `junkLinks.ts`.
+   */
+  linkToken?: string;
 }
 
 interface Shot { id: string; file: File; preview: string }
@@ -88,7 +97,7 @@ function photoContentType(file: File): string {
   return byExt[ext] || 'application/octet-stream';
 }
 
-export default function TrashEstimatePanel({ customerName, onNavigate }: Props) {
+export default function TrashEstimatePanel({ customerName, onNavigate, linkToken }: Props) {
   const [photos, setPhotos] = useState<Shot[]>([]);
   const [video, setVideo] = useState<{ file: File; url: string } | null>(null);
   const [notes, setNotes] = useState('');
@@ -225,9 +234,19 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
       setStage('Reading them, then checking the reading…');
       const res = await fetch(`${SERVER}/trash-estimator/read`, {
         method: 'POST',
-        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        /*
+         * A link visitor has no session, so `authedHeaders` — which throws
+         * rather than quietly falling back — is the wrong helper for them. The
+         * anon key identifies the project and nobody in particular, which is
+         * exactly right here: the authority is the link token in the body, and
+         * the server decides what it is worth.
+         */
+        headers: linkToken
+          ? await authedHeadersOrAnon(publicAnonKey, { 'Content-Type': 'application/json' })
+          : await authedHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           images, notes, scope, mediaRefs,
+          linkToken: linkToken || undefined,
           agreedToAttestation: true,
           signedName: signedName.trim(),
         }),

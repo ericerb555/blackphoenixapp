@@ -53,6 +53,10 @@ import {
 import { ATTESTATION, estimateBasis } from "./estimateBasis.ts";
 import { SURCHARGES } from "./hazardRules.ts";
 import { signupOfferFor } from "./signupIncentive.ts";
+import {
+  mintJunkLink, keyForToken, junkLinkState, junkLinkKey, principalFor, junkLinkUrl,
+  JUNK_LINK_MAX_USES,
+} from "./junkLinks.ts";
 import { signMediaValues } from "./mediaSigning.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
@@ -115,9 +119,56 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     }, 503);
   }
 
-  const user = c.get("actor");
-  const email = c.get("actorEmail");
   const body = await c.req.json().catch(() => ({}));
+
+  /*
+   * Who is spending, and on whose budget.
+   *
+   * Three callers reach this route. A signed-in customer or staff member is the
+   * actor the wall established. A visitor on a texted pricing link has no
+   * account at all, and spends as the link: `principalFor` builds a synthetic
+   * principal from the token hash so every existing control applies unchanged
+   * — its own budget row, metered rather than waived, on the published
+   * backstop ceiling. See `junkLinks.ts` for why the link and not its minter.
+   *
+   * A link that is dead for any reason is refused with the same words as one
+   * that never existed. The reason is logged and never returned: "expired"
+   * tells a stranger the link was once real, which is the one thing somebody
+   * guessing at links should not learn.
+   */
+  const linkToken = String(body?.linkToken || "");
+  let link: { key: string; record: any } | null = null;
+  if (linkToken) {
+    const key = await keyForToken(linkToken);
+    const record = await kv.get(key).catch(() => null) as any;
+    const state = junkLinkState(record, Date.now());
+    if (!state.usable) {
+      console.log(`[trash-estimator] link refused: ${state.reason}`);
+      return c.json({ success: false, error: "That pricing link is no longer good. Ask us for a new one." }, 403);
+    }
+    link = { key, record };
+  }
+
+  const actor = c.get("actor");
+  const user = link ? principalFor(link.record.hash) : actor;
+  const email = link ? "" : c.get("actorEmail");
+
+  /*
+   * Nobody at all is refused here rather than deeper in.
+   *
+   * `reserve` would also refuse an idless principal — it fails closed, which is
+   * why this route could never have become an open AI endpoint by accident —
+   * but it would do so with "Sign in required.", which is the wrong sentence
+   * for somebody who followed a link we sent them.
+   */
+  if (!user?.id) {
+    return c.json({
+      success: false,
+      error: linkToken
+        ? "That pricing link is no longer good. Ask us for a new one."
+        : "Sign in to price a job, or use the link we sent you.",
+    }, 401);
+  }
 
   /*
    * The images, and nothing else from the browser that could become a price.
@@ -410,6 +461,35 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     await kv.set(`estimate:${estimate.id}`, estimate);
 
     /*
+     * A link's use is burned here, after a price exists — not at the door.
+     *
+     * Burning on arrival would make the cap count attempts rather than
+     * estimates, and the person who was texted will get the framing wrong
+     * once: a clip this browser could not decode, or photographs the reader
+     * refused. Charging them a use for our own failure is how a ten-use link
+     * becomes a three-use link, and the lead is lost to our own bookkeeping.
+     *
+     * The spend ceiling already covers the thing burning-at-the-door would be
+     * protecting against, because `reserve` ran before the model did and is
+     * not refunded on a successful read. So the cap can afford to count only
+     * what the customer actually got.
+     *
+     * Re-read rather than incremented from the copy loaded at the start: the
+     * estimate in between is a model call of a few seconds, and two phones on
+     * one forwarded link would otherwise each write back `uses` + 1 from the
+     * same stale number and spend one use between them.
+     */
+    if (link) {
+      const fresh = await kv.get(link.key).catch(() => null) as any;
+      const base = Number(fresh?.uses);
+      await kv.set(link.key, {
+        ...(fresh || link.record),
+        uses: (Number.isFinite(base) ? base : Number(link.record.uses) || 0) + 1,
+        lastUsedAt: now.toISOString(),
+      });
+    }
+
+    /*
      * NOTHING IS SENT HERE, AND THAT IS ERIC'S CALL.
      *
      * This used to raise the `estimate` event too, so the office heard twice
@@ -439,6 +519,110 @@ trashEstimatorRouter.post("/read", async (c: any) => {
 function isStaffActor(c: any): boolean {
   return ["owner", "admin", "master_admin", "management"].includes(trustedRole(c.get("actor")));
 }
+
+/**
+ * POST /trash-estimator/links — mint a pricing link to text somebody.
+ *
+ * Staff only, because the link spends money. Returns the token ONCE, in this
+ * response and nowhere else: only its hash is stored, so a link that is not
+ * copied out of this reply is gone and has to be re-minted. That is the same
+ * trade `shareToken.ts` makes, and it is the right way round — a link
+ * recoverable from the store is a link recoverable by anything that can read
+ * the store.
+ */
+trashEstimatorRouter.post("/links", async (c: any) => {
+  if (!isStaffActor(c)) return c.json({ success: false, error: "Administrators only." }, 403);
+
+  const body = await c.req.json().catch(() => ({}));
+  const nowIso = new Date().toISOString();
+  const { token, record } = await mintJunkLink(nowIso, {
+    createdBy: String(c.get("actorEmail") || ""),
+    label: String(body?.label || "").slice(0, 120),
+    maxUses: Number(body?.maxUses),
+  });
+
+  await kv.set(junkLinkKey(record.hash), record);
+
+  /*
+   * The app URL comes from the environment, not from the request.
+   *
+   * A caller-supplied base would let somebody mint a real token onto a host
+   * they control and text it out under our name — the link would work, and
+   * whatever it posted through would look like us.
+   */
+  const appUrl = Deno.env.get("APP_URL") || "https://theblackphoenixcompany.com";
+  return c.json({
+    success: true,
+    url: junkLinkUrl(appUrl, token),
+    link: { ...record, hash: undefined, id: record.hash.slice(0, 12) },
+    maxUses: record.maxUses,
+    expiresAt: record.expiresAt,
+  });
+});
+
+/**
+ * GET /trash-estimator/links — the links that exist, and what is left of them.
+ *
+ * Staff only. No token is returned or returnable; what is listed is enough to
+ * decide whether to revoke one — who minted it, what they called it, how much
+ * of it has been used, and whether it is still alive.
+ */
+trashEstimatorRouter.get("/links", async (c: any) => {
+  if (!isStaffActor(c)) return c.json({ success: false, error: "Administrators only." }, 403);
+
+  const rows = await kv.getByPrefix("junk_link:").catch(() => []) as any[];
+  const now = Date.now();
+  const links = (rows || [])
+    .map((r: any) => {
+      const state = junkLinkState(r, now);
+      return {
+        id: String(r?.hash || "").slice(0, 12),
+        label: r?.label || "",
+        createdBy: r?.createdBy || "",
+        createdAt: r?.createdAt || "",
+        expiresAt: r?.expiresAt || "",
+        lastUsedAt: r?.lastUsedAt || null,
+        uses: Number(r?.uses) || 0,
+        maxUses: Number(r?.maxUses) || 0,
+        usable: state.usable,
+        // Safe to show staff; never shown to the link holder.
+        reason: state.usable ? null : state.reason,
+      };
+    })
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  return c.json({ success: true, links, maxUsesCeiling: JUNK_LINK_MAX_USES });
+});
+
+/**
+ * POST /trash-estimator/links/:id/revoke — withdraw a link.
+ *
+ * Staff only. `:id` is the first twelve characters of the hash, which is what
+ * the list shows, because the full hash is as good as a lookup key and there
+ * is no reason to move it around. Twelve hex characters is ~48 bits — far more
+ * than enough to be unambiguous among a handful of links, and revocation is
+ * staff-only anyway, so a collision is an inconvenience rather than a hole.
+ *
+ * Revoking an already-revoked or expired link answers success. The caller's
+ * intent was "this link must not work", and it does not.
+ */
+trashEstimatorRouter.post("/links/:id/revoke", async (c: any) => {
+  if (!isStaffActor(c)) return c.json({ success: false, error: "Administrators only." }, 403);
+
+  const id = String(c.req.param("id") || "");
+  if (id.length < 8) return c.json({ success: false, error: "Which link?" }, 400);
+
+  const rows = await kv.getByPrefix("junk_link:").catch(() => []) as any[];
+  const match = (rows || []).find((r: any) => String(r?.hash || "").startsWith(id));
+  if (!match) return c.json({ success: false, error: "No such link." }, 404);
+
+  await kv.set(junkLinkKey(match.hash), {
+    ...match,
+    revokedAt: match.revokedAt || new Date().toISOString(),
+    revokedBy: String(c.get("actorEmail") || ""),
+  });
+  return c.json({ success: true });
+});
 
 /**
  * GET /trash-estimator/rates — what the estimator is charging, and from where.

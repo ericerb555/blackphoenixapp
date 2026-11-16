@@ -1427,6 +1427,33 @@ const PUBLIC_POST_PATHS = [
    */
   '/csp-report',
   /**
+   * The texted junk pricing link, and the one entry here that guards itself
+   * with a credential rather than a shared secret.
+   *
+   * Eric wanted a link he could text to somebody standing in front of a pile.
+   * The person receiving it has no account — that is the whole point — so the
+   * wall cannot be what stands in front of this, and the route checks the link
+   * token itself.
+   *
+   * WHY LISTING IT IS NOT THE SAME AS OPENING IT
+   *
+   * The audit of this file noted that no route here is secret-guarded INSTEAD
+   * of public, so a secret left unset degrades to an unauthenticated path. This
+   * one does not have that shape. There is no secret to forget: a caller
+   * presenting no token, or a dead one, is refused by the route before any
+   * model runs, and an unrecognised token cannot be made to pass by failing to
+   * configure something. The failure direction is closed in every case.
+   *
+   * WHY IT IS NOT A MONEY PIT
+   *
+   * Behind it is an Anthropic call per estimate, so the link is metered: it
+   * spends as itself, on its own budget row, through the same `reserve` every
+   * account goes through, and it carries a use cap and a fourteen-day expiry
+   * and can be revoked. `junkLinks.ts` sets out why the token and not its
+   * minter is the principal.
+   */
+  '/trash-estimator/read',
+  /**
    * The AI emergency attendant's three Twilio webhooks.
    *
    * Twilio carries no session and never will — it is a telephone company
