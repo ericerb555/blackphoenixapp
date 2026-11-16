@@ -424,8 +424,16 @@ async function checkCspHashes() {
   }
 
   // Inline only — a <script src=…> is covered by the origin allowlist instead.
+  //
+  // Normalised to LF because the browser hashes the bytes it was served, and
+  // Vite serves LF whatever the checkout holds. Read raw, a CRLF checkout
+  // (every Windows one) hashes to something that is not in the policy, and
+  // this check then reports drift that does not exist — and worse, names the
+  // CRLF hashes as the ones to "add", which would ship a policy that blocks
+  // both inline scripts in production. The normalisation is what makes a pass
+  // here mean the deployed policy is correct.
   const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)]
-    .map((m) => m[1]).filter((body) => body.length);
+    .map((m) => m[1].replace(/\r\n/g, '\n')).filter((body) => body.length);
   const expected = inline.map((body) => `sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}`);
   const missing = expected.filter((h) => !vercel.includes(h));
 
