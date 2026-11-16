@@ -90,12 +90,44 @@ async function actor(c: any): Promise<{ user: any; email: string } | null> {
   return { user: data.user, email: String(data.user.email || "").toLowerCase() };
 }
 
+/**
+ * Signed in, or holding a pricing link.
+ *
+ * This gate used to require an actor for everything on the router, and that is
+ * the whole reason the first deploy of the textable link did not work: listing
+ * `/trash-estimator/read` as public got a visitor past the wall in `index.tsx`
+ * and then this refused them with "Sign in required." before the handler's own
+ * check ever ran. Every link would have been dead on arrival, and the page
+ * would have looked broken rather than refused. Found by calling the deployed
+ * route, not by reading the diff — the two gates are in different files and
+ * each one looks complete on its own.
+ *
+ * The exemption is deliberately narrow: one method, one path, and it grants
+ * nothing. It defers the decision to the handler, which has the token and
+ * refuses without one — see `junkLinks.ts` for what it checks. Everything else
+ * on this router, including the staff link-minting routes and the rates, still
+ * needs an account.
+ */
 trashEstimatorRouter.use("*", async (c: any, next: any) => {
   const who = await actor(c);
-  if (!who) return c.json({ success: false, error: "Sign in required." }, 401);
-  c.set("actor", who.user);
-  c.set("actorEmail", who.email);
-  await next();
+  if (who) {
+    c.set("actor", who.user);
+    c.set("actorEmail", who.email);
+    return await next();
+  }
+
+  /*
+   * Nobody signed in. The link-priced read continues and proves itself; the
+   * path is matched rather than the body read, because consuming the body here
+   * to look for a token would be doing the handler's job in the one place that
+   * must not be allowed to get it wrong.
+   */
+  const path = new URL(c.req.url).pathname;
+  if (c.req.method === "POST" && path.endsWith("/trash-estimator/read")) {
+    return await next();
+  }
+
+  return c.json({ success: false, error: "Sign in required." }, 401);
 });
 
 /** Split a data URI into the parts the SDK wants. Null if unusable. */
