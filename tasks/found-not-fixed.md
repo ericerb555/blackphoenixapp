@@ -362,3 +362,32 @@ stuffing, signup abuse and token-refresh floods all land on `/auth/v1`.
 auth through the `api-origin-proxy` Worker as well. Either way it is a
 prerequisite for calling the perimeter finished — see
 `docs/security/owasp-crs-runbook.md`, which says the same at the top.
+
+
+### `user_permissions` is read in ten places and written in none
+Found 2026-11-16, while building the team screen.
+
+Ten server modules gate on a fine-grained permissions record — `content-filter-admin`,
+`fulfillment`, `hot-products`, `investments-kv`, `invoice-linking`,
+`promotions-engine`, `store-ai-pricing`, `store-boosters`, `tier-features` and
+`design-links` — reading either `user_permissions:<userId>` in KV or a Postgres
+table of the same name.
+
+**Nothing writes either one**, except `/auth/signup`, which always writes
+`"client"`. Six rows exist across the whole project and all six say that;
+`auth.tsx:460` already documents this from the 2026-09-20 investigation.
+
+So every one of those gates falls through to its role check, and the
+permissions layer is decorative. It is not a security hole — the role checks
+are real and do the work — but it is a whole vocabulary of access that looks
+configurable and is not.
+
+**Why the team screen did not build on it:** roles are what the server
+enforces, so roles are what `TeamAccessPanel` changes. Driving a store nobody
+reads for authority would have been a second mock in the place the first one
+just came out of.
+
+**The fix, when it is wanted:** decide whether per-feature permissions are
+actually a product requirement. If yes, the writer belongs next to
+`POST /team/members/role` in `teamDirectory.ts` and those ten gates need to
+mean something. If no, delete the reads and let the role checks stand alone.
