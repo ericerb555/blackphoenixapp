@@ -52,6 +52,7 @@ import {
 } from "./trashReading.ts";
 import { ATTESTATION, estimateBasis } from "./estimateBasis.ts";
 import { SURCHARGES } from "./hazardRules.ts";
+import { signupOfferFor } from "./signupIncentive.ts";
 import { signMediaValues } from "./mediaSigning.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
@@ -353,6 +354,23 @@ trashEstimatorRouter.post("/read", async (c: any) => {
       needsSiteVisit: takeoff.needsSiteVisit,
       siteVisitReasons: takeoff.siteVisitReasons,
       notes: takeoff.notes,
+      /*
+       * The 5% for opening a free account — priced here, and only for somebody
+       * who has not got one.
+       *
+       * Keyed on the absence of an actor rather than on a flag the page sends,
+       * for the same reason none of the other figures are sent: the browser
+       * does not get to say what it is owed. `user` is the verified token
+       * holder, so `!user` is "nobody signed in", which is exactly the audience
+       * the offer is for. Showing it to a signed-in customer would be offering
+       * them a discount for something they have already done.
+       *
+       * Today the estimate route is behind the auth wall, so this is null on
+       * every call. That is deliberate rather than dead: it lights up by
+       * itself the moment the textable pricing link lands, because a visitor
+       * arriving on a token carries no actor. See `signupIncentive.ts`.
+       */
+      signupOffer: user ? null : signupOfferFor(takeoff.cost, { needsSiteVisit: takeoff.needsSiteVisit }),
       basis: estimateBasis(takeoff, rates),
       /*
        * The evidence, kept.

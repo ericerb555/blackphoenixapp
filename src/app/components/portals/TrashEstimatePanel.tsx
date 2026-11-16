@@ -301,6 +301,48 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
           </p>
         </div>
 
+        {/*
+          * 5% for opening a free account.
+          *
+          * Both figures come from the server — see `signupIncentive.ts` for why
+          * a discounted price is not worked out in the browser next to one that
+          * is not. The block is absent unless the server sent an offer, so a
+          * signed-in customer is never offered a discount for signing up, and
+          * an estimate we have said we want to re-check on site is not
+          * discounted while it is still provisional.
+          */}
+        {estimate.signupOffer && (
+          <div className="rounded-xl p-4" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)' }}>
+            <p className="text-sm font-black text-white">
+              Take {estimate.signupOffer.percent}% off with a free account
+            </p>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-2xl font-black text-green-400">
+                {money(estimate.signupOffer.cost?.likely || 0)}
+              </span>
+              <span className="text-sm font-bold text-gray-500 line-through">
+                {money(estimate.cost?.likely || 0)}
+              </span>
+              <span className="text-sm font-bold text-green-400">
+                save {money(estimate.signupOffer.saves || 0)}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-gray-400">
+              Free to open, and the {estimate.signupOffer.percent}% is applied to this job when we
+              write it up. You also keep this estimate, your pictures and anything we send you in
+              one place.
+            </p>
+            <button
+              type="button"
+              onClick={() => onNavigate?.('signup')}
+              className="mt-3 w-full rounded-lg px-4 py-2.5 text-sm font-black text-black"
+              style={{ background: '#22c55e' }}
+            >
+              Create my free account
+            </button>
+          </div>
+        )}
+
         {estimate.needsSiteVisit && (
           <div className="rounded-xl p-4" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
             <p className="flex items-center gap-2 text-sm font-black text-yellow-400">
