@@ -25,7 +25,8 @@
     "session": "node scripts/session-worktree.mjs",
     "deploy:webhooks": "node scripts/predeploy-check.mjs && supabase functions deploy stripe-webhooks --project-ref plzsvzwwcdopnawtiwzm",
     "deploy:server": "node scripts/predeploy-check.mjs && node scripts/build-task-digest.mjs && node scripts/build-server.mjs && supabase functions deploy make-server-3eae23a6 --project-ref plzsvzwwcdopnawtiwzm",
-    "build:digest": "node scripts/build-task-digest.mjs"
+    "build:digest": "node scripts/build-task-digest.mjs",
+    "scan:secrets": "node scripts/scanSecrets.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

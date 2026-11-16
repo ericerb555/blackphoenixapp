@@ -1,0 +1,55 @@
+# gitleaks configuration for this repository.
+#
+# Used by the pre-commit hook when gitleaks is installed, and by any CI step
+# that runs it. It starts from the maintained default ruleset and adds only
+# what is specific to this codebase.
+#
+# EVERY ENTRY BELOW IS A CLAIM THAT SOMETHING IS SAFE
+#
+# So each one carries its reason, and the reasons are written so that a new
+# file matching the same reason is covered while a new file that merely sits in
+# the same folder is not. An allowlist of paths rots into "this directory may
+# contain secrets", which is the opposite of the point.
+
+[extend]
+# Start from gitleaks' own rules — about 160 detectors, maintained upstream.
+# Nothing here replaces them; this only adds exceptions.
+useDefault = true
+
+[allowlist]
+description = "False positives specific to this repository"
+
+regexes = [
+  # THE SUPABASE ANON KEY IS PUBLIC AND IS MEANT TO BE IN THE BUNDLE.
+  #
+  # It is a JWT signed with "role":"anon", served to every visitor inside the
+  # JavaScript, and row-level security is what stands behind it. It appears in
+  # seven tracked files on purpose. The SERVICE ROLE key is the same shape and
+  # must never appear — so this allows the specific token, not the shape.
+  #
+  # Anchored on this project's ref so a different project's key is still a
+  # finding. If the anon key is ever rotated, this line changes with it.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24i[A-Za-z0-9_.-]*''',
+
+  # Placeholder text in form fields and documentation — the strings that tell
+  # somebody where to paste the real thing. "sk_live_..." is not a key.
+  '''(sk_live|sk_test|whsec|rk_live)_(\.\.\.|x{3,}|•+|<[^>]*>|\$\{)''',
+]
+
+paths = [
+  # The two secret scanners in this repository. Their content IS a table of
+  # credential shapes; a scanner that flags its own patterns is useless.
+  '''scripts/scanSecrets\.mjs''',
+  '''scripts/security-probe\.mjs''',
+  # This file, for the same reason.
+  '''\.gitleaks\.toml''',
+  # Dependency lock files: thousands of registry integrity hashes, which are
+  # high-entropy by design and are not credentials.
+  '''(^|/)(package-lock\.json|deno\.lock|yarn\.lock|pnpm-lock\.yaml)$''',
+]
+
+stopwords = [
+  "placeholder",
+  "example",
+  "redacted",
+]

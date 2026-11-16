@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# Refuse to commit a credential.
+#
+# Eric: "add a pre commit hook using a tool like git leaks or trufflehog so it
+# scans every commit for patterns matching api keys, tokens and credentials
+# before they reach the repository."
+#
+# WHY AT COMMIT AND NOT ONLY AT PUSH
+#
+# Because a commit is the last moment a key can be removed without consequence.
+# After a push it is on a server that has served it, cached it, and possibly
+# had it forked — and from then on the only thing that actually revokes it is
+# rotating it at the provider. `git push --force` after a rewrite does not
+# un-send what was already sent. So this is the cheap gate at the cheap moment,
+# and the pre-push hook is the second one for anybody who commits with
+# --no-verify out of habit.
+#
+# WHY IT PREFERS gitleaks AND DOES NOT REQUIRE IT
+#
+# gitleaks carries about 160 maintained detectors, which is more than any
+# hand-written table in this repository will ever keep up with. It is also a Go
+# binary that is not installed here and is not an npm dependency, so requiring
+# it would leave two bad choices: block every commit on a machine without it,
+# or skip the check and call that passing. A hook that silently passes is worse
+# than no hook, because it is trusted.
+#
+# So: gitleaks when it is there, and `scripts/scanSecrets.mjs` when it is not —
+# narrower, but it runs everywhere Node runs, which is everywhere this
+# repository is worked on. The hook always prints WHICH engine ran, because
+# "scanned" and "scanned by the good one" are different claims.
+#
+# Install gitleaks to get the better pass:
+#   winget install gitleaks        (Windows)
+#   brew install gitleaks          (macOS)
+#
+# Install the hook with: npm run hooks:install
+# Bypass, deliberately and rarely: git commit --no-verify
+set -e
+
+# Nothing staged, nothing to scan — an empty or amend-only commit.
+if git diff --cached --quiet --diff-filter=ACMR 2>/dev/null; then
+  exit 0
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  printf 'pre-commit: gitleaks scanning staged changes… '
+  # --staged scans the index, which is the content being recorded — not the
+  # working tree, which can differ from it in exactly the way that hides a key.
+  if ! out=$(gitleaks protect --staged --redact --no-banner 2>&1); then
+    printf '\n\n%s\n' "$out"
+    printf '%s\n' "pre-commit REFUSED: that looks like a credential."
+    printf '%s\n' ""
+    printf '%s\n' "If it is real: rotate it at the provider FIRST, then move the value"
+    printf '%s\n' "into an environment variable (see .env.example). Deleting the line is"
+    printf '%s\n' "not enough once it has been pushed."
+    printf '%s\n' ""
+    printf '%s\n' "If it is a false positive: add it to .gitleaks.toml with the reason."
+    printf '%s\n' "To commit anyway: git commit --no-verify"
+    exit 1
+  fi
+  printf 'ok\n'
+  exit 0
+fi
+
+printf 'pre-commit: scanning staged changes (gitleaks not installed, using built-in)… '
+if ! out=$(node scripts/scanSecrets.mjs --staged 2>&1); then
+  printf '\n\n%s\n' "$out"
+  printf '%s\n' "pre-commit REFUSED: that looks like a credential."
+  printf '%s\n' "To commit anyway: git commit --no-verify"
+  exit 1
+fi
+printf 'ok\n'
+exit 0
