@@ -874,6 +874,17 @@ export default function CustomerPortalView() {
               </h1>
               <p className="text-gray-400">Member since {customerInfo.memberSince}</p>
             </div>
+            {/*
+              Hidden on the junk removal tab.
+              Eric: "can you remove them off the junk removal."
+
+              Somebody on that tab is photographing a pile to get a price.
+              Shop Now, a notification bell and a settings gear are three ways
+              to leave that job, crowded into the corner of a phone screen
+              directly above it. They stay on every other tab, where they are
+              what the tab is for.
+            */}
+            {activeTab !== 'trash-estimate' && (
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => setActiveTab('shopping')}
@@ -902,6 +913,7 @@ export default function CustomerPortalView() {
                 <Settings className="w-5 h-5 text-gray-400" />
               </button>
             </div>
+            )}
           </div>
 
           {/* Tabs */}
@@ -991,7 +1003,57 @@ export default function CustomerPortalView() {
         {activeTab === 'floor-visualiser' && <FloorVisualiser accent="orange" />}
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'trash-estimate' && (
-          <TrashEstimatePanel customerName={customerInfo.name} onNavigate={(page) => (window as any).__navigateApp?.(page)} />
+          /*
+           * Eric: "it should ask … to join a portal if they dont have one."
+           *
+           * `customer-portal` is on the public page list — "allow visitors to
+           * explore features" — so somebody with no account can reach this tab.
+           * They could not use it: the panel sends the estimate through
+           * `authedHeaders`, which THROWS rather than falling back, so the
+           * Price it button answered "Your session has expired" to a person who
+           * never had a session. A pricer that errors is worse than one that is
+           * honestly out of reach, because the visitor concludes the tool is
+           * broken rather than that it is for customers.
+           *
+           * So the offer replaces the pricer rather than sitting under it. The
+           * 5% is the same discount the texted link carries, and it is applied
+           * server-side from the account, not from anything decided here — see
+           * `signupIncentive.ts`.
+           */
+          !session ? (
+            <div
+              className="rounded-2xl p-6 sm:p-8 text-center"
+              style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.3)' }}
+            >
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                Get a junk removal price — and 5% off
+              </h3>
+              <p className="mx-auto mt-3 max-w-md text-sm text-gray-400">
+                Join the portal free, photograph what needs taking away, and get a price back from
+                your pictures. Members take an extra 5% off the job.
+              </p>
+              <button
+                type="button"
+                onClick={() => (window as any).__navigateApp?.('signup')}
+                className="mt-5 w-full rounded-xl px-6 py-3 text-sm font-black text-black sm:w-auto"
+                style={{ background: '#22c55e' }}
+              >
+                Join free and get my price
+              </button>
+              <p className="mt-3 text-xs text-gray-500">
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => (window as any).__navigateApp?.('login')}
+                  className="font-bold text-orange-400 underline"
+                >
+                  Sign in
+                </button>
+              </p>
+            </div>
+          ) : (
+            <TrashEstimatePanel customerName={customerInfo.name} onNavigate={(page) => (window as any).__navigateApp?.(page)} />
+          )
         )}
         {/*
           A homeowner has one property and no site office, which is exactly the
