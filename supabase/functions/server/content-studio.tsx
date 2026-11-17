@@ -288,7 +288,7 @@ async function meterAi(c: any, n = 1, noun = "generations"): Promise<{
   user: any;
   refuse: { error: string; used: number; limit: number } | null;
 }> {
-  const token = String(c.req.header("Authorization") || "").replace(/^Bearers+/i, "");
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
   let user: any = null;
   try {
     const { data } = await reelServiceClient().auth.getUser(token);

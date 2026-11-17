@@ -93,7 +93,7 @@ export const ordersRouter = new Hono();
  * and closes the routes to everyone else.
  */
 async function requireOrdersStaff(c: any): Promise<Response | null> {
-  const token = String(c.req.header('Authorization') || '').replace(/^Bearers+/i, '');
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
   if (!token) return c.json({ error: 'Sign in required.' }, 401);
   try {
     const supabase = createClient(
