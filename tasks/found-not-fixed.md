@@ -428,3 +428,32 @@ noise.
 
 **The fix:** not tidiness — a pass to find the rest. The ratio says there are
 more.
+
+
+### A fresh browser makes the next signup an "owner"
+`src/app/pages/SignUp.tsx` decides the account type like this:
+
+```js
+const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
+const isFirstUser = Object.keys(userProfiles).length === 0;
+const accountType = isFirstUser ? 'owner' : 'customer';
+```
+
+"First user becomes owner" is read from `localStorage`. In any fresh browser —
+a private window, a new phone, cleared site data — that object is empty, so the
+next person to sign up is written as `owner` in their own stored profile.
+
+The server grants them nothing: `trustedRole` reads `app_metadata` only, and
+`/auth/signup` hardcodes `role = "client"` precisely because it once read the
+role from the request body and let anyone self-register as `master_admin`. So
+this is not a privilege escalation.
+
+It is still wrong, and it is now in the path of real traffic. The 5% junk
+pricing offer sends a visitor from a texted link to `/signup`, which on a phone
+is very often a browser with no stored profiles — so the people most likely to
+hit this are exactly the ones the funnel was built for. The UI reads that
+profile, so they can land on owner-looking screens that then fail every server
+call they make.
+
+**The fix:** decide the first-owner question on the server, where it can be
+answered by counting accounts rather than by what one browser remembers.
