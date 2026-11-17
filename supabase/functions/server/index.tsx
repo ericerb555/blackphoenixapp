@@ -8974,6 +8974,46 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
 
 // GET /social/callback — OAuth callback handler (redirect from platforms)
 app.get('/make-server-3eae23a6/social/callback', async (c) => {
+  /*
+   * REFUSED. This handler trusted its own `state`, and nothing reaches it any
+   * more that should be served.
+   *
+   * WHAT IT DID
+   *
+   * `JSON.parse(atob(state))` and then wrote the OAuth token it had just
+   * exchanged to `social_tokens_<userId>` — taking the userId out of the state
+   * string. Base64 is an encoding, not a signature, and no record of the state
+   * was kept to check it against. So anyone could mint
+   * `btoa(JSON.stringify({ userId: <somebody else>, platform: 'facebook' }))`,
+   * complete a handshake with their own social account, and have the result
+   * filed against another person's user id — connecting their account to
+   * somebody else's, or replacing a real connection with one they control.
+   *
+   * WHY REFUSING IS THE FIX RATHER THAN REPAIRING IT
+   *
+   * `social-media.tsx` already does this properly — a random state kept in KV,
+   * verified on return and deleted on use — and is mounted at line 1778, ahead
+   * of this file's inline definitions. It serves `/social/connect/:platform`,
+   * which is what every client calls, and its own callback at
+   * `/social/callback/:platform`. That extra path segment is the whole reason
+   * this one survived: it is NOT shadowed by the correct router, so it stayed
+   * registered and directly reachable while nothing legitimate used it.
+   *
+   * A request arriving here is therefore either a flow that cannot exist — the
+   * connect route that minted these states is itself shadowed — or somebody
+   * calling it on purpose. Both deserve the same answer.
+   *
+   * Left in place rather than deleted because the bare URL may still be
+   * registered as a redirect target in a platform's app settings; a refusal
+   * that says what to use is better than a 404 for whoever finds that out.
+   */
+  console.log('[Social Callback] refused: superseded by /social/callback/:platform');
+  return c.text(
+    'This connection link is no longer valid. Start the connection again from the app.',
+    410,
+  );
+
+  // eslint-disable-next-line no-unreachable
   try {
     const code  = c.req.query('code')  || '';
     const state = c.req.query('state') || '';
