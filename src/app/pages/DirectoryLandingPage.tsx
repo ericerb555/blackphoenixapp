@@ -184,7 +184,15 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
    * nobody can get into the app.
    */
   useEffect(() => {
-    const t = setTimeout(() => setBounceDone(true), 5000);
+    /*
+      2600ms, was 5000. The animation now ends at 2.0s (0.4 delay + 1.6
+      duration), and this backstop has to outlast it or it would cut the
+      flourish off mid-flight on every single load. 600ms of headroom, same
+      job as before: if `onAnimationComplete` never fires — backgrounded tab,
+      interrupted animation, a browser that declines to run it — the overlay
+      still unmounts and the way into the app is not buried under it.
+    */
+    const t = setTimeout(() => setBounceDone(true), 2600);
     return () => clearTimeout(t);
   }, []);
 
@@ -463,9 +471,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       {!bounceDone && (
         <motion.div
           initial={{ opacity: 0, scale: 0 }}
-          animate={{ opacity: [0, 1, 1, 0], scale: [0, 10, 10, 1] }}
           transition={{
-            duration: 4,
+            /*
+              1.6s, was 4.0. Eric, 2026-11-17: "yes shorten the delay."
+
+              Shortening the hero logo's fade alone would not have done it.
+              This overlay is full-viewport at z-10000 and spends the middle
+              of its run at scale 10, so for as long as it lasts it IS the
+              page — the mark cannot be seen in its proper place underneath
+              until this finishes. The flourish length was the delay.
+
+              The shape is unchanged: in, hold, settle onto the disc below.
+              `times` is proportional, so every beat scales with the duration.
+            */
+            duration: 1.6,
             delay: 0.4,
             times: [0, 0.3, 0.6, 1],
             ease: "easeInOut"
@@ -642,7 +661,17 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.3, delay: 4.2 }}
+              /*
+                1.7s, was 4.2. This is the handover: the flourish above settles
+                onto this disc, so the two numbers have to stay married. The
+                flourish now ends at 2.0s and this is in place 0.3s before it,
+                exactly the relationship the old pair had.
+
+                Deliberately NOT dropped to zero. At 0 the mark sits in the
+                hero while a ten-times-scale copy of itself fills the screen on
+                top of it, and the arrival stops reading as an arrival.
+              */
+              transition={{ duration: 0.3, delay: 1.7 }}
               className="relative group"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900 rounded-full blur-2xl opacity-50 group-hover:opacity-75 transition-opacity" />
