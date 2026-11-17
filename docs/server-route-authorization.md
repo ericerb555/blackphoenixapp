@@ -234,16 +234,37 @@ is correct in shape, and cannot return true. Rows in section 5 are not annotated
 yet; the three cases above are the ones found so far, and they were all found by reading
 gates rather than by calling routes.
 
-### Two related facts, neither a hole
+### Two related facts, neither a hole (both verified, not assumed)
 
 - **Three accounts hold no role in either metadata bag** (created 2026-04-20, 2026-09-08,
   2026-09-20; none seen since September). `trustedRole` returns `''` for them, so they are
   refused everywhere a role is required. Fail-closed and inert, but if one of them is a
   real customer, their portal is empty for this reason and not a bug in the portal.
-- **`make-server-57095a78` is still ACTIVE** (v531). It carries its own copies of these
-  dead reads at `index.tsx:952` and `:6792`. The app targets `make-server-3eae23a6`, so
-  nothing reaches them, but the function is deployed and nothing in this inventory covers
-  it.
+- **The three retired API generations are deployed but serve nothing, and the repo keeps
+  their full source on purpose.** `make-server-57095a78` carries its own copies of these
+  dead reads at `index.tsx:952` and `:6792`, and 363 route registrations besides. None of
+  it runs: `supabase/config.toml` points each slug's entrypoint at a `-stub` directory,
+  and the stubs identify themselves. Verified against production 2026-11-17:
+
+  | Function | `/health` | data routes | retired on |
+  |---|---|---|---|
+  | `make-server-57095a78` | 200 `retired: true` | 410 | 2026-08-15 |
+  | `make-server-824f083c` | 200 `retired: true` | 410 | 2026-08-30 |
+  | `make-server-12c91054` | 200 `retired: true` | 410 | 2026-08-30 |
+
+  Kept deployed deliberately, so a stale caller gets a clear 410 rather than a confusing
+  404, and the archived source is the record of what was taken out of service. The hazard
+  is the entrypoint line, not the source: a deploy on 2026-08-17 named the full directory
+  instead of the stub and un-retired a 509-route server with service-role privileges
+  against live data for about fifteen minutes, without erroring. `RETIRED-1` in
+  `scripts/security-probe.mjs` is the standing check for that.
+
+  **That check had the same blind spot this inventory's findings had.** It accepted 410,
+  401 or 404 as proof of retirement — and the live server answers an anon-key request to
+  `/customers` and `/invoices` with **401** (measured 2026-11-17), so the one check written
+  to catch an un-retirement would have passed a fully un-retired server. It now requires
+  the positive `retired: true` marker on `/health` and a 410 on the data routes; a live
+  server in its place fails it, which was demonstrated rather than assumed.
 
 ## 5. Route-by-route inventory
 

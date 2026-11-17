@@ -320,23 +320,62 @@ async function checkRlsEnabled() {
 // ─────────────────────────────────────────────────────────────────────────────
 const RETIRED = ['make-server-57095a78', 'make-server-824f083c', 'make-server-12c91054'];
 
+/*
+ * WHY THIS ASKS THE STUB TO IDENTIFY ITSELF, RATHER THAN WATCHING FOR A 200
+ *
+ * The first version accepted 410, 401 or 404 on `/customers` as proof of
+ * retirement. 410 is the stub; the other two are absences of evidence wearing
+ * a passing grade. An un-retired full server with working authorisation
+ * answers an anon-key request to `/customers` with 401 — and this check, the
+ * one written specifically to catch the 2026-08-17 un-retirement, would have
+ * printed a pass.
+ *
+ * That is the same mistake made while probing the live API on 2026-11-16: a
+ * 401 was read as "the guard refused me" when the wall answers a route that
+ * does not exist identically. A refusal tells you nothing about what is behind
+ * it.
+ *
+ * So the check now requires a POSITIVE marker that only the stub can produce.
+ * All three stubs answer `/health` 200 with `retired: true` and the date they
+ * were taken out of service. Verified against production 2026-11-17:
+ *
+ *   make-server-57095a78  retiredOn 2026-08-15
+ *   make-server-824f083c  retiredOn 2026-08-30
+ *   make-server-12c91054  retiredOn 2026-08-30
+ *
+ * If a stub is ever rewritten without that marker this check fails and asks a
+ * human — which is the right failure, because a security check that cannot
+ * tell the difference between "retired" and "I could not tell" must choose to
+ * be wrong in the loud direction.
+ */
 async function checkRetired() {
-  const alive = [];
+  const problems = [];
   for (const fn of RETIRED) {
+    const health = await get(`${T.api}/functions/v1/${fn}/health`, { headers: H });
+    let retired = false;
+    try { retired = JSON.parse(health.body)?.retired === true; } catch { retired = false; }
+    if (!retired) {
+      problems.push(`${fn}/health → ${health.status}, no retired marker`);
+      continue;
+    }
+    /*
+     * And the thing a caller actually hits. The marker says the stub is
+     * serving; this says it is serving nothing — a stub that answered a data
+     * route would be a stub in name only.
+     */
     for (const p of ['customers', 'invoices']) {
       const r = await get(`${T.api}/functions/v1/${fn}/${p}`, { headers: H });
-      if (r.status !== 410 && r.status !== 401 && r.status !== 404) {
-        alive.push(`${fn}/${p} → ${r.status}`);
-      }
+      if (r.status !== 410) problems.push(`${fn}/${p} → ${r.status}, expected 410`);
     }
   }
   record(
     'RETIRED-1', 'fail',
     'Retired API generations are still decommissioned',
-    alive.length
-      ? `UN-RETIRED: ${alive.join(', ')}. Check the entrypoint lines in supabase/config.toml point at the -stub directories.`
-      : 'All three retired functions refused.',
-    alive.length === 0,
+    problems.length
+      ? `UN-RETIRED, or the stub has changed: ${problems.join('; ')}. `
+        + 'Check the entrypoint lines in supabase/config.toml point at the -stub directories.'
+      : 'All three stubs identified themselves on /health and answered 410 for data routes.',
+    problems.length === 0,
   );
 }
 
