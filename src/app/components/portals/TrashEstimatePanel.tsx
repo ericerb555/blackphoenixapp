@@ -57,6 +57,31 @@ const FRAMES_PER_VIDEO = 6;
  */
 const MAX_PAYLOAD_BYTES = 4_000_000;
 
+/*
+ * WHY EVERY FIELD ON THIS SCREEN IS 16px AND MUST STAY THERE
+ *
+ * Eric, from an iPhone: "the mobile version still have bunched up buttons and
+ * i click them and it errored out."
+ *
+ * iOS Safari zooms the page when a form field with a font smaller than 16px
+ * takes focus, and it does not zoom back out. The three fields here were
+ * `text-sm` — 14px — so tapping the scope box, the notes box or the name field
+ * left the whole page magnified: buttons crowded together, the layout shifted
+ * under the finger, and a tap aimed at one control landed on its neighbour.
+ * Which is also the likeliest explanation for a button "erroring out" rather
+ * than doing its job.
+ *
+ * It is not a bug in the layout, and measuring the layout is how you miss it:
+ * the buttons here are `flex-col sm:flex-row` and stack correctly at every
+ * width. The page is fine until a field is touched.
+ *
+ * The viewport deliberately allows zoom (`user-scalable=yes` in index.html),
+ * which is the right call for accessibility and is not what to change. 16px on
+ * the fields is what stops the zoom being automatic and unwanted.
+ *
+ * So: `text-base`, never `text-sm`, on anything focusable on this screen.
+ */
+
 interface Props {
   /** Shown on the estimate, and the address the job is at. */
   customerName?: string;
@@ -638,7 +663,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
           <textarea
             value={scope} onChange={(e) => setScope(e.target.value)} rows={2}
             placeholder="e.g. everything but the bed · only the stuff on the right · leave the washer and dryer"
-            className="mt-2 w-full rounded-xl text-sm text-white bg-transparent"
+            className="mt-2 w-full rounded-xl text-base text-white bg-transparent"
             style={{ border: '1px solid rgba(234,88,12,0.35)', padding: '12px' }}
           />
         </label>
@@ -646,7 +671,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
         <textarea
           value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
           placeholder="Anything the pictures do not show — stairs, parking, a gate code, what is behind the pile."
-          className="w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          className="w-full rounded-xl p-3 text-base text-white bg-transparent"
           style={{ border: '1px solid rgba(255,255,255,0.15)' }}
         />
       </div>
@@ -666,7 +691,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
         <input
           value={signedName} onChange={(e) => setSignedName(e.target.value)}
           placeholder="Type your name"
-          className="mt-3 w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          className="mt-3 w-full rounded-xl p-3 text-base text-white bg-transparent"
           style={{ border: '1px solid rgba(255,255,255,0.15)' }}
         />
       </div>
