@@ -731,6 +731,29 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
           </span>
         ) : 'Price it'}
       </button>
+
+      {/*
+        HOW LONG THIS TAKES, SAID BEFORE IT STARTS.
+
+        Eric, 2026-11-17: "maybe we should add a not on the pricing app as well
+        that it takes 30-60 to generate."
+
+        It is not slow by accident. Every load is read twice: one pass says what
+        is in the pictures, then a second pass checks that reading against the
+        same pictures — see `verifySystem` in `trashReading.ts`. Two Opus passes
+        over up to twelve images is thirty to sixty seconds, and the second
+        cannot start until the first has finished because its whole job is to
+        audit it.
+
+        Spending it is the right call for a number a customer is quoted off, but
+        spending it silently is not: half a minute of a spinner on a phone reads
+        as a hung page, and the next thing somebody does is press it again.
+      */}
+      <p className="mt-3 text-center text-sm text-gray-400">
+        {busy
+          ? 'Reading your pictures twice — once to see what is there, once to check it. 30–60 seconds.'
+          : 'Takes 30–60 seconds. Every load is read twice so the price is checked before you see it.'}
+      </p>
     </div>
   );
 }

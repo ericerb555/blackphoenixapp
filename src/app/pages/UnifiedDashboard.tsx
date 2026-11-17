@@ -550,7 +550,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
          * was already imported into this file and used for nothing, which is
          * the shape of a tile somebody meant to add and did not.
          */
-        { label: 'QR Codes', path: '/qr-codes', icon: QrCode, color: 'amber', description: 'Make and save codes for trucks, cards, flyers & signs' },
+        { label: 'QR Codes', path: '/qr-codes', icon: QrCode, color: 'amber', description: 'Make and save codes for trucks, cards, flyers & signs', badge: 'NEW' },
         { label: 'Social Media', path: '/social-media', icon: Globe, color: 'blue', description: 'Social channels' },
         { label: 'Content Center', path: '/enterprise-content-center', icon: FileText, color: 'purple', description: 'Content management' },
         { label: 'Design Center', path: '/design-center', icon: Palette, color: 'pink', description: 'All design — structural, studio & renderings' },

@@ -19,7 +19,7 @@ import {
   Eye, Edit2, ClipboardList, Gift, Brain, Folder,
   Crown, Code, Cloud, BookOpen, Menu, X, Activity,
   ArrowUpRight, ArrowDownRight, Minus, ChevronLeft,
-  LayoutGrid, TrendingDown, AlertCircle, Plus, Home
+  LayoutGrid, TrendingDown, AlertCircle, Plus, Home, QrCode
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
@@ -404,6 +404,17 @@ export default function UnifiedDashboardMobile({
                 { label: 'Applications', icon: UserCheck, color: 'green', path: '/admin-alerts' },
                 { label: 'Work Requests', icon: ClipboardList, color: 'yellow', path: '/admin-alerts' },
                 { label: 'Payments', icon: DollarSign, color: 'emerald', path: '/unified-payment-center' },
+                /*
+                  Eric, 2026-11-17: "why isnt the qr button showing up under the
+                  marketting section on the unified dashboard as well?"
+
+                  The Marketing tile has been there since 09:47 that morning and
+                  is live — but it is one tile in fifteen, four taps deep behind
+                  a bottom-nav tab. He was not asking whether it exists, he was
+                  asking for the BUTTON he has in the command center. This row
+                  scrolls and is on every tab, which is the mobile equivalent.
+                */
+                { label: 'QR Codes', icon: QrCode, color: 'amber', path: '/qr-codes' },
                 { label: 'Schedule', icon: Calendar, color: 'cyan', path: '/service-scheduling' },
                 { label: 'Reports', icon: BarChart3, color: 'indigo', path: '/reporting-analytics' },
                 { label: 'Settings', icon: Settings, color: 'zinc', path: '/settings' },
