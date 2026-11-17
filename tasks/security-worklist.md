@@ -12,7 +12,7 @@ Status: `OPEN`, `DOING`, `DONE`, or `WAITING` on somebody.
 |---|---|---|---|---|
 | 1 | **`/cart` is public and takes `:customerId`** | Was the only remaining hole reachable with **no session at all**. Measured on production first — `DELETE /cart/victim-customer-id` answered 200 and emptied it — then closed by deciding on the SHAPE of the id: a minted `session_…` is a capability and stays public, anything else needs staff or the signed-in owner. Verified live. | me | **DONE 2026-11-17** |
 | 2 | **WAF-1 — the firewall can be walked around** | `*.supabase.co` answers directly, so the Cloudflare rules never see the traffic. Every rate limit and bot rule above it is advisory until this closes. Needs `EDGE_ORIGIN_SECRET` set in two places, then `ORIGIN_LOCK_ENFORCE=true`. | Eric + me | WAITING |
-| 3 | **~950 routes that check *something*** | Now has a tool: `npm run authz:scan`. Worst cluster fixed — 12 property-management writes. 36 + 38 leads remain, worked cluster by cluster; see below. | me | **DOING** |
+| 3 | **~950 routes that check *something*** | `npm run authz:scan`. **Bucket B (the IDOR class) is empty** — 38 leads, 37 already correct, 1 real and fixed. Bucket A stands at 34, worst cluster done. | me | **DOING** |
 | 4 | **`POST /variances/scan-fill` trusts `body.email`** | A signed-in caller can file a draft under somebody else's address. Not a disclosure; the guard above it already stops them reading it back. | me | OPEN |
 | 5 | **9 `SECURITY DEFINER` functions executable by `anon`** | Measured as returning nothing without a session (`is_platform_operator()` answers `false`), so this is unnecessary surface rather than a hole. Revoke `EXECUTE` from `anon`. | me | OPEN |
 | 6 | **IP reputation scores but never bans** | The middleware measures and records; enforcement is off. Switching it on can lock people out, so the threshold is a judgement call. | Eric | WAITING |
@@ -82,3 +82,40 @@ record" is a policy, not a defect.
 middleware), `rental-portals` (3), then a long tail of ones and twos. The
 admin-tier and middleware-covered ones are probably fine and need reading to
 confirm rather than guarding.
+
+### Item 3 — bucket B is empty, and that is the headline
+
+**38 leads, 37 of them already correct, 1 real.** The IDOR class — knows who
+you are, never checks the record is yours — is clean in this codebase. That is
+the opposite of what the bucket was opened expecting, and it is worth stating
+plainly so nobody re-opens it.
+
+Each of the 37 is a thing the scan could not see, and each is now a marker:
+
+| What it missed | Where |
+|---|---|
+| `requireStaff` passed as **per-route middleware** | `design-links.tsx`, all five routes |
+| an **inline** email comparison rather than a helper call | `rental-portals.tsx` lease signing |
+| **scoped by construction** — the key is built from the caller | `landlord/tenants/:id/charge` |
+| **delegated** to a per-record standing helper two layers down | `condo-associations.tsx` |
+| the admin flag under another property name | `who.isAdmin`, `me.admin`, `actor.isCompany`, `actor.admin` |
+
+The third is the one worth remembering: `POST /landlord/tenants/:id/charge`
+takes the landlord from the token and looks the tenant up in *that landlord's
+own roster*, so a tenant id belonging to somebody else is not in the list it
+searched. There is no comparison to find because there is nothing to compare.
+That is stronger than fetch-then-compare, and the scan called it a finding.
+
+**The one real one: `reel-scoreboard.tsx`, and it was the whole module.** Every
+route resolved a caller, checked nothing, and sat on no gate list — so any
+customer could read the company's social performance and overwrite the metrics
+on any post. No data leaks and no money moves; what breaks is that the numbers
+the company judges its own marketing by could be written by anyone with an
+account. Staff-only now, reads included.
+
+### Item 3 — bucket A is where the rest is
+
+34 writes that resolve no caller at all. The worst cluster went earlier today
+(twelve property-management writes). The remainder are mostly admin-tier or
+behind path middleware and need reading to confirm rather than guarding, with
+a tail at tier "user" that does not.
