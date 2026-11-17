@@ -12269,19 +12269,20 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
     const allowedRoles = new Set(['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management', 'customer', 'vendor', 'subcontractor', 'service_provider', 'employee', 'investor', 'advertiser', 'property_manager', 'territory_owner', 'territory', 'landlord', 'condo_manager', 'condo_association', 'tenant']);
     const metadataRole = String(user.app_metadata?.role || user.app_metadata?.accountType || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
-    if (!role) {
-      try {
-        // The `user_permissions` half of this was dropped 2026-11-17: the
-        // table does not exist, so it contributed an error object and an
-        // empty list on every call. Company membership is the real answer
-        // and always was.
-        const membershipResult = await supabase.from('company_members')
-          .select('role').eq('user_id', user.id).eq('is_active', true)
-          .order('created_at', { ascending: true }).limit(10);
-        const membershipRoles = (membershipResult.data || []).map((row: any) => String(row.role || '').toLowerCase());
-        role = membershipRoles.includes('owner') ? 'owner' : membershipRoles.includes('admin') ? 'admin' : '';
-      } catch { /* Fall through to the approved application role. */ }
-    }
+    /*
+     * No table is consulted, because there is no table.
+     *
+     * This asked `user_permissions` and `company_members` for a role when
+     * `app_metadata` had none. Neither table exists in this project — nor
+     * does `user_profiles`, the third one the browser used to query — so both
+     * halves answered with an error object and an empty list, and `role`
+     * came out `''` on every call that reached here. The `/me/permissions`
+     * comment above has recorded this since it was written.
+     *
+     * Removing the lookup is therefore behaviour-neutral, and the fall
+     * through to the approved application record below — which does exist,
+     * in KV — is what has been answering all along.
+     */
     let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;
     let intake = applicationId ? await kv.get(`intake:onboarding:${applicationId}`) as any : null;
     if (!intake) {

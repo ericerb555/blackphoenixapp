@@ -101,19 +101,35 @@ export async function intakeIsAdmin(user: any) {
   if (PLATFORM_OWNER_EMAILS.has(String(user.email || '').toLowerCase())) return true;
   if (INTAKE_ADMIN_ROLES.has(trustedRole(user))) return true;
   /*
-   * The `user_permissions` query that used to sit beside this was dropped
-   * 2026-11-17. That table does not exist — confirmed against production —
-   * so it answered with an error object and an empty list every time this
-   * helper ran, which is 112 call sites, the most-used on this server.
+   * BOTH TABLES ARE MISSING, NOT JUST ONE.
    *
-   * Company membership was carrying the decision on its own already. Nothing
-   * about who is an administrator changes here; one query per call does.
+   * The `user_permissions` query here was dropped 2026-11-17 because that
+   * table does not exist. `company_members` was kept on the understanding
+   * that it "was carrying the decision on its own already". It is not:
+   *
+   *   select table_schema, table_name from information_schema.tables
+   *    where table_name in ('company_members','user_permissions','user_profiles')
+   *   -> 0 rows, every schema
+   *
+   * None of the three exists. A comment 9,000 lines up in `index.tsx` has
+   * said so since the `/me/permissions` route was written — "Two of those
+   * tables do not exist in this project" — and it also records what actually
+   * decides this: "`intakeIsAdmin` checks the owner allowlist and the token's
+   * metadata before it goes near a table".
+   *
+   * That is the real answer, and it is the two lines above this comment. The
+   * table read was a third opinion that could only ever return an error
+   * object, so removing it changes nothing except one failed query per call
+   * on the most-used helper on this server — at every call where the caller
+   * is neither the founder nor holding an admin role, which is every refused
+   * admin-tier request.
+   *
+   * NOT replaced with a `company_members` migration. Company-membership
+   * authority is not implemented, and a table created to satisfy a dead read
+   * would be a third place roles live. If it is ever wanted it should be
+   * built deliberately, with the gates written against it on purpose.
    */
-  try {
-    const memberships = await admin().from('company_members')
-      .select('role').eq('user_id', user.id).eq('is_active', true);
-    return (memberships.data || []).some((row: any) => ['owner', 'admin'].includes(String(row.role || '').toLowerCase()));
-  } catch { return false; }
+  return false;
 }
 
 /**

@@ -71,15 +71,15 @@ async function isStaff(user: any): Promise<boolean> {
   const role = trustedRole(user);
   if (STAFF_ROLES.has(role)) return true;
 
-  try {
-    // The `user_permissions` query beside this was dropped 2026-11-17 — the
-    // table does not exist, so it never granted anybody anything.
-    const members = await service().from("company_members")
-      .select("role").eq("user_id", user.id).eq("is_active", true);
-    if ((members.data || []).some((r: any) => ["owner", "admin"].includes(String(r.role || "").toLowerCase()))) return true;
-  } catch {
-    // A lookup failure must not grant access.
-  }
+  /*
+   * There is no third source of authority. The env allowlist and the role
+   * above are the whole check.
+   *
+   * `user_permissions` was dropped here 2026-11-17 for not existing, and
+   * `company_members` was kept — but it does not exist either, in any schema,
+   * so the lookup could only ever return an error object. See `identity.ts`
+   * for the query that establishes it.
+   */
   return false;
 }
 
