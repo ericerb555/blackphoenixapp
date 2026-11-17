@@ -163,14 +163,89 @@ with a string path — each handler body taken to its closing brace, then matche
 role guards, shared-secret checks, session resolution and request-supplied identifiers. The mounted
 prefix was resolved by following each router variable's import in index.tsx.
 
-That static pass produces the table in section 4. It is a lead generator, not a verdict: a handler that
+That static pass produces the table in section 5 (renumbered 2026-11-17 when section 4 was added). It is a lead generator, not a verdict: a handler that
 delegates its check to a helper the patterns do not know — `condoStanding`, `reportFor`,
 `intakeOwnedBy`, `resident`, `mayTouch` — reads as unguarded until somebody opens it. Every row the
 pass flagged as sensitive **and** unguarded was opened. 57 rows carry a † and state what the code
 does; unmarked rows have not been read. Where a mount or a check could not be resolved, the cell says
 UNKNOWN rather than a guess.
 
-## Route-by-route inventory
+## 4. Gates that read a table that does not exist
+
+Added 2026-11-17. This section exists because the inventory had no column for it: every
+tier in section 3 records **that a check is present**, and none records **whether the
+check can ever answer yes**.
+
+### The three tables
+
+```sql
+select table_schema, table_name from information_schema.tables
+ where table_name in ('company_members', 'user_permissions', 'user_profiles');
+-- 0 rows, every schema
+```
+
+None of the three has ever existed in this project. A `.from('user_permissions')` call
+against supabase-js does not throw — it resolves with an error object and no rows — so
+every gate reading one has been answering from an empty list on every request since it
+was written. `index.tsx:3120` has recorded two of the three since `/me/permissions` was
+written; the third, `company_members`, was still being treated as the live half as
+recently as the deletion commit of 2026-11-17.
+
+### Three shapes, with very different consequences
+
+**(a) Read beside a live check — contributed nothing, changed nothing.** Nine KV reads
+and the Postgres reads in `identity.ts:intakeIsAdmin`, `design-links.tsx:isStaff` and
+`/auth/me` sat *after* an allowlist or an `app_metadata` role test. Those two lines were
+always the whole answer. Deleting the dead reads is provably behaviour-neutral and is
+what the 2026-11-17 commits did; what it changes is one failed query per call on the
+most-used helper on this server.
+
+**(b) Read as the ENTIRE check — the route admitted nobody.** `rewardsAdmin`
+(index.tsx:11897) had no fallback underneath it, so it returned `false` to every caller
+including the owner of the company. Ten call sites, these route families:
+
+| Route | What was unreachable |
+|---|---|
+| `GET /gift-cards` | the gift-card list |
+| `POST /gift-cards/:code/redeem` | redemption as staff |
+| `GET`, `POST`, `DELETE /referrals`, `/referrals/records`, `/referrals/records/:id` | the whole referral admin surface |
+| `GET /affiliate-payouts`, `POST /affiliate-payouts/:email/:id` | payout review and approval |
+
+**(c) Read as a role *derivation* — the field came back empty.** `/auth/me` asked both
+tables for a role when `app_metadata` had none, so `role` was `''` on every call that
+reached it and the answer always came from the KV application record instead.
+
+### Why no probe finds shape (b)
+
+**A permanently refused admin route is indistinguishable from a correctly guarded one.**
+Every external test this inventory's findings were verified with — call the route as the
+wrong user, expect a refusal — *passes* against a gate that refuses everybody. So does
+calling it as the right user, which reads as "correctly guarded" unless you know who you
+are and that you should have got in. This class is only visible from the inside, by
+asking what the check reads and whether that thing exists.
+
+It fails closed, which is why these were broken features and not holes. The cost was
+paid in a different currency: the owner could not issue a gift card for a year.
+
+### The state the inventory should carry
+
+A third value beside *guarded* and *AUTHED-ONLY*: **NEVER ADMITS** — a check is present,
+is correct in shape, and cannot return true. Rows in section 5 are not annotated with it
+yet; the three cases above are the ones found so far, and they were all found by reading
+gates rather than by calling routes.
+
+### Two related facts, neither a hole
+
+- **Three accounts hold no role in either metadata bag** (created 2026-04-20, 2026-09-08,
+  2026-09-20; none seen since September). `trustedRole` returns `''` for them, so they are
+  refused everywhere a role is required. Fail-closed and inert, but if one of them is a
+  real customer, their portal is empty for this reason and not a bug in the portal.
+- **`make-server-57095a78` is still ACTIVE** (v531). It carries its own copies of these
+  dead reads at `index.tsx:952` and `:6792`. The app targets `make-server-3eae23a6`, so
+  nothing reaches them, but the function is deployed and nothing in this inventory covers
+  it.
+
+## 5. Route-by-route inventory
 
 Columns: **Auth tier** · **Ownership scoping** · **Sensitivity**. Rows marked † were read by hand;
 every other row is derived by the static pass described above and should be treated as a lead, not a verdict.
