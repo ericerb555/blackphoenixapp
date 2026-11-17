@@ -329,6 +329,67 @@ Until it is decided, nothing is leaking: no card number from either form
 reaches our servers, our logs, or the database. The exposure is the browser
 page itself, for as long as the fields are on it.
 
+### `/cart` is public, and its routes take a customer id from the path
+
+Found 2026-11-17 by the no-authorisation scan (see
+`docs/server-route-authorization.md` section 4 for the method).
+
+`/cart` is on `PUBLIC_PREFIXES` in index.tsx:868 with the note *"guest cart,
+keyed by an anonymous sessionId"*. That rationale is sound for the routes it
+describes — a visitor with no account needs a cart, and a random session id is
+the right key for one.
+
+But `ecommerce-cart.tsx` also registers these, under the same public prefix:
+
+    GET    /cart/:customerId
+    POST   /cart/:customerId/items
+    PUT    /cart/:customerId/items/:itemId
+    DELETE /cart/:customerId/items/:itemId
+    DELETE /cart/:customerId
+    GET    /cart/:customerId/count
+    POST   /cart/merge
+
+So a named customer's cart can be read, added to, modified and **emptied with
+no session at all**, by anybody who knows or guesses a customer id. `POST
+/cart/merge` takes a guest cart id and a customer id and merges one into the
+other, which is the same door from the other side.
+
+The module has no authorisation logic of any kind — it was one of the thirteen
+the scan flagged, and the only one still open after triage.
+
+**Why it is not already fixed:** the harm is modest and the fix is not
+one-line. A cart is not a payment method or an address book; the realistic
+damage is nuisance — emptying somebody's basket, or adding to it — plus the
+mild privacy leak of what a named customer is shopping for. Against that, the
+public prefix is load-bearing for the guest flow, so the fix has to keep
+anonymous session carts working while making the `:customerId` routes resolve
+the caller instead of trusting the path. That means either splitting the
+public and owned routes onto different prefixes, or resolving a session when
+one exists and refusing a `:customerId` that is not the caller's.
+
+Either is a deliberate change to how the store's cart is addressed, and it
+should be made on purpose rather than bolted on — but the note in the public
+list currently describes only half of what that prefix exposes, and anybody
+reading it would conclude the carts are anonymous.
+
+### `POST /variances/scan-fill` takes the applicant email from its body
+
+Same scan, same day. The route is behind the auth wall and on
+`AI_METERED_PREFIXES`, so spend is recorded and ceilinged, and the read and
+write routes around it are now scoped to the owner or staff.
+
+The owner, though, is whatever `applicant.email` or `body.email` the caller
+sends. So a signed-in account can file a variance draft under somebody else's
+email address — and, having done so, cannot read it back, because the new
+guard compares the record's email against the token's. The result is a draft
+belonging to a person who did not create it, sitting in their list.
+
+Not a disclosure, and not reachable without a session. The fix is to take the
+applicant email from the token for non-staff callers and leave the body field
+to staff, who legitimately prepare filings on a customer's behalf — which is
+the same shape as the guard already added above it, and is a small change
+worth making next time this file is open.
+
 ## HOUSEKEEPING
 
 ### `ui/Input.tsx` and `ui/input/` both exist
