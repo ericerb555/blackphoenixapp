@@ -4,6 +4,45 @@ import path from 'node:path';
 /** Pull the wall's own lists out of index.tsx, so the tiers are not guessed. */
 const idx = fs.readFileSync("supabase/functions/server/index.tsx", 'utf8');
 
+/**
+ * Strip a line's trailing `//` comment WITHOUT breaking on apostrophes.
+ *
+ * THE BUG THIS FIXES MATTERED MORE THAN ANY FINDING. The first version
+ * stripped only whole-line comments, so trailing ones survived:
+ *
+ *     '/leads/capture',     // the customer's enquiry form
+ *     '/store-content',     // storefront copy and banners
+ *
+ * The apostrophe in "customer's" closed a quote that was never opened, every
+ * quote pair after it shifted by one, and PUBLIC_PREFIXES came out as a mix of
+ * real paths and comment fragments with `/store-content` missing entirely.
+ *
+ * The cost was not cosmetic: the scan then reported
+ * `DELETE /store-content/reels/:id` as needing a session when that prefix is
+ * PUBLIC. A security tool calling a public write authenticated is the exact
+ * failure it exists to prevent — and it would have been wrong about every
+ * prefix listed after the first apostrophe.
+ *
+ * Knowing whether a `//` is a comment or part of a string means tracking quote
+ * state, so that is what this does. No regex can.
+ */
+const BACKSLASH = String.fromCharCode(92);
+
+function stripTrailingComment(line) {
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === BACKSLASH) i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === '/' && line[i + 1] === '/') return line.slice(0, i);
+  }
+  return line;
+}
+
 function listNamed(name) {
   const at = idx.indexOf(`const ${name}`);
   if (at === -1) return [];
@@ -13,7 +52,11 @@ function listNamed(name) {
     if (idx[i] === '[') depth++;
     else if (idx[i] === ']') { depth--; if (!depth) { end = i; break; } }
   }
-  const block = idx.slice(open, end).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const block = idx.slice(open, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map(stripTrailingComment)
+    .join('\n');
   return [...block.matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]);
 }
 
@@ -22,6 +65,37 @@ const PUBLIC_GET_PREFIXES = listNamed('PUBLIC_GET_PREFIXES');
 const PUBLIC_POST_PATHS = listNamed('PUBLIC_POST_PATHS');
 const ADMIN_PREFIXES = listNamed('ADMIN_PREFIXES');
 const USE_GUARDS = [...idx.matchAll(/app\.use\(\s*['"`]([^'"`]+)['"`]/g)].map((m) => m[1]);
+
+/**
+ * WHERE EACH ROUTER IS MOUNTED, because the registered path is not the path.
+ *
+ * `store-content.tsx` registers `delete('/posts/:id')` and index.tsx mounts it
+ * with `app.route("/make-server-3eae23a6/store-content", …)`, so the path the
+ * wall sees is `/store-content/posts/:id`. Asking the wall about `/posts/:id`
+ * returned "any signed-in user" while the real answer is PUBLIC — a false
+ * negative, and wrong for every sub-mounted router rather than just that one.
+ */
+const MOUNTS = (() => {
+  const byVar = new Map();
+  for (const m of idx.matchAll(/app\.route\(\s*["'`]([^"'`]*)["'`]\s*,\s*([A-Za-z_$][\w$]*)/g)) {
+    byVar.set(m[2], m[1]);
+  }
+  return byVar;
+})();
+
+/** The router variable a module exports, so MOUNTS can be looked up. */
+function routerVarOf(code) {
+  const m = code.match(/export const ([A-Za-z_$][\w$]*)\s*=\s*new Hono\(\)/)
+    || code.match(/const ([A-Za-z_$][\w$]*)\s*=\s*new Hono\(\)/);
+  return m ? m[1] : null;
+}
+
+/** The path the wall actually sees. */
+function fullPathOf(mount, route) {
+  if (route.startsWith('/make-server-3eae23a6')) return route;
+  const base = mount && mount !== '/' ? mount : '/make-server-3eae23a6';
+  return (base + route).replace(/\/{2,}/g, '/');
+}
 
 function tierOf(method, route) {
   // routes are written either with the prefix or without it
@@ -85,6 +159,10 @@ const STAFF = [
   // its write routes on `who.isAdmin` and was reported as unguarded without
   // this line — the module whose whole purpose is "who may grant a discount".
   /\.isAdmin\b/, /\.isOwner\b/, /isPlatformOwner/, /\.isMasterAdmin\b/,
+  // Locally-defined guards. `store-content.tsx` has its own `requireAdmin`
+  // that reads app_metadata and refuses a non-admin — and its two deletes are
+  // PUBLIC at the wall, so that local guard is the only thing standing there.
+  /requireAdmin/, /requireOwner/, /requireCompany/, /assertStaff/, /assertAdmin/,
   // The same flag under other names, each found by reading a lead and finding
   // it already correct: `me.admin` in unavailability.tsx, `actor.isCompany` in
   // vendor-billing.tsx, `actor.admin` in rental-portals.tsx.
@@ -222,6 +300,7 @@ const noCaller = [], noCheck = [];
 for (const f of fs.readdirSync(DIR)) {
   if (!/\.tsx?$/.test(f)) continue;
   const code = strip(fs.readFileSync(path.join(DIR, f), 'utf8'));
+  const mount = MOUNTS.get(routerVarOf(code));
   const useAt = code.indexOf('.use(');
   const moduleGuard = /\.use\(\s*['"`]\*['"`]\s*,/.test(code) && useAt > -1
     && any([...STAFF, ...RESOLVES], code.slice(0, useAt + 4000));
@@ -236,7 +315,8 @@ for (const f of fs.readdirSync(DIR)) {
     if (moduleGuard) continue;
     const scope = args + body;
     if (any(STAFF, scope)) continue;
-    const row = { f, method: method.toUpperCase(), route: route.replace('/make-server-3eae23a6', ''), tier: tierOf(method.toUpperCase(), route) };
+    const full = fullPathOf(mount, route);
+    const row = { f, method: method.toUpperCase(), route: full.replace('/make-server-3eae23a6', ''), tier: tierOf(method.toUpperCase(), full) };
     if (!any(RESOLVES, scope)) noCaller.push(row);
     else if (!any(COMPARES, scope) && !scopedByKey(scope) && !scopedInline(scope) && !delegatesStanding(scope)) noCheck.push(row);
   }
