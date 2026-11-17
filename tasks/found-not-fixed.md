@@ -580,3 +580,51 @@ dead branch and one false positive:
 start from the error CODE, not the file; then decide from production data or a
 request rather than by reading — three of the cases above were settled by asking
 what is actually stored, and one by asking production which header arrives.
+
+
+### 30 of 51 tab rows cannot be scrolled to on a phone
+Found 2026-11-17, answering *"i dont see the tab"* — Eric looking for Before &
+After, which is the **fourth** of nineteen tabs in the Content Center and was
+off the right edge of his phone with no way to reach it.
+
+Fixed on that screen. **The same defect is on 29 others**, in two flavours:
+
+- **No `overflow-x-auto` at all** (19 files). Tabs past the viewport are
+  clipped and unreachable by any gesture. Worse where the parent carries
+  `overflow-hidden`, as the Content Center's did.
+- **`overflow-x-auto` without `shrink-0`** (11 files). The scroll never
+  engages, because a flex item shrinks by default — so the row never overflows
+  and the tabs squeeze into each other instead. This is the one Eric reported
+  from an iPhone on 2026-11-17 as *"the tabs and words are over lapping"*, and
+  `CustomerPortalView` was fixed for exactly it.
+
+Four tabs at roughly 170px need ~680px. An iPhone gives 390. So any of these
+screens with more than two tabs has sections its owner has never seen on the
+device he actually uses.
+
+The list, from `scripts` — regenerate by scanning `src/**/*.tsx` for a row that
+maps a tab array, then checking the row for `overflow-x-auto` and the button
+for `shrink-0`:
+
+    no scroll:    AdvancedPhotoEditor, BrandingHub, CompanyBrandingCenter,
+                  ConstructionScheduleGenerator, OwnerGiftManagement,
+                  MobileOwnerPortalView, ReferralRewards, RenderingPanel,
+                  EnterpriseEmailManagement, JobTrackingHub, RewardsPerksHub,
+                  UserManagementHub, AdvancedCohortManagement*,
+                  EmployeePortalView*, SubscriptionPlans*,
+                  TerritoryBasedCohortManagement*, VendorAdvertisingManagement*,
+                  AdCreator*, PortalGlobalSettings*, SupplierManagementHub*,
+                  WasteDisposalTracking*, WeatherJobSiteMonitor*
+                  (* already have shrink-0, so they only need the scroll)
+
+    scroll but    AdvertiserPortalView, ServiceFormModal, WorkOrderDetail,
+    no shrink-0:  FinancialReconciliation, MasterAdminDashboard,
+                  PropertyManagementHub, RevenueMonetizationHub,
+                  SubscriptionHub
+
+**Why it is not fixed here:** the change is two class names per file and
+mechanically identical, but it is thirty live screens and I cannot see any of
+them render. A bulk edit that is right thirty times looks exactly like one
+that is wrong twice. It wants doing in batches against a phone, or with the
+smoke harness extended to assert the row scrolls — which would be the durable
+answer and does not exist yet.

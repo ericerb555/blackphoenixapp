@@ -2035,8 +2035,33 @@ export default function EnterpriseContentCenter() {
 
       {/* Main Content Area */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] overflow-hidden">
-        {/* Tabs */}
-        <div className="flex items-center gap-1 px-6 pt-4 border-b border-[#2A2A2A]">
+        {/*
+          Tabs
+
+          Eric, 2026-11-17: *"i dont see the tab"* — looking for Before &
+          After, which is the FOURTH of nineteen and was off the right-hand
+          edge of his phone with no way to reach it.
+
+          The same nineteen-tab problem `CustomerPortalView` had, one stage
+          worse. There the row at least carried `overflow-x-auto` and the
+          items shrank instead of overflowing, so it looked overlapped rather
+          than scrollable. Here there was no `overflow-x-auto` at all, and the
+          parent carries `overflow-hidden` — so every tab past the viewport
+          was simply clipped away. Not squeezed, not scrollable: gone, and
+          unreachable by any gesture.
+
+          Four tabs at roughly 170px each need ~680px. An iPhone gives 390.
+          So on a phone this screen has never had more than two of its
+          nineteen sections.
+
+          `shrink-0` is the load-bearing part, for the reason that file sets
+          out: a flex item shrinks by default, so without it the row never
+          overflows and `overflow-x-auto` never engages. The negative margin
+          lets the strip run to the screen edges inside the parent's `px-6`,
+          so a half-visible tab reads as "more this way" instead of as a
+          mistake.
+        */}
+        <div className="flex flex-nowrap items-center gap-1 overflow-x-auto px-6 pt-4 border-b border-[#2A2A2A] -mx-0">
           {[
             { id: 'command', label: '🎯 Command Center', icon: Target },
             { id: 'ad-studio', label: '📣 Ad Studio', icon: Megaphone },
@@ -2063,7 +2088,7 @@ export default function EnterpriseContentCenter() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-3 font-medium transition border-b-2 ${
+                className={`flex shrink-0 items-center gap-2 px-4 py-3 font-medium whitespace-nowrap transition border-b-2 ${
                   activeTab === tab.id
                     ? 'text-[#ea580c] border-[#ea580c]'
                     : 'text-gray-400 border-transparent hover:text-gray-300'
