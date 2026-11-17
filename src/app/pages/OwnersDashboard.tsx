@@ -35,7 +35,7 @@ import {
   PhoneCall, Trash2, Heart, ShieldCheck, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import RoleManagementSystem from '../components/RoleManagementSystem';
+import TeamAccessPanel from '../components/owner/TeamAccessPanel';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import ReviewQueuePanel from '../components/owner/ReviewQueuePanel';
 import StoreAutonomyPanel from '../components/owner/StoreAutonomyPanel';
@@ -484,7 +484,7 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
   const tabs = [
     { id: 'overview' as MainTab, label: 'Overview', icon: LayoutDashboard },
     { id: 'companies' as MainTab, label: 'Companies', icon: Building2, badge: companies.length },
-    { id: 'roles' as MainTab, label: 'Roles & Permissions', icon: Key },
+    { id: 'roles' as MainTab, label: 'Team & Access', icon: Key },
     { id: 'alerts' as MainTab, label: 'Admin Alerts', icon: Bell, badge: '3' },
     { id: 'review-queue' as MainTab, label: 'Waiting for Approval', icon: CheckCircle },
     { id: 'notifications' as MainTab, label: 'Notification Recipients', icon: Mail },
@@ -806,10 +806,10 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
         {activeTab === 'roles' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-white mb-2">Role & Permission Management</h2>
-              <p className="text-gray-400">Configure roles, permissions, and access controls across all systems</p>
+              <h2 className="text-2xl font-bold text-white mb-2">Team & Access</h2>
+              <p className="text-gray-400">Invite someone, and set what they can reach. The role is the access.</p>
             </div>
-            <RoleManagementSystem companyName="Enterprise System" />
+            <TeamAccessPanel />
           </div>
         )}
 

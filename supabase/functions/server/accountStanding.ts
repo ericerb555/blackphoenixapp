@@ -216,3 +216,119 @@ export function mayDeactivate(
 
   return { allowed: false, reason: 'Administrator access is required.' };
 }
+
+/**
+ * WHO MAY HAND OUT WHICH ROLE
+ *
+ * The companion to `mayDeactivate`, and the reason it had to exist: until
+ * now nothing in this application could change an account's role at all.
+ * `ensureAuthUser` stamped one at invitation and that was permanent. The
+ * invite route's own refusal message — "use access control to change their
+ * access" — pointed at a screen that did not exist.
+ *
+ * THE RULES, AND WHY EACH ONE
+ *
+ * An owner may assign anything on the list. An administrator may only move
+ * somebody between employee-level roles: they can make an estimator a project
+ * manager, and they cannot mint a second administrator or touch an owner.
+ * Otherwise the first administrator could promote themselves a peer, and from
+ * there the owner is outnumbered in their own company.
+ *
+ * NOBODY MAY CHANGE THEIR OWN ROLE, owner included. Self-promotion is the
+ * obvious hole; self-DEMOTION is the one that actually bites — a sole owner
+ * who picks the wrong entry from a dropdown locks themselves out of the screen
+ * that would undo it, and no one left can put it back. `mayDeactivate` refuses
+ * self-action for the same reason and this mirrors it deliberately.
+ *
+ * A role not on the list is refused rather than written. The role string is
+ * read as authority all over this server, so an unrecognised one does not
+ * fail safe — it lands in `app_metadata` and every `STAFF_ROLE_SET` check
+ * quietly answers no, which looks exactly like a broken account.
+ */
+export const ASSIGNABLE_ROLES: readonly string[] = [
+  'owner', 'admin', 'management', 'project_manager', 'estimator', 'office',
+  'employee', 'staff',
+];
+
+const ASSIGNABLE = new Set(ASSIGNABLE_ROLES);
+
+export function normalizeRole(role: string): string {
+  return String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+export function mayAssignRole(
+  actor: { role: string; email: string },
+  target: { role: string; email: string },
+  nextRole: string,
+): { allowed: boolean; reason: string } {
+  const actorRole = normalizeRole(actor.role);
+  const targetRole = normalizeRole(target.role);
+  const next = normalizeRole(nextRole);
+  const actorEmail = String(actor.email || '').toLowerCase();
+  const targetEmail = String(target.email || '').toLowerCase();
+
+  if (!actorEmail || !targetEmail) {
+    return { allowed: false, reason: 'Both accounts must be identified.' };
+  }
+  if (!ASSIGNABLE.has(next)) {
+    return { allowed: false, reason: 'That is not a role this screen can assign.' };
+  }
+  if (actorEmail === targetEmail) {
+    return { allowed: false, reason: 'You cannot change your own role. Ask another owner.' };
+  }
+
+  if (OWNER_ROLES.has(actorRole)) {
+    return { allowed: true, reason: '' };
+  }
+
+  if (ADMIN_ROLES.has(actorRole)) {
+    if (!EMPLOYEE_ROLES.has(targetRole)) {
+      return {
+        allowed: false,
+        reason: 'Administrators may only change employee accounts. Only an owner can change this one.',
+      };
+    }
+    if (!EMPLOYEE_ROLES.has(next)) {
+      return {
+        allowed: false,
+        reason: 'Administrators may assign employee roles. Only an owner can grant this one.',
+      };
+    }
+    return { allowed: true, reason: '' };
+  }
+
+  return { allowed: false, reason: 'Administrator access is required.' };
+}
+
+/**
+ * WHAT ROLE SOMEBODY MAY BE INVITED AS.
+ *
+ * Separate from `mayAssignRole` because an invitee has no role yet, and the
+ * rule that protects existing accounts ("an administrator may only touch
+ * employees") would read a blank role as "not an employee" and refuse every
+ * invitation an administrator sent. Same ceiling, different question: an
+ * administrator may bring on crew, and may not bring on a peer.
+ */
+export function mayInviteAs(
+  actor: { role: string; email: string },
+  nextRole: string,
+): { allowed: boolean; reason: string } {
+  const actorRole = normalizeRole(actor.role);
+  const next = normalizeRole(nextRole);
+
+  if (!String(actor.email || '').trim()) {
+    return { allowed: false, reason: 'The inviting account must be identified.' };
+  }
+  if (!ASSIGNABLE.has(next)) {
+    return { allowed: false, reason: 'That is not a role an invitation can grant.' };
+  }
+  if (OWNER_ROLES.has(actorRole)) return { allowed: true, reason: '' };
+  if (ADMIN_ROLES.has(actorRole)) {
+    if (EMPLOYEE_ROLES.has(next)) return { allowed: true, reason: '' };
+    return {
+      allowed: false,
+      reason: 'Administrators may invite employees. Only an owner can invite this one.',
+    };
+  }
+  return { allowed: false, reason: 'Administrator access is required.' };
+}

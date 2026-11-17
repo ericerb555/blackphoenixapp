@@ -3,3 +3,63 @@
 @import 'tw-animate-css';
 @import './default_theme.css';
 @import './globals.css';
+
+/* ============================================================================
+   iOS WILL NOT LET A SMALL FIELD BE TAPPED WITHOUT ZOOMING THE PAGE
+
+   Safari on iOS zooms in when a text field smaller than 16px takes focus, and
+   it does not zoom back out afterwards. Everything on screen is then too big
+   for the viewport: controls crowd together, the layout shifts under the
+   finger, and a tap aimed at one button lands on its neighbour.
+
+   SO IT DOES NOT PRESENT AS A FONT PROBLEM. It presents as "the buttons are
+   bunched up" and "I tapped it and it errored" — and it is invisible until a
+   field is touched, which is why the junk quote page was checked twice against
+   the breakpoints with nothing found. Nothing was wrong with the layout. Three
+   `text-sm` fields were wrong.
+
+   WHY NOT FIX THE VIEWPORT
+
+   `index.html` allows zoom on purpose — `user-scalable=yes, maximum-scale=5`.
+   Taking that away would stop the symptom by stopping anybody from ever
+   zooming, including people who need to. The field size is the bug; the
+   viewport is correct.
+
+   WHY A RULE HERE RATHER THAN 50 EDITS
+
+   50 fields across 24 files carry `text-sm` or `text-xs` on the tag, and that
+   count is a floor: it misses fields inheriting a smaller size from a parent
+   and any set through inline style. A rule that holds for all of them cannot
+   go stale the next time somebody adds a field.
+
+   WHY IT IS UNLAYERED, AND WHY THAT MATTERS
+
+   This MUST sit outside `@layer`. Tailwind v4 puts `.text-sm` in
+   `@layer utilities`, and a class beats a bare element selector on
+   specificity — so a layered `input { font-size: 16px }` would lose to every
+   single field it is meant to fix, silently. Unlayered declarations win over
+   layered ones whatever their specificity, which is the whole mechanism this
+   relies on. Do not wrap it in a layer, and do not reach for `!important`
+   instead.
+
+   Checked against the COMPILED stylesheet, not assumed: walking the braces of
+   the dev server's output puts `.text-sm` inside `@layer utilities` and this
+   rule outside any layer. `tests/mobileFieldZoom.test.ts` holds that shape, so
+   a later edit cannot quietly move it into a layer and take the fix with it.
+   Not yet confirmed on a physical iPhone — that is the one check nothing here
+   can stand in for.
+
+   Narrow widths only: on desktop `text-sm` in a dense admin table is a
+   deliberate choice and 16px would look wrong there. 640px is Tailwind's `sm`
+   breakpoint, so this applies exactly below it.
+
+   Checkboxes, radios and ranges are excluded: they hold no text, iOS does not
+   zoom for them, and resizing them would move layout for no reason.
+   ============================================================================ */
+@media (max-width: 640px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

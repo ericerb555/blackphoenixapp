@@ -47,6 +47,7 @@ const MODAL_TARGETS = (() => {
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { identityTag, serverVerdict } from './smokeServerIdentity.mjs';
 
 /**
  * Both ports are overridable, because this harness is a SHARED resource.
@@ -130,9 +131,24 @@ mkdirSync(tmp, { recursive: true });
  */
 const profileDir = join(tmp, `profile-${process.pid}`);
 
+/**
+ * A token unique to this run, stamped into the page and checked on arrival.
+ *
+ * Stepping over a busy port fixes the collision in front of us. It does not
+ * fix the CLASS: any stray dev server that outlives its session, on whatever
+ * port we end up choosing, still answers /smoke.html with a 200 - because it
+ * is serving ITS worktree copy of this same file. Every individual step
+ * behaves correctly and the run is still measuring the wrong tree.
+ *
+ * So the question waitForServer asks is no longer "did something answer" but
+ * "did the server I started answer". Those two differ exactly when it
+ * matters.
+ */
+const runToken = `run-${process.pid}-${Date.now().toString(36)}`;
+
 const htmlPath = join(process.cwd(), 'smoke.html');
 writeFileSync(htmlPath, `<!doctype html>
-<html><head><meta charset="utf-8"><title>smoke</title></head>
+<html><head><meta charset="utf-8"><title>smoke</title>${identityTag(runToken)}</head>
 <body><div id="root"></div><script type="module" src="/scripts/smoke-entry.tsx"></script></body></html>
 `);
 
@@ -176,9 +192,21 @@ const listener = createServer((req, res) => {
  * more than the number of sweeps anybody runs at once, and past that the
  * original message still stands — at that point something really is wrong.
  *
- * Only the REPORT port is auto-stepped. Vite's port is handed to the browser
- * in a URL built later, and moving it would need that to follow; it is also
- * the one a person might deliberately set to watch a run by hand.
+ * The VITE port is stepped too, as of 2026-11-16, and a busy one turned out
+ * to be far worse than a crash. `--strictPort` makes our vite exit — but
+ * `waitForServer` then fetches http://localhost:5177/smoke.html and gets a
+ * 200, because ANOTHER session's vite is answering on it. The run proceeds
+ * against a different worktree's dev server, loads a harness that is not the
+ * one under test, and nothing reports. That is the exact shape of "Nothing
+ * reported at all from the first batch", and it is silent: no error, no
+ * EADDRINUSE, just an empty result blamed on the route map.
+ *
+ * CLAUDE.md now asks every session to work in its own worktree, so two vites
+ * at once is the normal case rather than the rare one.
+ *
+ * An explicitly set SMOKE_PORT is never moved — that one is a person watching
+ * a run by hand, and moving it would defeat the point. Vite's port is handed
+ * to the browser in a URL built later, so every use reads `vitePort`.
  */
 let reportPort = REPORT_PORT;
 let portTries = 0;
@@ -201,7 +229,33 @@ listener.on('error', (err) => {
 });
 listener.listen(REPORT_PORT);
 
-const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
+/**
+ * Is anything already answering there?
+ *
+ * A refused connection is the answer we want. A timeout means something IS
+ * listening and merely slow, which still counts as taken — that is the case
+ * that used to hand the run somebody else's dev server.
+ */
+async function portAnswers(port) {
+  try {
+    await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(700) });
+    return true;
+  } catch (err) {
+    return err?.name === 'TimeoutError';
+  }
+}
+
+let vitePort = PORT;
+if (!process.env.SMOKE_PORT) {
+  for (let tries = 0; tries < 10 && (await portAnswers(vitePort)); tries++) {
+    vitePort = PORT + tries + 1;
+  }
+  if (vitePort !== PORT) {
+    console.log(`port ${PORT} is already answering — using ${vitePort} instead.`);
+  }
+}
+
+const server = spawn('npx', ['vite', '--port', String(vitePort), '--strictPort'], {
   stdio: 'ignore', shell: true,
 });
 
@@ -222,15 +276,74 @@ const server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
 let serverDied = null;
 server.on('exit', (code) => {
   if (code === 0) return;
-  serverDied = `vite exited with code ${code} — port ${PORT} is most likely already in use.`;
+  serverDied = `vite exited with code ${code} — port ${vitePort} is most likely already in use.`;
 });
 
+let foreignServer = false;
+let ownedServer = false;
 let browser = null;
 function stop() {
   for (const p of [browser, server]) {
     if (!p) continue;
     try { p.kill(); } catch {}
     try { spawnSync('taskkill', ['/F', '/T', '/PID', String(p.pid)], { stdio: 'ignore' }); } catch {}
+  }
+  /**
+   * The browsers `taskkill /T` did not reach either, and these cost more.
+   *
+   * Edge fans out into a renderer, a GPU process, a network service and more,
+   * and re-parents them away from the launcher exactly as npx does to vite. Ten
+   * headless Edges from this session's runs were still resident holding 517 MB
+   * between them — enough that the machine ran out of memory and killed a
+   * verification run mid-sweep, which is how they were noticed at all.
+   *
+   * Matched on OUR OWN profile directory, which carries this process's pid, so
+   * it cannot touch a browser somebody is actually using — or another run's.
+   * That precision is the whole reason this is safe to do by name rather than
+   * by tree.
+   */
+  try {
+    /*
+     * Through PowerShell rather than `wmic`, which is not on this machine —
+     * Windows has been removing it since 2024, so a script that needs a
+     * process command line has to ask CIM for it.
+     */
+    spawnSync('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\""
+        + ` | Where-Object { $_.CommandLine -like '*${profileDir.replace(/'/g, "''")}*' }`
+        + ' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+    ], { stdio: 'ignore' });
+  } catch {}
+  /**
+   * The vite that `taskkill /T` did not reach.
+   *
+   * `server.pid` is cmd.exe, because of `shell: true`. npx exits as soon as it
+   * has handed off, vite is re-parented out from under the tree kill, and the
+   * dev server outlives the run that started it. Three from this session alone
+   * were still listening afterwards — and one from two days earlier, which is
+   * what every smoke run since has quietly been measuring.
+   *
+   * Kills by PORT rather than by process tree, because the port is the thing
+   * we actually care about being free and the only handle still reliable by
+   * the time the tree has been rearranged.
+   *
+   * Guarded on `ownedServer`: only runs when the token check confirmed the
+   * server there was OURS. On the foreign-server path the holder belongs to
+   * somebody else, and killing it would be worse than the bug.
+   */
+  if (ownedServer) {
+    try {
+      const out = spawnSync('netstat', ['-ano'], { encoding: 'utf8' }).stdout || '';
+      const here = new RegExp('[:.]' + vitePort + '\\s');
+      for (const line of out.split(/\r?\n/)) {
+        if (!/LISTENING/.test(line) || !here.test(line)) continue;
+        const pid = line.trim().split(/\s+/).pop();
+        if (pid && pid !== '0' && Number(pid) !== process.pid) {
+          spawnSync('taskkill', ['/F', '/PID', pid], { stdio: 'ignore' });
+        }
+      }
+    } catch {}
   }
   try { listener.close(); } catch {}
   try { unlinkSync(htmlPath); } catch {}
@@ -246,8 +359,20 @@ async function waitForServer() {
     // cannot change the answer, and the wait is what made this look like a hang.
     if (serverDied) return false;
     try {
-      const res = await fetch(`http://localhost:${PORT}/smoke.html`);
-      if (res.ok) return true;
+      const res = await fetch(`http://localhost:${vitePort}/smoke.html`);
+      const verdict = serverVerdict({
+        ok: res.ok,
+        body: res.ok ? await res.text() : '',
+        token: runToken,
+      });
+      if (verdict === 'ours') { ownedServer = true; return true; }
+      /**
+       * A 200 from a server this run did not start.
+       *
+       * Refused at once rather than polled at for another minute: it will
+       * keep answering, and it will keep being the wrong tree.
+       */
+      if (verdict === 'foreign') { foreignServer = true; return false; }
     } catch {}
     await sleep(1000);
   }
@@ -266,7 +391,7 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
   const range = only
     ? `only=${encodeURIComponent(only.join(','))}`
     : `from=${from}&to=${to}`;
-  const url = `http://localhost:${PORT}/smoke.html?${range}`
+  const url = `http://localhost:${vitePort}/smoke.html?${range}`
     // reportPort, not REPORT_PORT: the listener may have stepped past a busy
     // one, and the browser has to post back to where it actually bound.
     + `&report=${encodeURIComponent(`http://localhost:${reportPort}/report`)}`
@@ -308,8 +433,14 @@ if (!(await waitForServer())) {
     console.error('Another smoke run, or a vite left behind by an earlier one, is holding it.');
     console.error('Run yours on different ports:');
     console.error(`  SMOKE_PORT=${PORT + 1} SMOKE_REPORT_PORT=${REPORT_PORT + 1} npm run smoke\n`);
+  } else if (foreignServer) {
+    console.error(`\nPort ${vitePort} is served by a dev server this run did not start.`);
+    console.error('It answered /smoke.html without this run token, so it is serving another');
+    console.error('worktree - every verdict would have been about the wrong tree.');
+    console.error(`Find it with:  netstat -ano | findstr LISTENING | findstr ${vitePort}`);
+    console.error('or pick another port:  SMOKE_PORT=5200 npm run smoke\n');
   } else {
-    console.error(`The dev server did not come up on ${PORT} within 60s, and vite did not exit either.`);
+    console.error(`The dev server did not come up on ${vitePort} within 60s, and vite did not exit either.`);
   }
   process.exit(2);
 }

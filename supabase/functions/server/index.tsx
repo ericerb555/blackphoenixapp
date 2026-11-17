@@ -119,6 +119,8 @@ import paymentProcessingRouter from "./payment-processing.tsx";
 import hourTransfersRouter from "./hour-transfers.tsx";
 import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
+import { registerTeamRoutes } from "./teamDirectory.ts";
+import { mayInviteAs, normalizeRole } from "./accountStanding.ts";
 import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
 import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
@@ -1895,6 +1897,7 @@ app.route("/make-server-3eae23a6/payment", paymentProcessingRouter);
 app.route("/make-server-3eae23a6/hour-transfers", hourTransfersRouter);
 app.route("/make-server-3eae23a6/time-tracking", timeTrackingRouter);
 registerAccountAccessRoutes(app, supabase);
+registerTeamRoutes(app, supabase);
 
 /**
  * What can be applied to an invoice.
@@ -12343,6 +12346,28 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     if (!name || !email || !phone) return c.json({ success: false, error: 'Name, email, and phone are required.' }, 400);
     if (!/^\S+@\S+\.\S+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
     if (!OWNER_PROVISION_PORTALS.has(portalType)) return c.json({ success: false, error: 'Choose a valid portal.' }, 400);
+    /**
+     * WHICH STAFF ROLE AN EMPLOYEE IS INVITED AS.
+     *
+     * The invitation used to stamp the portal type as the role, so every
+     * employee landed as 'employee' and nothing could ever change it — there
+     * was no route that wrote `app_metadata.role` after this one. A project
+     * manager had to be invited as crew and left that way.
+     *
+     * `mayInviteAs` holds the ceiling: an administrator may bring on crew,
+     * only an owner may bring on another administrator or owner. Absent or
+     * unrecognised, it stays the portal type, which is the old behaviour.
+     */
+    let inviteRole = portalType;
+    if (portalType === 'employee' && body.staffRole) {
+      const wanted = normalizeRole(String(body.staffRole));
+      const verdict = mayInviteAs(
+        { role: trustedRole(actor.user), email: String(actor.user.email) },
+        wanted,
+      );
+      if (!verdict.allowed) return c.json({ success: false, error: verdict.reason }, 403);
+      inviteRole = wanted;
+    }
     // Optional trial grant: full control of all features for N months (default 6), after which a plan is required.
     const grantFullAccess = body.fullAccess !== false; // default on
     const trialMonths = Math.min(24, Math.max(1, Number(body.trialMonths) || 6));
@@ -12402,7 +12427,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     const COMPANY_NAME = resolveCompanyName();
     const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'onboarding@resend.dev';
     const LOGO_URL = Deno.env.get('COMPANY_LOGO_URL') || `${APP_URL.replace(/\/$/, '')}/bpb-phoenix-logo.png`;
-    const metadata = { full_name: name, phone, role: portalType, accountType: portalType };
+    const metadata = { full_name: name, phone, role: inviteRole, accountType: inviteRole };
     const inviteOverrides = (await kv.get(INVITE_TEMPLATE_KEY(portalType))) as InviteFields | null;
 
     // Generate the secure sign-in link ONCE, up front, so every channel (email,
