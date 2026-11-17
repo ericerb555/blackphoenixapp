@@ -2,7 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- THE ICON BESIDE THE SEARCH RESULT, AND IN THE TAB.
+
+         This pointed at `/vite.svg` — the build tool's own logo, in a file
+         that does not exist. Worse than a 404: the SPA catch-all answers every
+         unknown path with index.html, so a browser asking for the icon got
+         200 OK and 8KB of HTML, discarded it, and showed a blank page glyph.
+         Google's crawler did the same. `/manifest.json`, `/pwa-icon-192.png`,
+         `/pwa-icon-512.png` and `/favicon.ico` were all in the same state —
+         referenced here, never shipped. Confirmed against production
+         2026-11-16: every one returned `200 text/html`.
+
+         All of them are now real files generated from
+         `public/bpb-phoenix-logo.png`, which was the only image that ever
+         existed. `/favicon.ico` carries 16px and 32px together because
+         browsers and crawlers request that exact path by convention whether or
+         not anything links to it. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     
     <!-- Primary Meta Tags
@@ -30,8 +48,11 @@
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
     
-    <!-- Apple Touch Icons -->
-    <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+    <!-- Apple Touch Icons
+
+         180x180 is the size iOS actually wants for a home-screen icon; it was
+         being handed 192 and 512 and downscaling them itself. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/pwa-icon-192.png" />
     <link rel="apple-touch-icon" sizes="512x512" href="/pwa-icon-512.png" />
     

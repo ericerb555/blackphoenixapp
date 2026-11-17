@@ -10,8 +10,12 @@ self.addEventListener('push', e => {
   const title = data.title || 'Black Phoenix Company';
   const options = {
     body: data.body || 'You have a new notification',
-    icon: '/BPB_phoenix_full_color_logo.png',
-    badge: '/BPB_phoenix_full_color_logo.png',
+    // `/BPB_phoenix_full_color_logo.png` has never existed. The SPA catch-all
+    // answered it with index.html — 200 OK, text/html — so the notification
+    // simply showed no logo and nothing reported an error. Confirmed against
+    // production 2026-11-16. These two are real files.
+    icon: '/pwa-icon-192.png',
+    badge: '/favicon-32.png',
     tag: data.tag || 'bp-notification',
     data: { url: data.url || '/' },
     requireInteraction: data.requireInteraction || false,
