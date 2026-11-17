@@ -266,6 +266,62 @@ authenticated pages are reachable; the rest of the ~190 pages are unswept.
 
 ---
 
+### Two of our own forms ask a customer for a card number and CVV, and neither uses it
+
+Found 2026-11-17 answering "so this site is safe a secure for customers".
+
+Real payments are fine: `/stripe/checkout/sessions` is created server-side and
+the customer types their card on Stripe's own hosted page, so card data never
+reaches our servers on the path that actually charges anybody.
+
+These two are not that path.
+
+**`pages/CustomerRegistrationForm.tsx` — routed, at `/customer-registration`.**
+It renders a card number field and a CVV field, and `validate()` makes the card
+number REQUIRED with a 16-digit check. Neither of the two requests it then
+makes — `POST /auth/signup` and `POST /customers` — contains any card field.
+The number is typed into React state and discarded.
+
+So a customer is required to enter a card number to create an account, for a
+card that is never stored, never charged and never sent anywhere.
+
+Three separate problems in that one sentence:
+
+- **It collects card data with no purpose.** The page is on our own origin, so
+  any XSS on it, or a malicious browser extension, now has a card number and
+  CVV to take that had no reason to exist. Card data you never asked for is the
+  only card data that cannot leak.
+- **It is misleading.** A required card field reads as "you are about to be
+  charged" or "this is being kept on file". Neither is true.
+- **It blocks registration.** Anybody unwilling to type a card cannot finish
+  signing up — a conversion bug hiding inside a security bug.
+
+There is also a hardcoded test card, `4532015112830366`, prefilled in a demo
+autofill at line 77. It is a well-known Visa test number rather than anybody's
+real card, but it should go with the fields.
+
+**`components/EnhancedCheckoutFlow.tsx` — not imported anywhere.** Same card
+and CVV fields, and `handleCompleteOrder` is a two-second
+`setTimeout` under the comment "Simulate payment processing"; the order it
+emits carries `payment: { method }` and no card data. Dead today — and a loaded
+gun, because the day somebody wires this component to a route, customers type
+real card numbers into a form that pretends to charge them and does nothing.
+
+**THE FIX IS A PRODUCT DECISION, WHICH IS WHY IT IS WRITTEN HERE AND NOT DONE.**
+
+The security-correct answer is to stop collecting card details in our own
+forms at all: delete the fields from the registration form, delete the dead
+checkout component, and let Stripe collect a card when there is actually
+something to charge. But if the intent was to put a card on file at signup,
+the fix is the opposite shape — a Stripe SetupIntent or Checkout in setup
+mode, which stores a reusable payment method without our page ever seeing the
+number. Those are different features, and guessing which one was meant is how
+a billing flow gets built nobody wanted.
+
+Until it is decided, nothing is leaking: no card number from either form
+reaches our servers, our logs, or the database. The exposure is the browser
+page itself, for as long as the fields are on it.
+
 ## HOUSEKEEPING
 
 ### `ui/Input.tsx` and `ui/input/` both exist
