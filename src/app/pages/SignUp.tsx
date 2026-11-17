@@ -81,43 +81,6 @@ export default function SignUp({ onNavigate }: SignUpProps) {
         }).catch(() => undefined);
       }
 
-      /*
-       * Put the new account in front of a person.
-       *
-       * Eric: "it should send an approval to adim when account is created."
-       *
-       * Until now nothing on this page told the server an account had been
-       * made. `signUp` goes straight to Supabase from the browser, so a
-       * self-serve registration created no access request, appeared in no
-       * queue, and alerted nobody — while `/auth/signup`, which does notify
-       * staff and write the CRM record, sat unused because this page never
-       * called it.
-       *
-       * The request is posted rather than switching this page to that route,
-       * deliberately. `/auth/signup` creates the account with the service role
-       * and hands back no session, so moving to it means a second sign-in step
-       * on the most sensitive flow in the app. This is additive: the account is
-       * made exactly as before, and now somebody is told about it.
-       *
-       * Fire-and-forget, and never fatal. A customer who has just created an
-       * account must not be shown a failure because our notification did not
-       * send — the account exists either way, and the server dedupes by email
-       * if they try again.
-       */
-      fetch(`${API_BASE_URL}/make-server-3eae23a6/access-requests`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email,
-          name: formData.fullName.trim(),
-          phone: formData.phone || undefined,
-          // Lowest role there is. The server does not read this as authority —
-          // it is what the person is asking for, not what they have been given.
-          requestedPortal: 'customer',
-          source: 'self-serve signup',
-        }),
-      }).catch(() => undefined);
-
       // Check for selected cohort from subscription signup
       const selectedCohort = localStorage.getItem('selected_cohort');
 
