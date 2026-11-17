@@ -7,11 +7,28 @@ import '../utils/suppressErrors';
 const supabaseUrl = `https://${projectId}.supabase.co`;
 const supabaseAnonKey = publicAnonKey;
 
-// Check if we have valid Supabase credentials
-const hasValidCredentials = 
-  projectId && 
+/*
+ * The placeholder guard, and why it compares through `String()`.
+ *
+ * `projectId` is a literal in `utils/supabase/info`, so TypeScript narrows it
+ * to that one project's id and reported `projectId !== 'placeholder'` as a
+ * comparison that can never be false — the last of the TS2367s, and the only
+ * one of them that was not a defect.
+ *
+ * The guard is not pointless, though: `info.tsx` is the file a fresh checkout
+ * or a template copy has wrong, and this is what puts the app into its mock
+ * client instead of pointing a real browser at `https://placeholder.supabase.co`.
+ * The check has to survive a value TypeScript believes is impossible.
+ *
+ * `String(...)` widens it back to a string so the comparison is honest to the
+ * compiler and unchanged at runtime. Deleting the guard to satisfy the
+ * compiler would have been the wrong way round: the type is a claim about one
+ * checkout, and the guard is about the others.
+ */
+const hasValidCredentials =
+  projectId &&
   publicAnonKey &&
-  projectId !== 'placeholder' &&
+  String(projectId) !== 'placeholder' &&
   !publicAnonKey.includes('placeholder');
 
 // Create a mock Supabase client for demo mode

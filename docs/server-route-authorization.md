@@ -234,6 +234,36 @@ is correct in shape, and cannot return true. Rows in section 5 are not annotated
 yet; the three cases above are the ones found so far, and they were all found by reading
 gates rather than by calling routes.
 
+### Two method rules this section earned
+
+Both are stated once here rather than repeated per finding.
+
+**A refusal is not evidence. Require a positive marker.** A uniform 401 is good
+for the platform and poison for verification: it defeats enumeration, and it
+defeats us. It has now caught two checks in one day — a nine-route probe that
+read 401 as "the guard refused me" when the wall answers a nonexistent route
+identically, and `RETIRED-1`, which accepted 401 as proof of retirement while
+the live server answers exactly that on the paths it probed. In both cases the
+only sound test was something only the correct state can produce: a real
+non-staff token reaching the guard, and `retired: true` on a stub's `/health`.
+Before writing a check, ask what a *broken* system would answer — if it is the
+same thing, the check is decorative.
+
+**Prevent early and cheap, detect late and authoritative. Neither alone.** The
+same split landed three times on 2026-11-17 and it is the shape to reach for:
+
+| Hazard | Prevention (cheap, local, early) | Detection (authoritative, late) |
+|---|---|---|
+| Deploying a tree behind main | `predeploy-check.mjs` refuses | `/health` `build` stamp says what is running |
+| A retirement entrypoint pointing at the full archive | `tests/retiredFunctionEntrypoints.test.ts` reads `config.toml` | `RETIRED-1` asks production |
+| A gate reading a table that does not exist | nothing yet — see below | nothing; this section is the first record |
+
+Prevention runs before the damage and can be wrong about the live world.
+Detection is the live world and can only speak after the damage. The third row
+is the open one: nothing checks that a `.from('<table>')` in a gate names a
+table that exists, which is the single check that would have found every case
+in this section years earlier.
+
 ### Two related facts, neither a hole (both verified, not assumed)
 
 - **Three accounts hold no role in either metadata bag** (created 2026-04-20, 2026-09-08,

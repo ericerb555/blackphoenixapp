@@ -186,6 +186,24 @@ interface PipelineItem {
     quoteNumber: string;
     materials: any[];
     labor: any[];
+    /**
+     * The second convention's name for the same thing, declared because the
+     * code already reads it and the server already writes it.
+     *
+     * The comment at the top of this file sets out that two quote shapes are
+     * both live in production — one writes `labor`, the other `laborItems`
+     * (index.tsx:4786 writes it; aiActions.ts, quoteRead.ts and
+     * quoteToInvoice.ts all read it). The reader below falls back from one to
+     * the other, correctly, and TypeScript reported that fallback as a
+     * misspelling of `laborRates` — which is a different thing entirely,
+     * being hourly rates rather than labour lines. Taking the suggestion
+     * would have put rate cards into the labour list.
+     *
+     * So the type was wrong and the code was right. Declared optional and
+     * loose for the same reason `labor` is: the two generations do not agree
+     * on the line shape either.
+     */
+    laborItems?: any[];
     processSteps: any[];
     materialsSubtotal: number;
     laborSubtotal: number;
@@ -1297,7 +1315,23 @@ export default function UnifiedProjectPipeline() {
      */
     const next = {
       ...current,
-      stage: current.stage === 'work-request' ? 'quote-draft' as PipelineStage : current.stage,
+      /*
+       * The stage is kept, not advanced.
+       *
+       * This read `current.stage === 'work-request' ? 'quote-draft' :
+       * current.stage`, and that condition could never be true: no stage
+       * called 'work-request' exists — `PipelineStage` is quote-draft,
+       * quote-sent, quote-approved, contract, invoice, payment — and a work
+       * request entering the pipeline is already mapped to 'quote-draft'
+       * (or invoice/contract from its status) where the items are built.
+       *
+       * So the intended effect already holds by the time anybody saves a
+       * quote, and the comparison was a leftover from an earlier stage
+       * vocabulary. Removed rather than left as an always-false branch,
+       * because the next person to read it would reasonably conclude that
+       * saving a quote is what advances a work request.
+       */
+      stage: current.stage,
       quote: updatedItem.quote,
       lastModified: new Date().toISOString(),
     };

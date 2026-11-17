@@ -526,21 +526,57 @@ is not happening.
 reach, and render them. It touches the roster UI, which is why it was not done
 alongside the one-line correctness fix.
 
-### 297 standing TypeScript errors — the useful seam is TS2367
+### The TS2367 / TS2551 seam is exhausted — 281 left, all noise codes
 
-Four real defects have now come out of this list, and not one was reported by
-a person: a blank Type column in every exported payments CSV, Bank of America
-missing from the revenue breakdown, six social captions containing the word
-"undefined", and crews left rostered on cancelled jobs.
-
-If somebody picks this up, start with the error CODES, not the files:
+Closed 2026-11-17. **Five real defects** came out of this list and not one was
+reported by a person: a blank Type column in every exported payments CSV, Bank
+of America missing from the revenue breakdown, six social captions containing
+the word "undefined", crews left rostered on cancelled jobs, and the booking
+page below — which was the worst of them.
 
 | Code | What it means | Yield | Left |
 |---|---|---|---|
-| TS2367 | A comparison whose types cannot overlap — a condition that can never be true | Almost always a real bug | 5 |
-| TS2551 | A misspelled property, with the correct name suggested | Almost always real | 1 |
-| TS2339 | Property not on type — mostly loose record shapes | Low, very noisy | 152 |
-| TS2322 | Assignment mismatch | Low, very noisy | 109 |
+| TS2367 | A comparison whose types cannot overlap | Almost always a real bug | **0** |
+| TS2551 | A misspelled property, with the correct name suggested | Almost always real | **0** |
+| TS2339 | Property not on type — mostly loose record shapes | Low, very noisy | ~150 |
+| TS2322 | Assignment mismatch | Low, very noisy | ~108 |
 
-The first two rows are a short afternoon and have paid out every time. The
-last two are the reason nobody reads the list.
+The last five high-yield errors resolved as one defect, one wrong type, one
+dead branch and one false positive:
+
+- **The customer booking page was writing fabricated data into the real
+  schedule** (two TS2367s in `ServiceScheduling.tsx`). Found because a
+  priority badge had two unreachable branches — and the reason they were
+  unreachable is that the whole contract object was a mock. It carried contract
+  number `CT-20260122-0045` for every customer, the address
+  `123 Main St, New York, NY 10001`, `depositPaid: true` with a DEPOSIT PAID
+  badge before anyone had paid, and three invented technicians (`e1` Mike
+  Johnson, 4.9 rating, 342 completed, Certified) whose ids were written as the
+  appointment's `employeeId`. `handleConfirmAppointment` POSTs that object to
+  `/schedule/appointments`, which stores the body whole, and `MasterScheduling`
+  reads that store — so a dispatcher would have seen a real customer's real
+  appointment at a New York address with a technician who does not exist. Six
+  routes reach it: `/book`, `/booking`, `/services`, `/quote`,
+  `/service-scheduling`. **No appointment records existed yet**, so this was
+  caught before anybody acted on one. Fixed by loading the roster from
+  `time-tracking/employees` and `unavailability` — the same fix
+  `MasterScheduling` already carried for the identical defect on the staff
+  side — requiring the service address from the customer, and showing the
+  deposit as due.
+- **`laborItems` was a real field the type did not declare** (TS2551 in
+  `UnifiedProjectPipeline.tsx`). The suggested correction, `laborRates`, is
+  hourly rate cards rather than labour lines; taking it would have put rate
+  cards in the labour list. The type was wrong and the code was right.
+- **An always-false stage comparison** (TS2367, same file): nothing is ever
+  staged `'work-request'`, and a work request entering the pipeline is already
+  mapped to `quote-draft`. Dead branch removed.
+- **The placeholder credentials guard** (TS2367 in `lib/supabase.ts`) was the
+  one high-yield error that was not a defect — `projectId` is a literal, so
+  the compiler believes `!== 'placeholder'` cannot be false, while the guard
+  exists for the checkouts where `info.tsx` is unconfigured. Compared through
+  `String()` so the check survives.
+
+**The method that made this seam pay, if a similar list ever needs working:**
+start from the error CODE, not the file; then decide from production data or a
+request rather than by reading — three of the cases above were settled by asking
+what is actually stored, and one by asking production which header arrives.

@@ -7,27 +7,34 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Calendar, Clock, User, MapPin, CheckCircle2, AlertCircle, Star, 
+  Calendar, Clock, User, MapPin, CheckCircle2, AlertCircle,
   Phone, Mail, ChevronLeft, ChevronRight, Grid, List, Filter,
   Search, Plus, Wrench, DollarSign, Eye, Settings, RefreshCw,
   Check, X, Users, Target, Activity, TrendingUp, FileText,
-  Cloud, Sun, CloudRain, Wind, Zap, Bell, ArrowLeft
+  Cloud, Sun, CloudRain, Wind, Bell, ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
+/**
+ * A technician, as the roster actually describes one.
+ *
+ * `rating`, `completed`, `certified` and a per-date `availability` array were
+ * all here, and `time-tracking/employees` carries none of them. They existed
+ * to fill a card for three invented people — "Mike Johnson, HVAC Specialist,
+ * 4.9 Rating, 342 Completed, Certified" — shown to a customer choosing who
+ * comes to their house. Inventing credentials for a named technician is a
+ * different kind of wrong from inventing a number, so the fields are gone
+ * rather than defaulted.
+ */
 interface Employee {
   id: string;
   name: string;
   avatar: string;
   positions: string[];
   specialty: string;
-  rating: number;
-  completed: number;
-  certified: boolean;
-  availability: string[];
   phone?: string;
   email?: string;
   skills: string[];
@@ -71,6 +78,8 @@ export default function ServiceScheduling() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [selectedTechnician, setSelectedTechnician] = useState('');
+  /** Where the van goes. Required — see handleConfirmAppointment. */
+  const [serviceAddress, setServiceAddress] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [appointments, setAppointments] = useState<ServiceAppointment[]>([]);
@@ -96,62 +105,122 @@ export default function ServiceScheduling() {
 
   const selectedServiceData = availableServices.find(s => s.id === selectedService) || availableServices[0];
 
-  const contractData = {
-    contractNumber: 'CT-20260122-0045',
+  /**
+   * What this booking actually is, with nothing asserted that nobody knows.
+   *
+   * This object used to carry four fabrications into a real write:
+   *
+   *   contractNumber 'CT-20260122-0045'   the same number for every customer,
+   *                                       for a contract that does not exist.
+   *   location '123 Main St, New York…'   a New York address, on an Oregon
+   *                                       company's bookings.
+   *   depositPaid: true                   with a DEPOSIT PAID badge, before
+   *                                       anybody has paid anything.
+   *   priority 'medium' as const          harmless, but it froze the badge
+   *                                       below to one branch and TypeScript
+   *                                       had been reporting the other two as
+   *                                       unreachable for months. That report
+   *                                       is what led here.
+   *
+   * `handleConfirmAppointment` POSTs this object to `/schedule/appointments`,
+   * which stores the body whole, and `MasterScheduling` reads that store. So
+   * every booking made through /book, /quote or /services would have put a
+   * fictional contract number and a New York address in front of a dispatcher
+   * alongside a real customer's real appointment. No appointment records exist
+   * yet, so this is caught before anybody acted on one.
+   *
+   * A booking is not a contract: there is no contract number here at all now,
+   * and the deposit is shown as DUE, which is what it is.
+   */
+  const bookingDetails = {
     serviceTitle: selectedServiceData.name,
-    location: '123 Main St, New York, NY 10001',
     customerName: String(user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Customer'),
     estimatedDuration: selectedServiceData.duration,
     depositAmount: selectedServiceData.deposit,
-    depositPaid: true,
-    priority: 'medium' as const,
+    depositPaid: false,
+    priority: 'medium',
   };
 
-  // Enhanced technicians with more details matching master schedule
-  const technicians: Employee[] = [
-    { 
-      id: 'e1', 
-      name: 'Mike Johnson', 
-      avatar: 'MJ',
-      positions: ['hvac-tech'],
-      specialty: 'HVAC Specialist', 
-      rating: 4.9, 
-      completed: 342, 
-      certified: true,
-      availability: ['2026-01-27', '2026-01-28', '2026-01-29', '2026-01-30'],
-      phone: '555-0201',
-      email: 'mike.j@example.com',
-      skills: ['HVAC', 'Refrigeration', 'Heating Systems']
-    },
-    { 
-      id: 'e2', 
-      name: 'Sarah Martinez', 
-      avatar: 'SM',
-      positions: ['hvac-tech'],
-      specialty: 'HVAC Expert', 
-      rating: 4.8, 
-      completed: 298, 
-      certified: true,
-      availability: ['2026-01-27', '2026-01-28', '2026-01-31'],
-      phone: '555-0202',
-      email: 'sarah.m@example.com',
-      skills: ['HVAC', 'Air Quality', 'Commercial Systems']
-    },
-    { 
-      id: 'e3', 
-      name: 'David Chen', 
-      avatar: 'DC',
-      positions: ['lead-tech'],
-      specialty: 'Senior Technician', 
-      rating: 4.7, 
-      completed: 256, 
-      certified: true,
-      availability: ['2026-01-28', '2026-01-29', '2026-01-30', '2026-01-31'],
-      phone: '555-0203',
-      email: 'david.c@example.com',
-      skills: ['HVAC', 'Electrical', 'Plumbing']
-    }
-  ];
+  /**
+   * The roster, loaded — the same fix MasterScheduling already carries.
+   *
+   * Three invented technicians lived here (`e1` Mike Johnson, `e2` Sarah
+   * Martinez, `e3` David Chen) with invented ratings and hardcoded January
+   * availability. A customer picked one and `employeeId: 'e1'` was written to
+   * the appointment store that the real scheduling screen reads, where no
+   * such employee exists.
+   *
+   * `MasterScheduling` had the identical defect on the staff side and its fix
+   * is the precedent followed here: `time-tracking/employees` is who exists —
+   * the same roster the timeclock punches against — and `unavailability` is
+   * who cannot work, matched by `outOn` below exactly as that screen matches
+   * it. Nothing is invented when the roster is empty: the customer is told
+   * to call, which is true, rather than offered somebody who is not real.
+   */
+  const [technicians, setTechnicians] = useState<Employee[]>([]);
+  const [unavailability, setUnavailability] = useState<any[]>([]);
+  const [loadingRoster, setLoadingRoster] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!user) { setLoadingRoster(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { if (active) setLoadingRoster(false); return; }
+      const headers = { Authorization: `Bearer ${session.access_token}` };
+      try {
+        const [rosterRes, offRes] = await Promise.all([
+          fetch(`${API_BASE}/time-tracking/employees`, { headers }),
+          fetch(`${API_BASE}/unavailability`, { headers }),
+        ]);
+        if (rosterRes.ok && active) {
+          const json = await rosterRes.json();
+          const rows: any[] = Array.isArray(json?.employees) ? json.employees : [];
+          setTechnicians(rows.map((r) => {
+            const name = String(r.name || r.email || 'Technician').trim();
+            return {
+              id: String(r.id),
+              name,
+              avatar: name.split(/\s+/).map((p: string) => p[0]).join('').slice(0, 2).toUpperCase(),
+              positions: [String(r.role || 'technician').toLowerCase().replace(/\s+/g, '-')],
+              specialty: String(r.role || 'Technician'),
+              phone: String(r.phoneNumber || ''),
+              email: String(r.email || ''),
+              skills: Array.isArray(r.trades) ? r.trades.map(String) : [],
+            } as Employee;
+          }));
+        }
+        if (offRes.ok && active) {
+          const json = await offRes.json();
+          setUnavailability(Array.isArray(json?.unavailability) ? json.unavailability : []);
+        }
+      } catch {
+        /* An empty roster is handled in the picker; it must not invent one. */
+      } finally {
+        if (active) setLoadingRoster(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [user, API_BASE]);
+
+  /**
+   * Is this technician out on this date?
+   *
+   * Mirrors `outOn` in MasterScheduling, which mirrors `blocksDay` on the
+   * server: a call-out counts immediately, time off only once APPROVED. A
+   * pending request must not hide somebody from a customer — the day may
+   * still be theirs to work.
+   */
+  const outOn = (employeeId: string, dateStr: string) =>
+    unavailability.some((u: any) => {
+      if (String(u?.employeeId) !== String(employeeId)) return false;
+      const status = String(u?.status || '').toLowerCase();
+      if (status === 'declined' || status === 'cancelled') return false;
+      if (u?.kind === 'time_off' && status !== 'approved') return false;
+      const from = String(u?.from || '');
+      const to = String(u?.to || from);
+      return Boolean(from) && dateStr >= from && dateStr <= to;
+    });
 
   // Get week days
   const getWeekDays = () => {
@@ -226,6 +295,17 @@ export default function ServiceScheduling() {
       toast.error('Please select all required fields');
       return;
     }
+    /*
+     * The address is asked for, because it was being supplied.
+     *
+     * A dispatcher reading this appointment needs somewhere to send a van,
+     * and the only reason this was not required before is that a hardcoded
+     * New York address was filling the field.
+     */
+    if (!serviceAddress.trim()) {
+      toast.error('Where should we come? Enter the service address.');
+      return;
+    }
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token || !user?.email) {
@@ -242,7 +322,8 @@ export default function ServiceScheduling() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          ...contractData,
+          ...bookingDetails,
+          location: serviceAddress.trim(),
           customerEmail: user.email,
           date: selectedDate,
           time: selectedTime,
@@ -508,25 +589,17 @@ export default function ServiceScheduling() {
           </div>
         )}
 
-        {/* Contract Info Bar */}
+        {/* Booking summary — no contract exists yet, and nothing is paid yet */}
         <div className="bg-[#1A1A1A] border-b border-[#2A2A2A] p-4">
           <div className="max-w-7xl mx-auto">
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-3">
               <div>
-                <h2 className="text-lg font-bold text-white mb-1">{contractData.serviceTitle}</h2>
-                <p className="text-sm text-gray-400">Contract #{contractData.contractNumber}</p>
+                <h2 className="text-lg font-bold text-white mb-1">{bookingDetails.serviceTitle}</h2>
+                <p className="text-sm text-gray-400">New booking — no contract number until this is confirmed</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-lg text-sm font-semibold bg-green-500/10 text-green-400 border border-green-500/20">
-                  DEPOSIT PAID
-                </span>
-                <span className={`px-3 py-1 rounded-lg text-sm font-semibold ${
-                  contractData.priority === 'urgent' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                  contractData.priority === 'high' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                  contractData.priority === 'medium' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
-                  'bg-green-500/10 text-green-400 border-green-500/20'
-                }`}>
-                  {contractData.priority.toUpperCase()} PRIORITY
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-3 py-1 rounded-lg text-sm font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                  DEPOSIT DUE ${bookingDetails.depositAmount.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -538,7 +611,7 @@ export default function ServiceScheduling() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Customer</p>
-                  <p className="text-sm font-medium text-white">{contractData.customerName}</p>
+                  <p className="text-sm font-medium text-white">{bookingDetails.customerName}</p>
                 </div>
               </div>
               
@@ -546,9 +619,24 @@ export default function ServiceScheduling() {
                 <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-600/20 to-orange-700/20 flex items-center justify-center border border-orange-500/20">
                   <MapPin className="w-5 h-5 text-orange-400" />
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Location</p>
-                  <p className="text-sm font-medium text-white">{contractData.location}</p>
+                <div className="flex-1 min-w-0">
+                  <label htmlFor="service-address" className="text-sm text-gray-500 block">
+                    Service address
+                  </label>
+                  {/*
+                    * text-base, not text-sm: iOS Safari zooms in on a focused
+                    * field under 16px and does not zoom back out. Same reason
+                    * as the three fields in TrashEstimatePanel.
+                    */}
+                  <input
+                    id="service-address"
+                    type="text"
+                    value={serviceAddress}
+                    onChange={(e) => setServiceAddress(e.target.value)}
+                    placeholder="Where should we come?"
+                    autoComplete="street-address"
+                    className="w-full bg-transparent text-base font-medium text-white placeholder-gray-600 outline-none"
+                  />
                 </div>
               </div>
               
@@ -558,7 +646,7 @@ export default function ServiceScheduling() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Duration</p>
-                  <p className="text-sm font-medium text-white">{contractData.estimatedDuration}</p>
+                  <p className="text-sm font-medium text-white">{bookingDetails.estimatedDuration}</p>
                 </div>
               </div>
               
@@ -567,8 +655,8 @@ export default function ServiceScheduling() {
                   <DollarSign className="w-5 h-5 text-orange-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Deposit</p>
-                  <p className="text-sm font-medium text-white">${contractData.depositAmount.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">Deposit due</p>
+                  <p className="text-sm font-medium text-white">${bookingDetails.depositAmount.toFixed(2)}</p>
                 </div>
               </div>
             </div>
@@ -692,7 +780,7 @@ export default function ServiceScheduling() {
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {technicians
-                  .filter(tech => tech.availability.includes(selectedDate))
+                  .filter(tech => !outOn(tech.id, selectedDate))
                   .map((tech) => (
                     <button
                       key={tech.id}
@@ -716,36 +804,38 @@ export default function ServiceScheduling() {
                         )}
                       </div>
                       
-                      <div className="space-y-2 mb-3">
-                        <div className="flex items-center gap-2">
-                          <Star className="w-4 h-4 text-orange-400 fill-orange-400" />
-                          <span className="text-sm text-white">{tech.rating} Rating</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-green-400" />
-                          <span className="text-sm text-white">{tech.completed} Completed</span>
-                        </div>
-                        {tech.certified && (
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-blue-400" />
-                            <span className="text-sm text-blue-400">Certified</span>
+                      {/*
+                        * What the roster knows, and nothing more. A rating, a
+                        * completed-jobs count and a certification badge were
+                        * shown here for three people who did not exist;
+                        * `time-tracking/employees` carries none of those
+                        * fields for the people who do.
+                        */}
+                      {tech.skills.length > 0 && (
+                        <div className="pt-3 border-t border-[#2A2A2A]">
+                          <p className="text-sm text-gray-500 mb-2">Trades:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {tech.skills.map((skill, i) => (
+                              <span key={i} className="px-2 py-1 bg-[#2A2A2A] text-gray-400 rounded text-sm">
+                                {skill}
+                              </span>
+                            ))}
                           </div>
-                        )}
-                      </div>
-                      
-                      <div className="pt-3 border-t border-[#2A2A2A]">
-                        <p className="text-sm text-gray-500 mb-2">Skills:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {tech.skills.map((skill, i) => (
-                            <span key={i} className="px-2 py-1 bg-[#2A2A2A] text-gray-400 rounded text-sm">
-                              {skill}
-                            </span>
-                          ))}
                         </div>
-                      </div>
+                      )}
                     </button>
                   ))}
               </div>
+              {/*
+                * An empty roster says so. Inventing somebody to fill this grid
+                * is how three fictional technicians came to be offered to
+                * customers in the first place.
+                */}
+              {!loadingRoster && technicians.filter(t => !outOn(t.id, selectedDate)).length === 0 && (
+                <p className="text-sm text-gray-400">
+                  Nobody is free on that day. Pick another date, or call us and we will sort it out.
+                </p>
+              )}
             </div>
           )}
 
@@ -754,22 +844,22 @@ export default function ServiceScheduling() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  {selectedDate && selectedTime && selectedTechnician
+                  {selectedDate && selectedTime && selectedTechnician && serviceAddress.trim()
                     ? 'Ready to Schedule Appointment'
                     : 'Complete All Steps to Continue'}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  {selectedDate && selectedTime && selectedTechnician
+                  {selectedDate && selectedTime && selectedTechnician && serviceAddress.trim()
                     ? `${new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} at ${selectedTime} with ${technicians.find(t => t.id === selectedTechnician)?.name}`
-                    : 'Please select a date, time, and technician to schedule your service'}
+                    : 'Enter the service address and pick a date, time and technician'}
                 </p>
               </div>
               
               <button
                 onClick={handleConfirmAppointment}
-                disabled={!selectedDate || !selectedTime || !selectedTechnician || isSubmitting}
+                disabled={!selectedDate || !selectedTime || !selectedTechnician || !serviceAddress.trim() || isSubmitting}
                 className={`px-10 py-4 rounded-xl font-bold transition shadow-lg flex items-center gap-3 ${
-                  selectedDate && selectedTime && selectedTechnician
+                  selectedDate && selectedTime && selectedTechnician && serviceAddress.trim()
                     ? 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white shadow-orange-500/20'
                     : 'bg-[#2A2A2A] text-gray-500 cursor-not-allowed'
                 }`}
