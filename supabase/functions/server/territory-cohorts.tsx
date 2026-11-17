@@ -3,9 +3,54 @@
 // Territories are centered on company headquarters zip code
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
-import { verifiedActor } from './requireStaff.ts';
+import { verifiedActor, requireStaff } from './requireStaff.ts';
+import { ownedByThisRouter } from './territoryRouterScope.ts';
 
 export const territoryCohortRouter = new Hono();
+
+/**
+ * STAFF ONLY, AND MATCHED SEGMENT BY SEGMENT RATHER THAN BY PREFIX.
+ *
+ * Added 2026-11-17. `/applications/:id/approve` was hardened earlier in this
+ * audit — granting a territory seat took both the decision and the reviewer's
+ * name from the request — and the ten routes around it were left as they were.
+ * `/applications/:id/reject` sits directly beside it and had nothing: any
+ * signed-in account could reject somebody's application. `PUT /territories/:id`
+ * could rewrite a territory, and `/members`, `/founders` and `/analytics`
+ * returned the company's roster and numbers to any caller with a session.
+ *
+ * Nothing non-staff calls this module. Every `/applications` call in `src/` is
+ * either the public submission form posting to `/applications` or the staff
+ * screen reading `/applications` and `/applications/:id`; nothing fetches
+ * `/territories`, `/members`, `/founders` or this `/analytics` at all.
+ *
+ * WHY NOT `requireStaffOn`, WHICH IS THE USUAL ANSWER
+ *
+ * Because its prefix match would be wrong twice over, and both are live routes
+ * served by other files:
+ *
+ *   `/applications`   is on PUBLIC_POST_PATHS — the subcontractor, vendor and
+ *                     service-provider application forms post to it with no
+ *                     session. `requireStaffOn(['…/applications'])` matches
+ *                     that path exactly, so it would have put a staff gate in
+ *                     front of the public application forms.
+ *   `/analytics`      this module owns the bare path; `/analytics/summary` and
+ *                     `/analytics/portfolio/:email` belong elsewhere and are
+ *                     read by the reporting and investor screens.
+ *
+ * This router is mounted at the API prefix, so `use('*')` sees every request
+ * the server handles — a prefix that is one character too greedy takes real
+ * traffic with it. Hence the segment test: it names exactly what this file
+ * registers and stands aside for everything else.
+ *
+ * `/applications/:id/approve` is deliberately NOT in the list. It carries its
+ * own check, which has been verified against a real non-staff session; adding
+ * a second one here would change the message that test asserts on for no gain.
+ */
+territoryCohortRouter.use('*', async (c: any, next: any) => {
+  if (!ownedByThisRouter(new URL(c.req.url).pathname)) return await next();
+  return await requireStaff(c, next);
+});
 
 const TERRITORY_PREFIX = 'territory_';
 const MEMBER_PREFIX = 'member_';
