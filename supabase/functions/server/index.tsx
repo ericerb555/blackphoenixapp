@@ -17598,7 +17598,41 @@ app.post('/make-server-3eae23a6/change-orders/by-token/:token/decide', async (c)
 });
 
 // ── ACCESS REQUESTS ──────────────────────────────────────────────────────────
-app.post('/make-server-3eae23a6/access-requests', async (c) => { try { const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase(); if (!email || !String(body.requestedPortal || body.portal || '').trim()) return c.json({ success: false, error: 'Email and requested portal are required.' }, 400); const id = `access_${crypto.randomUUID()}`; const request = { ...body, id, email, requestedPortal: body.requestedPortal || body.portal, status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${id}`, request); return c.json({ success: true, request }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
+app.post('/make-server-3eae23a6/access-requests', async (c) => { try { const body = stripBase64(await c.req.json()); const email = String(body.email || '').trim().toLowerCase(); if (!email || !String(body.requestedPortal || body.portal || '').trim()) return c.json({ success: false, error: 'Email and requested portal are required.' }, 400); const id = `access_${crypto.randomUUID()}`; const request = { ...body, id, email, requestedPortal: body.requestedPortal || body.portal, status: 'pending', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${id}`, request);
+
+    /*
+     * Tell somebody. A pending row nobody is told about is a queue, not an
+     * approval.
+     *
+     * Eric: "it should send an approval to adim when account is created."
+     * The row, the admin-only read and the Waiting for Approval tab all
+     * existed already; what was missing was the part that reaches a person.
+     * Self-serve signup did not even create the row — SignUp.tsx called the
+     * Supabase client directly and the server never heard about it, so a new
+     * account appeared nowhere and alerted nobody.
+     *
+     * Keyed on the email so a person who signs up, gets interrupted and
+     * tries again does not ring the phone twice. notifyStaffInBackground
+     * never throws, and this is after the write, so a notification that
+     * fails cannot cost us the request itself.
+     */
+    notifyStaffInBackground('signup', {
+      subject: `Approval needed: ${request.name || email}`,
+      heading: '👤 New account waiting for approval',
+      rows: [
+        ['Name', String(request.name || request.fullName || email.split('@')[0])],
+        ['Email', email],
+        ['Requested', String(request.requestedPortal || 'customer')],
+        ['Source', String(request.source || 'self-serve signup')],
+        ['Created', new Date().toLocaleString('en-US')],
+      ],
+      smsRows: ['Name', 'Email'],
+      ctaLabel: 'Review it',
+      ctaPath: '/owners-dashboard',
+      dedupeKey: `access_request:${email}`,
+    });
+
+    return c.json({ success: true, request }, 201); } catch (error: any) { return c.json({ success: false, error: error.message }, 500); } });
 app.get('/make-server-3eae23a6/access-requests', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); return c.json({ success: true, requests: (await kv.getByPrefix('access_request:')) || [] }); });
 app.patch('/make-server-3eae23a6/access-requests/:id', async (c) => { const actor = await financialActor(c); if (!actor.admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403); const existing = await kv.get(`access_request:${c.req.param('id')}`) as any; if (!existing) return c.json({ success: false, error: 'Access request not found.' }, 404); const body = await c.req.json(); const status = ['approved','rejected','pending'].includes(String(body.status)) ? body.status : existing.status; const request = { ...existing, status, reviewedBy: actor.user.email, reviewedAt: new Date().toISOString(), reviewNote: String(body.reviewNote || ''), updatedAt: new Date().toISOString() }; await kv.set(`access_request:${request.id}`, request); return c.json({ success: true, request }); });
 
