@@ -64,6 +64,7 @@ import {
 } from "./anonPricer.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { availabilityOn } from "./availability.ts";
+import { readAnonContact, anonConfirmKey, ANON_CONFIRM_PER_IP_DAILY } from "./anonContact.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 /** Whole dollars, for a subject line somebody reads on a phone. */
@@ -129,6 +130,28 @@ trashEstimatorRouter.use("*", async (c: any, next: any) => {
    */
   const path = new URL(c.req.url).pathname;
   if (c.req.method === "POST" && path.endsWith("/trash-estimator/read")) {
+    return await next();
+  }
+
+  /*
+   * And asking us to confirm it, which is the other half of "usable before
+   * creating an account". Pricing without a signup and then meeting a signup
+   * wall at the one step that turns a price into a job is the drop-off this
+   * removes.
+   *
+   * Still narrow, and for the same reason as the read above: one method, one
+   * exact path, granting nothing. The handler takes a name and a number
+   * instead of a token, refuses an estimate that already has an owner, and
+   * meters by address — see `anonContact.ts` for what counts as a number
+   * somebody could ring.
+   *
+   * A SEPARATE PATH RATHER THAN RELAXING `/estimates/:id/ask-us-to-confirm`,
+   * because the public list in `index.tsx` matches POST paths EXACTLY and a
+   * parameterised path cannot be stated there. Making the prefix public
+   * instead would have opened every route under `/estimates/` including the
+   * reads. One flat path is the only shape that stays explicit.
+   */
+  if (c.req.method === "POST" && path.endsWith("/trash-estimator/confirm-anonymous")) {
     return await next();
   }
 
@@ -1015,6 +1038,139 @@ trashEstimatorRouter.post("/estimates/:id/ask-us-to-confirm", async (c: any) => 
       ],
       smsRows: ["Likely", "Customer", "Needs a visit"],
       ctaLabel: "Open the estimate",
+      ctaPath: "/owners-dashboard",
+    });
+  } catch (err) {
+    console.log(`[trash-estimator] could not notify staff: ${err}`);
+  }
+
+  return c.json({ success: true, estimate: updated });
+});
+
+/**
+ * POST /trash-estimator/confirm-anonymous
+ *
+ * Eric, 2026-11-17: *"yes build the no account version"*.
+ *
+ * WHAT IT IS FOR
+ *
+ * Anyone can price a junk job without an account — that is what the texted
+ * link and the anonymous pricer are for. But asking us to confirm the price
+ * went through `ask-us-to-confirm`, which matches the estimate's owner email
+ * against the caller's token. An estimate made without an account has no
+ * owner, so the visitor met "create a free account to book it" at the exact
+ * moment they had decided to go ahead. That is the drop-off this removes.
+ *
+ * A NAME AND A NUMBER INSTEAD OF AN ACCOUNT
+ *
+ * Not a password, not a verification code. The office rings these back, so
+ * the two things that matter are who to ask for and what to dial.
+ * `anonContact.ts` holds what counts as a number somebody could ring and is
+ * tested on the placeholders people type to skip a required field.
+ *
+ * The 5% signup offer stays exactly where it was. It is now a reason to make
+ * an account rather than a toll gate in front of booking a job.
+ *
+ * WHAT IT REFUSES, AND WHY EACH
+ *
+ *   - An estimate that already HAS an owner. That one belongs to a signed-in
+ *     customer and this route would be a way to attach a stranger's phone
+ *     number to it.
+ *   - An estimate already submitted. Idempotent rather than duplicated, the
+ *     same answer `ask-us-to-confirm` gives.
+ *   - More than `ANON_CONFIRM_PER_IP_DAILY` from one address in a day. The
+ *     model spend is already bounded by `anonPricer`; what this bounds is the
+ *     office's attention, which is the scarcer of the two. A queue somebody
+ *     has filled with rubbish is a queue that stops being read.
+ */
+trashEstimatorRouter.post("/confirm-anonymous", async (c: any) => {
+  const body = await c.req.json().catch(() => ({}));
+  const id = String(body?.estimateId || "").trim();
+  if (!id) return c.json({ success: false, error: "Which estimate?" }, 400);
+
+  const verdict = readAnonContact(body);
+  if (!verdict.ok) return c.json({ success: false, error: verdict.error }, 400);
+  const contact = verdict.contact!;
+
+  const record = (await kv.get(`estimate:${id}`).catch(() => null)) as any;
+  if (!record) return c.json({ success: false, error: "No such estimate." }, 404);
+
+  /*
+   * Somebody else's estimate is not available to claim. One answer for "does
+   * not exist" and "is not yours", so this cannot be used to discover which
+   * estimate ids are real.
+   */
+  if (String(record.customerEmail || "").trim()) {
+    return c.json({ success: false, error: "No such estimate." }, 404);
+  }
+  if (record.confirmationRequestedAt) {
+    return c.json({ success: true, estimate: record, already: true });
+  }
+
+  const nowIso = new Date().toISOString();
+  const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true) || "unknown";
+  const dayKey = anonConfirmKey(ip, nowIso);
+  const used = Number(await kv.get(dayKey).catch(() => 0)) || 0;
+  if (used >= ANON_CONFIRM_PER_IP_DAILY) {
+    return c.json({
+      success: false,
+      error: "That is as many as we can take from one place today. Call us on 603-207-2248 and we will sort it out.",
+    }, 429);
+  }
+
+  const updated = {
+    ...record,
+    status: "confirmation-requested",
+    confirmationRequestedAt: nowIso,
+    /*
+     * Deliberately NOT written to `customerEmail`. That field means "the
+     * account that owns this", and it is what `/estimates` filters a
+     * customer's own list by — putting an unverified address there would let
+     * anybody claim an estimate by typing an email they do not control.
+     * These are contact details, and they are stored as contact details.
+     */
+    anonContact: contact,
+    customerMessage: String(body?.message || "").slice(0, 1000) || null,
+    updatedAt: nowIso,
+  };
+  await kv.set(`estimate:${id}`, updated);
+  await kv.set(dayKey, used + 1);
+
+  try {
+    const alerts = (await kv.get("admin_alerts") as any[]) || [];
+    alerts.unshift({
+      id: `alert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "trash_estimate",
+      title: "Junk estimate wants confirming — no account",
+      message:
+        `${contact.name} (${contact.phone}) asked us to confirm ${money(updated.cost?.likely)} ` +
+        `for about ${updated.volumeCuYd?.likely} cu yd` +
+        (updated.needsSiteVisit ? " — flagged for a site visit" : ""),
+      estimateId: id,
+      timestamp: nowIso,
+      status: "unread",
+    });
+    await kv.set("admin_alerts", alerts.slice(0, 200));
+  } catch (err) {
+    console.log(`[trash-estimator] could not write the alert: ${err}`);
+  }
+
+  try {
+    notifyStaffInBackground("estimate", {
+      subject: "Junk estimate wants confirming — no account",
+      heading: "Somebody priced a job without signing up and wants it confirmed",
+      rows: [
+        ["Name", contact.name],
+        ["Phone", contact.phone],
+        ["Email", contact.email || "— they left a number instead"],
+        ["Likely", money(updated.cost?.likely)],
+        ["Range", `${money(updated.cost?.low)} – ${money(updated.cost?.high)}`],
+        ["Volume", `about ${updated.volumeCuYd?.likely} cu yd in ${updated.loads} load(s)`],
+        ["Needs a visit", updated.needsSiteVisit ? "yes" : "no"],
+        ["They said", updated.customerMessage || "—"],
+      ],
+      smsRows: ["Name", "Phone", "Likely"],
+      ctaLabel: "Open the queue",
       ctaPath: "/owners-dashboard",
     });
   } catch (err) {

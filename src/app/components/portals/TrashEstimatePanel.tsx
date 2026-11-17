@@ -135,6 +135,9 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
   const [estimate, setEstimate] = useState<any>(null);
   const [showLines, setShowLines] = useState(false);
   const [asking, setAsking] = useState(false);
+  /** Who to ask for and what to dial, when there is no account to take it from. */
+  const [anonName, setAnonName] = useState('');
+  const [anonPhone, setAnonPhone] = useState('');
 
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const libraryRef = useRef<HTMLInputElement | null>(null);
@@ -306,6 +309,46 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
    * gone. It files the estimate for staff and tells them, and it says so
    * afterwards rather than leaving somebody wondering whether it sent.
    */
+  /**
+   * The same ask, from somebody with no account.
+   *
+   * A different route rather than the same one relaxed: `ask-us-to-confirm`
+   * scopes an estimate to the signed-in owner's email, and the public list in
+   * `index.tsx` matches POST paths exactly, so a parameterised path could not
+   * be made public without opening every read beside it.
+   *
+   * The server's refusal is shown as written — it knows whether the number is
+   * implausible, the estimate already claimed, or the day's limit reached,
+   * and each of those is a different thing for the person reading it to do.
+   */
+  const askWithoutAccount = async () => {
+    if (!estimate?.id || asking) return;
+    setAsking(true);
+    try {
+      const res = await fetch(`${SERVER}/trash-estimator/confirm-anonymous`, {
+        method: 'POST',
+        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          estimateId: estimate.id,
+          name: anonName,
+          phone: anonPhone,
+          message: notes,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `That did not send (${res.status}).`);
+      setEstimate(data.estimate);
+      toast.success('Sent to the office', {
+        description: 'We have your estimate and the pictures. Somebody will call you.',
+      });
+    } catch (err: any) {
+      console.error('[TrashEstimate] confirm-anonymous', err);
+      toast.error(err?.message || 'Could not send that. Try again in a moment.', { duration: 8000 });
+    } finally {
+      setAsking(false);
+    }
+  };
+
   const askUsToConfirm = async () => {
     if (!estimate?.id || asking) return;
     setAsking(true);
@@ -542,14 +585,58 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
              * an offer, this when there is not (a site-visit estimate, say,
              * where the visitor still needs somewhere to go).
              */
-            !estimate.signupOffer && (
-              <button
-                onClick={() => onNavigate?.('signup')}
-                className="flex-1 rounded-xl text-sm font-black text-black"
-                style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
-              >
-                Create a free account to book it
-              </button>
+            /*
+             * NO ACCOUNT NEEDED TO ASK US TO CONFIRM IT.
+             *
+             * Eric, 2026-11-17: *"yes build the no account version"*. This
+             * said "Create a free account to book it" — a signup wall at the
+             * exact moment somebody had decided to go ahead. Pricing was
+             * already free of one; this was the step that undid that.
+             *
+             * A name and a number, because the office rings these back. No
+             * password and no verification code: the point is a lead somebody
+             * can act on, not an authenticated identity.
+             *
+             * The signup offer above is untouched and stays the better deal —
+             * it is now a reason to make an account rather than a toll gate
+             * in front of booking a job.
+             */
+            estimate.confirmationRequestedAt ? (
+              <p className="flex-1 rounded-xl text-center text-sm font-bold text-emerald-300"
+                 style={{ background: 'rgba(16,185,129,0.1)', padding: '12px 16px' }}>
+                We have it — we will call you
+              </p>
+            ) : (
+              <div className="flex-1 space-y-2">
+                <p className="text-xs text-gray-400">
+                  Want us to confirm this price? Leave a name and a number — no account needed.
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={anonName}
+                    onChange={(e) => setAnonName(e.target.value)}
+                    placeholder="Your name"
+                    className="flex-1 rounded-xl text-base text-white"
+                    style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', padding: '12px 14px' }}
+                  />
+                  <input
+                    value={anonPhone}
+                    onChange={(e) => setAnonPhone(e.target.value)}
+                    placeholder="Phone number"
+                    inputMode="tel"
+                    className="flex-1 rounded-xl text-base text-white"
+                    style={{ background: '#0a0a0a', border: '1px solid #2a2a2a', padding: '12px 14px' }}
+                  />
+                </div>
+                <button
+                  onClick={() => void askWithoutAccount()}
+                  disabled={asking}
+                  className="w-full rounded-xl text-sm font-black text-black disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
+                >
+                  {asking ? 'Sending…' : 'Ask us to confirm it'}
+                </button>
+              </div>
             )
           ) : (
             <button

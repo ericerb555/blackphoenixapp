@@ -58,6 +58,8 @@ interface Estimate {
   volumeCuYd?: { likely?: number };
   loads?: number;
   scheduledFor?: { date: string; time: string; employeeName?: string; hours?: number };
+  /** Set when they asked us to confirm without making an account. */
+  anonContact?: { name?: string; phone?: string; email?: string };
   createdAt?: string;
 }
 
@@ -196,7 +198,15 @@ export default function JunkEstimatesPanel() {
                 </p>
               </div>
               <div className="text-right text-xs text-gray-400">
-                <p className="flex items-center justify-end gap-1"><User className="h-3 w-3" /> {e.customerEmail || '—'}</p>
+                {/*
+                  A no-account lead shows the NUMBER, because that is how it gets
+                  answered. Showing an empty email where a phone number exists is
+                  how a lead sits in a queue looking uncontactable.
+                */}
+                <p className="flex items-center justify-end gap-1"><User className="h-3 w-3" /> {e.customerEmail || e.anonContact?.name || '—'}</p>
+                {e.anonContact?.phone && (
+                  <p className="text-orange-300">{e.anonContact.phone} · no account</p>
+                )}
                 <p className="flex items-center justify-end gap-1">
                   <Clock className="h-3 w-3" /> asked {shortDate(e.confirmationRequestedAt)}
                 </p>

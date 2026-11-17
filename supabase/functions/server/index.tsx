@@ -1464,6 +1464,18 @@ const PUBLIC_POST_PATHS = [
    * minter is the principal.
    */
   '/trash-estimator/read',
+  /*
+   * The other half of pricing without an account: asking us to confirm it.
+   * Pricing freely and then meeting a signup wall at the one step that turns
+   * a price into a job is the drop-off, so the handler takes a name and a
+   * number instead of a token. It refuses an estimate that already has an
+   * owner, is idempotent, and is metered per address per day — `anonContact.ts`.
+   *
+   * Flat rather than `/estimates/:id/...` because this list is matched
+   * EXACTLY and a parameterised path cannot be stated here; the prefix
+   * alternative would have opened every read under `/estimates/` too.
+   */
+  '/trash-estimator/confirm-anonymous',
   /**
    * The nightly Storage copy. Machine endpoint, shared secret, refuses when
    * the secret is unset — same shape and same reasoning as the cron ticks
