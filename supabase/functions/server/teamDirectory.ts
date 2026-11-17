@@ -190,7 +190,53 @@ export function registerTeamRoutes(app: any, adminClient: any) {
       }, 404);
     }
 
+    /*
+     * Whether this account is switched off, so the row we hand back says so.
+     *
+     * Both replies below used `toMember(target, new Set())` — an empty
+     * deactivated set, which makes `active` unconditionally true. The screen
+     * updates the row from this response, so changing a DEACTIVATED person's
+     * role redrew them as an active project manager, and only a reload told
+     * the truth. On the one screen whose job is to show who currently holds
+     * what, that is the wrong direction to be wrong in.
+     *
+     * One key rather than the prefix scan the list route does: we know which
+     * account this is.
+     */
+    const standing = await kv.get(`account_deactivation:${targetEmail}`).catch(() => null) as any;
+    const deactivated = new Set(standing?.active ? [targetEmail] : []);
+
     const currentRole = trustedRole(target);
+
+    /*
+     * A customer is not promoted from this screen. They are invited.
+     *
+     * The target is looked up in the whole account directory, while the list
+     * route shows staff only — so this is reachable by calling the API with a
+     * customer's, tenant's or vendor's address, and for an owner actor
+     * `mayAssignRole` says yes, because an owner may assign anything.
+     *
+     * What that produced was a staff role and nothing else. The invitation
+     * writes `portal_access:{email}:{portalType}`, an organisation, a feature
+     * grant and an onboarding record; this route writes `app_metadata`. The
+     * account would pass every STAFF_ROLE_SET check on the server while
+     * holding none of the machinery the staff screens read, which is the same
+     * objection the 404 above already makes in its own words — "inventing one
+     * here would skip the invitation, the organisation, the feature grant and
+     * the email that tells them they exist". An account existing does not
+     * change what is being skipped.
+     *
+     * So it refuses and names the route that does the job properly. A
+     * customer who joins the company is invited as staff; the invite path
+     * already handles an address it has seen before.
+     */
+    if (!STAFF_ROLE_SET.has(currentRole)) {
+      return c.json({
+        success: false,
+        error: 'That account is not a team member. Invite them as staff instead — '
+          + 'a role on its own would leave them without a portal, an organisation or access to anything.',
+      }, 409);
+    }
     const verdict = mayAssignRole(
       { role: trustedRole(actor), email: String(actor.email) },
       { role: currentRole, email: targetEmail },
@@ -199,7 +245,7 @@ export function registerTeamRoutes(app: any, adminClient: any) {
     if (!verdict.allowed) return c.json({ success: false, error: verdict.reason }, 403);
 
     if (currentRole === nextRole) {
-      return c.json({ success: true, member: toMember(target, new Set()), unchanged: true });
+      return c.json({ success: true, member: toMember(target, deactivated), unchanged: true });
     }
 
     try {
@@ -232,7 +278,7 @@ export function registerTeamRoutes(app: any, adminClient: any) {
 
     return c.json({
       success: true,
-      member: { ...toMember(target, new Set()), role: nextRole },
+      member: { ...toMember(target, deactivated), role: nextRole },
     });
   });
 
