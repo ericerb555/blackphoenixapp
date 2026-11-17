@@ -270,7 +270,7 @@ export default function ReferralRewards() {
 
       {/* Tabs */}
       <div className="border-b border-[#2A2A2A]">
-        <div className="flex gap-1">
+        <div className="flex flex-nowrap gap-1 overflow-x-auto">
           {[
             { id: 'overview', label: 'All Referrals', count: stats.totalReferrals },
             { id: 'pending', label: 'Pending', count: stats.pendingReferrals },
@@ -279,7 +279,7 @@ export default function ReferralRewards() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-6 py-3 font-medium transition relative ${
+              className={`shrink-0 whitespace-nowrap px-6 py-3 font-medium transition relative ${
                 activeTab === tab.id
                   ? 'text-orange-400 border-b-2 border-orange-400'
                   : 'text-gray-400 hover:text-white'

@@ -44,14 +44,14 @@ export default function CompanyBrandingCenter() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2">
+        <div className="flex flex-nowrap gap-2 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-colors ${
+                className={`shrink-0 flex items-center gap-2 px-4 py-3 rounded-lg whitespace-nowrap transition-colors ${
                   activeTab === tab.id
                     ? 'bg-[#ea580c] text-white'
                     : 'bg-[#0A0A0A] text-gray-400 hover:text-white hover:bg-[#2A2A2A]'

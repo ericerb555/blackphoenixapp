@@ -439,7 +439,7 @@ export default function EnterpriseEmailManagement() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-1 flex gap-1 mb-6">
+        <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl p-1 flex flex-nowrap gap-1 overflow-x-auto mb-6">
           {[
             { id: 'domains', label: 'Email Domains', icon: Globe },
             { id: 'accounts', label: 'Email Accounts', icon: Users },
@@ -451,7 +451,7 @@ export default function EnterpriseEmailManagement() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 px-6 py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+                className={`shrink-0 px-6 py-3 rounded-lg font-semibold whitespace-nowrap transition flex items-center justify-center gap-2 ${
                   activeTab === tab.id
                     ? 'bg-[#ea580c] text-white'
                     : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'
