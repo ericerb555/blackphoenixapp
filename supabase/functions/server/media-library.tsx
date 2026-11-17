@@ -29,6 +29,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { verifiedActor } from "./requireStaff.ts";
+import { sniffMedia } from "./mediaSniff.ts";
 
 const mediaRouter = new Hono();
 
@@ -209,13 +210,31 @@ mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
       }, 400);
     }
 
-    // Validate file type
-    const mediaType = getMediaType(file.type);
-    if (!mediaType) {
-      return c.json({ 
-        error: `Unsupported file type: ${file.type}. Supported formats: JPG, PNG, GIF, WebP, SVG, BMP, TIFF, MP4, MOV, WebM, AVI, MKV, FLV` 
+    /**
+     * What it IS, not what it says it is.
+     *
+     * This read `getMediaType(file.type)` — the client's declared MIME,
+     * checked against an allow list that included `image/svg+xml` — and then
+     * stored the object with `contentType: file.type`. The bytes were never
+     * looked at, so the uploader chose both what passed the check and the
+     * header the file was served back with. An SVG is an XML document that
+     * can carry script.
+     *
+     * `image-upload.tsx` next door has always read the bytes and said why.
+     * Found and closed 2026-11-17; `mediaSniff.ts` sets out what it accepts
+     * and why SVG is not on the list.
+     */
+    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const sniffed = sniffMedia(fileBytes);
+    if (!sniffed) {
+      return c.json({
+        error:
+          `That file is not a media file this server will store. Supported: `
+          + `JPG, PNG, WebP, GIF, BMP, TIFF, MP4, MOV, WebM, AVI, FLV. `
+          + `(Declared "${file.type}", but the contents do not match any of them.)`,
       }, 400);
     }
+    const mediaType = sniffed.kind;
 
     // Generate storage path
     const storagePath = generateStoragePath(file.name);
@@ -225,12 +244,13 @@ mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
     // startup, it is actually finished before the first write.
     await bucketReady();
 
-    // Upload to Supabase Storage
-    const fileBuffer = await file.arrayBuffer();
+    // Upload to Supabase Storage, under the SNIFFED type. Storing the
+    // declared one is what let an uploader choose the header its file came
+    // back with.
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(storagePath, fileBuffer, {
-        contentType: file.type,
+      .upload(storagePath, fileBytes, {
+        contentType: sniffed.mime,
         upsert: false
       });
 
@@ -258,7 +278,8 @@ mediaRouter.post("/make-server-3eae23a6/media/upload", async (c) => {
       url: signedUrlData.signedUrl,
       storagePath: storagePath,
       size: file.size,
-      mimeType: file.type,
+      // The sniffed type, so the record and the stored object agree.
+      mimeType: sniffed.mime,
       dimensions: { width: 0, height: 0 }, // TODO: Extract actual dimensions
       uploadedAt: new Date().toISOString(),
       // Who actually uploaded it. This was hardcoded to 'System User' behind a

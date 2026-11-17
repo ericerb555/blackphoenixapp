@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { LineChart, Line, AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
-import { isAdminOrHigher } from '../lib/utils/roleUtils';
+
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import DealPublisher from '../components/DealPublisher';
 import MaintenancePlanCreator from '../components/MaintenancePlanCreator';
@@ -71,7 +71,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
   // `useUser` supports the view-only RoleSwitcher preview. Never let that
   // browser-only preview override the authenticated Supabase owner identity.
   const { user } = useUser();
-  const { user: authUser, isOwner: authIsOwner, loading: authLoading } = useAuth();
+  const { user: authUser, isOwner: authIsOwner, isAdmin: authIsAdmin, loading: authLoading } = useAuth();
   const authRole = String(authUser?.app_metadata?.role || authUser?.user_metadata?.role || authUser?.user_metadata?.accountType || '').toLowerCase().replace(/[\s-]+/g, '_');
   const isAuthenticatedOwner = authIsOwner || ['owner', 'platform_owner', 'business_owner', 'admin', 'master_admin', 'management'].includes(authRole) || String(authUser?.email || '').toLowerCase() === 'ericerb555@proton.me';
 
@@ -968,7 +968,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
           </div>
 
           {/* Admin Alerts Button - Only for Admins */}
-          {isAdminOrHigher() && (
+          {authIsAdmin && (
             <button
               onClick={() => setShowAdminAlerts(!showAdminAlerts)}
               className={`relative w-full p-4 rounded-xl border transition-all duration-300 ${
@@ -1514,7 +1514,7 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         </div>
 
         {/* Admin Alerts Panel - Slides down when active */}
-        {isAdminOrHigher() && showAdminAlerts && (
+        {authIsAdmin && showAdminAlerts && (
           <div className="bg-[#0A0A0A] border-b border-[#2A2A2A] p-6 animate-slide-down">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">

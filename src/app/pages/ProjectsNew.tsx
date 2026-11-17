@@ -17,12 +17,17 @@ import {
   type Project,
 } from '../lib/services/projectService';
 import { toast } from 'sonner';
-import { isAdminOrHigher } from '../lib/utils/roleUtils';
+import { useAuth } from '../contexts/AuthContext';
 
 type ViewMode = 'grid' | 'list';
 type TabType = 'all' | 'pending' | 'in_progress' | 'completed' | 'on_hold';
 
 export default function ProjectsNew() {
+  /*
+   * Authority from the server answer, never from the browser.
+   * See the header of lib/utils/roleUtils.ts for what this replaced.
+   */
+  const { isAdmin } = useAuth();
   const [projects, setProjects] = useState<ProjectWithCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -363,7 +368,7 @@ export default function ProjectsNew() {
             Export
           </button>
 
-          {isAdminOrHigher() && (
+          {isAdmin && (
             <button
               onClick={() => setShowCreateModal(true)}
               className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-xl hover:from-orange-700 hover:to-orange-800 transition shadow-lg shadow-orange-500/20"
@@ -528,7 +533,7 @@ export default function ProjectsNew() {
                 </div>
 
                 {/* Actions */}
-                <div className={`grid ${isAdminOrHigher() ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
+                <div className={`grid ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -539,7 +544,7 @@ export default function ProjectsNew() {
                     <Eye className="w-4 h-4" />
                     View
                   </button>
-                  {isAdminOrHigher() && (
+                  {isAdmin && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -679,7 +684,7 @@ export default function ProjectsNew() {
                   >
                     <Eye className="w-4 h-4 text-orange-400" />
                   </button>
-                  {isAdminOrHigher() && (
+                  {isAdmin && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

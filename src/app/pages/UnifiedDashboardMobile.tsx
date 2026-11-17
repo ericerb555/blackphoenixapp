@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import { isAdminOrHigher } from '../lib/utils/roleUtils';
+import { useAuth } from '../contexts/AuthContext';
 import AdminAlertsPanel from '../components/AdminAlertsPanel';
 import { StartQuoteModal } from '../components/quotes/StartQuoteModal';
 
@@ -68,6 +68,11 @@ export default function UnifiedDashboardMobile({
   customersTrend,
   teamCount
 }: UnifiedDashboardMobileProps) {
+  /*
+   * Authority from the server answer, never from the browser.
+   * See the header of lib/utils/roleUtils.ts for what this replaced.
+   */
+  const { isAdmin } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Read-only until focus blocks password-manager autofill of the sign-in email
   // into the module search (which hid the grid until manually cleared).
@@ -207,7 +212,7 @@ export default function UnifiedDashboardMobile({
             </div>
           </div>
 
-          {isAdminOrHigher() && alertCount > 0 && (
+          {isAdmin && alertCount > 0 && (
             <button
               onClick={() => setShowAdminAlerts(!showAdminAlerts)}
               className="relative p-2.5 hover:bg-[#1A1A1A] rounded-xl transition-colors active:scale-95 flex-shrink-0"
@@ -303,7 +308,7 @@ export default function UnifiedDashboardMobile({
         </div>
       </div>
 
-      {isAdminOrHigher() && showAdminAlerts && (
+      {isAdmin && showAdminAlerts && (
         <div className="bg-[#0A0A0A] border-b border-[#2A2A2A] p-4 animate-slide-down w-full">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-4 flex-1 min-w-0">
