@@ -31,8 +31,33 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 export const reelScoreboardRouter = new Hono();
+
+/**
+ * STAFF ONLY. Added 2026-11-17 — the last survivor of the IDOR sweep.
+ *
+ * Every route here resolved `actor(c)`, which only establishes that somebody
+ * is signed in, and then checked nothing. `/reel-scoreboard` is on no public
+ * or admin list, so the whole module sat at tier "user": any customer,
+ * tenant, vendor or subcontractor could read the company's social performance
+ * and write to it.
+ *
+ * `PATCH /posts/:id/metrics` is the one that matters — it overwrites reach,
+ * views, likes, comments, saves and shares on any recorded post and stamps
+ * `metricsSource: "manual"`. Nobody's data leaks and no money moves; what
+ * breaks is that the numbers the company judges its own marketing by can be
+ * written by anyone with an account, and a falsified scoreboard is worse than
+ * an empty one because somebody plans a quarter around it.
+ *
+ * This is the company's own marketing data, so staff is the right shape for
+ * the reads as well as the writes — the same reasoning as `projects-crud.tsx`.
+ *
+ * Mounted at the API prefix, so the path check in `requireStaffOn` is what
+ * keeps this middleware off every other request the server handles.
+ */
+reelScoreboardRouter.use('*', requireStaffOn(['/make-server-3eae23a6/reel-scoreboard']));
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",

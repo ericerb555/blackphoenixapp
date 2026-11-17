@@ -81,6 +81,14 @@ const STAFF = [
   /requireStaff/, /isStaffRequest/, /intakeIsAdmin/, /rewardsAdmin/, /requireQuoteStaff/,
   /PLATFORM_OWNER_EMAILS/, /isTrustedStaff/, /STAFF_ROLE_SET/, /trustedRole/,
   /c\.get\(['"]admin['"]\)/, /\.staff\b/, /supplierAdminGuard/, /mayTouch/,
+  // A local actor helper's own admin flag. `discount-grants.tsx` gates both of
+  // its write routes on `who.isAdmin` and was reported as unguarded without
+  // this line — the module whose whole purpose is "who may grant a discount".
+  /\.isAdmin\b/, /\.isOwner\b/, /isPlatformOwner/, /\.isMasterAdmin\b/,
+  // The same flag under other names, each found by reading a lead and finding
+  // it already correct: `me.admin` in unavailability.tsx, `actor.isCompany` in
+  // vendor-billing.tsx, `actor.admin` in rental-portals.tsx.
+  /\.admin\b/, /\.isCompany\b/, /\.isStaff\b/, /\.isLandlord\b/,
 ];
 // A: somebody is identified
 const RESOLVES = [
@@ -93,6 +101,9 @@ const COMPARES = [
   /(?:user|who|actor|caller|me)\??\.(?:email|id)\s*\)?\s*(?:===|!==|==|!=)/,
   /(?:===|!==|==|!=)\s*String\((?:user|who|actor|caller)/,
   /toLowerCase\(\)\s*(?:===|!==)/,
+  // The comparison written the other way round — `existing.employeeId !== me.id`
+  // rather than `me.id !== existing.employeeId`. Several leads were only this.
+  /(?:===|!==|==|!=)\s*(?:String\()?\s*(?:user|who|actor|caller|me)\??\./,
   /mayReadRecord\(/, /ownerEmailOf\(/, /shareToken/, /junkLinkState/, /screeningToken/,
   /\.includes\(String\((?:user|who|actor)/, /ownedBy/, /intakeOwnedBy/,
 ];
@@ -109,6 +120,102 @@ function bodyAfter(code, from) {
     else if (code[i] === '}') { depth--; if (!depth) return code.slice(open, i + 1); }
   }
   return code.slice(open, open + 24000);
+}
+
+/**
+ * C — SCOPED BY CONSTRUCTION, which is stronger than comparing.
+ *
+ * `POST /landlord/tenants/:id/charge` resolves `landlordActor`, takes the
+ * landlord's email FROM THE TOKEN, and then looks the tenant up inside that
+ * landlord's own roster — `kv.get(landlordTenantsKey(landlordEmail))` — so a
+ * tenant id belonging to somebody else is simply not in the list it searched.
+ * There is no comparison to find because there is nothing to compare: the
+ * caller's identity decided which records exist.
+ *
+ * That is better than fetch-then-compare, and the first version of this scan
+ * called it a finding. A scanner that reports the strongest pattern in the
+ * codebase as the weakest teaches people to ignore it.
+ *
+ * WRITTEN WITH STRING OPERATIONS, NOT REGEXES, DELIBERATELY. Three attempts
+ * with `new RegExp` on a built-up pattern lost a backslash at some layer
+ * between here and the file, and a regex that silently loses an escape stops
+ * matching what it says it matches. There is nothing here a split and an
+ * includes cannot do.
+ *
+ * Two steps: a variable assigned from the caller's email or id, then that same
+ * variable used to build a storage key.
+ */
+const CALLER_WORDS = ['actor', 'user', 'who', 'caller', 'session'];
+
+function callerDerivedNames(scope) {
+  const names = [];
+  for (const line of scope.split('\n')) {
+    const decl = line.trim();
+    if (!decl.startsWith('const ') && !decl.startsWith('let ')) continue;
+    const eq = decl.indexOf('=');
+    if (eq === -1) continue;
+    const lhs = decl.slice(decl.indexOf(' ') + 1, eq).trim();
+    const rhs = decl.slice(eq + 1);
+    if (!/^[A-Za-z_$][\w$]*$/.test(lhs)) continue;
+    const fromCaller = CALLER_WORDS.some((w) => rhs.includes(w))
+      && (rhs.includes('.email') || rhs.includes('.id'));
+    if (fromCaller) names.push(lhs);
+  }
+  return names;
+}
+
+/**
+ * The same thing without the intermediate variable.
+ *
+ * `condoStanding(c, assocId)` reads `CONDO_GRANT(assocId, user.email)` — the
+ * caller's grant ON THIS association — and `can()` answers false unless that
+ * grant allows it. Scoped by construction twice over: the key carries both the
+ * record and the caller. It was flagged because `user.email` goes straight
+ * into the call and is never assigned to a `const`, which is all
+ * `callerDerivedNames` knows how to find.
+ */
+/**
+ * Delegated to a per-record standing helper.
+ *
+ * `condo-associations.tsx` calls `condoStanding(c, id)` and then
+ * `standing.can('members')`. The scoping is real and is two layers deep: the
+ * helper reads `CONDO_GRANT(assocId, user.email)` — the caller's grant on THIS
+ * association — and `can()` answers false without it. None of that is visible
+ * in the handler body, which is all this scan reads.
+ *
+ * Two signals, both distinctive of the pattern rather than of code in general:
+ * a helper handed the request context AND a second argument, which for a
+ * two-argument call means "this caller, this record"; and a capability test.
+ *
+ * This is the one place the scan deliberately risks a FALSE NEGATIVE. A
+ * handler could call `thing(c, id)` and ignore the answer. The alternative was
+ * reporting the most carefully authorised module on the server as the least,
+ * which is how a tool gets switched off — and every cluster is read by hand
+ * before anything is changed anyway.
+ */
+function delegatesStanding(scope) {
+  if (scope.includes('.can(')) return true;
+  return scope.split('\n').some((line) => line.includes('(c, ') && !line.includes('function'));
+}
+
+function scopedInline(scope) {
+  return scope.split('\n').some((line) => {
+    const caller = CALLER_WORDS.some((w) => line.includes(w + '.email') || line.includes(w + '.id'));
+    if (!caller) return false;
+    const key = line.includes('Key(') || line.includes('kv.get(') || line.includes('kv.set(')
+      || /\b[A-Z][A-Z0-9_]{2,}\(/.test(line);
+    return key;
+  });
+}
+
+function scopedByKey(scope) {
+  const names = callerDerivedNames(scope);
+  if (!names.length) return false;
+  return names.some((name) => scope.split('\n').some((line) => {
+    if (!line.includes(name)) return false;
+    // the name is being fed into a key, a template key, or a kv call
+    return line.includes('Key(') || line.includes('${' + name) || line.includes('kv.');
+  }));
 }
 
 const noCaller = [], noCheck = [];
@@ -131,7 +238,7 @@ for (const f of fs.readdirSync(DIR)) {
     if (any(STAFF, scope)) continue;
     const row = { f, method: method.toUpperCase(), route: route.replace('/make-server-3eae23a6', ''), tier: tierOf(method.toUpperCase(), route) };
     if (!any(RESOLVES, scope)) noCaller.push(row);
-    else if (!any(COMPARES, scope)) noCheck.push(row);
+    else if (!any(COMPARES, scope) && !scopedByKey(scope) && !scopedInline(scope) && !delegatesStanding(scope)) noCheck.push(row);
   }
 }
 
