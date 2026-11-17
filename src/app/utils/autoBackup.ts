@@ -132,7 +132,46 @@ export function stopAutoBackup() {
   }
 }
 
-// Auto-start on import
-if (typeof window !== 'undefined') {
-  startAutoBackup();
-}
+/*
+ * NOT started on import any more, and not started anywhere else.
+ *
+ * Eric, 2026-11-16, on being shown what this actually did: "stop it, keep the
+ * keys."
+ *
+ * WHAT IT WAS DOING
+ *
+ * This file backed up `localStorage` to `localStorage`. Every thirty seconds it
+ * copied company data into `companies_offline`, `companies_global_backup` and
+ * `companies_latest`, and `currentUserProfile` into
+ * `currentUserProfile_backup` — same browser, same storage, same failure mode.
+ * Clearing site data, switching phones, or the browser evicting storage under
+ * pressure takes all four copies together. It was a backup only in the sense
+ * that it had the word in its name.
+ *
+ * Worse, its own failure path DELETES. `backupAllData` removes keys when it
+ * hits the quota (lines 40, 44 and 59), so the system whose job was protecting
+ * this data was the only thing in the app that would throw it away — and it
+ * ran forty-eight times an hour looking for the chance.
+ *
+ * WHY IT WAS INVISIBLE
+ *
+ * Nothing imported it by name. It self-started as an import side effect, and
+ * the one import was a bare `import("./utils/autoBackup")` inside a mount
+ * effect in `App.tsx` among seven others, with no binding and no call — so
+ * every search for a caller came back empty while the thing ran on every page
+ * load. The side effect has been removed along with that import; starting it
+ * now takes a deliberate call.
+ *
+ * WHAT ACTUALLY BACKS THIS UP
+ *
+ * The Supabase project is on the Pro plan, which takes a daily backup of the
+ * database and keeps seven days of them. Nothing needed building; what was
+ * needed was for the data to BE in the database, which is why the records that
+ * live only in a browser are being moved into the kv store. Note the one gap
+ * the Supabase docs are explicit about: daily backups do not cover objects in
+ * Storage, so the photo and video buckets are not in that coverage.
+ *
+ * The functions are left in place, and so are the keys they wrote. Something
+ * may still read `companies_offline` as a fallback, and deleting the only copy
+ * on somebody's machine to tidy up would repeat this file's original mistake.
+ */

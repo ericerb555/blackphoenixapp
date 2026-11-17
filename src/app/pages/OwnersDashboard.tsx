@@ -62,6 +62,7 @@ import PortalInviteEmailEditor from '../components/PortalInviteEmailEditor';
 import PricingAttentionBanner from '../components/PricingAttentionBanner';
 import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import TrashRatesPanel from '../components/owner/TrashRatesPanel';
+import JunkLinksPanel from '../components/owner/JunkLinksPanel';
 import TipsPanel from '../components/owner/TipsPanel';
 import InsurancePanel from '../components/owner/InsurancePanel';
 import RefundsPanel from '../components/owner/RefundsPanel';
@@ -844,7 +845,19 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
           </div>
         )}
         {activeTab === 'on-call-pricing' && <OnCallPricingAdmin />}
-        {activeTab === 'trash-rates' && <TrashRatesPanel />}
+        {/*
+          * Rates and links on one tab, because they are one subject: what the
+          * estimator charges, and who you have handed the estimator to. A
+          * separate tab would file them apart and make the second easy to
+          * forget, which for a thing that spends money on every use is the
+          * wrong way round.
+          */}
+        {activeTab === 'trash-rates' && (
+          <div className="space-y-6">
+            <TrashRatesPanel />
+            <JunkLinksPanel />
+          </div>
+        )}
         {activeTab === 'tips' && <TipsPanel />}
         {activeTab === 'insurance' && <InsurancePanel />}
         {activeTab === 'refunds' && <RefundsPanel />}

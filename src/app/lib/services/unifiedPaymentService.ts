@@ -161,13 +161,33 @@ export interface PaymentStats {
 export interface GatewayConfig {
   gateway_name: PaymentGateway;
   is_active: boolean;
+  /**
+   * In memory only, for as long as the form is open. NEVER persisted.
+   *
+   * These three were written to `localStorage` in plaintext until 2026-11-16,
+   * which put a payment processor's API secret and webhook secret on the disk
+   * of whatever machine an admin last opened the payment centre on — readable
+   * by anyone with that browser profile, surviving every sign-out, and copied
+   * by whatever syncs that profile. Nothing ever read them back except the
+   * form itself: no request carries them, and the server deliberately keeps
+   * only `is_active` and `test_mode`. So they were an unbounded liability
+   * bought for nothing at all.
+   *
+   * If a gateway ever does need credentials, they belong in the server's
+   * secret storage, reached through a route that never returns them.
+   */
   api_key?: string;
   api_secret?: string;
   webhook_secret?: string;
+  /** Persisted in their place: whether credentials were entered, not what they are. */
+  has_credentials?: boolean;
   test_mode: boolean;
   created_at: string;
   updated_at: string;
 }
+
+// The storage rule lives in its own importable module so a test can load it.
+export { withoutGatewaySecrets, GATEWAY_SECRET_FIELDS } from '../gatewaySecrets';
 
 // ============================================================================
 // KV STORE API
@@ -830,6 +850,12 @@ class UnifiedPaymentService {
         stripe: 0,
         paypal: 0,
         square: 0,
+        // Bank of America was added to PaymentGateway and to the gateway list
+        // the payment centre renders, but not to this initialiser. Totals were
+        // never wrong — the `|| 0` below covers a missing key — but the figure
+        // read back before a first BoA payment was `undefined` rather than 0,
+        // so a dashboard showed a blank where every other gateway showed $0.
+        bank_of_america: 0,
         stellar: 0,
         xdc: 0,
         manual: 0,

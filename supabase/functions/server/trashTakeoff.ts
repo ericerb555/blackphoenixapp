@@ -563,7 +563,19 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
   if (loads > 0) {
     lines.push({
       kind: "trip",
-      label: loads === 1 ? "Truck and tip run" : `Truck and tip runs (${loads})`,
+      /*
+       * "Dump fee", not "tip run".
+       *
+       * In the trade a tip is the landfill and a tip run is the trip to it. On
+       * a price a homeowner reads, "tip" is a gratuity — so this line looked
+       * like we had added one to their quote without asking. Eric asked where
+       * the tip was coming from; it was this, and it was never a gratuity.
+       *
+       * Crew tips are a separate thing entirely and are never in a price: they
+       * are chosen by the customer at payment and ride as their own Stripe
+       * line (`tips.ts`, and the checkout in `index.tsx`).
+       */
+      label: loads === 1 ? "Truck and dump fee" : `Truck and dump fees (${loads})`,
       quantity: loads,
       unit: "trips",
       unitCost: rates.perTrip,

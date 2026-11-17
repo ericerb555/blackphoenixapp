@@ -231,4 +231,85 @@ scheduleAssistantRouter.post("/make-server-3eae23a6/schedule/confirm", async (c)
   }
 });
 
+/**
+ * Generated job schedules — the ones that used to exist only in a browser.
+ *
+ * `AutoJobScheduleGenerator` builds a schedule for a job — phases, milestones,
+ * start and end dates, total cost — and wrote it to `localStorage` under
+ * `jobSchedules` and nowhere else. The component has no network calls at all.
+ * So a plan with costs in it lived in whichever browser happened to generate
+ * it: invisible to everybody else, gone with a cleared cache, and absent from
+ * the nightly database backup because it had never been in the database.
+ *
+ * WHY HERE AND NOT A NEW MODULE
+ *
+ * This file already owns scheduling, already has `staffActor`, and is already
+ * mounted. A new module would have meant a second staff check to keep in step
+ * with this one, and the audit of this server found nine of those already.
+ *
+ * WHY THE CALLER CANNOT NAME THE OWNER
+ *
+ * The id comes from the record and the owner from the verified token, never
+ * from the request. That is deliberate and it is the whole finding of
+ * `docs/server-route-authorization.md`: 223 routes on this server take a
+ * record id straight from the request, and 25 of them hand over somebody
+ * else's data as a result. A route written today should not be the 224th.
+ *
+ * Staff-only, like everything else in this file. A job schedule is internal
+ * planning with margins visible in it, not something a portal customer reads.
+ */
+const JOB_SCHEDULE_PREFIX = "job_schedule:";
+
+scheduleAssistantRouter.get("/make-server-3eae23a6/schedule/job-schedules", async (c) => {
+  try {
+    const me = await staffActor(c);
+    if (!me) return c.json({ success: false, error: "Staff access is required." }, 403);
+
+    const rows = await kv.getByPrefix(JOB_SCHEDULE_PREFIX).catch(() => []) as any[];
+    const schedules = (rows || [])
+      .filter(Boolean)
+      .sort((a, b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
+
+    return c.json({ success: true, schedules });
+  } catch (error: any) {
+    console.error("[schedule] job-schedules read failed:", error?.message || error);
+    return c.json({ success: false, error: error?.message || "Could not load the schedules." }, 500);
+  }
+});
+
+scheduleAssistantRouter.post("/make-server-3eae23a6/schedule/job-schedules", async (c) => {
+  try {
+    const me = await staffActor(c);
+    if (!me) return c.json({ success: false, error: "Staff access is required." }, 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const schedule = body?.schedule;
+    if (!schedule || typeof schedule !== "object") {
+      return c.json({ success: false, error: "No schedule in that request." }, 400);
+    }
+
+    /*
+     * The id is ours, not the browser's.
+     *
+     * A client-supplied id would let one schedule overwrite another by
+     * collision or by choice, and this is a store a staff member writes to
+     * repeatedly from a generator that does not track what it has already
+     * sent. An id minted here cannot collide and cannot be aimed.
+     */
+    const id = `js_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const record = {
+      ...schedule,
+      id,
+      createdBy: me.email,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`${JOB_SCHEDULE_PREFIX}${id}`, record);
+    return c.json({ success: true, schedule: record });
+  } catch (error: any) {
+    console.error("[schedule] job-schedule write failed:", error?.message || error);
+    return c.json({ success: false, error: error?.message || "Could not save that schedule." }, 500);
+  }
+});
+
 export default scheduleAssistantRouter;

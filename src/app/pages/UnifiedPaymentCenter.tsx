@@ -53,6 +53,7 @@ import {
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import UnifiedPaymentService from '../lib/services/unifiedPaymentService';
+import { withoutGatewaySecrets } from '../lib/gatewaySecrets';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
 
@@ -217,12 +218,41 @@ export default function UnifiedPaymentCenter() {
     finally { setStellarSaving(false); }
   };
 
+  /**
+   * Write a gateway's state without its credentials, and scrub any that a
+   * previous build left behind.
+   *
+   * Everything here used to be stored verbatim, secrets included. Removing the
+   * write alone would have left the already-stored secrets sitting in every
+   * admin's browser for as long as that profile lives, so this rewrites each
+   * entry as it is touched: the purge rides along with ordinary use rather
+   * than waiting for anyone to run anything.
+   *
+   * Returns what was stored so callers cannot accidentally keep the stripped
+   * copy and the in-memory one confused.
+   */
+  const persistGatewayConfig = (gateway: string, config: GatewayConfig): void => {
+    localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(withoutGatewaySecrets(config)));
+  };
+
   const loadGatewayConfigs = async () => {
     const configs: Record<string, GatewayConfig> = {};
     PAYMENT_GATEWAYS.forEach(gateway => {
       const saved = localStorage.getItem(`gateway_config_${gateway.id}`);
       if (saved) {
-        configs[gateway.id] = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as GatewayConfig;
+        // Secrets never reach component state from storage; a build before
+        // 2026-11-16 may have put them there, and this is where they go.
+        const hadSecrets = Boolean(parsed.api_key || parsed.api_secret || parsed.webhook_secret);
+        const clean: GatewayConfig = {
+          ...parsed,
+          api_key: undefined,
+          api_secret: undefined,
+          webhook_secret: undefined,
+          has_credentials: Boolean(parsed.has_credentials || hadSecrets),
+        };
+        configs[gateway.id] = clean;
+        if (hadSecrets || parsed.has_credentials === undefined) persistGatewayConfig(gateway.id, clean);
       } else {
         configs[gateway.id] = {
           gateway_name: gateway.id,
@@ -248,7 +278,7 @@ export default function UnifiedPaymentCenter() {
               test_mode: remote.test_mode,
               updated_at: remote.updated_at || configs[id].updated_at,
             };
-            localStorage.setItem(`gateway_config_${id}`, JSON.stringify(configs[id]));
+            persistGatewayConfig(id, configs[id]);
           }
         }
       }
@@ -271,7 +301,7 @@ export default function UnifiedPaymentCenter() {
       updated_at: new Date().toISOString()
     };
 
-    localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(config));
+    persistGatewayConfig(gateway, config);
     const next = { ...gatewayConfigs, [gateway]: config };
     setGatewayConfigs(next);
     pushGatewayState(next).catch((err) => { console.error('[UnifiedPaymentCenter] gateway sync failed:', err); toast.error(err.message || 'Could not sync gateway settings'); });
@@ -282,7 +312,7 @@ export default function UnifiedPaymentCenter() {
   const toggleGatewayActive = (gateway: PaymentGateway) => {
     const config = gatewayConfigs[gateway];
     const updated = { ...config, is_active: !config.is_active, updated_at: new Date().toISOString() };
-    localStorage.setItem(`gateway_config_${gateway}`, JSON.stringify(updated));
+    persistGatewayConfig(gateway, updated);
     const next = { ...gatewayConfigs, [gateway]: updated };
     setGatewayConfigs(next);
     pushGatewayState(next).catch((err) => { console.error('[UnifiedPaymentCenter] gateway sync failed:', err); toast.error(err.message || 'Could not sync gateway settings'); });
@@ -726,7 +756,7 @@ export default function UnifiedPaymentCenter() {
                   )}
 
                   {/* Configuration Status */}
-                  {!isEditing && config && (config.api_key || config.api_secret) && (
+                  {!isEditing && config && config.has_credentials && (
                     <div className="mt-3 pt-3 border-t border-[#2a2a2a]">
                       <div className="flex items-center gap-2 text-sm text-green-400">
                         <CheckCircle2 className="w-3 h-3" />
@@ -808,7 +838,10 @@ export default function UnifiedPaymentCenter() {
     const exportCSV = () => {
       const rows = [['Date', 'Customer', 'Amount', 'Status', 'Type', 'Gateway']];
       payments.forEach(p => rows.push([
-        new Date(p.created_at).toLocaleDateString(), p.customer_name || '', `$${p.amount}`, p.status, p.payment_type || '', p.gateway || '',
+        // `p.type`, not `p.payment_type` — the latter is not a field on
+        // UnifiedPayment, so `|| ''` swallowed it and the Type column in every
+        // exported CSV has been blank. Found by typecheck, not by a reader.
+        new Date(p.created_at).toLocaleDateString(), p.customer_name || '', `$${p.amount}`, p.status, p.type || '', p.gateway || '',
       ]));
       const csv = rows.map(r => r.join(',')).join('\n');
       const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));

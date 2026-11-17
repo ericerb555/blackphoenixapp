@@ -37,7 +37,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { authedHeaders } from '../../utils/authHeaders';
+import { authedHeaders, authedHeadersOrAnon } from '../../utils/authHeaders';
+import { publicAnonKey } from '../../utils/supabase/info';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import { fileToDataUrl, framesFromVideo, dataUrlBytes } from '../../lib/imageCapture';
 import { extensionForMimeType } from '../../lib/videoCapture';
@@ -56,11 +57,44 @@ const FRAMES_PER_VIDEO = 6;
  */
 const MAX_PAYLOAD_BYTES = 4_000_000;
 
+/*
+ * WHY EVERY FIELD ON THIS SCREEN IS 16px AND MUST STAY THERE
+ *
+ * Eric, from an iPhone: "the mobile version still have bunched up buttons and
+ * i click them and it errored out."
+ *
+ * iOS Safari zooms the page when a form field with a font smaller than 16px
+ * takes focus, and it does not zoom back out. The three fields here were
+ * `text-sm` — 14px — so tapping the scope box, the notes box or the name field
+ * left the whole page magnified: buttons crowded together, the layout shifted
+ * under the finger, and a tap aimed at one control landed on its neighbour.
+ * Which is also the likeliest explanation for a button "erroring out" rather
+ * than doing its job.
+ *
+ * It is not a bug in the layout, and measuring the layout is how you miss it:
+ * the buttons here are `flex-col sm:flex-row` and stack correctly at every
+ * width. The page is fine until a field is touched.
+ *
+ * The viewport deliberately allows zoom (`user-scalable=yes` in index.html),
+ * which is the right call for accessibility and is not what to change. 16px on
+ * the fields is what stops the zoom being automatic and unwanted.
+ *
+ * So: `text-base`, never `text-sm`, on anything focusable on this screen.
+ */
+
 interface Props {
   /** Shown on the estimate, and the address the job is at. */
   customerName?: string;
   /** Jump the customer to their work requests once they ask us to confirm it. */
   onNavigate?: (page: string) => void;
+  /**
+   * A texted pricing link, when the visitor arrived on one.
+   *
+   * Present means nobody is signed in and the estimate spends as the link.
+   * The panel does not interpret it — it forwards it, and the server decides
+   * whether it is still good. See `junkLinks.ts`.
+   */
+  linkToken?: string;
 }
 
 interface Shot { id: string; file: File; preview: string }
@@ -88,7 +122,7 @@ function photoContentType(file: File): string {
   return byExt[ext] || 'application/octet-stream';
 }
 
-export default function TrashEstimatePanel({ customerName, onNavigate }: Props) {
+export default function TrashEstimatePanel({ customerName, onNavigate, linkToken }: Props) {
   const [photos, setPhotos] = useState<Shot[]>([]);
   const [video, setVideo] = useState<{ file: File; url: string } | null>(null);
   const [notes, setNotes] = useState('');
@@ -225,9 +259,19 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
       setStage('Reading them, then checking the reading…');
       const res = await fetch(`${SERVER}/trash-estimator/read`, {
         method: 'POST',
-        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        /*
+         * A link visitor has no session, so `authedHeaders` — which throws
+         * rather than quietly falling back — is the wrong helper for them. The
+         * anon key identifies the project and nobody in particular, which is
+         * exactly right here: the authority is the link token in the body, and
+         * the server decides what it is worth.
+         */
+        headers: linkToken
+          ? await authedHeadersOrAnon(publicAnonKey, { 'Content-Type': 'application/json' })
+          : await authedHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           images, notes, scope, mediaRefs,
+          linkToken: linkToken || undefined,
           agreedToAttestation: true,
           signedName: signedName.trim(),
         }),
@@ -300,6 +344,48 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
             pictures, not a visit.
           </p>
         </div>
+
+        {/*
+          * 5% for opening a free account.
+          *
+          * Both figures come from the server — see `signupIncentive.ts` for why
+          * a discounted price is not worked out in the browser next to one that
+          * is not. The block is absent unless the server sent an offer, so a
+          * signed-in customer is never offered a discount for signing up, and
+          * an estimate we have said we want to re-check on site is not
+          * discounted while it is still provisional.
+          */}
+        {estimate.signupOffer && (
+          <div className="rounded-xl p-4" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)' }}>
+            <p className="text-sm font-black text-white">
+              Take {estimate.signupOffer.percent}% off with a free account
+            </p>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-2xl font-black text-green-400">
+                {money(estimate.signupOffer.cost?.likely || 0)}
+              </span>
+              <span className="text-sm font-bold text-gray-500 line-through">
+                {money(estimate.cost?.likely || 0)}
+              </span>
+              <span className="text-sm font-bold text-green-400">
+                save {money(estimate.signupOffer.saves || 0)}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-gray-400">
+              Free to open, and the {estimate.signupOffer.percent}% is applied to this job when we
+              write it up. You also keep this estimate, your pictures and anything we send you in
+              one place.
+            </p>
+            <button
+              type="button"
+              onClick={() => onNavigate?.('signup')}
+              className="mt-3 w-full rounded-lg px-4 py-2.5 text-sm font-black text-black"
+              style={{ background: '#22c55e' }}
+            >
+              Create my free account
+            </button>
+          </div>
+        )}
 
         {estimate.needsSiteVisit && (
           <div className="rounded-xl p-4" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
@@ -403,16 +489,57 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
           >
             Price another one
           </button>
-          <button
-            onClick={() => void askUsToConfirm()}
-            disabled={asking || Boolean(estimate.confirmationRequestedAt)}
-            className="flex-1 rounded-xl text-sm font-black text-black disabled:opacity-60"
-            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
-          >
-            {estimate.confirmationRequestedAt
-              ? 'We have it — we will come back to you'
-              : asking ? 'Sending…' : 'Ask us to confirm it'}
-          </button>
+          {/*
+            * A visitor on a texted link cannot ask us to confirm, so they are
+            * not offered a button that fails.
+            *
+            * Two reasons, and the second is the one that matters. The call used
+            * `authedHeaders`, which throws rather than falling back, so with no
+            * session the button errored with "Your session has expired" — which
+            * is nonsense to somebody who never had one. And even past that, the
+            * route scopes an estimate to `customerEmail === actorEmail`, and a
+            * link-priced estimate carries no email, so it would have answered
+            * "No such estimate."
+            *
+            * Fixing those two would have produced a worse bug: a confirmation
+            * request reaching the office with no way to contact the person who
+            * sent it. We would know somebody wants a basement cleared and
+            * nothing else. Creating the account is what supplies the contact
+            * details, which is why it is the action here — and it carries the
+            * 5% rather than asking them to do us a favour.
+            */}
+          {linkToken ? (
+            /*
+             * Only when the green offer block above is absent.
+             *
+             * That block already carries "Create my free account", so showing
+             * another here put two near-identical buttons one under the other
+             * — which on a phone is the row of bunched-up buttons rather than a
+             * choice. One account CTA per screen: the offer block when there is
+             * an offer, this when there is not (a site-visit estimate, say,
+             * where the visitor still needs somewhere to go).
+             */
+            !estimate.signupOffer && (
+              <button
+                onClick={() => onNavigate?.('signup')}
+                className="flex-1 rounded-xl text-sm font-black text-black"
+                style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
+              >
+                Create a free account to book it
+              </button>
+            )
+          ) : (
+            <button
+              onClick={() => void askUsToConfirm()}
+              disabled={asking || Boolean(estimate.confirmationRequestedAt)}
+              className="flex-1 rounded-xl text-sm font-black text-black disabled:opacity-60"
+              style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
+            >
+              {estimate.confirmationRequestedAt
+                ? 'We have it — we will come back to you'
+                : asking ? 'Sending…' : 'Ask us to confirm it'}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -536,7 +663,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
           <textarea
             value={scope} onChange={(e) => setScope(e.target.value)} rows={2}
             placeholder="e.g. everything but the bed · only the stuff on the right · leave the washer and dryer"
-            className="mt-2 w-full rounded-xl text-sm text-white bg-transparent"
+            className="mt-2 w-full rounded-xl text-base text-white bg-transparent"
             style={{ border: '1px solid rgba(234,88,12,0.35)', padding: '12px' }}
           />
         </label>
@@ -544,7 +671,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
         <textarea
           value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
           placeholder="Anything the pictures do not show — stairs, parking, a gate code, what is behind the pile."
-          className="w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          className="w-full rounded-xl p-3 text-base text-white bg-transparent"
           style={{ border: '1px solid rgba(255,255,255,0.15)' }}
         />
       </div>
@@ -564,7 +691,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate }: Props) 
         <input
           value={signedName} onChange={(e) => setSignedName(e.target.value)}
           placeholder="Type your name"
-          className="mt-3 w-full rounded-xl p-3 text-sm text-white bg-transparent"
+          className="mt-3 w-full rounded-xl p-3 text-base text-white bg-transparent"
           style={{ border: '1px solid rgba(255,255,255,0.15)' }}
         />
       </div>

@@ -375,7 +375,11 @@ function CompanySelector() {
  */
 // 'architect-review' is here because the token rides in the path:
 // /architect-review/<token> must resolve to the page, not to a 404.
-const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review']);
+// 'junk-quote' joins them for the same reason: /junk-quote/<token> is a link
+// Eric texts to somebody standing in front of a pile, and the token is a path
+// segment rather than a query parameter because SMS clients truncate the end
+// of a long URL, which is precisely where a query parameter lives.
+const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
@@ -392,6 +396,8 @@ const FULL_BLEED_PAGES = new Set<string>([
   // Opened by an outside architect who has never seen this app. It should not
   // be wrapped in our chrome.
   "architect-review",
+  // Same: somebody who followed a text message, on a phone, in a basement.
+  "junk-quote",
   "landing",
   "landing-page",
   "directory",
@@ -632,6 +638,12 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Service request forms (lead generation)
     'request-service',
     'get-quote',
+
+    // The texted junk pricing link. The whole point is that the recipient has
+    // no account — the authority is the link token, checked by the server, so
+    // requiring a session here would make the link useless to everyone it was
+    // sent to. See `junkLinks.ts`.
+    'junk-quote',
 
     // Customer portal (public view - allow visitors to explore features)
     'customer-portal',
@@ -1172,7 +1184,17 @@ export default function App() {
         await import("./utils/cleanupLocalStorage");
         await import("./utils/dataPersistence");
         await Promise.all([
-          import("./utils/autoBackup"),
+          /*
+           * `./utils/autoBackup` was here, and this is where it started.
+           *
+           * A bare import with no binding and no call, which looked like one
+           * more optional setup module and was in fact the whole trigger: the
+           * file self-started a thirty-second loop as an import side effect.
+           * That loop copied localStorage into other localStorage keys and
+           * deleted data when it hit the quota. See the note at the bottom of
+           * that file for what it was doing and what actually backs this data
+           * up instead.
+           */
           import("./utils/ensureDefaultCompany"),
           import("./utils/initializeBrandingProfile"),
           import("./utils/syncBrandingFromDatabase"),

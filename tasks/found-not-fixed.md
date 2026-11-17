@@ -391,3 +391,67 @@ just came out of.
 actually a product requirement. If yes, the writer belongs next to
 `POST /team/members/role` in `teamDirectory.ts` and those ten gates need to
 mean something. If no, delete the reads and let the role checks stand alone.
+### `/design` serves a Figma site from our own origin
+`vercel.json` rewrites `/design` and `/design/:path*` to
+`https://author-canon-65421010.figma.site/`. That is third-party HTML served as
+`theblackphoenixcompany.com`, so anything executing there is same-origin with
+the app — and the Supabase session lives in `window.localStorage`
+(`src/app/lib/supabase.ts:83`), readable by any same-origin script.
+
+It is inert today, by accident rather than design. Figma's page asks for
+root-relative scripts (`/_runtimes/sites-runtime.….js`); the SPA catch-all
+rewrite answers those with `index.html`, and `nosniff` stops the browser
+executing HTML as script — verified 2026-11-16, that path returns
+`status=200 type=text/html`. Its inline scripts carry hashes the CSP does not
+list, so those are blocked too.
+
+So the page is broken, and the danger is the obvious fix. Adding a
+`/_runtimes` rewrite or loosening `script-src` to make the design page work
+would hand Figma's JavaScript the session token for every signed-in user.
+
+**The fix:** delete the rewrite, or move it to a subdomain that shares no
+origin with the app. Do not repair it in place.
+
+
+### Daily backups do not cover Storage objects
+The project is on the Pro plan, so Postgres is backed up daily with seven days
+retained — that part needs nothing. But the Supabase docs are explicit:
+"Database backups do not include objects you store via the Storage API."
+
+So `project-photos` and `project-videos` are outside it. Those buckets hold the
+photographs behind every trash estimate, which is the evidence a disputed
+number rests on, and the blueprint and document uploads.
+
+**The fix:** a scheduled copy of the buckets to somewhere outside the project,
+or accept the exposure deliberately and write down that it was a decision.
+
+
+### A link visitor's estimate keeps no photographs
+`TrashEstimatePanel` uploads originals to the private `project-photos` bucket
+before pricing. A visitor on a texted pricing link has only the anon key, so
+that upload fails — and the panel ignores upload errors by design, so the
+estimate still prices from the frames extracted in the browser and simply
+keeps no evidence.
+
+Signed-in estimates are unaffected. But the panel's own header says the clip
+is kept "because a person wants to watch it and it is the evidence behind the
+number", and for link-priced jobs that is now untrue.
+
+**The fix:** let the server store the frames it was sent against the estimate
+record, or give the link route a signed upload URL. Worth doing before the
+link is used in anger.
+
+
+### 304 standing TypeScript errors are hiding real defects
+`npx tsc -p tsconfig.json --noEmit` reports 304 errors (2026-11-16, after one
+was fixed). Nobody can read that, so nobody does.
+
+Two of the four fixes in the CSP/secrets work came out of it rather than out of
+looking: the payments CSV exported a blank Type column because it read
+`p.payment_type`, which is not a field on `UnifiedPayment`, and the revenue
+breakdown omitted `bank_of_america` so that gateway read back `undefined`
+instead of `0`. Neither was reported by a person. Both were sitting in the
+noise.
+
+**The fix:** not tidiness — a pass to find the rest. The ratio says there are
+more.
