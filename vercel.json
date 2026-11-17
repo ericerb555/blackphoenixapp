@@ -3,15 +3,19 @@
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [
+  "redirects": [
     {
       "source": "/design",
-      "destination": "https://author-canon-65421010.figma.site/"
+      "destination": "https://author-canon-65421010.figma.site/",
+      "permanent": false
     },
     {
       "source": "/design/:path*",
-      "destination": "https://author-canon-65421010.figma.site/:path*"
-    },
+      "destination": "https://author-canon-65421010.figma.site/:path*",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
     {
       "source": "/work",
       "destination": "/api/render"

@@ -138,6 +138,58 @@ function splitDataUri(uri: string): { mediaType: string; base64: string } | null
 }
 
 /**
+ * Keep the pictures when the browser could not.
+ *
+ * WHY THIS EXISTS
+ *
+ * The panel uploads the originals itself and sends `storage://` refs, and the
+ * estimate record keeps them because "what was the estimator looking at" is
+ * the first question asked when a number is disputed. That upload goes to a
+ * private bucket with whatever credentials the browser has — and the panel
+ * ignores upload errors by design, so when it fails the estimate still prices
+ * and simply keeps no evidence.
+ *
+ * It fails for every visitor on a texted pricing link, who holds only the
+ * publishable key. So exactly the estimates made by people who are not
+ * customers yet — the ones most likely to turn into a disputed job — were the
+ * ones with nothing behind them.
+ *
+ * Not special-cased to links. Any estimate that arrives with pictures and no
+ * refs gets them stored here, whatever went wrong at the other end, because a
+ * failed upload from a signed-in phone on bad signal leaves the same hole.
+ *
+ * Best effort by design: a frame that will not store is skipped rather than
+ * failing the estimate. A customer waiting on a price should not be told the
+ * job cannot be priced because our evidence copy did not take.
+ */
+async function keepFramesServerSide(
+  images: string[],
+  owner: string,
+): Promise<string[]> {
+  const BUCKET = "project-photos";
+  const refs: string[] = [];
+  const stamp = Date.now();
+
+  for (const [i, uri] of images.slice(0, MAX_IMAGES).entries()) {
+    const split = splitDataUri(uri);
+    if (!split) continue;
+    try {
+      const bytes = Uint8Array.from(atob(split.base64), (ch) => ch.charCodeAt(0));
+      const ext = split.mediaType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+      const path = `${owner}/trash-estimate/${stamp}_server_${i}.${ext}`;
+      const { error } = await serviceClient().storage
+        .from(BUCKET)
+        .upload(path, bytes, { contentType: split.mediaType, upsert: false });
+      if (!error) refs.push(`storage://${BUCKET}/${path}`);
+      else console.log(`[trash-estimator] frame ${i} not stored: ${error.message}`);
+    } catch (err) {
+      console.log(`[trash-estimator] frame ${i} not stored: ${(err as any)?.message || err}`);
+    }
+  }
+  return refs;
+}
+
+/**
  * POST /trash-estimator/read
  *
  * Images in, a priced estimate out. Writes `estimate:{id}` owned by the caller.
@@ -174,8 +226,16 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     const key = await keyForToken(linkToken);
     const record = await kv.get(key).catch(() => null) as any;
     const state = junkLinkState(record, Date.now());
+    /*
+     * Narrowed by hand. This server config runs with strictNullChecks off,
+     * which switches off discriminated-union narrowing on a boolean — so
+     *  inside  does not typecheck even
+     * though it is exactly where the reason exists. Same workaround, and the
+     * same reason, as the note in aiSpend.ts.
+     */
     if (!state.usable) {
-      console.log(`[trash-estimator] link refused: ${state.reason}`);
+      const refusal = (state as { reason?: string }).reason || "unknown";
+      console.log(`[trash-estimator] link refused: ${refusal}`);
       return c.json({ success: false, error: "That pricing link is no longer good. Ask us for a new one." }, 403);
     }
     link = { key, record };
@@ -482,7 +542,16 @@ trashEstimatorRouter.post("/read", async (c: any) => {
         signedAt: now.toISOString(),
         signedBy: email,
       },
-      mediaRefs,
+      /*
+       * The browser's refs, or ours if its upload did not land.
+       *
+       * Resolved just above the record rather than earlier so it costs nothing
+       * on the normal path: a signed-in phone that uploaded successfully sends
+       * refs, and `keepFramesServerSide` is never called.
+       */
+      mediaRefs: mediaRefs.length
+        ? mediaRefs
+        : await keepFramesServerSide(images, link ? `junklink_${link.record.hash.slice(0, 12)}` : (user?.id || 'guest')),
       evidence: {
         imageCount: blocks.length,
         firstPass: first.observations,
@@ -627,7 +696,7 @@ trashEstimatorRouter.get("/links", async (c: any) => {
         maxUses: Number(r?.maxUses) || 0,
         usable: state.usable,
         // Safe to show staff; never shown to the link holder.
-        reason: state.usable ? null : state.reason,
+        reason: state.usable ? null : ((state as { reason?: string }).reason || "unknown"),
       };
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
