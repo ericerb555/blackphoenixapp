@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import AdvertisingVideoReel from '../components/AdvertisingVideoReel';
 import SignUpOptionsModal from '../components/SignUpOptionsModal';
-import phoenixLogo from '../../imports/BPB_phoenix_full_color_logo-5.png';
+import PhoenixMark from '../components/PhoenixMark';
 import { DIRECTORY_SECTIONS } from '../config/directoryLandingSections';
 import { loadBrandingWithFallback } from '../utils/loadPublicBranding';
 import ReviewsSection from '../components/ReviewsSection';
@@ -475,12 +475,16 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
           className="fixed inset-0 z-[10000] pointer-events-none flex items-center justify-center"
         >
           <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-            <img
-                    src={phoenixLogo}
-                    alt={companyName || 'Black Phoenix'}
-                    className="w-full h-full object-contain p-4"
-                    style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                  />
+            {/*
+              The mark itself, with its own halo — see `PhoenixMark`.
+
+              This was a bare `<img>` with a 20px white drop-shadow. The
+              artwork is a BLACK phoenix on transparency and this disc is
+              black, so a white haze behind it read as a smudge rather than as
+              the bird. `PhoenixMark` exists precisely for this and carries the
+              orange ember halo that traces the silhouette.
+            */}
+            <PhoenixMark className="w-full h-full p-4" glow={1.15} alt={companyName || 'Black Phoenix'} />
           </div>
         </motion.div>
       )}
@@ -627,36 +631,57 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         `}</style>
 
         <div className="relative w-full max-w-7xl px-4 flex flex-col items-center z-20" style={{ margin: '0 auto' }}>
-          {/* Company Name */}
-          <motion.h1
+          {/*
+            THE BRANDING LOCKUP — the mark and the name, together, immediately.
+
+            Eric, 2026-11-17: "the glowing icon is not on the landing page
+            yet? … it in the black phoenix builds branding."
+
+            He was right twice over. The glowing mark is `PhoenixMark`, which
+            carries the orange ember halo traced from the artwork's own alpha
+            — and it was used in exactly three places, none of them this page.
+            What was here instead was a bare `<img>` of the same PNG with a
+            20px WHITE drop-shadow, which on a black disc reads as a smudge
+            behind a black bird rather than as the bird.
+
+            And it was not in the branding. It sat in its own 160px disc BELOW
+            the company name, separated by the full headline — two brand
+            elements rather than one lockup — and it faded in on a 4.2 second
+            delay, timed to take over from the opening flourish. Four seconds
+            is long enough to read the page and scroll, so on most visits the
+            mark appeared after the visitor had already gone past it, and on
+            any visit where the tab was backgrounded during load it was simply
+            not there. "Not on the landing page yet" is exactly what that
+            looks like.
+
+            So: one lockup, the mark beside the name on a wide screen and above
+            it on a phone, in with the headline's own 0.2s entrance. The
+            separate disc below is gone rather than kept — with the mark in the
+            lockup it was the same logo twice in one hero.
+          */}
+          <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-6xl md:text-8xl font-bold mb-8 bg-gradient-to-r from-orange-400 via-red-400 to-purple-400 bg-clip-text text-transparent text-center w-full"
-            style={{ textAlign: 'center' }}
+            className="mb-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center sm:gap-6"
           >
-            {companyName}
-          </motion.h1>
-
-          {/* Logo placeholder - actual logo animates from fixed position above */}
-          <div className="flex justify-center mb-12">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.3, delay: 4.2 }}
-              className="relative group"
+            {/*
+              Sized in viewport-relative steps so it tracks the display type
+              beside it: the name is text-6xl on a phone and text-8xl from
+              md up, and a fixed-pixel mark beside that either dwarfs the
+              letters or disappears next to them.
+            */}
+            <PhoenixMark
+              className="h-20 w-20 shrink-0 md:h-28 md:w-28"
+              glow={1.15}
+              alt={companyName || 'Black Phoenix'}
+            />
+            <h1
+              className="text-6xl md:text-8xl font-bold bg-gradient-to-r from-orange-400 via-red-400 to-purple-400 bg-clip-text text-transparent text-center sm:text-left"
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900 rounded-full blur-2xl opacity-50 group-hover:opacity-75 transition-opacity" />
-              <div className="relative w-40 h-40 bg-black rounded-full flex items-center justify-center shadow-2xl border-4 border-gray-800 overflow-hidden">
-                <img
-                  src={phoenixLogo}
-                  alt={companyName || 'Black Phoenix'}
-                  className="w-full h-full object-contain p-4"
-                  style={{ filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.3))' }}
-                />
-              </div>
-            </motion.div>
-          </div>
+              {companyName}
+            </h1>
+          </motion.div>
 
           {/* Tagline */}
           <motion.p
