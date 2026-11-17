@@ -46,6 +46,11 @@ import { companyLogoRoutes } from "./companyLogoRoutes.tsx";
 import { isStaffRequest, verifiedActor } from "./requireStaff.ts";
 import { runStorageBackup, expectedBackupSecret } from "./storageBackupRoutes.ts";
 import { LATEST_MANIFEST_KEY } from "./storageBackup.ts";
+import {
+  QR_CODES_KEY, sanitizeCodes, isSendableUrl, smsTextFor, emailSubjectFor,
+  emailHtmlFor, attachmentNameFor,
+} from "./qrCodes.ts";
+import { sendCompanyEmail } from "./email-center.tsx";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -19053,4 +19058,96 @@ app.get('/make-server-3eae23a6/storage-backup/status', async (c) => {
     lastRun: { ...latest, index: undefined },
     indexed: Object.keys(latest.index || {}).length,
   });
+});
+
+// ── QR CODES ─────────────────────────────────────────────────────────────────
+/**
+ * The three routes the QR generator always assumed existed.
+ *
+ * Eric: "where is the qr codes where can i find them? can i email and sms them
+ * from the app?" — and on the text: "send the destination url in the text."
+ *
+ * `QRCodeGenerator.tsx` has posted its codes to `/qr-codes` and read them back
+ * since it was written, with a comment calling them "durable and feed Revenue
+ * Analytics". No such route existed. The save is `.catch(console.error)` and
+ * the load sits in a try/catch, so both failed silently for however long, and
+ * every code lived in one browser's localStorage. RevenueAnalytics reads the
+ * same missing route and has been charting nothing.
+ *
+ * Staff only, all three. A QR code is a marketing asset, and the send route
+ * puts this company's name on an email and a text message — that is not
+ * something any signed-in portal customer should be able to do.
+ */
+app.get('/make-server-3eae23a6/qr-codes', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const codes = await kv.get(QR_CODES_KEY).catch(() => null);
+  return c.json({ success: true, codes: Array.isArray(codes) ? codes : [] });
+});
+
+app.post('/make-server-3eae23a6/qr-codes', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  /*
+   * Sanitised rather than stored as sent: the entries carry a data URI and a
+   * destination, and `stripBase64` exists in this file precisely because an
+   * unbounded data URI on a record is how one row becomes a megabyte. Bad
+   * entries are dropped and good ones kept — the client posts the whole list
+   * every time, so refusing the request would cost somebody every code they
+   * have.
+   */
+  const codes = sanitizeCodes((body as any)?.codes);
+  await kv.set(QR_CODES_KEY, codes);
+  return c.json({ success: true, saved: codes.length });
+});
+
+/**
+ * POST /qr-codes/send — email the printable code, or text the destination.
+ *
+ * The text carries the URL and not the image, which is Eric's call and the
+ * right one: a QR code exists to get a link into a phone that cannot type it,
+ * so texting somebody a PICTURE of one asks them to scan their own screen.
+ * The email carries both — the PNG attached for printing, the URL readable so
+ * whoever is checking it can see where it points without scanning anything.
+ */
+app.post('/make-server-3eae23a6/qr-codes/send', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String((body as any)?.id || '');
+  const channel = String((body as any)?.channel || '');
+  const to = String((body as any)?.to || '').trim();
+  if (!id || !to || (channel !== 'email' && channel !== 'sms')) {
+    return c.json({ success: false, error: 'Need a code id, a channel of email or sms, and somewhere to send it.' }, 400);
+  }
+
+  const stored = await kv.get(QR_CODES_KEY).catch(() => null);
+  const code = (Array.isArray(stored) ? stored : []).find((q: any) => String(q?.id) === id);
+  if (!code) return c.json({ success: false, error: 'No such QR code. Save it first.' }, 404);
+
+  // Re-checked on the way out, not only on the way in. A record written by an
+  // older build has not been through sanitizeCodes.
+  if (!isSendableUrl(code.url)) {
+    return c.json({ success: false, error: 'That code points somewhere we will not send.' }, 422);
+  }
+
+  if (channel === 'sms') {
+    const result = await sendTextMessage(to, smsTextFor(code), 'transactional');
+    if (!result.ok) return c.json({ success: false, error: result.error || 'The text did not send.' }, 502);
+    return c.json({ success: true, sent: 'sms' });
+  }
+
+  const result = await sendCompanyEmail({
+    to,
+    subject: emailSubjectFor(code),
+    html: emailHtmlFor(code),
+    attachments: [{ filename: attachmentNameFor(code), content: code.dataUrl }],
+  });
+  if (!result.ok) return c.json({ success: false, error: result.error || 'The email did not send.' }, 502);
+  return c.json({ success: true, sent: 'email' });
 });
