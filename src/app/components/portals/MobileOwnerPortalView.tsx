@@ -188,7 +188,17 @@ export default function MobileOwnerPortalView() {
 
       {/* Tabs */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] mb-6">
-        <div className="flex gap-2 p-2 border-b border-[#2A2A2A]">
+        {/*
+          Scrollable, because this is the MOBILE portal and the tabs were
+          clipped on a phone — the one screen where that should never have
+          been possible.
+
+          Each button carried `flex-1`, so five tabs split 390px into 78px
+          each and the labels had nowhere to go. `flex-1` is right when the
+          tabs fit and wrong the moment they do not; `shrink-0` with a
+          scrolling row is right in both cases.
+        */}
+        <div className="flex flex-nowrap gap-2 overflow-x-auto p-2 border-b border-[#2A2A2A]">
           {[
             { id: 'overview', label: 'Overview', icon: Target },
             { id: 'customers', label: 'Customers', icon: Users },
@@ -200,7 +210,7 @@ export default function MobileOwnerPortalView() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold transition ${
+                className={`shrink-0 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold whitespace-nowrap transition ${
                   activeTab === tab.id
                     ? 'bg-gradient-to-r from-purple-600 to-purple-700 text-white'
                     : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'

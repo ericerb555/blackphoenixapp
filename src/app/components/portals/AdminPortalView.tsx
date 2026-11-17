@@ -488,7 +488,10 @@ export default function AdminPortalView({ onNavigate }: AdminPortalViewProps) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-4 border-b-2 transition-colors whitespace-nowrap ${
+                // `shrink-0` so the row's `overflow-x-auto` can engage: a flex
+                // item shrinks by default, so without it the tabs squeeze
+                // instead of overflowing and the scroll never happens.
+                className={`shrink-0 flex items-center gap-2 px-4 py-4 border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-orange-500 text-orange-400'
                     : 'border-transparent text-gray-400 hover:text-white'
