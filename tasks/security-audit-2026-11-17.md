@@ -395,3 +395,46 @@ Both now fixed upstream by parsing the last field of each line. The point
 worth keeping: a flag that reads the same on every build carries no
 information, which is precisely the fault in the hand-written `version` string
 the stamp exists to replace. The fix had reproduced the bug.
+
+---
+
+## P4-7 — Twelve more phantom tables, in the browser · found 2026-11-17
+
+Found by building the check the server findings asked for, and the check paid
+for itself on first run: **the server came back clean and the front end did
+not.**
+
+A `.from('…')` naming a table that does not exist returns an error OBJECT,
+not a throw. So every call site does one of two things with it, and both are
+silent:
+
+    const { data } = await supabase.from('stakeholders')…   // data is null
+    (data || []).map(…)                                     // renders empty
+
+    if (error) throw error;  } catch { return false }       // refuses everybody
+
+| Table | Where | What it means |
+|---|---|---|
+| `user_companies` | `companyScope.validateCompanyAccess` | Throws, catches, returns **false**. The same shape as `rewardsAdmin` — a gate that refuses everybody. One caller, `CompanyContext.tsx:592`. |
+| `stakeholders`, `stakeholder_activity`, `stakeholder_notifications`, `audit_logs`, `notification_templates` | `StakeholderEngagementDashboard`, `StakeholderAuditLogViewer`, `NotificationAnalyticsDashboard` | Three dashboards that are rendered and can never show anything. |
+| `company_members` | `CompanyContext` | The same phantom the server read until today. |
+| `user_profiles`, `user_activity_log` | `userService` | |
+| `company_documents` | `companyDatabaseService` | |
+| `company_settings` | `ClientWorkRequestForm` | |
+| `portals` | `portalService` | |
+
+**Not fixed, deliberately.** Each wants one of three answers — build the
+table, delete the feature, or point it at the server route that already holds
+the data in KV — and which one is right differs per entry and is a product
+decision. Guessing twelve times would be worse than recording them once.
+
+They are carried in `supabase/known-tables.json` as `knownMissing`: a ratchet,
+not an allowlist. A thirteenth fails the gate; the twelve are visible with
+their call sites; and a second test fails if a name stays on the list after
+nothing queries it any more, so the list can only get shorter.
+
+This is the same failure as P4-3 with a different blast radius. There it
+refused an administrator; here it renders an empty dashboard. **Both look
+exactly like working software**, which is the property that let three dead
+tables survive on the server for years and twelve survive in the browser
+until something finally compared the names against the schema.
