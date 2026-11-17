@@ -45,12 +45,6 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
     propertyType: '',
     howHeard: '',
     
-    // Payment (for premium)
-    cardNumber: '',
-    cardExpiry: '',
-    cardCVC: '',
-    billingZip: '',
-    
     // Agreement
     termsAccepted: false,
     marketingEmails: false
@@ -74,10 +68,6 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       zipCode: '62701',
       propertyType: 'single-family',
       howHeard: 'google',
-      cardNumber: '4532015112830366',
-      cardExpiry: '12/25',
-      cardCVC: '123',
-      billingZip: '62701',
       termsAccepted: true,
       marketingEmails: true
     });
@@ -130,26 +120,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
       if (!formData.propertyType) newErrors.propertyType = 'Property type is required';
     }
 
-    if (step === 3 && isPremium) {
-      if (!formData.cardNumber.trim()) {
-        newErrors.cardNumber = 'Card number is required';
-      } else if (!/^\d{16}$/.test(formData.cardNumber.replace(/\s/g, ''))) {
-        newErrors.cardNumber = 'Invalid card number';
-      }
-      if (!formData.cardExpiry.trim()) {
-        newErrors.cardExpiry = 'Expiry date is required';
-      } else if (!/^\d{2}\/\d{2}$/.test(formData.cardExpiry)) {
-        newErrors.cardExpiry = 'Invalid format (MM/YY)';
-      }
-      if (!formData.cardCVC.trim()) {
-        newErrors.cardCVC = 'CVC is required';
-      } else if (!/^\d{3,4}$/.test(formData.cardCVC)) {
-        newErrors.cardCVC = 'Invalid CVC';
-      }
-      if (!formData.billingZip.trim()) newErrors.billingZip = 'Billing ZIP is required';
-    }
-
-    if ((step === 3 && !isPremium) || (step === 4 && isPremium)) {
+    if (step === 3) {
       if (!formData.termsAccepted) {
         newErrors.termsAccepted = 'You must accept the terms and conditions';
       }
@@ -172,7 +143,7 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const finalStep = isPremium ? 4 : 3;
+    const finalStep = 3;
     if (!validateStep(finalStep)) return;
 
     setLoading(true);
@@ -280,7 +251,29 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
     }
   };
 
-  const totalSteps = isPremium ? 4 : 3;
+  /*
+   * Three steps, premium or not.
+   *
+   * Eric, 2026-11-17: "no card at signup, remove the fields."
+   *
+   * Step 3 used to be a card number, expiry, CVC and billing ZIP, required for
+   * the premium plan — and none of the four was ever sent anywhere. Neither
+   * `/auth/signup` nor `/customers` carried a card field, so the number was
+   * typed into React state and dropped on the floor.
+   *
+   * It cost something to collect anyway: a card number and CVV sitting in a
+   * form on our own origin is reachable by any XSS on this page or any
+   * extension in the customer's browser, for no benefit at all. The only card
+   * data that cannot leak is the card data you never asked for.
+   *
+   * When premium billing is wired up it goes through Stripe — a Checkout or
+   * SetupIntent on Stripe's own page, which stores a reusable payment method
+   * without this application ever seeing the number. Note that the review step
+   * still promises "14-day free trial, then $29/month"; nothing charges at day
+   * fourteen today, and that is a billing feature to build rather than a field
+   * to re-add here.
+   */
+  const totalSteps = 3;
   const progress = (currentStep / totalSteps) * 100;
 
   return (
@@ -642,114 +635,8 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
             </motion.div>
           )}
 
-          {/* Step 3: Payment Information (Premium Only) */}
-          {currentStep === 3 && isPremium && (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <div className="mb-8">
-                <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                  <CreditCard className="w-8 h-8 text-blue-400" />
-                  Payment Information
-                </h2>
-                <p className="text-gray-400">Your 14-day free trial starts today</p>
-              </div>
-
-              <div className="bg-blue-600/10 border border-blue-500/30 rounded-xl p-6 mb-8">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-blue-600/20 flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-6 h-6 text-blue-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-white font-semibold mb-2">14-Day Free Trial</h3>
-                    <p className="text-sm text-gray-300 leading-relaxed">
-                      You won't be charged today. Your card will only be charged $29 after your 14-day trial ends. 
-                      Cancel anytime before then at no cost.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {/* Card Number */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Card Number <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.cardNumber}
-                    onChange={(e) => handleInputChange('cardNumber', e.target.value)}
-                    className={`w-full px-4 py-3 bg-[#1A1A1A] border ${errors.cardNumber ? 'border-red-500' : 'border-[#2A2A2A]'} rounded-lg focus:outline-none focus:border-blue-500 text-white transition-colors`}
-                    placeholder="1234 5678 9012 3456"
-                    maxLength={19}
-                  />
-                  {errors.cardNumber && (
-                    <p className="mt-1 text-sm text-red-400">{errors.cardNumber}</p>
-                  )}
-                </div>
-
-                {/* Expiry and CVC */}
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Expiry Date <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.cardExpiry}
-                      onChange={(e) => handleInputChange('cardExpiry', e.target.value)}
-                      className={`w-full px-4 py-3 bg-[#1A1A1A] border ${errors.cardExpiry ? 'border-red-500' : 'border-[#2A2A2A]'} rounded-lg focus:outline-none focus:border-blue-500 text-white transition-colors`}
-                      placeholder="MM/YY"
-                      maxLength={5}
-                    />
-                    {errors.cardExpiry && (
-                      <p className="mt-1 text-sm text-red-400">{errors.cardExpiry}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      CVC <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.cardCVC}
-                      onChange={(e) => handleInputChange('cardCVC', e.target.value)}
-                      className={`w-full px-4 py-3 bg-[#1A1A1A] border ${errors.cardCVC ? 'border-red-500' : 'border-[#2A2A2A]'} rounded-lg focus:outline-none focus:border-blue-500 text-white transition-colors`}
-                      placeholder="123"
-                      maxLength={4}
-                    />
-                    {errors.cardCVC && (
-                      <p className="mt-1 text-sm text-red-400">{errors.cardCVC}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Billing ZIP */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Billing ZIP Code <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.billingZip}
-                    onChange={(e) => handleInputChange('billingZip', e.target.value)}
-                    className={`w-full px-4 py-3 bg-[#1A1A1A] border ${errors.billingZip ? 'border-red-500' : 'border-[#2A2A2A]'} rounded-lg focus:outline-none focus:border-blue-500 text-white transition-colors`}
-                    placeholder="02101"
-                  />
-                  {errors.billingZip && (
-                    <p className="mt-1 text-sm text-red-400">{errors.billingZip}</p>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 3/4: Review & Submit */}
-          {((currentStep === 3 && !isPremium) || (currentStep === 4 && isPremium)) && (
+          {/* Step 3: Review & Submit */}
+          {currentStep === 3 && (
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}

@@ -266,7 +266,14 @@ authenticated pages are reachable; the rest of the ~190 pages are unswept.
 
 ---
 
-### Two of our own forms ask a customer for a card number and CVV, and neither uses it
+### RESOLVED 2026-11-17 (signup) — two of our own forms asked for a card number and CVV
+
+**Eric: "no card at signup, remove the fields."** Done for the registration
+form — the card number, expiry, CVC and billing ZIP are gone, the whole
+payment step with them, and the wizard is three steps for every plan. The
+hardcoded test card went with the prefill. **Still open: the dead
+`EnhancedCheckoutFlow.tsx` below, which nothing imports.** The original
+finding follows.
 
 Found 2026-11-17 answering "so this site is safe a secure for customers".
 
