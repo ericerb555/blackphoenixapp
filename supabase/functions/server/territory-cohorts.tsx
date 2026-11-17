@@ -3,6 +3,7 @@
 // Territories are centered on company headquarters zip code
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { verifiedActor } from './requireStaff.ts';
 
 export const territoryCohortRouter = new Hono();
 
@@ -218,8 +219,26 @@ territoryCohortRouter.get('/applications/status/:status', async (c) => {
 // Approve application
 territoryCohortRouter.post('/applications/:id/approve', async (c) => {
   try {
+    /*
+     * Staff only, and the reviewer is the token.
+     *
+     * Approving a territory application grants a seat — it is the moment a
+     * stranger becomes somebody with a claim on an area. It took both the
+     * decision and the reviewer's name from the request, so any signed-in
+     * account could grant a seat and sign the grant with a name they typed.
+     *
+     * Note the path sits near the public list but is not on it: '/applications'
+     * is matched exactly in PUBLIC_POST_PATHS, so this was behind sign-in and
+     * nothing more — which is the state this whole audit is about.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+    }
+
     const id = c.req.param('id');
-    const { reviewedBy } = await c.req.json();
+    await c.req.json().catch(() => ({}));
+    const reviewedBy = who.email;
     
     const application = await kv.get(`${APPLICATION_PREFIX}${id}`);
     if (!application) {

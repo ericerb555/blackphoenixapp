@@ -5,6 +5,7 @@
 
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { verifiedActor } from './requireStaff.ts';
 
 const app = new Hono();
 
@@ -310,6 +311,20 @@ app.get('/all', async (c) => {
 // Get transfers for a specific subscription
 app.get('/subscription/:subscriptionId', async (c) => {
   try {
+    /*
+     * Staff only.
+     *
+     * A subscription id is not a credential, and this returns every transfer
+     * in or out of one — who gave hours to whom, when, and how many. Scoping
+     * it to an owner would need both ends of each transfer resolved to an
+     * account, and the only screens that call it are the staff approval
+     * panels, so the honest answer is the narrow one.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const subscriptionId = c.req.param('subscriptionId');
     const allTransfers = await kv.getByPrefix('hour_transfer:');
     
@@ -327,12 +342,32 @@ app.get('/subscription/:subscriptionId', async (c) => {
 // Approve or deny a transfer request
 app.post('/review/:transferId', async (c) => {
   try {
+    /*
+     * Staff only, and the reviewer is the token — not the body.
+     *
+     * This route moves billable hours between subscriptions, and it took both
+     * the decision AND the name of whoever made it from the request. Any
+     * signed-in account could approve anybody's transfer and sign it with a
+     * name they typed, which is worse than the approval itself: the record of
+     * who authorised the movement was whatever the caller claimed.
+     *
+     * Both callers are staff screens — TransferApprovalPanel appears in the
+     * Owners Dashboard and in RewardsPerksHub, which passes `adminName` and
+     * `userRole="owner"` — so nothing legitimate is narrowed by this.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const transferId = c.req.param('transferId');
     const body = await c.req.json();
-    const { action, reviewedBy, reviewNotes } = body;
+    const { action, reviewNotes } = body;
+    // Signed by the verified account, so the audit trail says who really did it.
+    const reviewedBy = who.email;
 
-    if (!action || !reviewedBy) {
-      return c.json({ error: 'Missing required fields (action, reviewedBy)' }, 400);
+    if (!action) {
+      return c.json({ error: 'Missing required field (action)' }, 400);
     }
 
     if (action !== 'approve' && action !== 'deny') {

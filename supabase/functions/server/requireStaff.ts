@@ -47,6 +47,37 @@ function admin() {
   return cached;
 }
 
+/**
+ * Who is asking, in one lookup: their email and whether they work here.
+ *
+ * `isStaffRequest` answers half the question, and the routes being fixed under
+ * `docs/server-route-authorization.md` need both halves — a staff check to
+ * decide whether to refuse, and the caller's own email to scope what they get
+ * and to sign what they did. Calling `isStaffRequest` and then resolving the
+ * user again would be two network round trips for one question, and six
+ * copies of this appeared in six modules before it was put here.
+ *
+ * Returns null for no token, an unverifiable token, or any error. Fail closed:
+ * an identity we could not establish is not an identity.
+ */
+export async function verifiedActor(
+  c: any,
+): Promise<{ email: string; staff: boolean; id: string } | null> {
+  const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  try {
+    const { data, error } = await admin().auth.getUser(token);
+    if (error || !data?.user) return null;
+    return {
+      id: String(data.user.id || ""),
+      email: String(data.user.email || "").trim().toLowerCase(),
+      staff: STAFF_ROLES.has(trustedRole(data.user)),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** True when this request carries a token belonging to somebody who works here. */
 export async function isStaffRequest(c: any): Promise<boolean> {
   const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");

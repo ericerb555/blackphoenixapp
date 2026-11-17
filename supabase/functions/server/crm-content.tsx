@@ -13,6 +13,7 @@
 
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { verifiedActor } from "./requireStaff.ts";
 
 const router = new Hono();
 
@@ -97,6 +98,16 @@ router.post("/make-server-3eae23a6/crm/leads", async (c) => {
 
 router.put("/make-server-3eae23a6/crm/leads/:id", async (c) => {
   try {
+    /*
+     * Staff only. The body is spread over the stored record, so this rewrites
+     * any field on any lead — contact details, stage, owner — for anybody who
+     * knows an id. LeadCRM is the only screen that calls it.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+    }
+
     const id = c.req.param("id");
     const existing: any = await kv.get(LEAD(id));
     if (!existing) return c.json({ success: false, error: "Lead not found" }, 404);
@@ -113,6 +124,16 @@ router.put("/make-server-3eae23a6/crm/leads/:id", async (c) => {
 
 router.delete("/make-server-3eae23a6/crm/leads/:id", async (c) => {
   try {
+    /*
+     * Staff only. It deleted outright: no read, no existence check, no owner.
+     * A lead is somebody who asked us for work, which makes this the quietest
+     * way to lose revenue in the system.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+    }
+
     await kv.del(LEAD(c.req.param("id")));
     return c.json({ success: true });
   } catch (e: any) {

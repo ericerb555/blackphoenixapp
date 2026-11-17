@@ -9,6 +9,7 @@
 //   email_log:{timestamp}  -> { id, to, subject, html, templateKey, status, provider, error, sentAt }
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { verifiedActor } from './requireStaff.ts';
 import { REPLY_TO_EMAIL } from './emailIdentity.ts';
 
 export const emailCenterRouter = new Hono();
@@ -117,6 +118,18 @@ emailCenterRouter.get('/templates', async (c) => {
 
 emailCenterRouter.put('/templates/:key', async (c) => {
   try {
+    /*
+     * Staff only, and this is the worst of the write routes to have left open.
+     * These templates are the subject and raw HTML of mail the platform then
+     * sends to customers under its own name and from its own domain — so an
+     * open write here is a way to make us send whatever somebody wants, to
+     * our own list, with our reputation behind it.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const key = c.req.param('key');
     const body = await c.req.json();
     const { name, subject, html } = body || {};
@@ -140,6 +153,15 @@ emailCenterRouter.put('/templates/:key', async (c) => {
 
 emailCenterRouter.delete('/templates/:key', async (c) => {
   try {
+    /*
+     * Staff only. Deleting a transactional template does not fail loudly — the
+     * mail that depended on it simply stops going out.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const key = c.req.param('key');
     await kv.del(`${TEMPLATE_PREFIX}${key}`);
     return c.json({ success: true });
