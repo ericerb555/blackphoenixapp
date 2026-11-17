@@ -58,6 +58,10 @@ import {
   JUNK_LINK_MAX_USES,
 } from "./junkLinks.ts";
 import { signMediaValues } from "./mediaSigning.ts";
+import { clientIp } from "./ipReputation.ts";
+import {
+  mayPriceAnonymously, ipDayKey, globalDayKey, dayStamp,
+} from "./anonPricer.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
@@ -138,6 +142,58 @@ function splitDataUri(uri: string): { mediaType: string; base64: string } | null
 }
 
 /**
+ * Keep the pictures when the browser could not.
+ *
+ * WHY THIS EXISTS
+ *
+ * The panel uploads the originals itself and sends `storage://` refs, and the
+ * estimate record keeps them because "what was the estimator looking at" is
+ * the first question asked when a number is disputed. That upload goes to a
+ * private bucket with whatever credentials the browser has — and the panel
+ * ignores upload errors by design, so when it fails the estimate still prices
+ * and simply keeps no evidence.
+ *
+ * It fails for every visitor on a texted pricing link, who holds only the
+ * publishable key. So exactly the estimates made by people who are not
+ * customers yet — the ones most likely to turn into a disputed job — were the
+ * ones with nothing behind them.
+ *
+ * Not special-cased to links. Any estimate that arrives with pictures and no
+ * refs gets them stored here, whatever went wrong at the other end, because a
+ * failed upload from a signed-in phone on bad signal leaves the same hole.
+ *
+ * Best effort by design: a frame that will not store is skipped rather than
+ * failing the estimate. A customer waiting on a price should not be told the
+ * job cannot be priced because our evidence copy did not take.
+ */
+async function keepFramesServerSide(
+  images: string[],
+  owner: string,
+): Promise<string[]> {
+  const BUCKET = "project-photos";
+  const refs: string[] = [];
+  const stamp = Date.now();
+
+  for (const [i, uri] of images.slice(0, MAX_IMAGES).entries()) {
+    const split = splitDataUri(uri);
+    if (!split) continue;
+    try {
+      const bytes = Uint8Array.from(atob(split.base64), (ch) => ch.charCodeAt(0));
+      const ext = split.mediaType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+      const path = `${owner}/trash-estimate/${stamp}_server_${i}.${ext}`;
+      const { error } = await serviceClient().storage
+        .from(BUCKET)
+        .upload(path, bytes, { contentType: split.mediaType, upsert: false });
+      if (!error) refs.push(`storage://${BUCKET}/${path}`);
+      else console.log(`[trash-estimator] frame ${i} not stored: ${error.message}`);
+    } catch (err) {
+      console.log(`[trash-estimator] frame ${i} not stored: ${(err as any)?.message || err}`);
+    }
+  }
+  return refs;
+}
+
+/**
  * POST /trash-estimator/read
  *
  * Images in, a priced estimate out. Writes `estimate:{id}` owned by the caller.
@@ -174,33 +230,117 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     const key = await keyForToken(linkToken);
     const record = await kv.get(key).catch(() => null) as any;
     const state = junkLinkState(record, Date.now());
+    /*
+     * Narrowed by hand. This server config runs with strictNullChecks off,
+     * which switches off discriminated-union narrowing on a boolean — so
+     *  inside  does not typecheck even
+     * though it is exactly where the reason exists. Same workaround, and the
+     * same reason, as the note in aiSpend.ts.
+     */
     if (!state.usable) {
-      console.log(`[trash-estimator] link refused: ${state.reason}`);
+      const refusal = (state as { reason?: string }).reason || "unknown";
+      console.log(`[trash-estimator] link refused: ${refusal}`);
       return c.json({ success: false, error: "That pricing link is no longer good. Ask us for a new one." }, 403);
     }
     link = { key, record };
   }
 
   const actor = c.get("actor");
-  const user = link ? principalFor(link.record.hash) : actor;
-  const email = link ? "" : c.get("actorEmail");
 
   /*
-   * Nobody at all is refused here rather than deeper in.
+   * Anybody may try the pricer. Nobody gets a free AI endpoint.
    *
-   * `reserve` would also refuse an idless principal — it fails closed, which is
-   * why this route could never have become an open AI endpoint by accident —
-   * but it would do so with "Sign in required.", which is the wrong sentence
-   * for somebody who followed a link we sent them.
+   * Eric: "Some Should not have to login to use the junk remaval picer until
+   * they decied to create an account and get 5 percent off.. anyone can try
+   * the pricer", and on how to afford that: "we put a limit on ips and
+   * continues useage."
+   *
+   * Three kinds of caller now reach this route:
+   *
+   *   signed in     spends as themselves, through the ceiling their account
+   *                 already has.
+   *   texted link   spends as the link, which carries its own use cap and
+   *                 expiry — see `junkLinks.ts`.
+   *   nobody        allowed, and counted per address per day and per day
+   *                 overall. `anonPricer.ts` sets out why this cannot go
+   *                 through `aiSpend` instead: those budgets never reset, so
+   *                 an IP ceiling there would permanently refuse everybody
+   *                 behind a carrier NAT or an office router after one or two
+   *                 estimates.
+   *
+   * Counted AFTER a price exists, further down, so our own failure to read a
+   * photograph does not consume one of a stranger's three.
    */
-  if (!user?.id) {
-    return c.json({
-      success: false,
-      error: linkToken
-        ? "That pricing link is no longer good. Ask us for a new one."
-        : "Sign in to price a job, or use the link we sent you.",
-    }, 401);
+  let anon: { ipKey: string | null; dayKey: string } | null = null;
+  if (!actor && !link) {
+    const nowIso = new Date().toISOString();
+    const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true);
+
+    /*
+     * No address means the GLOBAL ceiling only — never a shared per-address
+     * bucket.
+     *
+     * This read `clientIp(...) || "unknown"`, which is the exact mistake the
+     * reputation middleware in index.tsx documents and avoids: "skip entirely
+     * rather than pooling every anonymous caller into one bucket, which would
+     * ban all of them the first time any one of them probed." Pooled here it
+     * was worse than a ban — the first three strangers of the day would spend
+     * everybody else's three, and the fourth visitor would be told to create
+     * an account because of traffic that had nothing to do with them.
+     *
+     * The global ceiling still bounds the money, which is the half that
+     * actually protects the bill. Losing per-address granularity when we
+     * cannot identify an address is the honest outcome; inventing an address
+     * we do not have is not.
+     */
+    const ipKey = ip ? ipDayKey(ip, nowIso) : null;
+    const dayKey = globalDayKey(nowIso);
+
+    /*
+     * Which header answered, recorded once per anonymous estimate.
+     *
+     * `clientIp` reads `cf-connecting-ip` unconditionally while its neighbour
+     * `x-client-ip` is gated behind a trusted proxy — so the per-address half
+     * of this limit trusts a header a client can set, IF one survives to the
+     * function. It almost certainly does not: Supabase fronts these with its
+     * own Cloudflare, which overwrites it. But "almost certainly" rests on
+     * another company's edge configuration and was written down nowhere, so
+     * this logs what actually arrived and lets the question be answered from
+     * production rather than from reasoning.
+     */
+    const h = c.req.raw.headers;
+    console.log(
+      `[trash-estimator] anon ip=${ip || "none"} cf=${h.get("cf-connecting-ip") ? "present" : "absent"} ` +
+      `xff=${h.get("x-forwarded-for") ? "present" : "absent"} xci=${h.get("x-client-ip") ? "present" : "absent"} ` +
+      `viaProxy=${c.get("viaEdgeProxy") === true}`,
+    );
+
+    const [ipUsed, globalUsed] = await Promise.all([
+      ipKey ? kv.get(ipKey).catch(() => 0) : Promise.resolve(0),
+      kv.get(dayKey).catch(() => 0),
+    ]);
+
+    const verdict = mayPriceAnonymously(Number(ipUsed) || 0, Number(globalUsed) || 0);
+    if (!verdict.allowed) {
+      console.log(`[trash-estimator] anonymous estimate refused: ${verdict.reason}`);
+      return c.json({ success: false, error: verdict.message, needsAccount: verdict.reason === "per-ip" }, 429);
+    }
+    anon = { ipKey, dayKey };
   }
+
+  /*
+   * Who the model spend is charged to.
+   *
+   * An anonymous caller spends as the day's anonymous principal rather than as
+   * nobody, so the kill switch and the ledger still have a name to record and
+   * `reserve` is not handed an idless user. The daily counters above are what
+   * actually bound it; this keeps the existing machinery honest rather than
+   * bypassed.
+   */
+  const user = link
+    ? principalFor(link.record.hash)
+    : (actor || { id: `anon:${dayStamp(new Date().toISOString())}` });
+  const email = actor ? c.get("actorEmail") : "";
 
   /*
    * The images, and nothing else from the browser that could become a price.
@@ -482,7 +622,16 @@ trashEstimatorRouter.post("/read", async (c: any) => {
         signedAt: now.toISOString(),
         signedBy: email,
       },
-      mediaRefs,
+      /*
+       * The browser's refs, or ours if its upload did not land.
+       *
+       * Resolved just above the record rather than earlier so it costs nothing
+       * on the normal path: a signed-in phone that uploaded successfully sends
+       * refs, and `keepFramesServerSide` is never called.
+       */
+      mediaRefs: mediaRefs.length
+        ? mediaRefs
+        : await keepFramesServerSide(images, link ? `junklink_${link.record.hash.slice(0, 12)}` : (user?.id || 'guest')),
       evidence: {
         imageCount: blocks.length,
         firstPass: first.observations,
@@ -528,6 +677,25 @@ trashEstimatorRouter.post("/read", async (c: any) => {
         uses: (Number.isFinite(base) ? base : Number(link.record.uses) || 0) + 1,
         lastUsedAt: now.toISOString(),
       });
+    }
+
+    /*
+     * An anonymous estimate is counted here, for the same reason a link's use
+     * is: after a price exists, not at the door. Our failure to read a
+     * photograph must not consume one of a stranger's three free tries.
+     *
+     * Re-read before incrementing because two phones on the same office wifi
+     * can be inside this handler at once, and incrementing from a value read
+     * forty seconds ago spends one estimate between them.
+     */
+    if (anon) {
+      // `ipKey` is null when no address could be resolved; only the global
+      // counter moves then. See the note where it is decided.
+      for (const key of [anon.ipKey, anon.dayKey]) {
+        if (!key) continue;
+        const current = Number(await kv.get(key).catch(() => 0)) || 0;
+        await kv.set(key, current + 1);
+      }
     }
 
     /*
@@ -627,7 +795,7 @@ trashEstimatorRouter.get("/links", async (c: any) => {
         maxUses: Number(r?.maxUses) || 0,
         usable: state.usable,
         // Safe to show staff; never shown to the link holder.
-        reason: state.usable ? null : state.reason,
+        reason: state.usable ? null : ((state as { reason?: string }).reason || "unknown"),
       };
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

@@ -13,6 +13,7 @@
 
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { verifiedActor } from "./requireStaff.ts";
 import { sendTextMessage } from "./sendSms.ts";
 import { escapeHtml } from "./escapeHtml.ts";
 
@@ -106,6 +107,15 @@ router.post("/make-server-3eae23a6/sms/contacts", async (c) => {
 
 router.delete("/make-server-3eae23a6/sms/contacts/:id", async (c) => {
   try {
+    /*
+     * Staff only. Marketing contacts are the company's list, and this removed
+     * one by id with no check of any kind. SMSMarketing is the only caller.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+    }
+
     await kv.del(SMS_CONTACT(c.req.param("id")));
     return c.json({ success: true });
   } catch (e: any) {

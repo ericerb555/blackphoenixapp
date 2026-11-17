@@ -15,6 +15,8 @@ import { Hono } from "npm:hono@4";
 import { cors } from "npm:hono@4/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { verifiedActor } from "./requireStaff.ts";
+import { quoteBelongsTo } from "./quotes.tsx";
 
 const deliverablesRouter = new Hono();
 
@@ -86,6 +88,17 @@ function extFor(contentType: string): string {
 // ── Attach a plan/rendering to a quote ────────────────────────────────────────
 deliverablesRouter.post("/make-server-3eae23a6/quotes/:id/deliverables", async (c) => {
   try {
+    /*
+     * Staff only. This writes a file into a quote and has it served back as
+     * that quote's own plan or rendering, so an open write let anybody put a
+     * document in front of a customer with our name on it. Nothing in src/
+     * calls it — the only client use of this route is the list below.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
     const quoteId = c.req.param("id");
     const body = await c.req.json();
     const name = String(body?.name || "deliverable");
@@ -131,6 +144,25 @@ deliverablesRouter.get("/make-server-3eae23a6/quotes/:id/deliverables", async (c
     const quoteId = c.req.param("id");
     const quote = await kv.get(`quote:${quoteId}`);
     if (!quote) return c.json({ success: false, error: `Quote ${quoteId} not found` }, 404);
+
+    /*
+     * Staff, or the customer whose quote it is.
+     *
+     * This hands back signed download URLs good for 24 hours for every plan,
+     * rendering and photo on the quote — so the id alone was a key to another
+     * customer's drawings, and the URLs it minted kept working for a day
+     * after the request that leaked them.
+     *
+     * quoteBelongsTo is the rule quotes.tsx already uses, imported rather
+     * than restated: a quote carries the customer address in six different
+     * fields depending on how it was created, and a second opinion about
+     * which ones count would diverge from the first.
+     */
+    const who = await verifiedActor(c);
+    if (!who || (!who.staff && !quoteBelongsTo(quote, who.email, who.id))) {
+      return c.json({ success: false, error: `Quote ${quoteId} not found` }, 404);
+    }
+
     const deliverables = Array.isArray(quote.deliverables) ? quote.deliverables : [];
     const withUrls = await Promise.all(deliverables.map(async (d: any) => {
       const { data: signed } = await supabase.storage.from(BUCKET_NAME).createSignedUrl(d.path, 86400);
@@ -146,6 +178,15 @@ deliverablesRouter.get("/make-server-3eae23a6/quotes/:id/deliverables", async (c
 // ── Remove a deliverable ──────────────────────────────────────────────────────
 deliverablesRouter.delete("/make-server-3eae23a6/quotes/:id/deliverables/:did", async (c) => {
   try {
+    /*
+     * Staff only, and it removes the object from storage as well as the
+     * record — the plans and renderings attached to a job, gone for an id.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
     const quoteId = c.req.param("id");
     const did = c.req.param("did");
     const quote = await kv.get(`quote:${quoteId}`);

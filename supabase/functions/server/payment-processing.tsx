@@ -4,10 +4,73 @@
  */
 
 import { Hono } from 'npm:hono@4';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import { recordEntitlementEvent } from './entitlements.tsx';
+import { isTrustedStaff } from './trustedRole.ts';
+import { mayReadRecord } from './recordOwnership.ts';
 
 const app = new Hono();
+
+/**
+ * Who is asking, and are they staff.
+ *
+ * WHY THIS FILE NEEDED ONE AT ALL
+ *
+ * Every route here passed the auth wall in `index.tsx` and then checked
+ * nothing. The wall only establishes that somebody is signed in, and every
+ * portal customer, tenant, vendor and subcontractor is signed in — so
+ * `/payment/ecommerce/orders/customer/:email` returned any customer's full
+ * order history to anyone who typed their address into the path, and
+ * `/payment/ecommerce/order/:orderId/status` let any of them mark an unpaid
+ * order shipped. Six of the twenty-five findings in
+ * `docs/server-route-authorization.md` are in this one file.
+ *
+ * One lookup, both answers. `isTrustedStaff` reads `app_metadata` only, which
+ * is the bag an account cannot write for itself — see `trustedRole.ts` for the
+ * eleven checks that used to read `user_metadata` and what that allowed.
+ */
+let cachedAdmin: any = null;
+function adminClient() {
+  if (!cachedAdmin) {
+    cachedAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+  }
+  return cachedAdmin;
+}
+
+async function actor(c: any): Promise<{ email: string; staff: boolean } | null> {
+  const token = String(c.req.header('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  try {
+    const { data, error } = await adminClient().auth.getUser(token);
+    if (error || !data?.user) return null;
+    return {
+      email: String(data.user.email || '').toLowerCase(),
+      staff: isTrustedStaff(data.user),
+    };
+  } catch {
+    // Fail closed. An identity we could not establish is not an identity.
+    return null;
+  }
+}
+
+/**
+ * May this caller see this record?
+ *
+ * Staff see everything. Everybody else sees their own and nothing else, and
+ * "not yours" is answered exactly like "does not exist" — telling a stranger
+ * that an order code is real but belongs to somebody else is still telling
+ * them something.
+ *
+ * The rule itself lives in `recordOwnership.ts`, which has no imports so that
+ * `tests/recordOwnership.test.ts` can load it. This file cannot be tested that
+ * way — it imports `npm:` specifiers — and the unowned-record case in
+ * particular fails open if written the obvious way.
+ */
+const mayRead = mayReadRecord;
 
 // Generate unique tracking codes
 function generateOrderCode(): string {
@@ -205,6 +268,14 @@ app.get('/ecommerce/order/:orderCode', async (c) => {
       return c.json({ error: 'Order not found' }, 404);
     }
 
+    // Theirs, or staff. Same answer as a missing order, deliberately — an
+    // order code is short enough to guess at, and "that one exists but is not
+    // yours" is a confirmation worth nothing to its owner and something to
+    // everybody else.
+    if (!mayRead(await actor(c), order)) {
+      return c.json({ error: 'Order not found' }, 404);
+    }
+
     return c.json({ order });
   } catch (error) {
     console.error('Error fetching order:', error);
@@ -216,6 +287,24 @@ app.get('/ecommerce/order/:orderCode', async (c) => {
 app.get('/ecommerce/orders/customer/:email', async (c) => {
   try {
     const email = c.req.param('email');
+
+    /*
+     * Your own history, or staff.
+     *
+     * This was the plainest of the twenty-five: the email came out of the path
+     * and nothing compared it to the caller. Any signed-in account — a tenant,
+     * a vendor, a subcontractor, anyone who completed signup — got a named
+     * customer's complete order history, with items, totals and addresses, by
+     * typing their address into the URL.
+     *
+     * Compared case-insensitively because the path carries whatever the
+     * browser sent and the token carries whatever Supabase stored.
+     */
+    const who = await actor(c);
+    if (!who || (!who.staff && who.email !== String(email || '').toLowerCase())) {
+      return c.json({ orders: [] });
+    }
+
     const orderIds = await kv.get(`customer_orders:${email}`) || [];
     
     const orders = await Promise.all(
@@ -239,6 +328,20 @@ app.get('/ecommerce/orders/customer/:email', async (c) => {
 // Update order status
 app.patch('/ecommerce/order/:orderId/status', async (c) => {
   try {
+    /*
+     * Staff only, and not the customer whose order it is.
+     *
+     * Fulfilment state is the company's claim about what it has done, not the
+     * buyer's. Scoping this to the owner the way the reads above are scoped
+     * would still let a customer mark their own unpaid order "delivered" and
+     * attach a tracking number to it — which is the same hole with a smaller
+     * blast radius, not a fix.
+     */
+    const who = await actor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const orderId = c.req.param('orderId');
     const { status, tracking } = await c.req.json();
 
@@ -372,6 +475,11 @@ app.get('/subscription/payment/:paymentCode', async (c) => {
       return c.json({ error: 'Payment not found' }, 404);
     }
 
+    // Theirs, or staff. "Not yours" answers as "not found", as above.
+    if (!mayRead(await actor(c), payment)) {
+      return c.json({ error: 'Payment not found' }, 404);
+    }
+
     return c.json({ payment });
   } catch (error) {
     console.error('Error fetching payment:', error);
@@ -386,6 +494,12 @@ app.get('/subscription/:subscriptionId/payments', async (c) => {
     
     const subscription = await kv.get(`subscription:${subscriptionId}`);
     if (!subscription) {
+      return c.json({ error: 'Subscription not found' }, 404);
+    }
+
+    // The subscription's own holder, or staff. A subscription id is not a
+    // credential, and this is a financial record.
+    if (!mayRead(await actor(c), subscription)) {
       return c.json({ error: 'Subscription not found' }, 404);
     }
 
@@ -419,7 +533,26 @@ app.get('/transaction/:transactionId', async (c) => {
       details = await kv.get(`subscription_payment:${transaction.paymentId}`);
     }
 
-    return c.json({ 
+    /*
+     * Checked against the record this transaction points AT, not the
+     * transaction itself.
+     *
+     * A transaction row carries ids, not an email, so asking whether the
+     * caller owns the transaction would always answer no and lock out the
+     * customer along with everybody else. The order or the subscription
+     * payment behind it is the thing that knows whose it is — and it is also
+     * the part this route actually returns.
+     *
+     * A transaction whose details could not be loaded is refused rather than
+     * returned bare: there is then nothing to check ownership against, and
+     * handing back a record because we failed to find out who owns it is the
+     * wrong direction to fail in.
+     */
+    if (!details || !mayRead(await actor(c), details)) {
+      return c.json({ error: 'Transaction not found' }, 404);
+    }
+
+    return c.json({
       transaction: {
         ...transaction,
         details

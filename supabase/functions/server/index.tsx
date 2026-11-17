@@ -43,7 +43,14 @@ import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
 import { queryPerfRoutes } from "./queryPerfRoutes.tsx";
 import { pricingOverviewRoutes } from "./pricingOverviewRoutes.tsx";
 import { companyLogoRoutes } from "./companyLogoRoutes.tsx";
-import { isStaffRequest } from "./requireStaff.ts";
+import { isStaffRequest, verifiedActor } from "./requireStaff.ts";
+import { runStorageBackup, expectedBackupSecret } from "./storageBackupRoutes.ts";
+import { LATEST_MANIFEST_KEY } from "./storageBackup.ts";
+import {
+  QR_CODES_KEY, sanitizeCodes, isSendableUrl, smsTextFor, emailSubjectFor,
+  emailHtmlFor, attachmentNameFor,
+} from "./qrCodes.ts";
+import { sendCompanyEmail } from "./email-center.tsx";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -118,7 +125,7 @@ import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
 import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
-import quotesRouter from "./quotes.tsx";
+import quotesRouter, { quoteBelongsTo } from "./quotes.tsx";
 import quoteAttachmentsRouter from "./quoteAttachments.ts";
 import unavailabilityRouter from "./unavailability.tsx";
 import scheduleAssistantRouter from "./scheduleAssistant.tsx";
@@ -1455,6 +1462,14 @@ const PUBLIC_POST_PATHS = [
    * minter is the principal.
    */
   '/trash-estimator/read',
+  /**
+   * The nightly Storage copy. Machine endpoint, shared secret, refuses when
+   * the secret is unset — same shape and same reasoning as the cron ticks
+   * above, which are listed here for the same reason: pg_cron posts with the
+   * anon key and would otherwise be answered 401 by the wall before the
+   * route's own check ran.
+   */
+  '/storage-backup/run',
   /**
    * The AI emergency attendant's three Twilio webhooks.
    *
@@ -7063,6 +7078,24 @@ app.get('/make-server-3eae23a6/studio/project-info/:quoteId', async (c) => {
   try {
     const quote = await kv.get(`quote:${c.req.param('quoteId')}`) as any;
     if (!quote) return c.json({ success: false, error: 'Project not found.' }, 404);
+
+    /*
+     * Staff, or the customer whose project it is.
+     *
+     * This returns the quote document whole — client name, email, phone, site
+     * address, line items and pricing — and asked only that somebody be signed
+     * in. Quote ids are sequential enough to walk.
+     *
+     * Same rule and same function as `quotes.tsx` uses for the quote itself,
+     * because this is the same document reached by a different path. "Not
+     * yours" answers as "not found": the 404 above already tells a caller
+     * nothing, and this one should tell them nothing either.
+     */
+    const who = await verifiedActor(c);
+    if (!who || (!who.staff && !quoteBelongsTo(quote, who.email, who.id))) {
+      return c.json({ success: false, error: 'Project not found.' }, 404);
+    }
+
     return c.json({ success: true, project: stripBase64(quote) });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load project.' }, 500); }
 });
@@ -8959,6 +8992,46 @@ app.post('/make-server-3eae23a6/social/connect/:platform', async (c) => {
 
 // GET /social/callback — OAuth callback handler (redirect from platforms)
 app.get('/make-server-3eae23a6/social/callback', async (c) => {
+  /*
+   * REFUSED. This handler trusted its own `state`, and nothing reaches it any
+   * more that should be served.
+   *
+   * WHAT IT DID
+   *
+   * `JSON.parse(atob(state))` and then wrote the OAuth token it had just
+   * exchanged to `social_tokens_<userId>` — taking the userId out of the state
+   * string. Base64 is an encoding, not a signature, and no record of the state
+   * was kept to check it against. So anyone could mint
+   * `btoa(JSON.stringify({ userId: <somebody else>, platform: 'facebook' }))`,
+   * complete a handshake with their own social account, and have the result
+   * filed against another person's user id — connecting their account to
+   * somebody else's, or replacing a real connection with one they control.
+   *
+   * WHY REFUSING IS THE FIX RATHER THAN REPAIRING IT
+   *
+   * `social-media.tsx` already does this properly — a random state kept in KV,
+   * verified on return and deleted on use — and is mounted at line 1778, ahead
+   * of this file's inline definitions. It serves `/social/connect/:platform`,
+   * which is what every client calls, and its own callback at
+   * `/social/callback/:platform`. That extra path segment is the whole reason
+   * this one survived: it is NOT shadowed by the correct router, so it stayed
+   * registered and directly reachable while nothing legitimate used it.
+   *
+   * A request arriving here is therefore either a flow that cannot exist — the
+   * connect route that minted these states is itself shadowed — or somebody
+   * calling it on purpose. Both deserve the same answer.
+   *
+   * Left in place rather than deleted because the bare URL may still be
+   * registered as a redirect target in a platform's app settings; a refusal
+   * that says what to use is better than a 404 for whoever finds that out.
+   */
+  console.log('[Social Callback] refused: superseded by /social/callback/:platform');
+  return c.text(
+    'This connection link is no longer valid. Start the connection again from the app.',
+    410,
+  );
+
+  // eslint-disable-next-line no-unreachable
   try {
     const code  = c.req.query('code')  || '';
     const state = c.req.query('state') || '';
@@ -9813,8 +9886,23 @@ app.post('/make-server-3eae23a6/messaging/conversations/direct', async (c) => {
 // Notify customer that admin viewed their work request
 app.post('/make-server-3eae23a6/work-requests/:id/viewed', async (c) => {
   try {
+    /*
+     * Staff only, and the admin name comes from the token.
+     *
+     * This opens a conversation against a work request with a participant
+     * the request names — so it took the admin’s name AND the customer’s
+     * email from the body, and any signed-in account could start a thread on
+     * anybody’s job signed "Black Phoenix Team". A customer reading it has
+     * no way to tell it is not us.
+     */
+    const staffWho = await verifiedActor(c);
+    if (!staffWho?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const wrId = c.req.param('id');
-    const { adminName, customerEmail, customerName } = await c.req.json();
+    const { customerEmail, customerName } = await c.req.json();
+    const adminName = staffWho.email;
 
     // Create/find conversation and send an automatic notification message
     const all = await kv.getByPrefix('conv:') as any[];
@@ -18942,3 +19030,149 @@ app.delete('/make-server-3eae23a6/product-ads/:id', async (c) => {
 });
 
 Deno.serve(app.fetch);
+
+/**
+ * POST /storage-backup/run — the nightly second copy of every stored file.
+ *
+ * Eric: "fix the storage backup."
+ *
+ * Supabase's own docs: "Database backups do not include objects you store via
+ * the Storage API." So the photographs behind every trash estimate, the house
+ * captures, the gallery and the reels were outside the nightly backup that
+ * covers everything else. This closes that for the losses that actually
+ * happen — a deleted file, an emptied bucket, an overwrite — and says plainly
+ * in `storageBackup.ts` what it does not cover, which is losing the project
+ * itself.
+ *
+ * The decisions live in `storageBackup.ts` with twelve tests on them; the
+ * Storage calls live in `storageBackupRoutes.ts`. This is only the door.
+ */
+app.post('/make-server-3eae23a6/storage-backup/run', async (c) => {
+  const expected = await expectedBackupSecret();
+  const offered = c.req.header('X-Storage-Backup-Secret') || '';
+  if (!expected || offered !== expected) {
+    // Refuses when unset rather than falling open: an unset secret is exactly
+    // the state a half-finished deploy leaves behind.
+    return c.json({ success: false, error: 'Unauthorized.' }, 401);
+  }
+
+  try {
+    const manifest = await runStorageBackup();
+    return c.json({ success: true, manifest: { ...manifest, index: undefined }, indexed: manifest.objects });
+  } catch (error: any) {
+    console.error('[storage-backup] run failed:', error?.message || error);
+    return c.json({ success: false, error: error?.message || 'Backup failed.' }, 500);
+  }
+});
+
+/**
+ * GET /storage-backup/status — what the last run found and copied.
+ *
+ * Staff only. The index is left out of the response: it is one entry per
+ * object and the point of it is being inside the nightly database backup, not
+ * being read over the wire.
+ */
+app.get('/make-server-3eae23a6/storage-backup/status', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const latest = await kv.get(LATEST_MANIFEST_KEY) as any;
+  if (!latest) return c.json({ success: true, lastRun: null });
+  return c.json({
+    success: true,
+    lastRun: { ...latest, index: undefined },
+    indexed: Object.keys(latest.index || {}).length,
+  });
+});
+
+// ── QR CODES ─────────────────────────────────────────────────────────────────
+/**
+ * The three routes the QR generator always assumed existed.
+ *
+ * Eric: "where is the qr codes where can i find them? can i email and sms them
+ * from the app?" — and on the text: "send the destination url in the text."
+ *
+ * `QRCodeGenerator.tsx` has posted its codes to `/qr-codes` and read them back
+ * since it was written, with a comment calling them "durable and feed Revenue
+ * Analytics". No such route existed. The save is `.catch(console.error)` and
+ * the load sits in a try/catch, so both failed silently for however long, and
+ * every code lived in one browser's localStorage. RevenueAnalytics reads the
+ * same missing route and has been charting nothing.
+ *
+ * Staff only, all three. A QR code is a marketing asset, and the send route
+ * puts this company's name on an email and a text message — that is not
+ * something any signed-in portal customer should be able to do.
+ */
+app.get('/make-server-3eae23a6/qr-codes', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const codes = await kv.get(QR_CODES_KEY).catch(() => null);
+  return c.json({ success: true, codes: Array.isArray(codes) ? codes : [] });
+});
+
+app.post('/make-server-3eae23a6/qr-codes', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  /*
+   * Sanitised rather than stored as sent: the entries carry a data URI and a
+   * destination, and `stripBase64` exists in this file precisely because an
+   * unbounded data URI on a record is how one row becomes a megabyte. Bad
+   * entries are dropped and good ones kept — the client posts the whole list
+   * every time, so refusing the request would cost somebody every code they
+   * have.
+   */
+  const codes = sanitizeCodes((body as any)?.codes);
+  await kv.set(QR_CODES_KEY, codes);
+  return c.json({ success: true, saved: codes.length });
+});
+
+/**
+ * POST /qr-codes/send — email the printable code, or text the destination.
+ *
+ * The text carries the URL and not the image, which is Eric's call and the
+ * right one: a QR code exists to get a link into a phone that cannot type it,
+ * so texting somebody a PICTURE of one asks them to scan their own screen.
+ * The email carries both — the PNG attached for printing, the URL readable so
+ * whoever is checking it can see where it points without scanning anything.
+ */
+app.post('/make-server-3eae23a6/qr-codes/send', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const id = String((body as any)?.id || '');
+  const channel = String((body as any)?.channel || '');
+  const to = String((body as any)?.to || '').trim();
+  if (!id || !to || (channel !== 'email' && channel !== 'sms')) {
+    return c.json({ success: false, error: 'Need a code id, a channel of email or sms, and somewhere to send it.' }, 400);
+  }
+
+  const stored = await kv.get(QR_CODES_KEY).catch(() => null);
+  const code = (Array.isArray(stored) ? stored : []).find((q: any) => String(q?.id) === id);
+  if (!code) return c.json({ success: false, error: 'No such QR code. Save it first.' }, 404);
+
+  // Re-checked on the way out, not only on the way in. A record written by an
+  // older build has not been through sanitizeCodes.
+  if (!isSendableUrl(code.url)) {
+    return c.json({ success: false, error: 'That code points somewhere we will not send.' }, 422);
+  }
+
+  if (channel === 'sms') {
+    const result = await sendTextMessage(to, smsTextFor(code), 'transactional');
+    if (!result.ok) return c.json({ success: false, error: result.error || 'The text did not send.' }, 502);
+    return c.json({ success: true, sent: 'sms' });
+  }
+
+  const result = await sendCompanyEmail({
+    to,
+    subject: emailSubjectFor(code),
+    html: emailHtmlFor(code),
+    attachments: [{ filename: attachmentNameFor(code), content: code.dataUrl }],
+  });
+  if (!result.ok) return c.json({ success: false, error: result.error || 'The email did not send.' }, 502);
+  return c.json({ success: true, sent: 'email' });
+});

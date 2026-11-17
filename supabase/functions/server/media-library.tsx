@@ -28,6 +28,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { verifiedActor } from "./requireStaff.ts";
 
 const mediaRouter = new Hono();
 
@@ -447,6 +448,17 @@ mediaRouter.delete("/make-server-3eae23a6/media/:mediaId", async (c) => {
 // Update media metadata
 mediaRouter.put("/make-server-3eae23a6/media/:mediaId", async (c) => {
   try {
+    /*
+     * Staff only. requireSignedIn on this router authenticates and stops
+     * there, so any signed-in account could rewrite any media item’s name,
+     * tags, folder and client attribution. The library is the company’s, and
+     * attribution is what says whose job a photograph belongs to.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: "Company access is required for this." }, 403);
+    }
+
     const { mediaId } = c.req.param();
     const updates = await c.req.json();
     

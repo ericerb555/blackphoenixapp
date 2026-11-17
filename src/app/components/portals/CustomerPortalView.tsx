@@ -844,15 +844,48 @@ export default function CustomerPortalView() {
       {/* Header */}
       <div className="bg-gradient-to-br from-[#1A1A1A] via-[#0A0A0A] to-[#0A0A0A] border-b border-[#2A2A2A]">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          {/* Customer Info */}
-          <div className="flex items-center justify-between mb-6">
+          {/*
+            Customer Info
+
+            Eric, from an iPhone: "right under the member since 2023 the
+            buttons and words are all jammed together on the junk removal
+            page."
+
+            This row was `flex items-center justify-between` with nothing
+            responsive on it, so at 390px the heading and the three controls
+            beside it were held on one line and crushed into each other —
+            "Welcome back, <name>" at text-3xl does not share a phone's width
+            with a Shop Now button and two icon buttons.
+
+            It stacks below `sm` now and keeps the original side-by-side row
+            above it. `gap-4` rather than relying on `mb-` so the two halves
+            stay apart in the stacked case as well.
+
+            Worth noting for whoever reads this next: the heading is not what
+            was wrong. The buttons were never given permission to go anywhere
+            else, which is a different fault from anything about font size —
+            and it is on the PORTAL, not the standalone /junk-quote page that
+            a texted link opens.
+          */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-orange-400 via-orange-300 to-orange-500 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-3xl font-bold mb-2 bg-gradient-to-r from-orange-400 via-orange-300 to-orange-500 bg-clip-text text-transparent">
                 Welcome back, {customerInfo.name.split(' ')[0]}
               </h1>
               <p className="text-gray-400">Member since {customerInfo.memberSince}</p>
             </div>
-            <div className="flex items-center gap-3">
+            {/*
+              Hidden on the junk removal tab.
+              Eric: "can you remove them off the junk removal."
+
+              Somebody on that tab is photographing a pile to get a price.
+              Shop Now, a notification bell and a settings gear are three ways
+              to leave that job, crowded into the corner of a phone screen
+              directly above it. They stay on every other tab, where they are
+              what the tab is for.
+            */}
+            {activeTab !== 'trash-estimate' && (
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => setActiveTab('shopping')}
                 className="px-4 py-2 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-500 hover:via-purple-500 hover:to-pink-500 text-white rounded-lg font-semibold transition shadow-lg flex items-center gap-2"
@@ -880,10 +913,33 @@ export default function CustomerPortalView() {
                 <Settings className="w-5 h-5 text-gray-400" />
               </button>
             </div>
+            )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          {/*
+            Tabs
+
+            Eric, from an iPhone: "the tabs and words are over lapping."
+
+            Nineteen tabs in a flex row, and a flex item shrinks by default.
+            So at 390px all nineteen were squeezed toward nothing while their
+            labels carried `whitespace-nowrap` and could not reflow — the text
+            overflowed each shrunken button and landed on top of its
+            neighbour's. `overflow-x-auto` never engaged, because the items
+            shrank to fit rather than overflowing the container, so the one
+            thing meant to rescue this was the reason it looked broken instead
+            of scrollable.
+
+            `shrink-0` on each button is the fix: they keep their natural
+            width, the row genuinely overflows, and the scroll the container
+            was always asking for actually happens. `flex-nowrap` is already
+            the default and is written out because this row depends on it.
+
+            The negative margin lets the strip run to the screen edges inside
+            the parent's px-6, so a half-visible tab at the edge reads as "more
+            this way" rather than as a cut-off mistake.
+          */}
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-2 -mx-6 px-6 sm:mx-0 sm:px-0">
             {tabs.map(tab => {
               const Icon = tab.icon;
               const isMessages = tab.id === 'messages';
@@ -892,7 +948,7 @@ export default function CustomerPortalView() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`relative flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
+                  className={`relative flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
                     activeTab === tab.id
                       ? 'bg-orange-600 text-white'
                       : hasUnread
@@ -969,7 +1025,30 @@ export default function CustomerPortalView() {
         {activeTab === 'floor-visualiser' && <FloorVisualiser accent="orange" />}
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'trash-estimate' && (
-          <TrashEstimatePanel customerName={customerInfo.name} onNavigate={(page) => (window as any).__navigateApp?.(page)} />
+          /*
+           * Anybody prices a job here. No account, no link, no sign-in.
+           *
+           * Eric: "Some Should not have to login to use the junk remaval picer
+           * until they decied to create an account and get 5 percent off..
+           * anyone can try the pricer."
+           *
+           * This briefly showed visitors a join-the-portal offer INSTEAD of the
+           * pricer, which was the right call for one afternoon: the panel sent
+           * the estimate through a helper that throws without a session, so the
+           * Price it button answered "Your session has expired" to somebody who
+           * had never had one. Hiding a broken tool beat showing it.
+           *
+           * Both halves are fixed now — the panel calls with the publishable key
+           * when there is no session, and the server allows an anonymous
+           * estimate while counting it per address per day and per day overall
+           * (see anonPricer.ts). So the pricer is simply the pricer, for
+           * everybody, and the 5% offer arrives on the price itself for anyone
+           * without an account.
+           */
+          <TrashEstimatePanel
+            customerName={session ? customerInfo.name : undefined}
+            onNavigate={(page) => (window as any).__navigateApp?.(page)}
+          />
         )}
         {/*
           A homeowner has one property and no site office, which is exactly the

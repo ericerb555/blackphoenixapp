@@ -270,7 +270,27 @@ vendorProfileRouter.put('/vendor-profile/:vendorId', async (c) => {
 // Get vendor statistics
 vendorProfileRouter.get('/vendor-profile/:vendorId/stats', async (c) => {
   try {
-    const vendorId = c.req.param('vendorId');
+    /*
+     * The same check the PUT above already makes, which this never got.
+     *
+     * Order count and total revenue are a vendor's trading figures. Any
+     * signed-in account could read any vendor's by id — including a competing
+     * vendor on this platform, who is exactly the person they would least like
+     * to have them.
+     *
+     * Staff, or that vendor. Written the way line 209 writes it rather than a
+     * new idiom, because a second shape for the same rule in one file is how
+     * the two diverge later.
+     */
+    const actor = await vendorActor(c);
+    if (!actor.user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    const requested = c.req.param('vendorId');
+    const staff = STAFF_ROLE_SET.has(trustedRole(actor.user));
+    if (!staff && String(actor.vendorId || '') !== String(requested)) {
+      return c.json({ success: false, error: 'Those figures belong to another vendor.' }, 403);
+    }
+
+    const vendorId = requested;
     
     // Get all products for this vendor
     const allProducts = await kv.getByPrefix('product_');

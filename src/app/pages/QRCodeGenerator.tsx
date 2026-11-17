@@ -9,15 +9,51 @@
  * safe, and the three rules that keep it safe, are documented there.
  */
 import { useState, useEffect, useRef } from 'react';
+/*
+ * Both sides of a merge, kept deliberately.
+ *
+ * `brandedQrDataUrl` is theirs and replaces the raw `qrcode` calls outright —
+ * it puts the phoenix inside the code rather than beside it, and the junk
+ * pricing links use the same helper. Nothing in this file calls
+ * `QRCode.toDataURL` any more, so the `qrcode` import went with it rather than
+ * sitting here unused.
+ *
+ * Mail, MessageSquare and Loader2 are mine, for emailing the printable PNG and
+ * texting the destination link.
+ */
 import { brandedQrDataUrl } from '../lib/brandedQr';
-import { Download, Copy, Plus, Trash2, ExternalLink, Smartphone } from 'lucide-react';
+import { Download, Copy, Plus, Trash2, ExternalLink, Smartphone, Mail, MessageSquare, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
 import { publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const QR_SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const qrAuthHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+/**
+ * The signed-in staff member's token, not the publishable key.
+ *
+ * This was a module-level constant carrying `publicAnonKey`, which identifies
+ * the project and nobody in particular. That was survivable only because the
+ * routes it called did not exist: every save and load failed silently and the
+ * codes lived in `localStorage`. Now that `/qr-codes` is real and staff-only —
+ * it sends email and SMS under this company's name — the anon key would be
+ * refused 403 on every call, and the page would look exactly as broken as it
+ * did when the route was missing.
+ *
+ * A function rather than a constant because the session does not exist at
+ * module load and can change while the page is open. Same shape and the same
+ * reason as `RetargetingPixelSetup`'s `authHeaders`.
+ */
+async function qrAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session?.access_token || publicAnonKey}`,
+    apikey: publicAnonKey,
+  };
+}
 
 const BASE_URL = 'https://theblackphoenixcompany.com';
 
@@ -56,12 +92,24 @@ function loadSaved(): QREntry[] {
 
 function persistCodes(codes: QREntry[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
-  // Mirror to server so generated QR codes are durable and feed Revenue Analytics.
-  fetch(`${QR_SERVER}/qr-codes`, {
-    method: 'POST',
-    headers: qrAuthHeaders,
-    body: JSON.stringify({ codes }),
-  }).catch((err) => console.error('[QRCodeGenerator] server save failed:', err));
+  /*
+   * Mirrored to the server, which until now was a comment rather than a fact:
+   * this route did not exist, so the `.catch` swallowed a 404 on every save
+   * and the codes only ever lived in this browser. Revenue Analytics reads the
+   * same route and has been charting nothing.
+   *
+   * The headers are resolved in a `then` because this function is not async
+   * and must not become so — it is called from render paths that do not await
+   * it, and the local write above has to stay synchronous so a failed network
+   * call cannot lose the code somebody just made.
+   */
+  qrAuthHeaders()
+    .then((headers) => fetch(`${QR_SERVER}/qr-codes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ codes }),
+    }))
+    .catch((err) => console.error('[QRCodeGenerator] server save failed:', err));
 }
 
 export default function QRCodeGenerator() {
@@ -76,11 +124,51 @@ export default function QRCodeGenerator() {
   const [saved, setSaved] = useState<QREntry[]>(loadSaved);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  /** The code being sent, and how. Null when the dialog is closed. */
+  const [sending, setSending] = useState<{ entry: QREntry; channel: 'email' | 'sms' } | null>(null);
+  const [recipient, setRecipient] = useState('');
+  const [busySend, setBusySend] = useState(false);
+
+  /*
+   * The server composes and sends; this only says which code and to whom.
+   *
+   * Deliberately not built here. The text carries the destination URL and
+   * never the image — a QR code exists to get a link into a phone that
+   * cannot type it, so texting somebody a picture of one asks them to scan
+   * their own screen. The email carries the PNG attached for printing plus
+   * the URL in readable text. Both bodies live in qrCodes.ts with tests on
+   * them, including that a hostile label cannot break out of the email HTML
+   * and that a non-http destination is never sent under this company name.
+   */
+  async function sendIt() {
+    if (!sending) return;
+    const to = recipient.trim();
+    if (!to) { toast.error(sending.channel === 'email' ? 'Enter an email address.' : 'Enter a mobile number.'); return; }
+    setBusySend(true);
+    try {
+      const res = await fetch(`${QR_SERVER}/qr-codes/send`, {
+        method: 'POST',
+        headers: await qrAuthHeaders(),
+        body: JSON.stringify({ id: sending.entry.id, channel: sending.channel, to }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'It did not send.');
+      toast.success(sending.channel === 'email' ? `Emailed to ${to}.` : `Link texted to ${to}.`);
+      setSending(null);
+      setRecipient('');
+    } catch (err: any) {
+      console.error('[QRCodeGenerator] send failed:', err);
+      toast.error(err?.message || 'It did not send.');
+    } finally {
+      setBusySend(false);
+    }
+  }
+
   // Load saved QR codes from the server (falls back to the localStorage cache).
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${QR_SERVER}/qr-codes`, { headers: qrAuthHeaders });
+        const res = await fetch(`${QR_SERVER}/qr-codes`, { headers: await qrAuthHeaders() });
         const json = await res.json();
         if (json.success && Array.isArray(json.codes)) {
           setSaved(json.codes);
@@ -317,6 +405,14 @@ export default function QRCodeGenerator() {
                       className="p-1.5 rounded-lg transition hover:bg-white/10">
                       <Copy className="w-3.5 h-3.5 text-gray-400" />
                     </button>
+                    <button onClick={() => setSending({ entry, channel: 'email' })} title="Email it"
+                      className="p-1.5 rounded-lg transition hover:bg-white/10">
+                      <Mail className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
+                    <button onClick={() => setSending({ entry, channel: 'sms' })} title="Text the link"
+                      className="p-1.5 rounded-lg transition hover:bg-white/10">
+                      <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
                     <button onClick={() => deleteSaved(entry.id)} title="Delete"
                       className="p-1.5 rounded-lg transition hover:bg-red-500/10">
                       <Trash2 className="w-3.5 h-3.5 text-gray-600 hover:text-red-400" />
@@ -324,6 +420,92 @@ export default function QRCodeGenerator() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/*
+          Send it.
+
+          One dialog for both channels, because the only difference is what
+          goes in the box and what the server does with it. The sentence under
+          the field says which — a text carries the destination link, an email
+          carries the printable PNG as well — because somebody choosing
+          between two icons should not have to guess, and the difference is
+          the whole reason Eric asked for the link rather than the picture.
+        */}
+        {sending && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.7)' }}
+            onClick={() => !busySend && setSending(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl p-5"
+              style={{ background: '#0d0d0d', border: '1px solid #2a2a2a' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2">
+                {sending.channel === 'email'
+                  ? <Mail className="h-4 w-4 text-orange-500" />
+                  : <MessageSquare className="h-4 w-4 text-orange-500" />}
+                <p className="text-sm font-black text-white">
+                  {sending.channel === 'email' ? 'Email this QR code' : 'Text this link'}
+                </p>
+              </div>
+
+              <div className="mt-3 flex items-center gap-3">
+                <img
+                  src={sending.entry.dataUrl}
+                  alt={sending.entry.label}
+                  className="rounded-lg"
+                  style={{ width: 56, height: 56, background: sending.entry.bgColor }}
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-white">{sending.entry.label}</p>
+                  <p className="truncate text-xs text-gray-500">{sending.entry.url}</p>
+                </div>
+              </div>
+
+              <input
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                type={sending.channel === 'email' ? 'email' : 'tel'}
+                inputMode={sending.channel === 'email' ? 'email' : 'tel'}
+                placeholder={sending.channel === 'email' ? 'name@example.com' : '(603) 555-0134'}
+                /* text-base, not text-sm: iOS zooms the page on a field under
+                   16px and does not zoom back out. See TrashEstimatePanel. */
+                className="mt-4 w-full rounded-xl p-3 text-base text-white bg-transparent"
+                style={{ border: '1px solid #2a2a2a' }}
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                {sending.channel === 'email'
+                  ? 'Sends the code as a PNG they can print, with the link it points to.'
+                  : 'Sends the link itself — a picture of a QR code is no use on the phone reading it.'}
+              </p>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setSending(null)}
+                  disabled={busySend}
+                  className="flex-1 rounded-xl py-3 text-sm font-black text-gray-300 disabled:opacity-50"
+                  style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendIt()}
+                  disabled={busySend || !recipient.trim()}
+                  className="flex-1 rounded-xl py-3 text-sm font-black text-black disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}
+                >
+                  {busySend
+                    ? <span className="flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Sending…</span>
+                    : (sending.channel === 'email' ? 'Send email' : 'Send text')}
+                </button>
+              </div>
             </div>
           </div>
         )}

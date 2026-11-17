@@ -494,7 +494,7 @@ ${includeHashtags ? brandHashtags.join(' ') + ' ' : ''}#behindthescenes #contrac
   private static generateTrendingReel(prompt: ReelPrompt): ReelScript {
     const { topic, companyName, callToAction, brandHashtags, includeHashtags, includeEmojis } = prompt;
     
-    const emojis = includeEmojis ? { laugh: '😂', point: '👇', fire: '🔥', eyes: '👀', heart: '❤️' } : { laugh: '', point: '', fire: '', eyes: '', heart: '' };
+    const emojis = includeEmojis ? { laugh: '😂', point: '👇', fire: '🔥', eyes: '👀', heart: '❤️', coffee: '☕', muscle: '💪' } : { laugh: '', point: '', fire: '', eyes: '', heart: '', coffee: '', muscle: '' };
     
     const hook = `Tell me you do ${topic.toLowerCase()} without telling me you do ${topic.toLowerCase()}... I'll go first ${emojis.point}`;
     
@@ -587,7 +587,7 @@ ${includeHashtags ? brandHashtags.join(' ') + ' ' : ''}#contractor #construction
   private static generateQuickTipsReel(prompt: ReelPrompt): ReelScript {
     const { topic, companyName, callToAction, brandHashtags, includeHashtags, includeEmojis } = prompt;
     
-    const emojis = includeEmojis ? { fire: '🔥', bulb: '💡', pin: '📌', check: '✅', muscle: '💪' } : { fire: '', bulb: '', pin: '', check: '', muscle: '' };
+    const emojis = includeEmojis ? { fire: '🔥', bulb: '💡', pin: '📌', check: '✅', muscle: '💪', eyes: '👀' } : { fire: '', bulb: '', pin: '', check: '', muscle: '', eyes: '' };
     
     const hook = `5 things I learned after ${topic.toLowerCase()} for 20 years ${emojis.fire}`;
     
@@ -679,7 +679,7 @@ ${emojis.fire} Quick recap:
 4. Communication = happy customers
 5. Never stop learning and improving
 
-Which tip resonated most with you? Drop a number below! ${emojis.point}
+Which tip resonated most with you? Drop a number below! ${emojis.pin}
 
 Want to skip the learning curve and get it done right the first time? That's what we're here for!
 ✓ Expert team with 20+ years experience
@@ -711,7 +711,7 @@ ${includeHashtags ? brandHashtags.join(' ') + ' ' : ''}#protips #tips #advice #c
   private static generateSatisfyingProcessReel(prompt: ReelPrompt): ReelScript {
     const { topic, companyName, callToAction, brandHashtags, includeHashtags, includeEmojis } = prompt;
     
-    const emojis = includeEmojis ? { peace: '😌', ok: '👌', kiss: '💋', sparkle: '✨', heart: '😍' } : { peace: '', ok: '', kiss: '', sparkle: '', heart: '' };
+    const emojis = includeEmojis ? { peace: '😌', ok: '👌', kiss: '💋', sparkle: '✨', heart: '😍', check: '✅' } : { peace: '', ok: '', kiss: '', sparkle: '', heart: '', check: '' };
     
     const hook = `This is oddly satisfying ${emojis.peace}`;
     
@@ -836,7 +836,7 @@ ${includeHashtags ? brandHashtags.join(' ') + ' ' : ''}#satisfying #oddlysatisfy
   private static generateProblemSolutionReel(prompt: ReelPrompt): ReelScript {
     const { topic, companyName, callToAction, brandHashtags, includeHashtags, includeEmojis } = prompt;
     
-    const emojis = includeEmojis ? { stop: '🛑', bulb: '💡', fire: '🔥', check: '✅', rocket: '🚀' } : { stop: '', bulb: '', fire: '', check: '', rocket: '' };
+    const emojis = includeEmojis ? { stop: '🛑', bulb: '💡', fire: '🔥', check: '✅', rocket: '🚀', sad: '😰' } : { stop: '', bulb: '', fire: '', check: '', rocket: '', sad: '' };
     
     const hook = `STOP! Don't make this ${topic.toLowerCase()} mistake ${emojis.stop}`;
     

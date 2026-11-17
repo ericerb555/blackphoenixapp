@@ -147,7 +147,14 @@ async function mintQuoteNumber(): Promise<string> {
  * `?userId=`, so a record identified that way and not by address is exactly
  * the shape this has to catch.
  */
-function quoteBelongsTo(doc: any, email: string, userId = ""): boolean {
+/**
+ * Exported so the routes that hang off a quote use the same rule as the quote
+ * itself. `deliverables.tsx` and the studio project-info route both take a
+ * quote id from the request and returned the document to anybody signed in;
+ * each inventing its own notion of "belongs to" is how three answers to one
+ * question appear in three files. See `docs/server-route-authorization.md`.
+ */
+export function quoteBelongsTo(doc: any, email: string, userId = ""): boolean {
   const target = String(email || "").trim().toLowerCase();
   const id = String(userId || "").trim().toLowerCase();
 

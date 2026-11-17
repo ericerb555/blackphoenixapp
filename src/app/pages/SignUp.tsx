@@ -86,11 +86,31 @@ export default function SignUp({ onNavigate }: SignUpProps) {
 
       // Load existing user profiles
       const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
-      const existingUsers = Object.keys(userProfiles);
 
-      // First user becomes owner, all others are customers
-      const isFirstUser = existingUsers.length === 0;
-      const accountType = isFirstUser ? 'owner' : 'customer';
+      /*
+       * Always a customer. There is no "first user" question to answer here.
+       *
+       * This used to read `Object.keys(userProfiles).length === 0` and call
+       * that person the owner — so in any fresh browser, a private window or a
+       * new phone, the next person to register was written as `owner` in their
+       * own stored profile. That is the audience the 5% junk offer sends to
+       * /signup, on phones, which made it a growing problem rather than a
+       * historical one.
+       *
+       * It never granted anything. `/auth/signup` hardcodes `role = "client"`
+       * because it once read the role from the request body and let anyone
+       * self-register as master_admin, and Login.tsx:148 resets a locally
+       * elevated accountType to `customer` on the next sign-in. So the claim
+       * decided nothing and expired on its own — it just put a person on
+       * owner-looking screens in the meantime, whose every server call then
+       * failed.
+       *
+       * The real owner profile is set deliberately by
+       * `utils/initializeOwnerProfile.ts` against a known address, and roles
+       * that mean anything live in `app_metadata`, which only the server
+       * writes. Neither is affected by this.
+       */
+      const accountType = 'customer';
 
       // Store user profile data in localStorage
       const userProfile = {
@@ -113,41 +133,36 @@ export default function SignUp({ onNavigate }: SignUpProps) {
         console.log(`📦 User signed up with cohort: ${selectedCohort}`);
       }
 
-      if (isFirstUser) {
-        console.log('👑 First user created as OWNER:', userProfile);
-        // `isFirstUser` is decided by whether this BROWSER has a `userProfiles`
-        // entry, so it is true on any fresh device, and the "owner privileges"
-        // it announces are a localStorage claim only — the server grants every
-        // self-registration the `client` role and Login.tsx discards a locally
-        // elevated accountType on the next sign-in. Worth untangling separately;
-        // for now the wording no longer promises a redirect that has moved.
-        toast.success('Welcome! Your account is ready and you are signed in.', {
-          description: selectedCohort
-            ? `Subscribed to ${selectedCohort}.`
-            : 'Taking you to your portal now.',
-        });
-      } else {
-        console.log('💾 User profile saved to localStorage:', userProfile);
-        /**
-         * This used to say "Check your email to confirm — click the link to
-         * activate your account, then log in." No such email is ever sent:
-         * registration goes through /auth/signup, which creates the account
-         * server-side with `email_confirm: true` precisely because Supabase
-         * Auth's SMTP does not work here. The account is live the moment this
-         * toast appears.
-         *
-         * The wording was not a harmless leftover. A customer whose next login
-         * attempt failed on 2026-09-20 had been told their account still needed
-         * activating, so the reasonable conclusion was that the link had not
-         * arrived — and they spent ten minutes alternating between signing up
-         * again and trying to log in. Telling somebody to wait for a message
-         * that does not exist is worse than telling them nothing.
-         */
-        toast.success(`Welcome, ${formData.fullName.trim().split(' ')[0] || 'and thanks'}.`, {
-          description: 'Your account is ready and you are signed in.',
-          duration: 6000,
-        });
-      }
+      console.log('💾 User profile saved to localStorage:', userProfile);
+      /**
+       * One message, because there is one kind of self-registration.
+       *
+       * There were two branches here, chosen by whether this BROWSER had seen
+       * a signup before — the "first user" being told their account was ready
+       * and the rest being told the same thing in different words. The branch
+       * went with the `owner` claim it existed to announce; see the note on
+       * `accountType` above.
+       *
+       * This used to say "Check your email to confirm — click the link to
+       * activate your account, then log in." No such email is ever sent:
+       * registration goes through /auth/signup, which creates the account
+       * server-side with `email_confirm: true` precisely because Supabase
+       * Auth's SMTP does not work here. The account is live the moment this
+       * toast appears.
+       *
+       * The wording was not a harmless leftover. A customer whose next login
+       * attempt failed on 2026-09-20 had been told their account still needed
+       * activating, so the reasonable conclusion was that the link had not
+       * arrived — and they spent ten minutes alternating between signing up
+       * again and trying to log in. Telling somebody to wait for a message
+       * that does not exist is worse than telling them nothing.
+       */
+      toast.success(`Welcome, ${formData.fullName.trim().split(' ')[0] || 'and thanks'}.`, {
+        description: selectedCohort
+          ? `Your account is ready. Subscribed to ${selectedCohort}.`
+          : 'Your account is ready and you are signed in.',
+        duration: 6000,
+      });
 
       /**
        * Into the app, not back to the login page.

@@ -298,7 +298,30 @@ export default function MasterScheduling() {
       if (!response.ok) throw new Error(result.error || 'Unable to update appointment status.');
       const nextStatus = status === 'confirmed' ? 'scheduled' : status as Job['status'];
       setJobs((current) => current.map((item) => item.appointmentId === job.appointmentId ? { ...item, status: nextStatus } : item));
-      setShifts((current) => current.map((item) => item.jobId === job.id ? { ...item, status: status === 'pending' ? 'pending' : 'scheduled' } : item));
+      /*
+       * A cancelled appointment must not leave its crew shift saying
+       * "scheduled".
+       *
+       * This read `status === 'pending' ? 'pending' : 'scheduled'`, and
+       * `status` here is 'scheduled' | 'confirmed' | 'completed' |
+       * 'cancelled' — 'pending' is not in it. So the test could never be true
+       * and every status, cancellation included, wrote 'scheduled' onto the
+       * shift. Cancel a job and the crew stayed rostered on it. Typecheck knew
+       * (TS2367, a comparison with no overlap); nobody was reading 304 of
+       * those.
+       *
+       * Only an appointment that IS on the calendar now claims the shift.
+       * `Shift['status']` has no 'cancelled' or 'completed' member, so the
+       * honest move for those two is to leave the shift alone rather than
+       * invent a state or keep asserting a false one — a dispatcher can then
+       * see it and remove it. Widening that union is the better fix and is
+       * written up in tasks/found-not-fixed.md.
+       */
+      setShifts((current) => current.map((item) => {
+        if (item.jobId !== job.id) return item;
+        const stillOn = status === 'scheduled' || status === 'confirmed';
+        return stillOn ? { ...item, status: 'scheduled' as Shift['status'] } : item;
+      }));
       setSelectedJob((current) => current?.appointmentId === job.appointmentId ? { ...current, status: nextStatus } : current);
       toast.success('Appointment status saved to the master schedule.');
     } catch (error) {

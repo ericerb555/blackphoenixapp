@@ -29,7 +29,7 @@
  */
 import { useMemo, useState } from 'react';
 import {
-  ArrowLeft, ShieldCheck, Mic, MicOff, PanelLeftClose, PanelLeft,
+  ArrowLeft, ShieldCheck, Mic, MicOff, PanelLeftClose, PanelLeft, QrCode,
 } from 'lucide-react';
 import PhoenixConsole from '../components/PhoenixConsole';
 import PhoenixWorkspace from '../components/PhoenixWorkspace';
@@ -146,6 +146,44 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/*
+            QR codes, reachable from here.
+
+            Eric asked for this after looking for it on this screen and not
+            finding it — the only QR entry was a tile in the Marketing Command
+            Center, which is a different page under a similar name.
+
+            A link in the header rather than a tile in the body, because the
+            note at the top of this file is explicit that the screen reads as
+            precise by staying mostly empty and that filling it with readouts
+            is what loses the bird. So it borrows the idiom already here: the
+            same monospace, the same bracketed lettering, the same hover as the
+            `lab` link in the status bar. One more word on the chrome rather
+            than a card in the middle.
+          */}
+          {/*
+            Visible on a phone, which the first version was not.
+            Eric, looking straight at this screen: "where is the button".
+
+            It was a 12px grey glyph in a thin box with the label hidden below
+            `sm` — so on an iPhone the entire control was a small grey square
+            beside the mic, on near-black, with no hover state to discover it
+            by. Matching this file's sparse idiom was right; disappearing into
+            it was not.
+
+            Orange rather than grey so it reads as an action against the black,
+            the label shown at every width, and a 44px minimum height because
+            that is the tap target iOS expects and the old one was 26.
+          */}
+          <button
+            onClick={() => onNavigate?.('qr-codes')}
+            className="flex min-h-[44px] items-center gap-2 rounded border border-orange-500/40 bg-orange-500/10 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange-300 transition hover:border-orange-500 hover:bg-orange-500/20 hover:text-white"
+            title="Branded QR codes for the truck, cards, flyers and signs — email or text one"
+          >
+            <QrCode className="h-4 w-4" />
+            <span>qr codes</span>
+          </button>
+
           <button
             onClick={() => setRailOpen((o) => !o)}
             className="hidden rounded p-1.5 text-gray-600 transition hover:bg-white/5 hover:text-white lg:block"
@@ -313,10 +351,24 @@ export default function PhoenixCommandCenter({ onNavigate }: PhoenixCommandCente
                     <span className="text-base italic text-emerald-200/90">{voice.heard}</span>
                   ) : (
                     <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-emerald-400/60">
+                      {/*
+                        There was a `recState === 'restarting'` arm here and it
+                        could never run: the state is 'off' | 'starting' |
+                        'listening' | 'thinking' | 'error', and nothing sets
+                        'restarting' anywhere. The hook restarts recognition by
+                        going back to 'listening' (usePhoenixVoice.ts:426), so
+                        that case was already covered by the first arm — the
+                        dead one was left behind when the state was renamed.
+
+                        Removed rather than kept as harmless, because an arm
+                        for a state that does not exist is a reader being told
+                        the machine has a mode it has not got. Typecheck had
+                        been reporting it as TS2367 all along; it was one line
+                        in three hundred.
+                      */}
                       {voice.recState === 'listening' ? 'listening — say something'
                         : voice.recState === 'starting' ? 'opening the microphone'
-                          : voice.recState === 'restarting' ? 'listening'
-                            : voice.recState}
+                          : voice.recState}
                       {/*
                         The raw state alongside the friendly one. A
                         paraphrase is what somebody reads back to me, and
