@@ -1108,6 +1108,33 @@ trashEstimatorRouter.post("/confirm-anonymous", async (c: any) => {
   }
 
   const nowIso = new Date().toISOString();
+  /*
+   * `|| "unknown"` POOLS every unidentifiable caller into one bucket, and
+   * that is deliberate here even though `anonPricer` a few hundred lines away
+   * decided the opposite. The two cases are not the same, and the next person
+   * will read one and then the other.
+   *
+   * THE PRICER HAS A GLOBAL CEILING UNDERNEATH IT. `ANON_GLOBAL_DAILY` bounds
+   * the day's model spend whatever happens to the per-address bucket, so when
+   * the address is unknown it can safely skip the bucket rather than pool —
+   * pooling there would let one person behind a shared NAT exhaust everybody
+   * else's three free prices.
+   *
+   * THIS HAS NO GLOBAL CEILING, and must not have one. A global cap on
+   * CONFIRMATIONS is a denial of service on real leads: one person could shut
+   * the queue for every genuine customer that day. A global cap on PRICING
+   * only costs us model calls, which is a bill rather than a lost job.
+   *
+   * So the choice here is pool or no limit at all, and pooling is the safer
+   * of those two when what is being protected is the office's attention
+   * rather than money.
+   *
+   * Close to unreachable regardless: measured 2026-11-17, Cloudflare 403s a
+   * client-supplied `cf-connecting-ip` and appends the real address to any
+   * `x-forwarded-for` it is handed, so `clientIp` returning null needs their
+   * edge to stop setting both. The three requests that establish it are above
+   * `clientIp` in `ipReputation.ts`.
+   */
   const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true) || "unknown";
   const dayKey = anonConfirmKey(ip, nowIso);
   const used = Number(await kv.get(dayKey).catch(() => 0)) || 0;
