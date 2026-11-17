@@ -176,7 +176,7 @@ bought for.
 
 ---
 
-### P4-5 — The anonymous pricer's per-IP ceiling rests on an undocumented dependency · **LOW, conditional**
+### P4-5 — The anonymous pricer's per-IP ceiling rests on an undocumented dependency · **LOW, conditional** · CLOSED 2026-11-17, MEASURED
 
 Reviewed at the author's request: `anonPricer.ts` plus its call site, added
 after this pass began. It lets anyone price a job with no credential, and
@@ -349,3 +349,49 @@ is one request away from being settled and belongs to whoever next deploys.
 
 Verified after both fixes: **3911 tests pass, 0 fail**; server typecheck 82,
 exactly at baseline; app typecheck 286, and the ratchet lowered to meet it.
+
+### P4-5 — closed by measurement, not by argument
+
+I filed this as "almost certainly safe, and nobody has written down why".
+It is now written down, and it was settled against the deployed function
+rather than reasoned about. Three requests:
+
+| Sent | Result |
+|---|---|
+| A client-supplied `cf-connecting-ip` | **403 at the edge** — Cloudflare error 1000. The function never runs. |
+| A spoofed `x-forwarded-for` | Reaches the function and still resolves to the **real** address: Cloudflare appends the connecting IP to the end of whatever list it is handed, and the code reads the rightmost entry. |
+| `x-client-ip` with `viaTrustedProxy` false | Ignored. |
+
+So the header cannot be forged from outside, and the conclusion is the
+opposite of my suggested fix: **gating `cf-connecting-ip` behind
+`viaTrustedProxy` would make things worse.** It would buy nothing — the header
+is already unforgeable — and would hand the decision to `x-forwarded-for`, and
+to `null` on the day the edge stops setting it.
+
+Worth keeping as a method note: my instinct was to add a gate, and the
+measurement said the gate was the dangerous change. The reasoning was sound
+and the conclusion was wrong, which is the usual outcome when a security
+question about somebody else's infrastructure is answered from first
+principles. The repeatable procedure now sits above `clientIp` in
+`ipReputation.ts`, alongside the earlier 2026-11-11 measurement of Supabase's
+own Cloudflare overwriting the same header.
+
+### A note on the build stamp, which had the fault it was built to fix
+
+The first stamped build reported `dirty: true` from a tree holding nothing but
+committed code, for two reasons I had missed and the other session caught:
+
+- `taskDigest.generated.ts` is modified in a normal tree nearly always, and
+  neither generated file was excluded from the stamp the way both are
+  excluded from `predeploy-check`. So the flag was going to read `true` for
+  ever.
+- The `git` helper `.trim()`s its whole output, which strips the leading
+  status space off the **first** porcelain line only. A fixed `slice(3)` then
+  removes a character from that one path — `supabase/…` becomes
+  `upabase/…` — so an exclusion by path would have missed the first file and
+  only the first file. Confirmed on the exact failing input.
+
+Both now fixed upstream by parsing the last field of each line. The point
+worth keeping: a flag that reads the same on every build carries no
+information, which is precisely the fault in the hand-written `version` string
+the stamp exists to replace. The fix had reproduced the bug.
