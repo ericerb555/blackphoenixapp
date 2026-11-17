@@ -458,3 +458,62 @@ sign-in.
 
 **The fix:** answer the first-owner question on the server by counting
 accounts, rather than from what one browser remembers.
+
+
+---
+
+## Resolved 2026-11-17
+
+Four of the five entries above are fixed; the originals are left in place
+because the reasoning is the useful part.
+
+- **`/design` serving Figma from our origin** — it is a `redirect` now, not a
+  `rewrite`, so Figma's site loads on Figma's own origin. The page works
+  better than it did before, which is unusual for a security fix.
+- **A link visitor's estimate keeping no photographs** — the server stores the
+  frames it was already sent, for any estimate that arrives with pictures and
+  no `storage://` refs. Not special-cased to links; a failed upload from a
+  signed-in phone on bad signal left the same hole.
+- **A fresh browser making the next signup an "owner"** — signup always writes
+  `customer`. The two welcome branches collapsed into one, because the branch
+  existed to announce the claim.
+- **Standing TypeScript errors** — 304 down to 297, and the seam is described
+  below.
+
+Still open: **daily backups do not cover Storage objects.** That one needs a
+destination and a decision, not code, and is left for Eric.
+
+### `Shift['status']` has no "cancelled" or "completed"
+
+`MasterScheduling.tsx` moves an appointment through
+`scheduled | confirmed | completed | cancelled`, but a crew shift can only be
+`scheduled | pending | time-off | time-off-pending`.
+
+So when a job is cancelled there is no honest value to write. The code used to
+write `scheduled` regardless — leaving crews rostered on cancelled jobs — and
+now leaves the shift untouched for `cancelled` and `completed`. That is true
+rather than false, but a dispatcher is still looking at a shift for a job that
+is not happening.
+
+**The fix:** widen `Shift['status']` to carry the states a job can actually
+reach, and render them. It touches the roster UI, which is why it was not done
+alongside the one-line correctness fix.
+
+### 297 standing TypeScript errors — the useful seam is TS2367
+
+Four real defects have now come out of this list, and not one was reported by
+a person: a blank Type column in every exported payments CSV, Bank of America
+missing from the revenue breakdown, six social captions containing the word
+"undefined", and crews left rostered on cancelled jobs.
+
+If somebody picks this up, start with the error CODES, not the files:
+
+| Code | What it means | Yield | Left |
+|---|---|---|---|
+| TS2367 | A comparison whose types cannot overlap — a condition that can never be true | Almost always a real bug | 5 |
+| TS2551 | A misspelled property, with the correct name suggested | Almost always real | 1 |
+| TS2339 | Property not on type — mostly loose record shapes | Low, very noisy | 152 |
+| TS2322 | Assignment mismatch | Low, very noisy | 109 |
+
+The first two rows are a short afternoon and have paid out every time. The
+last two are the reason nobody reads the list.
