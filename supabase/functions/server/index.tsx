@@ -44,6 +44,8 @@ import { queryPerfRoutes } from "./queryPerfRoutes.tsx";
 import { pricingOverviewRoutes } from "./pricingOverviewRoutes.tsx";
 import { companyLogoRoutes } from "./companyLogoRoutes.tsx";
 import { isStaffRequest, verifiedActor } from "./requireStaff.ts";
+import { runStorageBackup, expectedBackupSecret } from "./storageBackupRoutes.ts";
+import { LATEST_MANIFEST_KEY } from "./storageBackup.ts";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -1453,6 +1455,14 @@ const PUBLIC_POST_PATHS = [
    * minter is the principal.
    */
   '/trash-estimator/read',
+  /**
+   * The nightly Storage copy. Machine endpoint, shared secret, refuses when
+   * the secret is unset — same shape and same reasoning as the cron ticks
+   * above, which are listed here for the same reason: pg_cron posts with the
+   * anon key and would otherwise be answered 401 by the wall before the
+   * route's own check ran.
+   */
+  '/storage-backup/run',
   /**
    * The AI emergency attendant's three Twilio webhooks.
    *
@@ -18990,3 +19000,57 @@ app.delete('/make-server-3eae23a6/product-ads/:id', async (c) => {
 });
 
 Deno.serve(app.fetch);
+
+/**
+ * POST /storage-backup/run — the nightly second copy of every stored file.
+ *
+ * Eric: "fix the storage backup."
+ *
+ * Supabase's own docs: "Database backups do not include objects you store via
+ * the Storage API." So the photographs behind every trash estimate, the house
+ * captures, the gallery and the reels were outside the nightly backup that
+ * covers everything else. This closes that for the losses that actually
+ * happen — a deleted file, an emptied bucket, an overwrite — and says plainly
+ * in `storageBackup.ts` what it does not cover, which is losing the project
+ * itself.
+ *
+ * The decisions live in `storageBackup.ts` with twelve tests on them; the
+ * Storage calls live in `storageBackupRoutes.ts`. This is only the door.
+ */
+app.post('/make-server-3eae23a6/storage-backup/run', async (c) => {
+  const expected = await expectedBackupSecret();
+  const offered = c.req.header('X-Storage-Backup-Secret') || '';
+  if (!expected || offered !== expected) {
+    // Refuses when unset rather than falling open: an unset secret is exactly
+    // the state a half-finished deploy leaves behind.
+    return c.json({ success: false, error: 'Unauthorized.' }, 401);
+  }
+
+  try {
+    const manifest = await runStorageBackup();
+    return c.json({ success: true, manifest: { ...manifest, index: undefined }, indexed: manifest.objects });
+  } catch (error: any) {
+    console.error('[storage-backup] run failed:', error?.message || error);
+    return c.json({ success: false, error: error?.message || 'Backup failed.' }, 500);
+  }
+});
+
+/**
+ * GET /storage-backup/status — what the last run found and copied.
+ *
+ * Staff only. The index is left out of the response: it is one entry per
+ * object and the point of it is being inside the nightly database backup, not
+ * being read over the wire.
+ */
+app.get('/make-server-3eae23a6/storage-backup/status', async (c) => {
+  if (!await isStaffRequest(c)) {
+    return c.json({ success: false, error: 'Company access is required for this.' }, 403);
+  }
+  const latest = await kv.get(LATEST_MANIFEST_KEY) as any;
+  if (!latest) return c.json({ success: true, lastRun: null });
+  return c.json({
+    success: true,
+    lastRun: { ...latest, index: undefined },
+    indexed: Object.keys(latest.index || {}).length,
+  });
+});
