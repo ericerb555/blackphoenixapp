@@ -74,6 +74,12 @@ const transpilable = /\.(ts|tsx)$/;
  * decision and can be overridden, so the stamp has to be able to say "this
  * build contained uncommitted changes" rather than assume it never does.
  */
+/** Files the build rewrites itself. Mirrors `GENERATED` in predeploy-check.mjs. */
+const GENERATED_PATHS = new Set([
+  'supabase/functions/server/taskDigest.generated.ts',
+  'supabase/functions/server/buildInfo.generated.ts',
+]);
+
 function buildStamp() {
   const git = (cmd) => {
     try {
@@ -86,7 +92,31 @@ function buildStamp() {
     commit: git('git rev-parse --short HEAD') || 'unknown',
     branch: git('git rev-parse --abbrev-ref HEAD') || 'unknown',
     committedAt: git('git log -1 --format=%cI') || '',
-    dirty: git('git status --porcelain -- supabase/functions/').split('\n').filter(Boolean).length > 0,
+    /*
+     * The two files the build rewrites itself do not count as dirty.
+     *
+     * `taskDigest.generated.ts` is modified in a normal tree most of the time
+     * and `buildInfo.generated.ts` is rewritten by this very function, so
+     * counting them made the first stamped build report `dirty: true` while
+     * holding nothing but committed code. A flag that is always true carries
+     * no information — which is the exact fault in the hand-written `version`
+     * string this stamp exists to replace. Kept in step with the GENERATED
+     * set in `predeploy-check.mjs`: same files, same reason.
+     *
+     * Parsed by taking the LAST field of each line rather than by column.
+     * `git status --porcelain` puts the status in the first two columns and
+     * the path from the third, but the `git` helper above trims its whole
+     * output — which strips the leading space off the FIRST line only, so a
+     * fixed `slice(3)` silently removed a character of that one path and the
+     * exclusion missed it. These paths contain no spaces, and git quotes any
+     * that do.
+     */
+    dirty: git('git status --porcelain -- supabase/functions/')
+      .split('\n')
+      .map((line) => line.trim().split(/\s+/).pop())
+      .filter(Boolean)
+      .filter((path) => !GENERATED_PATHS.has(path))
+      .length > 0,
     builtAt: new Date().toISOString(),
   };
 }
