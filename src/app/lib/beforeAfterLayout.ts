@@ -115,11 +115,119 @@ export function coverCrop(source: Size, target: Size): Rect {
   return { x: 0, y: round((sh - height) / 2), width: round(sw), height: round(height) };
 }
 
+/**
+ * How a photograph is framed inside its pane.
+ *
+ * Eric: "i need to be able to zoom in and out on the picture i uploaded to
+ * make is look correct."
+ *
+ * `coverCrop` takes the biggest CENTRED crop, which is right most of the time
+ * and wrong exactly when it matters — the new worktop is along the bottom edge,
+ * the damage is off to one side, the van is parked in half the frame. There was
+ * no way to say so, so the only fix was to re-crop the photograph somewhere else
+ * and upload it again.
+ *
+ * ZOOM IS A MULTIPLE OF "FILLS THE PANE", NOT OF THE IMAGE
+ *
+ * 1 is the centred crop that exactly covers the pane — what the tool did before
+ * this existed, so an untouched design is unchanged to the pixel. 2 reads half
+ * as much of the source in each direction, so the subject is twice the size.
+ *
+ * It cannot go below 1. Below that the crop would be larger than the source, and
+ * `drawImage` handed a source rectangle that runs off the edge of the bitmap
+ * paints the overhang as nothing — a black band down one side of a photograph on
+ * a post that is about to be published. Letting somebody zoom out into that is
+ * offering a way to make the design worse with no way to see why.
+ *
+ * OFFSETS ARE FRACTIONS OF THE SLACK, NOT PIXELS
+ *
+ * -1 is hard against one edge, 0 centred, +1 hard against the other. That makes
+ * them meaningful without knowing the image's dimensions, which is what lets one
+ * slider serve a phone photograph and a wide-angle shot — and what keeps a
+ * saved design correct if the same framing is ever applied to a re-uploaded
+ * version of the same picture at another resolution. At zoom 1 along the axis
+ * with no slack, the offset has nothing to move and is ignored rather than
+ * clamped to an edge.
+ */
+export interface Framing {
+  /** 1 = the centred crop that covers the pane. Never less. */
+  zoom: number;
+  /** -1 … 1 across the slack. 0 is centred. */
+  offsetX: number;
+  offsetY: number;
+}
+
+export const NO_FRAMING: Framing = { zoom: 1, offsetX: 0, offsetY: 0 };
+
+/** How far in somebody may go. Past this a 1080px pane is reading a 135px strip. */
+export const MAX_ZOOM = 8;
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/**
+ * The crop to read, given a zoom and a position.
+ *
+ * With `NO_FRAMING` this is `coverCrop` exactly — same rectangle, same rounding
+ * — which is the property that makes it safe to route every existing design
+ * through it.
+ */
+export function framedCrop(source: Size, target: Size, framing?: Partial<Framing> | null): Rect {
+  const base = coverCrop(source, target);
+
+  const zoomRaw = Number(framing?.zoom);
+  const zoom = clamp(Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1, 1, MAX_ZOOM);
+
+  const offsetXRaw = Number(framing?.offsetX);
+  const offsetYRaw = Number(framing?.offsetY);
+  const offsetX = clamp(Number.isFinite(offsetXRaw) ? offsetXRaw : 0, -1, 1);
+  const offsetY = clamp(Number.isFinite(offsetYRaw) ? offsetYRaw : 0, -1, 1);
+
+  const sw = Math.max(1, Number(source.width) || 1);
+  const sh = Math.max(1, Number(source.height) || 1);
+
+  /*
+   * Zooming reads LESS of the source, which is why it divides. A width of at
+   * least one pixel, because a crop of zero paints nothing and `drawImage`
+   * will not complain about it.
+   */
+  const width = Math.max(1, base.width / zoom);
+  const height = Math.max(1, base.height / zoom);
+
+  /*
+   * The room left over on each axis, which is what an offset moves within.
+   *
+   * On the axis `coverCrop` already trimmed there is slack even at zoom 1 —
+   * that is the part of the photograph the centred crop threw away, and being
+   * able to reach it is most of the point of this. On the other axis there is
+   * no slack until the zoom creates some.
+   */
+  const slackX = Math.max(0, sw - width);
+  const slackY = Math.max(0, sh - height);
+
+  /*
+   * Centre first, then move by the offset. Expressed as the midpoint plus half
+   * the slack so that +1 lands exactly on the far edge and never past it — the
+   * clamps below are a belt, not the mechanism.
+   */
+  const x = (sw - width) / 2 + (offsetX * slackX) / 2;
+  const y = (sh - height) / 2 + (offsetY * slackY) / 2;
+
+  return {
+    x: round(clamp(x, 0, slackX)),
+    y: round(clamp(y, 0, slackY)),
+    width: round(width),
+    height: round(height),
+  };
+}
+
 export interface CompositionOptions {
   layout: BeforeAfterLayout;
   size: BeforeAfterSize;
   before: Size;
   after: Size;
+  /** How each photograph is framed in its pane. Absent means centred, unzoomed. */
+  beforeFraming?: Partial<Framing> | null;
+  afterFraming?: Partial<Framing> | null;
   /** Off for a design that is all photograph. */
   showLabels?: boolean;
   /** Off when the Content Center's own branding controls say so. */
@@ -163,7 +271,17 @@ export function composeBeforeAfter(opts: CompositionOptions): Composition {
   let dividerKind: Composition['divider']['kind'] = 'none';
 
   const place = (dest: Rect, role: 'before' | 'after', source: Size) => {
-    panes.push({ source: coverCrop(source, { width: dest.width, height: dest.height }), dest, role });
+    /*
+     * Each photograph carries its own framing, because the two are rarely
+     * wrong in the same way — the before is a wide shot of the whole room and
+     * the after is the detail somebody actually wants seen.
+     */
+    const framing = role === 'before' ? opts.beforeFraming : opts.afterFraming;
+    panes.push({
+      source: framedCrop(source, { width: dest.width, height: dest.height }, framing),
+      dest,
+      role,
+    });
   };
 
   switch (opts.layout) {

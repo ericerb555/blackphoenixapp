@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  composeBeforeAfter, LAYOUTS, OUTPUT_SIZES,
+  composeBeforeAfter, LAYOUTS, OUTPUT_SIZES, NO_FRAMING, MAX_ZOOM, type Framing,
   type BeforeAfterLayout, type BeforeAfterSize,
 } from '../../lib/beforeAfterLayout';
 import { renderBeforeAfter, loadImage, canvasToBlob, type Brand } from '../../lib/beforeAfterRender';
@@ -82,11 +82,111 @@ function brandFromCompany(): Brand {
   };
 }
 
+/**
+ * Is this photograph still framed the way the tool chose for it?
+ *
+ * Used to disable "Reset", so the control says whether there is anything to
+ * undo rather than always offering it.
+ */
+function isCentred(f: Framing): boolean {
+  return f.zoom === 1 && f.offsetX === 0 && f.offsetY === 0;
+}
+
+/**
+ * Zoom, across and up for one photograph.
+ *
+ * THE SLIDERS ARE DISABLED WHEN THEY WOULD DO NOTHING, which is the part worth
+ * explaining. At 1x a landscape photograph in a square pane has slack across
+ * and none vertically — `framedCrop` ignores an offset with no room to move,
+ * correctly, and a slider that visibly moves while the picture does not reads
+ * as a broken tool. So the control reflects the arithmetic instead of hiding
+ * it, and the hint says why.
+ *
+ * The axis with slack depends on the photograph AND the output size, so it is
+ * passed in rather than guessed here.
+ */
+function FramingRow({ label, framing, onChange, canMoveX = true, canMoveY = true }: {
+  label: string;
+  framing: Framing;
+  onChange: (f: Framing) => void;
+  canMoveX?: boolean;
+  canMoveY?: boolean;
+}) {
+  const set = (patch: Partial<Framing>) => onChange({ ...framing, ...patch });
+
+  return (
+    <div style={{ marginTop: '10px' }}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-gray-300">{label}</span>
+        <span className="text-[11px] tabular-nums text-gray-500">
+          {framing.zoom.toFixed(2)}&times;
+        </span>
+      </div>
+
+      <label className="flex items-center gap-2" style={{ marginTop: '4px' }}>
+        <span className="w-14 text-[11px] text-gray-500">Zoom</span>
+        <input
+          type="range"
+          min={1}
+          max={MAX_ZOOM}
+          step={0.05}
+          value={framing.zoom}
+          onChange={(e) => set({ zoom: Number(e.target.value) })}
+          className="flex-1 accent-[#ea580c]"
+        />
+      </label>
+
+      <label className="flex items-center gap-2" style={{ marginTop: '4px' }}>
+        <span className="w-14 text-[11px] text-gray-500">Across</span>
+        <input
+          type="range"
+          min={-1}
+          max={1}
+          step={0.02}
+          value={framing.offsetX}
+          disabled={!canMoveX}
+          onChange={(e) => set({ offsetX: Number(e.target.value) })}
+          className="flex-1 accent-[#ea580c] disabled:opacity-30"
+        />
+      </label>
+
+      <label className="flex items-center gap-2" style={{ marginTop: '4px' }}>
+        <span className="w-14 text-[11px] text-gray-500">Up</span>
+        <input
+          type="range"
+          min={-1}
+          max={1}
+          step={0.02}
+          value={framing.offsetY}
+          disabled={!canMoveY}
+          onChange={(e) => set({ offsetY: Number(e.target.value) })}
+          className="flex-1 accent-[#ea580c] disabled:opacity-30"
+        />
+      </label>
+    </div>
+  );
+}
+
 export default function BeforeAfterCreator() {
   const [layout, setLayout] = useState<BeforeAfterLayout>('side-by-side');
   const [size, setSize] = useState<BeforeAfterSize>('square');
   const [beforeSrc, setBeforeSrc] = useState<string>('');
   const [afterSrc, setAfterSrc] = useState<string>('');
+  /**
+   * How each photograph sits in its pane.
+   *
+   * Eric: "i need to be able to zoom in and out on the picture i uploaded to
+   * make is look correct." The crop was always the biggest centred one,
+   * which is right until the thing worth seeing is along an edge — and then
+   * the only fix was to re-crop the file and upload it again.
+   *
+   * Held per slot rather than shared: the before is usually a wide shot of
+   * the whole room and the after is the detail, so they are rarely wrong in
+   * the same way. The arithmetic is `framedCrop`, which is tested, so this
+   * only carries the numbers.
+   */
+  const [beforeFraming, setBeforeFraming] = useState<Framing>(NO_FRAMING);
+  const [afterFraming, setAfterFraming] = useState<Framing>(NO_FRAMING);
   const [beforeImg, setBeforeImg] = useState<HTMLImageElement | null>(null);
   const [afterImg, setAfterImg] = useState<HTMLImageElement | null>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
@@ -294,11 +394,13 @@ export default function BeforeAfterCreator() {
     size,
     before: beforeImg ? { width: beforeImg.naturalWidth, height: beforeImg.naturalHeight } : { width: 4, height: 3 },
     after: afterImg ? { width: afterImg.naturalWidth, height: afterImg.naturalHeight } : { width: 4, height: 3 },
+    beforeFraming,
+    afterFraming,
     showLabels,
     showBrand,
     beforeLabel,
     afterLabel,
-  }), [layout, size, beforeImg, afterImg, showLabels, showBrand, beforeLabel, afterLabel]);
+  }), [layout, size, beforeImg, afterImg, beforeFraming, afterFraming, showLabels, showBrand, beforeLabel, afterLabel]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -312,6 +414,23 @@ export default function BeforeAfterCreator() {
       toast.error(err?.message || 'The design could not be drawn.');
     }
   }, [composition, beforeImg, afterImg, brand, logoImg, overlayText]);
+
+  /**
+   * Whether a photograph has anywhere to move on each axis.
+   *
+   * Derived from the crop the layout actually chose rather than guessed from
+   * the aspect ratios, so it stays right when the output size changes. A
+   * slider with no slack behind it would move while the picture did not.
+   */
+  const slackOf = useCallback((role: 'before' | 'after') => {
+    const img = role === 'before' ? beforeImg : afterImg;
+    const pane = composition.panes.find((p) => p.role === role);
+    if (!img || !pane) return { x: false, y: false };
+    return {
+      x: pane.source.width < img.naturalWidth,
+      y: pane.source.height < img.naturalHeight,
+    };
+  }, [composition, beforeImg, afterImg]);
 
   const ready = Boolean(afterImg) && (layout === 'full-bleed' || Boolean(beforeImg));
 
@@ -525,6 +644,65 @@ export default function BeforeAfterCreator() {
                 : 'Choose both photos to see the design.'}
             </p>
           )}
+          {/*
+            Framing the photographs.
+
+            Eric: "i need to be able to zoom in and out on the picture i
+            uploaded to make is look correct."
+
+            Under the preview rather than beside the pickers, because framing is
+            something you do while looking at the result — every slider moves
+            the canvas above as it is dragged.
+
+            Sliders rather than drag-on-canvas. This tool gets used on a phone,
+            and a range input is a native touch target that works first time;
+            pinch and drag on a canvas has to fight the page's own scrolling.
+
+            Only shown for a slot that actually holds a photograph, and the
+            before row is hidden on a full-bleed design where there is only one.
+          */}
+          {ready && (
+            <div className="mt-3 rounded-lg border border-gray-800 bg-black/30" style={{ padding: '12px' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Framing
+                </span>
+                <button
+                  onClick={() => { setBeforeFraming(NO_FRAMING); setAfterFraming(NO_FRAMING); }}
+                  disabled={isCentred(beforeFraming) && isCentred(afterFraming)}
+                  className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40"
+                >
+                  Reset both
+                </button>
+              </div>
+
+              {layout !== 'full-bleed' && beforeImg && (
+                <FramingRow
+                  label="Before"
+                  framing={beforeFraming}
+                  onChange={setBeforeFraming}
+                  canMoveX={slackOf('before').x}
+                  canMoveY={slackOf('before').y}
+                />
+              )}
+              {afterImg && (
+                <FramingRow
+                  label="After"
+                  framing={afterFraming}
+                  onChange={setAfterFraming}
+                  canMoveX={slackOf('after').x}
+                  canMoveY={slackOf('after').y}
+                />
+              )}
+
+              <p className="text-[11px] leading-relaxed text-gray-600" style={{ marginTop: '8px' }}>
+                Zoom reads less of the photograph, so the subject gets bigger. Across and Up
+                move the crop within what is left over — at 1× there is only room to move on the
+                long side.
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2 mt-3">
             <button
               disabled={!ready || busy !== ''}

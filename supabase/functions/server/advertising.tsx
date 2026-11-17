@@ -472,7 +472,7 @@ advertisingRouter.post("/advertising/images/generate", async (c) => {
       return c.json({ success: false, error: "Image generation is not configured on this server." }, 503);
     }
 
-    const token = String(c.req.header("Authorization") || "").replace(/^Bearers+/i, "");
+    const token = String(c.req.header("Authorization") || "").replace(/^Bearer\s+/i, "");
     const { data: { user } } = await admin.auth.getUser(token);
     const over = await reserveAiSpend(user, "ai", 1, "images");
     if (over) return c.json({ success: false, error: over.error, used: over.used, limit: over.limit }, 429);
