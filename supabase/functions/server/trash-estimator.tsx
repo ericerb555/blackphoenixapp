@@ -453,7 +453,16 @@ trashEstimatorRouter.post("/read", async (c: any) => {
        * itself the moment the textable pricing link lands, because a visitor
        * arriving on a token carries no actor. See `signupIncentive.ts`.
        */
-      signupOffer: user ? null : signupOfferFor(takeoff.cost, { needsSiteVisit: takeoff.needsSiteVisit }),
+      signupOffer: signupOfferFor(takeoff.cost, {
+        needsSiteVisit: takeoff.needsSiteVisit,
+        /*
+         * `actor`, not `user`. A link visitor's `user` is the synthetic
+         * principal that pays for the call and is always truthy, so keying on
+         * it suppressed the offer for the one audience it is for. `actor` is a
+         * real account and nothing else.
+         */
+        hasAccount: Boolean(actor),
+      }),
       basis: estimateBasis(takeoff, rates),
       /*
        * The evidence, kept.

@@ -56,6 +56,44 @@ test('no offer when the estimate wants a site visit first', () => {
   assert.equal(signupOfferFor(band(1000, 2000, 3000), { needsSiteVisit: true }), null);
 });
 
+test('no offer to somebody who already has an account', () => {
+  assert.equal(signupOfferFor(band(1000, 2000, 3000), { hasAccount: true }), null);
+});
+
+test('THE OFFER EXISTS for somebody who has no account', () => {
+  /*
+   * The regression this file exists for.
+   *
+   * Shipped once with the offer keyed on the route's `user` rather than its
+   * `actor`. `user` is the synthetic principal a texted link spends as, and it
+   * is always truthy — so the offer was withheld from signed-in customers
+   * correctly and from link visitors, its only audience, by mistake. Every
+   * test here passed, because they all called this function directly and none
+   * of them asserted the positive case for a visitor with no account.
+   *
+   * An assertion that something IS shown is worth as much as the eight here
+   * that say it is not.
+   */
+  const offer = signupOfferFor(band(1000, 2000, 3000), { hasAccount: false });
+  assert.ok(offer, 'a visitor with no account must be offered the discount');
+  assert.equal(offer.percent, 5);
+  assert.equal(offer.cost.likely, 1900);
+  assert.equal(offer.saves, 100);
+
+  // Omitted entirely must behave as "no account", since that is the default
+  // for a caller that has not thought about it.
+  assert.ok(signupOfferFor(band(1000, 2000, 3000)), 'default must offer, not withhold');
+});
+
+test('having an account beats every other reason to show it', () => {
+  // Belt and braces: hasAccount wins even on a perfectly priced band.
+  assert.equal(signupOfferFor(band(5000, 7500, 9000), { hasAccount: true }), null);
+  assert.equal(
+    signupOfferFor(band(5000, 7500, 9000), { hasAccount: true, needsSiteVisit: false }),
+    null,
+  );
+});
+
 test('no offer when there is no priced band', () => {
   assert.equal(signupOfferFor(null), null);
   assert.equal(signupOfferFor(undefined), null);

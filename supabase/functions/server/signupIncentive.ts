@@ -70,8 +70,31 @@ export interface SignupOffer {
  */
 export function signupOfferFor(
   cost: Band<number> | null | undefined,
-  opts: { needsSiteVisit?: boolean } = {},
+  opts: { needsSiteVisit?: boolean; hasAccount?: boolean } = {},
 ): SignupOffer | null {
+  /*
+   * `hasAccount` lives in here rather than at the call site, because at the
+   * call site I got it wrong.
+   *
+   * The route has two different notions of who is asking. `actor` is a real
+   * signed-in account. `user` is whoever is SPENDING — which, for a visitor on
+   * a texted link, is a synthetic principal built from the token so the link
+   * pays for its own AI calls. The first commit keyed the offer on `user`,
+   * which is truthy for a link visitor, so the offer was suppressed for
+   * everybody: signed-in customers correctly, and link visitors — the only
+   * audience it exists for — by mistake.
+   *
+   * Nothing caught it. The unit tests passed because they called this function
+   * directly and never saw the call site; the typecheck passed because both
+   * values are objects; the deploy passed. Eric found it by looking at the
+   * page and asking where the button was.
+   *
+   * So the rule is a parameter now. A caller has to say which of its two
+   * principals it means, the name says which answer suppresses the offer, and
+   * the test below pins it.
+   */
+  if (opts.hasAccount) return null;
+
   if (SIGNUP_DISCOUNT_PERCENT > QUOTE_DISCOUNT_CAP_PERCENT) {
     throw new Error(
       `signup incentive of ${SIGNUP_DISCOUNT_PERCENT}% exceeds the ` +
