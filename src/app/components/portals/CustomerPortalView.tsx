@@ -844,15 +844,37 @@ export default function CustomerPortalView() {
       {/* Header */}
       <div className="bg-gradient-to-br from-[#1A1A1A] via-[#0A0A0A] to-[#0A0A0A] border-b border-[#2A2A2A]">
         <div className="max-w-7xl mx-auto px-6 py-8">
-          {/* Customer Info */}
-          <div className="flex items-center justify-between mb-6">
+          {/*
+            Customer Info
+
+            Eric, from an iPhone: "right under the member since 2023 the
+            buttons and words are all jammed together on the junk removal
+            page."
+
+            This row was `flex items-center justify-between` with nothing
+            responsive on it, so at 390px the heading and the three controls
+            beside it were held on one line and crushed into each other —
+            "Welcome back, <name>" at text-3xl does not share a phone's width
+            with a Shop Now button and two icon buttons.
+
+            It stacks below `sm` now and keeps the original side-by-side row
+            above it. `gap-4` rather than relying on `mb-` so the two halves
+            stay apart in the stacked case as well.
+
+            Worth noting for whoever reads this next: the heading is not what
+            was wrong. The buttons were never given permission to go anywhere
+            else, which is a different fault from anything about font size —
+            and it is on the PORTAL, not the standalone /junk-quote page that
+            a texted link opens.
+          */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-orange-400 via-orange-300 to-orange-500 bg-clip-text text-transparent">
+              <h1 className="text-2xl sm:text-3xl font-bold mb-2 bg-gradient-to-r from-orange-400 via-orange-300 to-orange-500 bg-clip-text text-transparent">
                 Welcome back, {customerInfo.name.split(' ')[0]}
               </h1>
               <p className="text-gray-400">Member since {customerInfo.memberSince}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={() => setActiveTab('shopping')}
                 className="px-4 py-2 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-500 hover:via-purple-500 hover:to-pink-500 text-white rounded-lg font-semibold transition shadow-lg flex items-center gap-2"
