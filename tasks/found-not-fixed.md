@@ -430,8 +430,8 @@ noise.
 more.
 
 
-### A fresh browser makes the next signup an "owner"
-`src/app/pages/SignUp.tsx` decides the account type like this:
+### A fresh browser makes the next signup an "owner" in its own UI
+`src/app/pages/SignUp.tsx` decides the account type from `localStorage`:
 
 ```js
 const userProfiles = JSON.parse(localStorage.getItem('userProfiles') || '{}');
@@ -439,21 +439,22 @@ const isFirstUser = Object.keys(userProfiles).length === 0;
 const accountType = isFirstUser ? 'owner' : 'customer';
 ```
 
-"First user becomes owner" is read from `localStorage`. In any fresh browser —
-a private window, a new phone, cleared site data — that object is empty, so the
-next person to sign up is written as `owner` in their own stored profile.
+In any fresh browser that object is empty, so the next person to register is
+written as `owner` in their own stored profile.
 
-The server grants them nothing: `trustedRole` reads `app_metadata` only, and
-`/auth/signup` hardcodes `role = "client"` precisely because it once read the
-role from the request body and let anyone self-register as `master_admin`. So
-this is not a privilege escalation.
+**This is already known and already bounded**, which is why this entry is a
+pointer rather than a discovery. The comment at SignUp.tsx:118 says the same
+thing; the server grants every self-registration the `client` role
+(`/auth/signup` hardcodes it, because it once read the role from the request
+body and let anyone self-register as `master_admin`); and `Login.tsx` discards
+a locally elevated `accountType` on the next sign-in. So it is not a privilege
+escalation and it does not survive signing in again.
 
-It is still wrong, and it is now in the path of real traffic. The 5% junk
-pricing offer sends a visitor from a texted link to `/signup`, which on a phone
-is very often a browser with no stored profiles — so the people most likely to
-hit this are exactly the ones the funnel was built for. The UI reads that
-profile, so they can land on owner-looking screens that then fail every server
-call they make.
+What is new is the traffic. The 5% junk pricing offer now sends visitors from
+a texted link to `/signup`, on phones, in browsers with no stored profiles —
+so the audience most likely to meet this is the one the funnel was built to
+attract, and they meet it in the window between registering and their next
+sign-in.
 
-**The fix:** decide the first-owner question on the server, where it can be
-answered by counting accounts rather than by what one browser remembers.
+**The fix:** answer the first-owner question on the server by counting
+accounts, rather than from what one browser remembers.
