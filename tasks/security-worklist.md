@@ -12,7 +12,7 @@ Status: `OPEN`, `DOING`, `DONE`, or `WAITING` on somebody.
 |---|---|---|---|---|
 | 1 | **`/cart` is public and takes `:customerId`** | Was the only remaining hole reachable with **no session at all**. Measured on production first — `DELETE /cart/victim-customer-id` answered 200 and emptied it — then closed by deciding on the SHAPE of the id: a minted `session_…` is a capability and stays public, anything else needs staff or the signed-in owner. Verified live. | me | **DONE 2026-11-17** |
 | 2 | **WAF-1 — the firewall can be walked around** | `*.supabase.co` answers directly, so the Cloudflare rules never see the traffic. Every rate limit and bot rule above it is advisory until this closes. Needs `EDGE_ORIGIN_SECRET` set in two places, then `ORIGIN_LOCK_ENFORCE=true`. | Eric + me | WAITING |
-| 3 | **~950 routes that check *something*** | The scan that found the four unguarded modules finds only the *absence* of a check. A route that checks the wrong thing — the wrong role, or an id taken from the request — still reads as guarded. This is the largest unknown left and needs its own scanner. | me | OPEN |
+| 3 | **~950 routes that check *something*** | Now has a tool: `npm run authz:scan`. Worst cluster fixed — 12 property-management writes. 36 + 38 leads remain, worked cluster by cluster; see below. | me | **DOING** |
 | 4 | **`POST /variances/scan-fill` trusts `body.email`** | A signed-in caller can file a draft under somebody else's address. Not a disclosure; the guard above it already stops them reading it back. | me | OPEN |
 | 5 | **9 `SECURITY DEFINER` functions executable by `anon`** | Measured as returning nothing without a session (`is_platform_operator()` answers `false`), so this is unnecessary surface rather than a hole. Revoke `EXECUTE` from `anon`. | me | OPEN |
 | 6 | **IP reputation scores but never bans** | The middleware measures and records; enforcement is off. Switching it on can lock people out, so the threshold is a judgement call. | Eric | WAITING |
@@ -40,3 +40,45 @@ Measured rather than assumed, all on 2026-11-17 — see
 - Card fields removed from signup.
 - Retired API generations confirmed dead, with a check that now requires a
   positive marker instead of accepting a 401.
+
+## Item 3 in progress — `npm run authz:scan`
+
+The scanner is in the repo now rather than a one-off. It lists writes that take
+an identifier from the request, split by the distinction that matters:
+
+    A  no caller resolved at all                    36 routes
+    B  caller resolved, never compared to the
+       record — the IDOR class                      38 routes
+
+**It is a lead generator, not a verdict.** Two false positives were fixed
+before any of it was trusted, and both are how this kind of scan lies:
+
+- `design-links.tsx` passes `requireStaff` as **per-route middleware**, so the
+  handler body never names it. All five of its routes were flagged. The scan
+  reads the argument list now.
+- `rental-portals.tsx` `PATCH /tenant/leases/:id/sign` resolves `intakeActor`
+  and compares the caller's email to `lease.tenantEmail` **inline**. Textbook
+  correct, and flagged because the check is an expression rather than a helper
+  call. That is why one question became two.
+
+Staff-only routes are excluded on purpose: "every staff member may touch every
+record" is a policy, not a defect.
+
+### Done from item 3
+
+- **`property-management.tsx`** — twelve writes at tier "user" with no caller
+  resolved at all: condo associations, landlords' properties, their work
+  requests, the offers on them, and the crew assigned. Staff-only now. The
+  module's own header had recorded the problem and declined it, fearing a staff
+  gate would break the landlord portals — checked, and nothing landlord-facing
+  calls the module at all; the real landlord features are in `rental-portals`
+  with their own ownership checks. Separately, `index.tsx` claimed this module
+  "stays unmounted" while it was mounted and live, which is corrected in place.
+
+### Next clusters, largest first
+
+`growth-marketing` (5, three at admin tier), `crm-content` (4, two admin),
+`ecommerce-orders` (3, behind middleware), `ecommerce-products` (3, behind
+middleware), `rental-portals` (3), then a long tail of ones and twos. The
+admin-tier and middleware-covered ones are probably fine and need reading to
+confirm rather than guarding.
