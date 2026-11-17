@@ -22,6 +22,7 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
+import { verifiedActor } from "./requireStaff.ts";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";
 import { winningArchetypesFragment } from "./reel-scoreboard.tsx";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
@@ -1326,6 +1327,22 @@ videoStudioRouter.get("/video-studio/projects", async (c) => {
 
 videoStudioRouter.delete("/video-studio/projects/:id", async (c) => {
   try {
+    /*
+     * Staff only, and not owner-scoped, because a project has no owner.
+     *
+     * This deletes the record AND removes every scene image and audio file
+     * from storage, for an id, with no check of any kind. There is nothing on
+     * a project saying whose it is — no createdBy, no email, no user id — so
+     * scoping it to an owner is not available without first deciding what an
+     * owner is and back-filling every existing project. Staff-only is the
+     * honest guard for today; the alternative is leaving it open while a
+     * better one is designed.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
     const id = c.req.param("id");
     const raw = await kv.get(`${PROJECT_PREFIX}${id}`);
     const project = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;

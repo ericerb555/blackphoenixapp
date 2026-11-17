@@ -43,7 +43,7 @@ import { exchangeLogoRoutes } from "./exchangeLogoRoutes.tsx";
 import { queryPerfRoutes } from "./queryPerfRoutes.tsx";
 import { pricingOverviewRoutes } from "./pricingOverviewRoutes.tsx";
 import { companyLogoRoutes } from "./companyLogoRoutes.tsx";
-import { isStaffRequest } from "./requireStaff.ts";
+import { isStaffRequest, verifiedActor } from "./requireStaff.ts";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
@@ -116,7 +116,7 @@ import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
 import { approvalAfterSave as dealApprovalAfterSave, isPublishable as dealIsPublishable, decide as dealDecide } from "./publishApproval.ts";
 import { learnAfterPayment } from "./rateLearningRoutes.tsx";
-import quotesRouter from "./quotes.tsx";
+import quotesRouter, { quoteBelongsTo } from "./quotes.tsx";
 import quoteAttachmentsRouter from "./quoteAttachments.ts";
 import unavailabilityRouter from "./unavailability.tsx";
 import scheduleAssistantRouter from "./scheduleAssistant.tsx";
@@ -7060,6 +7060,24 @@ app.get('/make-server-3eae23a6/studio/project-info/:quoteId', async (c) => {
   try {
     const quote = await kv.get(`quote:${c.req.param('quoteId')}`) as any;
     if (!quote) return c.json({ success: false, error: 'Project not found.' }, 404);
+
+    /*
+     * Staff, or the customer whose project it is.
+     *
+     * This returns the quote document whole — client name, email, phone, site
+     * address, line items and pricing — and asked only that somebody be signed
+     * in. Quote ids are sequential enough to walk.
+     *
+     * Same rule and same function as `quotes.tsx` uses for the quote itself,
+     * because this is the same document reached by a different path. "Not
+     * yours" answers as "not found": the 404 above already tells a caller
+     * nothing, and this one should tell them nothing either.
+     */
+    const who = await verifiedActor(c);
+    if (!who || (!who.staff && !quoteBelongsTo(quote, who.email, who.id))) {
+      return c.json({ success: false, error: 'Project not found.' }, 404);
+    }
+
     return c.json({ success: true, project: stripBase64(quote) });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load project.' }, 500); }
 });
@@ -9810,8 +9828,23 @@ app.post('/make-server-3eae23a6/messaging/conversations/direct', async (c) => {
 // Notify customer that admin viewed their work request
 app.post('/make-server-3eae23a6/work-requests/:id/viewed', async (c) => {
   try {
+    /*
+     * Staff only, and the admin name comes from the token.
+     *
+     * This opens a conversation against a work request with a participant
+     * the request names — so it took the admin’s name AND the customer’s
+     * email from the body, and any signed-in account could start a thread on
+     * anybody’s job signed "Black Phoenix Team". A customer reading it has
+     * no way to tell it is not us.
+     */
+    const staffWho = await verifiedActor(c);
+    if (!staffWho?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const wrId = c.req.param('id');
-    const { adminName, customerEmail, customerName } = await c.req.json();
+    const { customerEmail, customerName } = await c.req.json();
+    const adminName = staffWho.email;
 
     // Create/find conversation and send an automatic notification message
     const all = await kv.getByPrefix('conv:') as any[];
