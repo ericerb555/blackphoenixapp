@@ -1026,56 +1026,29 @@ export default function CustomerPortalView() {
         {activeTab === 'documents' && <PortalDocumentVault session={session} accent="orange" />}
         {activeTab === 'trash-estimate' && (
           /*
-           * Eric: "it should ask … to join a portal if they dont have one."
+           * Anybody prices a job here. No account, no link, no sign-in.
            *
-           * `customer-portal` is on the public page list — "allow visitors to
-           * explore features" — so somebody with no account can reach this tab.
-           * They could not use it: the panel sends the estimate through
-           * `authedHeaders`, which THROWS rather than falling back, so the
-           * Price it button answered "Your session has expired" to a person who
-           * never had a session. A pricer that errors is worse than one that is
-           * honestly out of reach, because the visitor concludes the tool is
-           * broken rather than that it is for customers.
+           * Eric: "Some Should not have to login to use the junk remaval picer
+           * until they decied to create an account and get 5 percent off..
+           * anyone can try the pricer."
            *
-           * So the offer replaces the pricer rather than sitting under it. The
-           * 5% is the same discount the texted link carries, and it is applied
-           * server-side from the account, not from anything decided here — see
-           * `signupIncentive.ts`.
+           * This briefly showed visitors a join-the-portal offer INSTEAD of the
+           * pricer, which was the right call for one afternoon: the panel sent
+           * the estimate through a helper that throws without a session, so the
+           * Price it button answered "Your session has expired" to somebody who
+           * had never had one. Hiding a broken tool beat showing it.
+           *
+           * Both halves are fixed now — the panel calls with the publishable key
+           * when there is no session, and the server allows an anonymous
+           * estimate while counting it per address per day and per day overall
+           * (see anonPricer.ts). So the pricer is simply the pricer, for
+           * everybody, and the 5% offer arrives on the price itself for anyone
+           * without an account.
            */
-          !session ? (
-            <div
-              className="rounded-2xl p-6 sm:p-8 text-center"
-              style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.3)' }}
-            >
-              <h3 className="text-xl sm:text-2xl font-black text-white">
-                Get a junk removal price — and 5% off
-              </h3>
-              <p className="mx-auto mt-3 max-w-md text-sm text-gray-400">
-                Join the portal free, photograph what needs taking away, and get a price back from
-                your pictures. Members take an extra 5% off the job.
-              </p>
-              <button
-                type="button"
-                onClick={() => (window as any).__navigateApp?.('signup')}
-                className="mt-5 w-full rounded-xl px-6 py-3 text-sm font-black text-black sm:w-auto"
-                style={{ background: '#22c55e' }}
-              >
-                Join free and get my price
-              </button>
-              <p className="mt-3 text-xs text-gray-500">
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => (window as any).__navigateApp?.('login')}
-                  className="font-bold text-orange-400 underline"
-                >
-                  Sign in
-                </button>
-              </p>
-            </div>
-          ) : (
-            <TrashEstimatePanel customerName={customerInfo.name} onNavigate={(page) => (window as any).__navigateApp?.(page)} />
-          )
+          <TrashEstimatePanel
+            customerName={session ? customerInfo.name : undefined}
+            onNavigate={(page) => (window as any).__navigateApp?.(page)}
+          />
         )}
         {/*
           A homeowner has one property and no site office, which is exactly the

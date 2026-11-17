@@ -266,9 +266,17 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
          * exactly right here: the authority is the link token in the body, and
          * the server decides what it is worth.
          */
-        headers: linkToken
-          ? await authedHeadersOrAnon(publicAnonKey, { 'Content-Type': 'application/json' })
-          : await authedHeaders({ 'Content-Type': 'application/json' }),
+        /*
+         * Anybody may price a job, so this never throws for want of a session.
+         *
+         * It used to pick authedHeaders when there was no link token, and that
+         * helper throws rather than falling back — so a visitor with no account
+         * was told 'Your session has expired' by a button they had never been
+         * able to press. authedHeadersOrAnon still prefers a real session when
+         * one exists, so a signed-in customer spends as themselves and an
+         * anonymous visitor is counted per address per day on the server.
+         */
+        headers: await authedHeadersOrAnon(publicAnonKey, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           images, notes, scope, mediaRefs,
           linkToken: linkToken || undefined,
@@ -508,7 +516,22 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
             * details, which is why it is the action here — and it carries the
             * 5% rather than asking them to do us a favour.
             */}
-          {linkToken ? (
+          {/*
+            * Driven by whether the SERVER offered the discount, not by how
+            * the visitor arrived.
+            *
+            * This used to key on linkToken, which was right while a texted
+            * link was the only way to price a job without an account. Now
+            * anybody can, so a visitor with no token and no session would
+            * have been shown "Ask us to confirm it" — a button that throws
+            * for want of a session and, past that, answers "No such
+            * estimate" because the route scopes to customerEmail.
+            *
+            * signupOffer is the server saying "this caller has no account",
+            * which is exactly the question being asked here. One rule covers
+            * the link visitor, the anonymous visitor and the customer.
+            */}
+          {estimate.signupOffer || linkToken ? (
             /*
              * Only when the green offer block above is absent.
              *

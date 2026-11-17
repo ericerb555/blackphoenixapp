@@ -58,6 +58,10 @@ import {
   JUNK_LINK_MAX_USES,
 } from "./junkLinks.ts";
 import { signMediaValues } from "./mediaSigning.ts";
+import { clientIp } from "./ipReputation.ts";
+import {
+  mayPriceAnonymously, ipDayKey, globalDayKey, dayStamp,
+} from "./anonPricer.ts";
 import { trustedRole } from "./trustedRole.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
@@ -242,25 +246,64 @@ trashEstimatorRouter.post("/read", async (c: any) => {
   }
 
   const actor = c.get("actor");
-  const user = link ? principalFor(link.record.hash) : actor;
-  const email = link ? "" : c.get("actorEmail");
 
   /*
-   * Nobody at all is refused here rather than deeper in.
+   * Anybody may try the pricer. Nobody gets a free AI endpoint.
    *
-   * `reserve` would also refuse an idless principal — it fails closed, which is
-   * why this route could never have become an open AI endpoint by accident —
-   * but it would do so with "Sign in required.", which is the wrong sentence
-   * for somebody who followed a link we sent them.
+   * Eric: "Some Should not have to login to use the junk remaval picer until
+   * they decied to create an account and get 5 percent off.. anyone can try
+   * the pricer", and on how to afford that: "we put a limit on ips and
+   * continues useage."
+   *
+   * Three kinds of caller now reach this route:
+   *
+   *   signed in     spends as themselves, through the ceiling their account
+   *                 already has.
+   *   texted link   spends as the link, which carries its own use cap and
+   *                 expiry — see `junkLinks.ts`.
+   *   nobody        allowed, and counted per address per day and per day
+   *                 overall. `anonPricer.ts` sets out why this cannot go
+   *                 through `aiSpend` instead: those budgets never reset, so
+   *                 an IP ceiling there would permanently refuse everybody
+   *                 behind a carrier NAT or an office router after one or two
+   *                 estimates.
+   *
+   * Counted AFTER a price exists, further down, so our own failure to read a
+   * photograph does not consume one of a stranger's three.
    */
-  if (!user?.id) {
-    return c.json({
-      success: false,
-      error: linkToken
-        ? "That pricing link is no longer good. Ask us for a new one."
-        : "Sign in to price a job, or use the link we sent you.",
-    }, 401);
+  let anon: { ipKey: string; dayKey: string } | null = null;
+  if (!actor && !link) {
+    const nowIso = new Date().toISOString();
+    const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true) || "unknown";
+    const ipKey = ipDayKey(ip, nowIso);
+    const dayKey = globalDayKey(nowIso);
+
+    const [ipUsed, globalUsed] = await Promise.all([
+      kv.get(ipKey).catch(() => 0),
+      kv.get(dayKey).catch(() => 0),
+    ]);
+
+    const verdict = mayPriceAnonymously(Number(ipUsed) || 0, Number(globalUsed) || 0);
+    if (!verdict.allowed) {
+      console.log(`[trash-estimator] anonymous estimate refused: ${verdict.reason}`);
+      return c.json({ success: false, error: verdict.message, needsAccount: verdict.reason === "per-ip" }, 429);
+    }
+    anon = { ipKey, dayKey };
   }
+
+  /*
+   * Who the model spend is charged to.
+   *
+   * An anonymous caller spends as the day's anonymous principal rather than as
+   * nobody, so the kill switch and the ledger still have a name to record and
+   * `reserve` is not handed an idless user. The daily counters above are what
+   * actually bound it; this keeps the existing machinery honest rather than
+   * bypassed.
+   */
+  const user = link
+    ? principalFor(link.record.hash)
+    : (actor || { id: `anon:${dayStamp(new Date().toISOString())}` });
+  const email = actor ? c.get("actorEmail") : "";
 
   /*
    * The images, and nothing else from the browser that could become a price.
@@ -597,6 +640,22 @@ trashEstimatorRouter.post("/read", async (c: any) => {
         uses: (Number.isFinite(base) ? base : Number(link.record.uses) || 0) + 1,
         lastUsedAt: now.toISOString(),
       });
+    }
+
+    /*
+     * An anonymous estimate is counted here, for the same reason a link's use
+     * is: after a price exists, not at the door. Our failure to read a
+     * photograph must not consume one of a stranger's three free tries.
+     *
+     * Re-read before incrementing because two phones on the same office wifi
+     * can be inside this handler at once, and incrementing from a value read
+     * forty seconds ago spends one estimate between them.
+     */
+    if (anon) {
+      for (const key of [anon.ipKey, anon.dayKey]) {
+        const current = Number(await kv.get(key).catch(() => 0)) || 0;
+        await kv.set(key, current + 1);
+      }
     }
 
     /*
