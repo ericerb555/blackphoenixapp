@@ -11,6 +11,7 @@
     "typecheck:app": "tsc -p tsconfig.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "security": "node scripts/security-probe.mjs",
+    "authz:scan": "node scripts/authz-scan.mjs",
     "security:quick": "node scripts/security-probe.mjs --quick",
     "e2e": "node scripts/e2e.mjs",
     "smoke:all": "node scripts/smoke.mjs --all",
