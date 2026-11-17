@@ -63,6 +63,7 @@ import PricingAttentionBanner from '../components/PricingAttentionBanner';
 import OnCallPricingAdmin from '../components/OnCallPricingAdmin';
 import TrashRatesPanel from '../components/owner/TrashRatesPanel';
 import JunkLinksPanel from '../components/owner/JunkLinksPanel';
+import JunkEstimatesPanel from '../components/owner/JunkEstimatesPanel';
 import TipsPanel from '../components/owner/TipsPanel';
 import InsurancePanel from '../components/owner/InsurancePanel';
 import RefundsPanel from '../components/owner/RefundsPanel';
@@ -859,6 +860,13 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
           */}
         {activeTab === 'trash-rates' && (
           <div className="space-y-6">
+            {/*
+              The queue sits ABOVE the rates and the links, because it is the
+              only one of the three with somebody waiting at the other end.
+              Rates and links are configuration; an estimate asking to be
+              confirmed is a customer who has not been answered.
+            */}
+            <JunkEstimatesPanel />
             <TrashRatesPanel />
             <JunkLinksPanel />
           </div>

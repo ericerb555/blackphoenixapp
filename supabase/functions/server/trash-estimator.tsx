@@ -63,6 +63,7 @@ import {
   mayPriceAnonymously, ipDayKey, globalDayKey, dayStamp,
 } from "./anonPricer.ts";
 import { trustedRole } from "./trustedRole.ts";
+import { availabilityOn } from "./availability.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 /** Whole dollars, for a subject line somebody reads on a phone. */
@@ -1021,6 +1022,178 @@ trashEstimatorRouter.post("/estimates/:id/ask-us-to-confirm", async (c: any) => 
   }
 
   return c.json({ success: true, estimate: updated });
+});
+
+/**
+ * POST /trash-estimator/estimates/:id/schedule
+ *
+ * Eric, 2026-11-17: *"can we add a scheduling feature to the junk removal
+ * once a price is submitted for review by us?"*
+ *
+ * THE GAP THIS CLOSES
+ *
+ * `ask-us-to-confirm` put the estimate on somebody's desk and stopped there.
+ * The office could see the number and agree with it, and the next step — a
+ * day, a time and a person — happened in a phone call that left no record,
+ * or did not happen. An estimate that nobody books is a quote the customer
+ * has to chase.
+ *
+ * WHY IT WRITES AN ORDINARY APPOINTMENT
+ *
+ * Into `appointment:`, the same store `/schedule/appointments` writes and
+ * MasterScheduling, the assistant and the calendar all read. A junk job that
+ * lived in its own store would be invisible to every screen that answers
+ * "who is working on Thursday" — which is the question the crew actually
+ * asks — and would be a second place appointments live.
+ *
+ * WHY IT REFUSES SOMEBODY WHO CANNOT WORK
+ *
+ * Through `availabilityOn`, which is the same rule `MasterScheduling` and
+ * `ServiceScheduling` display and `blocksDay` enforces: a call-out counts
+ * immediately, approved time off counts, a PENDING request does not. A
+ * fourth copy of that rule written here would be the one that drifts, and
+ * this is the copy that would book somebody who is not coming.
+ *
+ * It also reads existing bookings, so a tech with a full day is refused with
+ * the hours rather than double-booked quietly.
+ *
+ * WHY THE PRICE MUST HAVE BEEN SUBMITTED FIRST
+ *
+ * Eric's condition, and it is the right one: scheduling an estimate the
+ * customer has not asked us to confirm books a van against a number they may
+ * never accept.
+ */
+trashEstimatorRouter.post("/estimates/:id/schedule", async (c: any) => {
+  const actor = c.get("actor");
+  const staff = ["owner", "admin", "master_admin", "management"].includes(trustedRole(actor));
+  if (!staff) return c.json({ success: false, error: "Administrator access is required." }, 403);
+
+  const id = c.req.param("id");
+  const record = (await kv.get(`estimate:${id}`).catch(() => null)) as any;
+  if (!record) return c.json({ success: false, error: "No such estimate." }, 404);
+
+  if (!record.confirmationRequestedAt) {
+    return c.json({
+      success: false,
+      error: "That estimate has not been submitted for review yet, so there is nothing to book against.",
+    }, 409);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const date = String(body?.date || "").trim();
+  const time = String(body?.time || "").trim();
+  const employeeId = String(body?.employeeId || "").trim();
+  const hours = Math.min(12, Math.max(1, Number(body?.hours) || 2));
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ success: false, error: "A date is required, as YYYY-MM-DD." }, 400);
+  if (!time) return c.json({ success: false, error: "A time is required." }, 400);
+  if (!employeeId) return c.json({ success: false, error: "Somebody has to be assigned." }, 400);
+
+  const [employees, unavailRows, appointments] = await Promise.all([
+    kv.getByPrefix("time_employee:").catch(() => []),
+    kv.getByPrefix("unavailability:").catch(() => []),
+    kv.getByPrefix("appointment:").catch(() => []),
+  ]);
+
+  const tech = ((employees as any[]) || []).filter(Boolean).find((e) => String(e.id) === employeeId);
+  /*
+   * An empty roster says so rather than booking a name nobody employs. The
+   * same rule `ServiceScheduling` follows for the customer-facing picker.
+   */
+  if (!tech) return c.json({ success: false, error: "That person is not on the roster." }, 400);
+
+  const bookings = ((appointments as any[]) || []).filter(Boolean).map((a) => ({
+    id: String(a.id),
+    employeeId: String(a.employeeId || ""),
+    date: String(a.date || ""),
+    hours: Number(a.estimatedHours) || 1,
+    status: String(a.status || "scheduled"),
+  }));
+
+  const verdict = availabilityOn(
+    {
+      id: String(tech.id),
+      name: String(tech.name || tech.email || "Technician"),
+      trades: Array.isArray(tech.trades) ? tech.trades.map(String) : [],
+      workingDays: Array.isArray(tech.workingDays) ? tech.workingDays.map(Number) : undefined,
+      workingHours: tech.workingHours,
+      active: tech.active,
+    },
+    date,
+    ((unavailRows as any[]) || []).filter(Boolean) as any,
+    bookings,
+  );
+
+  if (!verdict.available) {
+    return c.json({ success: false, error: `${tech.name || "That person"} cannot work that day — ${verdict.reason}.` }, 409);
+  }
+  if (verdict.hoursFree < hours) {
+    return c.json({
+      success: false,
+      error: `${tech.name || "That person"} has ${verdict.hoursFree}h free that day and this needs ${hours}h.`,
+    }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const appointment = {
+    id: `apt_${crypto.randomUUID()}`,
+    type: "junk_removal",
+    status: "scheduled",
+    date,
+    time,
+    employeeId,
+    employeeName: String(tech.name || tech.email || ""),
+    estimatedHours: hours,
+    // Both ends of the link, so neither record is an orphan.
+    estimateId: id,
+    customerEmail: String(record.customerEmail || "").toLowerCase(),
+    address: record.address || record.serviceAddress || "",
+    notes: String(body?.note || "").slice(0, 1000),
+    amount: record.cost?.likely ?? null,
+    created_at: now,
+    updated_at: now,
+    requested_by: String(c.get("actorEmail") || "").toLowerCase(),
+  };
+  await kv.set(`appointment:${appointment.id}`, appointment);
+
+  const updated = {
+    ...record,
+    status: "scheduled",
+    scheduledFor: { date, time, employeeId, employeeName: appointment.employeeName, hours },
+    appointmentId: appointment.id,
+    scheduledBy: appointment.requested_by,
+    scheduledAt: now,
+    updatedAt: now,
+  };
+  await kv.set(`estimate:${id}`, updated);
+
+  /*
+   * Telling the customer is the point of booking it. Best effort, and after
+   * both records are written — a notification that fails must not lose the
+   * appointment, and an appointment nobody is told about is still an
+   * appointment the crew can see.
+   */
+  try {
+    notifyStaffInBackground("estimate", {
+      subject: "Junk & demo job booked",
+      heading: "A reviewed estimate now has a day, a time and a person",
+      rows: [
+        ["Customer", updated.customerEmail || "—"],
+        ["When", `${date} at ${time}`],
+        ["Who", appointment.employeeName || employeeId],
+        ["Likely", money(record.cost?.likely)],
+        ["Address", appointment.address || "—"],
+        ["Note", appointment.notes || "—"],
+      ],
+      smsRows: ["When", "Who", "Customer"],
+      ctaLabel: "Open the schedule",
+      ctaPath: "/master-scheduling",
+    });
+  } catch (err) {
+    console.log(`[trash-estimator] booked ${id} but could not notify: ${err}`);
+  }
+
+  return c.json({ success: true, estimate: updated, appointment });
 });
 
 /** GET /trash-estimator/estimates/:id — the caller's own, or nothing. */
