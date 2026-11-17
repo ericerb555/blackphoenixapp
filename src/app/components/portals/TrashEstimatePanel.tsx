@@ -464,16 +464,57 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
           >
             Price another one
           </button>
-          <button
-            onClick={() => void askUsToConfirm()}
-            disabled={asking || Boolean(estimate.confirmationRequestedAt)}
-            className="flex-1 rounded-xl text-sm font-black text-black disabled:opacity-60"
-            style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
-          >
-            {estimate.confirmationRequestedAt
-              ? 'We have it — we will come back to you'
-              : asking ? 'Sending…' : 'Ask us to confirm it'}
-          </button>
+          {/*
+            * A visitor on a texted link cannot ask us to confirm, so they are
+            * not offered a button that fails.
+            *
+            * Two reasons, and the second is the one that matters. The call used
+            * `authedHeaders`, which throws rather than falling back, so with no
+            * session the button errored with "Your session has expired" — which
+            * is nonsense to somebody who never had one. And even past that, the
+            * route scopes an estimate to `customerEmail === actorEmail`, and a
+            * link-priced estimate carries no email, so it would have answered
+            * "No such estimate."
+            *
+            * Fixing those two would have produced a worse bug: a confirmation
+            * request reaching the office with no way to contact the person who
+            * sent it. We would know somebody wants a basement cleared and
+            * nothing else. Creating the account is what supplies the contact
+            * details, which is why it is the action here — and it carries the
+            * 5% rather than asking them to do us a favour.
+            */}
+          {linkToken ? (
+            /*
+             * Only when the green offer block above is absent.
+             *
+             * That block already carries "Create my free account", so showing
+             * another here put two near-identical buttons one under the other
+             * — which on a phone is the row of bunched-up buttons rather than a
+             * choice. One account CTA per screen: the offer block when there is
+             * an offer, this when there is not (a site-visit estimate, say,
+             * where the visitor still needs somewhere to go).
+             */
+            !estimate.signupOffer && (
+              <button
+                onClick={() => onNavigate?.('signup')}
+                className="flex-1 rounded-xl text-sm font-black text-black"
+                style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
+              >
+                Create a free account to book it
+              </button>
+            )
+          ) : (
+            <button
+              onClick={() => void askUsToConfirm()}
+              disabled={asking || Boolean(estimate.confirmationRequestedAt)}
+              className="flex-1 rounded-xl text-sm font-black text-black disabled:opacity-60"
+              style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '12px 16px' }}
+            >
+              {estimate.confirmationRequestedAt
+                ? 'We have it — we will come back to you'
+                : asking ? 'Sending…' : 'Ask us to confirm it'}
+            </button>
+          )}
         </div>
       </div>
     );

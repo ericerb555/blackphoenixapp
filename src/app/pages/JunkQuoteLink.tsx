@@ -66,7 +66,22 @@ export default function JunkQuoteLink() {
         </header>
 
         {token ? (
-          <TrashEstimatePanel linkToken={token} />
+          /*
+           * `onNavigate` is not optional here, whatever the prop type says.
+           *
+           * The panel's account button calls `onNavigate?.('signup')`, so
+           * rendering it without one made the 5% button a no-op — it looked
+           * live, did nothing, and reported nothing. That shipped.
+           *
+           * A hard navigation rather than the app's router, because this page
+           * stands alone: it is reached cold from a text message and holds no
+           * app shell to route within. A full load of /signup is also what
+           * gives the signup page its own document and its own CSP.
+           */
+          <TrashEstimatePanel
+            linkToken={token}
+            onNavigate={(page) => { window.location.href = `/${page}`; }}
+          />
         ) : (
           /*
            * No token in the path at all. This is somebody who opened
