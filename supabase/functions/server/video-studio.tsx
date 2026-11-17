@@ -22,13 +22,26 @@
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
-import { verifiedActor } from "./requireStaff.ts";
+import { verifiedActor, requireStaffOn } from "./requireStaff.ts";
 import { researchPromptFragment, searchTermsFor } from "./reel-research.tsx";
 import { winningArchetypesFragment } from "./reel-scoreboard.tsx";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { imageModel } from "./imageModel.ts";
 
 export const videoStudioRouter = new Hono();
+
+/**
+ * STAFF ONLY. Added 2026-11-17.
+ *
+ * Every route sat on the wall's "signed in" default, so any customer could
+ * create and delete the company's video projects and read the job photos
+ * gathered for them. `VideoStudio.tsx` is the only caller and it is a staff
+ * screen.
+ *
+ * Mounted at the API prefix, so the path check in `requireStaffOn` keeps this
+ * off every other request the server handles.
+ */
+videoStudioRouter.use('*', requireStaffOn(['/make-server-3eae23a6/video-studio']));
 
 const BUCKET = "make-3eae23a6-video";
 const PROJECT_PREFIX = "video_project:";

@@ -1,5 +1,6 @@
 // Marketing Assets API Routes
 // AI-powered asset generation for products
+import { requireStaffOn } from './requireStaff.ts';
 import { Hono } from 'npm:hono@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
@@ -7,6 +8,19 @@ import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { imageModel } from './imageModel.ts';
 
 export const marketingAssetsRouter = new Hono();
+
+/**
+ * STAFF ONLY. Added 2026-11-17 as part of the authorisation sweep.
+ *
+ * Every route here sat at the auth wall's default of "signed in", so any
+ * customer, tenant, vendor or subcontractor with a session could reach the
+ * company's own /marketing-assets tooling — including the deletes. This is
+ * internal marketing work; every screen that calls it is a staff screen.
+ *
+ * Mounted at the API prefix, so the path check inside `requireStaffOn` is
+ * what keeps this middleware off every other request the server handles.
+ */
+marketingAssetsRouter.use('*', requireStaffOn(['/make-server-3eae23a6/marketing-assets']));
 
 // Private Supabase Storage bucket for generated marketing images. DALL-E's
 // returned URLs are temporary (they expire in ~1 hour), so we persist the

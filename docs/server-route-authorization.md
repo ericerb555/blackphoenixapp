@@ -288,7 +288,29 @@ listed and checked: website gallery photographs, company logo variants and a
 logo cache. No customer uploads, no blueprints, no quote documents. Every
 bucket holding customer files, `media-backup` included, is private.
 
-### Two method rules this section earned
+### Three method rules this section earned
+
+**When a check passes because of a blanket condition, verify the blanket has no
+holes named inside it.** All three rules here are one mistake wearing different
+clothes — *an absence read as a presence* — and it cost real time three times
+in one day:
+
+| What was read as protection | What it was compatible with |
+|---|---|
+| a `401` answer | the wall refusing before the route's guard ever ran, and a path that does not exist answering identically |
+| "this module has a router-level guard" | that guard **exempting** the module's two public paths by name — the only routes worth scanning |
+| a prefix absent from the parsed `PUBLIC_PREFIXES` | the parse being broken by an apostrophe, so a genuinely public write reported as authenticated |
+
+The third is the sharpest, because the evidence was a *missing* entry rather
+than a wrong one. Nothing looked incorrect; the list simply did not mention
+`/store-content`, and "not on the public list" reads exactly like "not
+public".
+
+So the test to apply to any blanket claim is: **what would this look like if
+the protection were absent?** If the answer is "the same", the claim is not
+evidence. For a blanket with named exceptions, the exceptions are the surface
+— scan those and nothing else.
+
 
 Both are stated once here rather than repeated per finding.
 

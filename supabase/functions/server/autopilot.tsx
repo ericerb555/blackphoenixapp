@@ -23,12 +23,41 @@
  * Mounted with `app.route("/make-server-3eae23a6", autopilotRouter)`, so route
  * paths are relative.
  */
+import { requireStaff } from './requireStaff.ts';
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { publishForUser } from "./social-media.tsx";
 
 export const autopilotRouter = new Hono();
+
+/**
+ * STAFF ONLY, EXCEPT THE CRON TICK. Added 2026-11-17.
+ *
+ * Every route sat on the wall's "signed in" default: any customer, tenant or
+ * vendor could list, advance, approve-all, generate assets for, or DELETE the
+ * company's marketing campaigns. `AutopilotCampaigns.tsx` and `AiSeoEngine.tsx`
+ * are the only callers and both are staff screens.
+ *
+ * `/autopilot/cron-tick` IS DELIBERATELY EXCLUDED and must stay excluded. It is
+ * on PUBLIC_PREFIXES because a scheduler calls it with no session, and it
+ * authenticates with a shared secret read from the database
+ * (`autopilot_cron_secret`) rather than with a role. A staff gate in front of
+ * it would silently stop the campaign scheduler — the kind of break that shows
+ * up a week later as "the posts stopped going out", with nothing in the logs
+ * tying it to a security change.
+ *
+ * Which is also why this is a hand-written matcher rather than
+ * `requireStaffOn(['…/autopilot'])`: that helper's prefix match would have
+ * taken the cron with it.
+ */
+autopilotRouter.use('*', async (c: any, next: any) => {
+  const p = new URL(c.req.url).pathname;
+  const base = '/make-server-3eae23a6/autopilot';
+  if (p !== base && !p.startsWith(base + '/')) return await next();
+  if (p === base + '/cron-tick') return await next();
+  return await requireStaff(c, next);
+});
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const INTERNAL_BASE = `${SUPABASE_URL}/functions/v1/make-server-3eae23a6`;
