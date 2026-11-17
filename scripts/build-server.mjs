@@ -42,17 +42,81 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { execSync } from 'node:child_process';
 
 const SOURCE = 'supabase/functions/server';
 const OUT = 'supabase/functions/server-dist';
 
 const transpilable = /\.(ts|tsx)$/;
 
+/**
+ * Stamp the build with the commit it was made from.
+ *
+ * WHY, WITH THE DATE
+ *
+ * On 2026-11-17 two sessions spent days overwriting each other's function,
+ * because a deploy builds from a working tree and nothing anywhere recorded
+ * which tree. `/health` answered `version: "2.9.0-command-center-resilient"`
+ * throughout — a hand-written string, the same before and after every deploy,
+ * so it could not distinguish a server with `/team/members/role` from one
+ * without it. The health check said `ok` the whole time, correctly: a server
+ * missing a route is a perfectly healthy server.
+ *
+ * `predeploy-check` now refuses to deploy a tree that is behind main, which
+ * stops it happening. This is the other half — being able to ASK production
+ * what it is running, rather than inferring it from whether a route answers.
+ *
+ * Written as a generated file rather than an environment variable because the
+ * build is the only moment that knows the answer, and because
+ * `taskDigest.generated.ts` already established the pattern next door.
+ *
+ * `dirty` is recorded rather than refused here: `predeploy-check` owns that
+ * decision and can be overridden, so the stamp has to be able to say "this
+ * build contained uncommitted changes" rather than assume it never does.
+ */
+function buildStamp() {
+  const git = (cmd) => {
+    try {
+      return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return '';
+    }
+  };
+  return {
+    commit: git('git rev-parse --short HEAD') || 'unknown',
+    branch: git('git rev-parse --abbrev-ref HEAD') || 'unknown',
+    committedAt: git('git log -1 --format=%cI') || '',
+    dirty: git('git status --porcelain -- supabase/functions/').split('\n').filter(Boolean).length > 0,
+    builtAt: new Date().toISOString(),
+  };
+}
+
 function build() {
   // A clean room every time: a file deleted from source must not survive in
   // the build and get deployed for ever.
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
+
+  /*
+   * Written into SOURCE, not just the build, so `index.tsx` can import it the
+   * ordinary way and the typecheck sees the same file Deno will. Same shape
+   * and the same reason as `taskDigest.generated.ts`, which sits beside it —
+   * and like that one it is excluded from the uncommitted-changes check,
+   * because the build rewrites it every time and it is never anybody's work
+   * in progress.
+   */
+  const stamp = buildStamp();
+  fs.writeFileSync(
+    path.join(SOURCE, 'buildInfo.generated.ts'),
+    '/**\n'
+    + ' * Which commit this server was built from. GENERATED — do not edit.\n'
+    + ' *\n'
+    + ' * Rewritten by `scripts/build-server.mjs` on every build. Exposed on\n'
+    + ' * `/health` so that "what is production actually running" is a question\n'
+    + ' * with an answer, rather than one inferred from whether a route replies.\n'
+    + ' */\n'
+    + `export const BUILD_INFO = ${JSON.stringify(stamp, null, 2)} as const;\n`,
+  );
 
   let sourceBytes = 0;
   let builtBytes = 0;
