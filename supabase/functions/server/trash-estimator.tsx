@@ -271,15 +271,52 @@ trashEstimatorRouter.post("/read", async (c: any) => {
    * Counted AFTER a price exists, further down, so our own failure to read a
    * photograph does not consume one of a stranger's three.
    */
-  let anon: { ipKey: string; dayKey: string } | null = null;
+  let anon: { ipKey: string | null; dayKey: string } | null = null;
   if (!actor && !link) {
     const nowIso = new Date().toISOString();
-    const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true) || "unknown";
-    const ipKey = ipDayKey(ip, nowIso);
+    const ip = clientIp(c.req.raw.headers, c.get("viaEdgeProxy") === true);
+
+    /*
+     * No address means the GLOBAL ceiling only — never a shared per-address
+     * bucket.
+     *
+     * This read `clientIp(...) || "unknown"`, which is the exact mistake the
+     * reputation middleware in index.tsx documents and avoids: "skip entirely
+     * rather than pooling every anonymous caller into one bucket, which would
+     * ban all of them the first time any one of them probed." Pooled here it
+     * was worse than a ban — the first three strangers of the day would spend
+     * everybody else's three, and the fourth visitor would be told to create
+     * an account because of traffic that had nothing to do with them.
+     *
+     * The global ceiling still bounds the money, which is the half that
+     * actually protects the bill. Losing per-address granularity when we
+     * cannot identify an address is the honest outcome; inventing an address
+     * we do not have is not.
+     */
+    const ipKey = ip ? ipDayKey(ip, nowIso) : null;
     const dayKey = globalDayKey(nowIso);
 
+    /*
+     * Which header answered, recorded once per anonymous estimate.
+     *
+     * `clientIp` reads `cf-connecting-ip` unconditionally while its neighbour
+     * `x-client-ip` is gated behind a trusted proxy — so the per-address half
+     * of this limit trusts a header a client can set, IF one survives to the
+     * function. It almost certainly does not: Supabase fronts these with its
+     * own Cloudflare, which overwrites it. But "almost certainly" rests on
+     * another company's edge configuration and was written down nowhere, so
+     * this logs what actually arrived and lets the question be answered from
+     * production rather than from reasoning.
+     */
+    const h = c.req.raw.headers;
+    console.log(
+      `[trash-estimator] anon ip=${ip || "none"} cf=${h.get("cf-connecting-ip") ? "present" : "absent"} ` +
+      `xff=${h.get("x-forwarded-for") ? "present" : "absent"} xci=${h.get("x-client-ip") ? "present" : "absent"} ` +
+      `viaProxy=${c.get("viaEdgeProxy") === true}`,
+    );
+
     const [ipUsed, globalUsed] = await Promise.all([
-      kv.get(ipKey).catch(() => 0),
+      ipKey ? kv.get(ipKey).catch(() => 0) : Promise.resolve(0),
       kv.get(dayKey).catch(() => 0),
     ]);
 
@@ -652,7 +689,10 @@ trashEstimatorRouter.post("/read", async (c: any) => {
      * forty seconds ago spends one estimate between them.
      */
     if (anon) {
+      // `ipKey` is null when no address could be resolved; only the global
+      // counter moves then. See the note where it is decided.
       for (const key of [anon.ipKey, anon.dayKey]) {
+        if (!key) continue;
         const current = Number(await kv.get(key).catch(() => 0)) || 0;
         await kv.set(key, current + 1);
       }
