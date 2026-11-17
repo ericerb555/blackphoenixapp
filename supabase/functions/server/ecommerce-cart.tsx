@@ -2,6 +2,7 @@
 // Phase 1: Foundation & Backend Infrastructure
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
+import { verifiedActor } from './requireStaff.ts';
 
 // Type definitions
 interface CartItem {
@@ -50,6 +51,80 @@ export const cartRouter = new Hono();
 
 // Helper function to generate cart ID
 const generateCartId = () => `cart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+/**
+ * A RANDOM CART ID IS A CAPABILITY. A CUSTOMER ID IS NOT. Added 2026-11-17.
+ *
+ * `/cart` is on PUBLIC_PREFIXES in index.tsx with the note "guest cart, keyed
+ * by an anonymous sessionId". That is a sound reason to be public and it is
+ * true of the cart the app actually uses: `localCartManager` mints
+ * `session_<timestamp>_<random>` in the browser, and the id itself is the only
+ * thing standing between a visitor and their basket — the same shape as the
+ * junk pricing links, where the token is the principal.
+ *
+ * But these routes are written as `/cart/:customerId`, and the key is
+ * `cart_${param}` whatever the param is. A customer id is an IDENTIFIER, not a
+ * secret: it is handed out in other API responses and it is short. So anybody
+ * with no session at all could read, add to, modify or empty the basket of any
+ * customer whose id they knew — on a prefix whose published justification
+ * mentions only anonymous session carts.
+ *
+ * SO THE SHAPE OF THE ID DECIDES, NOT THE ROUTE. There is no route to gate
+ * separately: `GET /cart/:customerId` is registered before
+ * `GET /cart/:sessionId`, so it already serves the guest traffic and the
+ * second handler is unreachable. The two were interchangeable because the key
+ * is built the same way for both.
+ *
+ *   session_… / guest_… / cart_…   a minted random id. Public, unchanged.
+ *   anything else                  an identifier. Staff, or the signed-in
+ *                                  owner, or 404.
+ *
+ * 404 rather than 403, for the same reason as the variance drafts: 403 on
+ * somebody else's cart confirms that customer id exists.
+ *
+ * NOTHING LEGITIMATE IS AFFECTED. Every call the app makes — `hybridCartApi`
+ * and `PersistentCartWishlistWidget` — passes a `session_…` id, signed in or
+ * not. This closes a door nothing was walking through.
+ *
+ * The path check is load-bearing: this router is mounted at the API prefix, so
+ * `use('*')` sees every request the server handles.
+ */
+const MINTED_CART_ID = /^(?:session|guest|cart)_/;
+
+/** The static action routes, which carry their id in the body instead. */
+const CART_ACTIONS = new Set(['add', 'update', 'remove', 'clear', 'merge']);
+
+cartRouter.use('*', async (c: any, next: any) => {
+  const p = new URL(c.req.url).pathname;
+  const at = p.indexOf('/cart/');
+  if (at === -1) return await next();
+
+  const first = decodeURIComponent(p.slice(at + '/cart/'.length).split('/')[0] || '');
+  if (!first) return await next();
+
+  /*
+   * `merge` takes `customerId` from its body, so it is checked there rather
+   * than skipped: merging a guest cart INTO somebody else's account cart is
+   * the same door from the other side.
+   */
+  if (CART_ACTIONS.has(first)) {
+    if (first !== 'merge') return await next();
+    const body = await c.req.json().catch(() => ({}));
+    const target = String(body?.customerId || '');
+    if (!target || MINTED_CART_ID.test(target)) return await next();
+    const who = await verifiedActor(c);
+    if (who?.staff) return await next();
+    if (who && (target === who.id || target.toLowerCase() === who.email)) return await next();
+    return c.json({ error: 'Cart not found.' }, 404);
+  }
+
+  if (MINTED_CART_ID.test(first)) return await next();
+
+  const who = await verifiedActor(c);
+  if (who?.staff) return await next();
+  if (who && (first === who.id || first.toLowerCase() === who.email)) return await next();
+  return c.json({ error: 'Cart not found.' }, 404);
+});
 const generateCartItemId = () => `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 // Calculate cart totals
