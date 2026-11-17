@@ -360,14 +360,14 @@ export default function AdvertiserPortalView() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-2">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
+                  className={`flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
                     activeTab === tab.id
                       ? 'bg-orange-600 text-white'
                       : 'bg-[#0A0A0A] text-gray-400 hover:text-white border border-[#2A2A2A] hover:border-orange-500/30'
