@@ -20,10 +20,11 @@
  * that always works.
  */
 import { useEffect, useState } from 'react';
-import { Link2, Copy, CheckCircle2, Ban, Loader2, MessageSquare, AlertTriangle } from 'lucide-react';
+import { Link2, Copy, CheckCircle2, Ban, Loader2, MessageSquare, AlertTriangle, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import { brandedQrDataUrl, downloadDataUrl } from '../../lib/brandedQr';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -50,6 +51,25 @@ export default function JunkLinksPanel() {
   /** The one and only time the token is readable. Never refetched. */
   const [fresh, setFresh] = useState<{ url: string; expiresAt: string; maxUses: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  /**
+   * The QR for the fresh link, drawn once it arrives.
+   *
+   * Derived from `fresh` rather than fetched, and it dies with it: the token is
+   * readable exactly once, so a code that outlived the panel showing it would
+   * be a copy of a credential nobody meant to keep.
+   */
+  const [qr, setQr] = useState('');
+  const [qrError, setQrError] = useState('');
+
+  useEffect(() => {
+    if (!fresh?.url) { setQr(''); setQrError(''); return; }
+    let live = true;
+    setQr(''); setQrError('');
+    brandedQrDataUrl(fresh.url)
+      .then((data) => { if (live) setQr(data); })
+      .catch((err) => { if (live) setQrError(err?.message || 'unknown error'); });
+    return () => { live = false; };
+  }, [fresh?.url]);
 
   const load = async () => {
     try {
@@ -187,6 +207,59 @@ export default function JunkLinksPanel() {
               <MessageSquare className="h-4 w-4" /> Text it
             </a>
           </div>
+
+          {/*
+            THE QR CODE, AND THE ONE THING TO KNOW BEFORE PRINTING IT.
+
+            Eric, 2026-11-17: *"can we make a qr code i can send for a link to
+            the junk removal pricer?"* — so it is generated here, on the link
+            itself, rather than on the QR page. The QR page works from a fixed
+            list of URLs, and this link is not a URL: it is a credential that
+            is shown once, spends money on every estimate, and has a use cap.
+            A preset could never have encoded one.
+
+            WHY THE CAP IS STATED ON THE BUTTON
+
+            A QR code invites a yard sign. This one carries the same ceiling as
+            the link inside it — 10 uses, 14 days — and a code on a sign is
+            dead by the eleventh scan with nothing to say why. Saying so where
+            the code is made is the difference between a tool and a trap.
+          */}
+          {qr ? (
+            <div className="mt-4 rounded-xl p-4" style={{ background: '#0a0a0a', border: '1px solid #2a2a2a' }}>
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+                <img
+                  src={qr}
+                  alt="QR code for this junk pricing link"
+                  width={160}
+                  height={160}
+                  className="rounded-lg"
+                  style={{ background: '#fff' }}
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-black text-white">Send the code instead of the link</p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Save it and send it in a text, or put it on a card. It opens the same
+                    pricer — so it carries the same limit as the link:{' '}
+                    <span className="text-gray-200">{fresh.maxUses} scans, until {shortDate(fresh.expiresAt)}</span>.
+                    Think twice before printing it on anything permanent.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => downloadDataUrl(qr, 'black-phoenix-junk-pricer-qr.png')}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-black text-white"
+                    style={{ background: '#1a1a1a', border: '1px solid #2a2a2a' }}
+                  >
+                    <Download className="h-4 w-4" /> Save the image
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-4 text-xs text-gray-500">
+              {qrError ? `The QR code could not be drawn: ${qrError}` : 'Drawing the QR code…'}
+            </p>
+          )}
         </div>
       )}
 

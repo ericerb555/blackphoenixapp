@@ -541,6 +541,16 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
         { label: 'Work Order Management', path: '/work-order-management', icon: ClipboardList, color: 'blue', description: 'Manage work requests & orders from intake to completion', badge: 'NEW' },
         { label: 'Application Submissions', path: '/application-submissions', icon: ClipboardList, color: 'orange', description: 'Applications' },
         { label: 'Marketing Hub', path: '/revenue-monetization-hub', tab: 'marketing', icon: Megaphone, color: 'fuchsia', description: 'Marketing central' },
+        /*
+         * Eric, 2026-11-17: *"can we have a spot in the command [center] to
+         * save and create qr codes when needed?"*
+         *
+         * The page has existed and been reachable from exactly one place —
+         * a tile inside Marketing Command Center, two screens deep. `QrCode`
+         * was already imported into this file and used for nothing, which is
+         * the shape of a tile somebody meant to add and did not.
+         */
+        { label: 'QR Codes', path: '/qr-codes', icon: QrCode, color: 'amber', description: 'Make and save codes for trucks, cards, flyers & signs' },
         { label: 'Social Media', path: '/social-media', icon: Globe, color: 'blue', description: 'Social channels' },
         { label: 'Content Center', path: '/enterprise-content-center', icon: FileText, color: 'purple', description: 'Content management' },
         { label: 'Design Center', path: '/design-center', icon: Palette, color: 'pink', description: 'All design — structural, studio & renderings' },

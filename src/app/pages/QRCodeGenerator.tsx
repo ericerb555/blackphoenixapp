@@ -1,9 +1,15 @@
 /**
  * QRCodeGenerator — Branded QR codes for trucks, cards, flyers, yard signs.
- * Generates downloadable PNG/SVG QR codes with Black Phoenix branding.
+ *
+ * "Branded" was not true until 2026-11-17. This file imported the company
+ * logo, drew it 28px high as decoration *beside* the preview, and emitted
+ * plain black-and-white codes — the branding was in this header and nowhere in
+ * the output. The mark now goes in the middle of the code, through
+ * `lib/brandedQr`, which is also what the junk pricing links use. Why that is
+ * safe, and the three rules that keep it safe, are documented there.
  */
 import { useState, useEffect, useRef } from 'react';
-import QRCode from 'qrcode';
+import { brandedQrDataUrl } from '../lib/brandedQr';
 import { Download, Copy, Plus, Trash2, ExternalLink, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import companyLogo from '../../imports/BPB_phoenix_full_color_logo.png';
@@ -98,10 +104,8 @@ export default function QRCodeGenerator() {
   async function generatePreview() {
     if (!activeUrl) return;
     try {
-      const url = await QRCode.toDataURL(activeUrl, {
-        width: 300, margin: 2,
-        color: { dark: fgColor, light: bgColor },
-        errorCorrectionLevel: 'H',
+      const url = await brandedQrDataUrl(activeUrl, {
+        width: 300, margin: 2, dark: fgColor, light: bgColor,
       });
       setPreviewUrl(url);
     } catch { /* silent */ }
@@ -111,10 +115,13 @@ export default function QRCodeGenerator() {
     if (!activeUrl) { toast.error('Enter a URL first'); return; }
     setGenerating(true);
     try {
-      const dataUrl = await QRCode.toDataURL(activeUrl, {
-        width: 600, margin: 3,
-        color: { dark: fgColor, light: bgColor },
-        errorCorrectionLevel: 'H',
+      /*
+       * 1024, not 600. These end up printed on a yard sign or forwarded
+       * through a messaging app that re-compresses them, and a code that was
+       * generous on screen is mush by then.
+       */
+      const dataUrl = await brandedQrDataUrl(activeUrl, {
+        width: 1024, margin: 3, dark: fgColor, light: bgColor,
       });
       const entry: QREntry = {
         id: `qr_${Date.now()}`,
