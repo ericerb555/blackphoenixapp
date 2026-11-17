@@ -234,6 +234,60 @@ is correct in shape, and cannot return true. Rows in section 5 are not annotated
 yet; the three cases above are the ones found so far, and they were all found by reading
 gates rather than by calling routes.
 
+### Measured with a real non-staff session, 2026-11-17
+
+The four modules guarded that day were tested the only way this can be tested:
+a genuine signed-in account that is not staff, calling the routes directly.
+An unauthenticated request is answered by the wall before any route's own
+guard, and the wall answers a path that does not exist identically — so a 401
+proves nothing and is counted separately below.
+
+The probe account held `app_metadata.role` = none, so `trustedRole` returns ''
+and `STAFF_ROLE_SET` cannot match it.
+
+**20 of 20 as intended. 0 stopped by the wall, 0 allowed through, 0 broken for
+legitimate use.**
+
+| Request | Result |
+|---|---|
+| `PUT /company/config` — company name, HQ address, territory radius | 403 at the guard |
+| `POST /company/config/initialize` | 403 at the guard |
+| `GET /company/config` — read, open on purpose | 200, still works |
+| `GET /projects` — every project on the platform | 403 at the guard |
+| `GET /projects/stats`, `POST`, `PUT /:id`, `DELETE /:id` | 403 at the guard |
+| `GET /variances/<somebody else's email>` | 404, existence not confirmed |
+| `GET /variances/one/:id`, `PUT /:id`, `DELETE /:id` | 404 at the guard |
+| `GET /variances/<the caller's own email>` | 200, owner access intact |
+| `POST /page-pilot/generate` — spends on the AI bill | 403 at the guard |
+| `GET /page-pilot/list`, `PUT /:id`, `DELETE /:id` | 403 at the guard |
+| `GET /page-pilot/by-slug/:slug` — a published page | reaches the handler |
+| `GET /public/branding` — the whole API is not staff-only | 200 |
+| `POST /trash-estimator/read` — anonymous pricer | 400, its own answer |
+
+The last two controls matter as much as the refusals: three of these routers
+are mounted at `/` or at the API prefix, so a careless `use('*')` on any of
+them takes the entire API staff-only. That has happened on this platform
+before. Those two 200s are the evidence it did not happen again.
+
+**The same session, straight at the database and storage**, bypassing the
+server entirely:
+
+| Target | As anon | As a signed-in customer |
+|---|---|---|
+| `kv_store_3eae23a6` (all business data) | 401 permission denied | 403 permission denied |
+| `exchange_deal`, `ai_call_log`, `app_error_log` | 401 permission denied | 403 permission denied |
+| `private_cron_config` (the backup secret) | — | 403 permission denied |
+| `media-backup` bucket listing | — | 200, empty — RLS filtered |
+
+Denial is at the GRANT level, not merely RLS filtering, which is the stronger
+of the two. All 39 public tables have RLS enabled; none is without it.
+
+Four storage buckets are public — `ad-images`, `make-3eae23a6-gallery`,
+`make-57095a78-images`, `make-57095a78-logos` — and every object in them was
+listed and checked: website gallery photographs, company logo variants and a
+logo cache. No customer uploads, no blueprints, no quote documents. Every
+bucket holding customer files, `media-backup` included, is private.
+
 ### Two method rules this section earned
 
 Both are stated once here rather than repeated per finding.
