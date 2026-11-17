@@ -16,12 +16,79 @@
 import { Hono } from 'npm:hono@4';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { verifiedActor } from './requireStaff.ts';
 
 const variancesRouter = new Hono();
 
 const PREFIX = '/make-server-3eae23a6';
 const VAR = (id: string) => `variance:filing:${id}`;
 const VAR_PREFIX = 'variance:filing:';
+
+/**
+ * A VARIANCE DRAFT BELONGS TO ITS APPLICANT. Added 2026-11-17.
+ *
+ * This module had no authorisation of any kind, and `/variances` is on no
+ * public or admin list, so every route was tier "user" — any account with a
+ * session. Three of them take the identifier straight from the request:
+ *
+ *   GET /variances/:email    listed somebody's saved drafts by typing their
+ *                            email into the path. A zoning variance
+ *                            application carries the applicant's name, their
+ *                            property address, the parcel id and the relief
+ *                            they are asking the town for.
+ *   PUT /variances/:id       spread the body over any draft.
+ *   DELETE /variances/:id    removed any draft.
+ *
+ * STAFF OR THE OWNER, AND NOBODY ELSE. Staff pass because the company
+ * prepares these filings for customers. Everyone else may reach only records
+ * whose stored `email` is their own, taken from their token and never from
+ * the request.
+ *
+ * REFUSED AS 404 RATHER THAN 403, deliberately: a 403 on somebody else's
+ * draft confirms that a draft with that id exists, and the id is the only
+ * thing a stranger needs to guess. The same reasoning as the junk pricing
+ * links, which answer "no longer good" whether they expired or never existed.
+ *
+ * `scan-fill` is left to the wall and the AI ledger — it creates a record
+ * rather than reading one, and it is on AI_METERED_PREFIXES. Worth noting
+ * that it takes the applicant email from the body, so a caller can file a
+ * draft under somebody else's address; that is a separate fix and is written
+ * up in tasks/found-not-fixed.md.
+ *
+ * The path check is load-bearing: this router is mounted at `/`, so `use('*')`
+ * sees every request the server handles, not only this module's.
+ */
+variancesRouter.use('*', async (c: any, next: any) => {
+  const p = new URL(c.req.url).pathname;
+  const base = `${PREFIX}/variances`;
+  if (!p.startsWith(base)) return await next();
+  if (p === `${base}/scan-fill`) return await next();
+
+  const who = await verifiedActor(c);
+  if (!who?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (who.staff) return await next();
+
+  const method = c.req.method;
+  const tail = p.slice(base.length + 1);
+  const missing = () => c.json({ success: false, error: 'Not found.' }, 404);
+
+  // Addressed by draft id: /variances/one/:id, and PUT or DELETE /variances/:id
+  if (tail.startsWith('one/') || method === 'PUT' || method === 'DELETE') {
+    const id = decodeURIComponent(tail.startsWith('one/') ? tail.slice(4) : tail);
+    const record = (await kv.get(VAR(id)).catch(() => null)) as any;
+    const owner = String(record?.email || '').toLowerCase();
+    if (!record || !owner || owner !== who.email) return missing();
+    return await next();
+  }
+
+  // Addressed by email: GET /variances/:email
+  if (method === 'GET') {
+    if (decodeURIComponent(tail).toLowerCase() !== who.email) return missing();
+    return await next();
+  }
+
+  return await next();
+});
 const BUCKET = 'make-3eae23a6-variances';
 
 // Idempotently ensure the private archive bucket exists.

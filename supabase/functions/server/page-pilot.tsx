@@ -20,6 +20,7 @@
 import { Hono } from 'npm:hono@4';
 import * as kv from './kv_store.tsx';
 import { recordedAnthropic } from "./aiLedger.ts";
+import { requireStaff } from "./requireStaff.ts";
 
 // ── Which model writes the page ─────────────────────────────────────────────
 // Set PAGE_PILOT_PROVIDER=anthropic to write pages with Claude instead of
@@ -92,6 +93,42 @@ const pagePilotRouter = new Hono();
 const PREFIX = '/make-server-3eae23a6';
 const CP = (id: string) => `pagepilot:campaign:${id}`;
 const CP_PREFIX = 'pagepilot:campaign:';
+
+/**
+ * STAFF ONLY, EXCEPT THE TWO ROUTES A VISITOR NEEDS. Added 2026-11-17.
+ *
+ * This module had no authorisation of any kind. `/page-pilot` is on no public
+ * or admin list, so every route was tier "user" — reachable by any account
+ * with a session, which here means every customer, tenant, vendor and
+ * subcontractor. Three of them matter:
+ *
+ *   POST /page-pilot/generate   calls Anthropic through `recordedAnthropic`.
+ *                               It is on AI_METERED_PREFIXES, so the spend is
+ *                               recorded and ceilinged — but recorded spend is
+ *                               still spend, and the ceiling is the company's,
+ *                               not the caller's. Any signed-in stranger could
+ *                               generate marketing pages on our bill.
+ *   PUT /page-pilot/:id         rewrite any generated landing page.
+ *   DELETE /page-pilot/:id      remove one.
+ *
+ * `by-slug` and `track` are deliberately left open to any caller the wall
+ * already admits: the first is how a generated page is fetched for rendering
+ * and the second is its view beacon. Gating those would mean a page this tool
+ * exists to publish could not be read or counted.
+ *
+ * The path check is load-bearing: this router is mounted at `/`, so `use('*')`
+ * runs on every request the server receives. Without the bail-out below, this
+ * would make the entire API staff-only — which is a deploy that has already
+ * happened once, and why `requireStaff.ts` carries a comment about it.
+ */
+pagePilotRouter.use('*', async (c: any, next: any) => {
+  const p = new URL(c.req.url).pathname;
+  if (!p.startsWith(`${PREFIX}/page-pilot`)) return await next();
+  if (p.includes('/page-pilot/by-slug/') || p.includes('/page-pilot/track/')) {
+    return await next();
+  }
+  return await requireStaff(c, next);
+});
 
 // Store-wide limits (adjustable). Slots are numbered 1..MAX_SLOTS.
 const MAX_SLOTS = 6;

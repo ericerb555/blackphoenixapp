@@ -1,5 +1,6 @@
 import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
+import { requireStaffOn } from "./requireStaff.ts";
 
 // Project CRUD, KV-backed.
 // Frontend contract lives in src/app/lib/services/projectService.ts:
@@ -13,6 +14,29 @@ const projectsRouter = new Hono();
 
 const PREFIX = "/make-server-3eae23a6";
 const KEY = (id: string) => `project:${id}`;
+
+/**
+ * STAFF ONLY, ALL SIX ROUTES. Added 2026-11-17.
+ *
+ * This module had no authorisation of any kind, and `/projects` is on no
+ * public, admin or middleware list — so every route was tier "user": any
+ * account with a session, which here means every customer, tenant, vendor and
+ * subcontractor. `GET /projects` returned every project on the platform,
+ * `PUT /projects/:id` took the id from the path and spread the body over the
+ * record, and `DELETE /projects/:id` removed it.
+ *
+ * The only consumer is `pages/ProjectsNew.tsx`, which hides its write controls
+ * behind `isAdmin` from `useAuth()`. That is the exact thing Eric asked about
+ * at the start of this work — "hiding a button is not security" — and it was
+ * literally true here: the buttons were hidden and the routes were open.
+ *
+ * `requireStaffOn` rather than a bare `use('*', requireStaff)`. This router is
+ * mounted at `/`, so a `use('*')` on it runs on every request the server
+ * receives; `requireStaffOn` checks the path first and stands aside for
+ * everything that is not ours. `requireStaff.ts` records the deploy where that
+ * distinction took the whole API staff-only.
+ */
+projectsRouter.use('*', requireStaffOn([`${PREFIX}/projects`]));
 
 async function listProjects(): Promise<any[]> {
   return ((await kv.getByPrefix("project:")) || []) as any[];
