@@ -19,6 +19,7 @@ import { quoteTotal as quoteTotalOf } from "./quoteTotal.ts";
 import { customerInvoiceView } from "./customerInvoiceView.ts";
 import { runEstimator } from "./quote-generator.tsx";
 import { buildInvoiceRecord } from "./invoiceDraft.ts";
+import { invoiceLinesFromQuote, invoiceAmountFromQuote } from "./quoteInvoiceLines.ts";
 import { findLeadByEmail, putLead } from "./leadsStore.ts";
 import plansRouter from "./plans.tsx";
 import socialRouter from "./social-media.tsx";
@@ -13627,6 +13628,177 @@ app.post('/make-server-3eae23a6/invoices', async (c) => {
 /* `quoteTotal` moved to ./quoteTotal.ts so it could be tested. Re-exported
    here because callers already import it from this module. */
 export { quoteTotal } from "./quoteTotal.ts";
+
+/**
+ * POST /quotes/:id/draft-invoice — the Invoice Manager's copy of this quote.
+ *
+ * Eric: "when i save them the invocie manager should show a copy."
+ *
+ * ONE DRAFT PER QUOTE, UPDATED, NOT ANOTHER ONE EACH TIME
+ *
+ * Asked whether a save should raise a new invoice or keep one in step, he chose
+ * the latter, and it is the answer that keeps the ledger usable: ten edits to
+ * one quote would otherwise leave ten invoices and ten consumed numbers, and
+ * somebody would eventually send the wrong one of them. So this is
+ * find-or-create, keyed on the quote.
+ *
+ * IT WILL NOT TOUCH AN INVOICE THAT HAS LEFT DRAFT
+ *
+ * The moment an invoice is sent it is what a customer has been asked to pay.
+ * Re-syncing it from an edited quote would silently change the amount owed on a
+ * document already in somebody's inbox — so a non-draft invoice is reported
+ * back untouched, and whoever is editing the quote decides whether the change
+ * needs a change order.
+ *
+ * THE LINES ARE BUILT HERE, FROM THE STORED QUOTE
+ *
+ * Never from the request. `invoiceLinesFromQuote` prices them at the customer's
+ * price — each line's cost plus its proportional share of overhead, profit and
+ * contingency — which is the same apportionment the quote, the PDF and the
+ * portal use. That is also why this is a route rather than the browser posting
+ * lines it has already drawn: the rule this codebase settled on for money is
+ * that the figures come from the database, not from the request.
+ */
+app.post('/make-server-3eae23a6/quotes/:id/draft-invoice', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const quoteId = String(c.req.param('id') || '').trim();
+
+    /*
+     * The quote as this server holds it, or the one embedded in a pipeline item.
+     *
+     * The quote builder IS the pipeline, and a pipeline item carries its quote
+     * inline — there is not always a `quote:` record to read. Accepting either
+     * id is what makes this work from the screen Eric actually uses, without
+     * the browser getting to supply the figures.
+     */
+    let quote = await kv.get(`quote:${quoteId}`) as any;
+    let pipelineId: string | null = null;
+    if (!quote) {
+      const item = await kv.get(`pipeline_${quoteId}`) as any;
+      if (item?.quote) {
+        quote = { ...item.quote };
+        pipelineId = String(item.id || quoteId);
+        // The customer is on the pipeline item, not on its embedded quote.
+        quote.clientName = quote.clientName || item.customerName || '';
+        quote.clientEmail = quote.clientEmail || item.customerEmail || '';
+        quote.jobId = quote.jobId || item.jobId || null;
+      }
+    }
+    if (!quote) return c.json({ success: false, error: 'No quote or pipeline item with that id.' }, 404);
+
+    const lines = invoiceLinesFromQuote(quote);
+
+    /*
+     * Nothing to bill is not an error, and must not become an invoice.
+     *
+     * A quote saved early — a title, a customer, no lines yet — would otherwise
+     * raise a zero-dollar draft and consume a number, and the Invoice Manager
+     * would fill with placeholders nobody can send.
+     */
+    if (!lines.length) {
+      return c.json({
+        success: true,
+        invoice: null,
+        skipped: 'This quote has no priced lines yet, so there is nothing to copy.',
+      });
+    }
+
+    const existing = ((await kv.getByPrefix('invoice:').catch(() => [])) as any[])
+      .filter(Boolean)
+      .filter((inv) => String(inv.quoteId || inv.quote_id || '') === quoteId
+        || (pipelineId !== null && String(inv.pipelineItemId || '') === pipelineId))
+      .sort((a, b) => String(a.createdAt || a.created_at || '')
+        .localeCompare(String(b.createdAt || b.created_at || '')))[0] || null;
+
+    if (existing && String(existing.status || '') !== 'draft') {
+      /*
+       * Deliberately a success, not a failure. The quote saved fine; it is only
+       * the copy that cannot be rewritten, and the caller needs to be able to
+       * say so without the save itself looking broken.
+       */
+      return c.json({
+        success: true,
+        invoice: existing,
+        locked: true,
+        note: `Invoice ${existing.invoice_number || existing.id} is already `
+          + `${existing.status}, so it was left alone. Raise a change order if the price has moved.`,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const recipient = invoiceRecipient({
+      customerName: quote.clientName,
+      customerEmail: quote.clientEmail,
+    });
+
+    const built = buildInvoiceRecord({
+      ...(existing || {}),
+      // A draft until somebody sends it. Nothing here reaches a customer.
+      is_draft: true,
+      status: 'draft',
+      line_items: lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unit_price: l.unit_price,
+        is_taxable: l.is_taxable,
+      })),
+      tax_rate: Number(quote.taxRate) || 0,
+      description: quote.projectTitle || quote.title || quote.number || 'Quoted work',
+      quoteId,
+      quote_id: quoteId,
+      pipelineItemId: pipelineId,
+      jobId: existing?.jobId || quote.jobId || null,
+      /*
+       * What the quote says it comes to, carried for comparison only.
+       *
+       * `buildInvoiceRecord` derives the real total from the lines and logs when
+       * a posted figure disagrees — which is the check that catches an
+       * apportionment drifting away from the quote it came from.
+       */
+      total_amount: invoiceAmountFromQuote(quote),
+    }, {
+      recipient,
+      createdBy: user.email,
+      id: existing?.id,
+      now,
+    });
+
+    /*
+     * Annotated, because spreading `built.record` loses its index signature.
+     *
+     * `BuiltInvoice.record` is a `Record<string, unknown>`, and an object
+     * literal that spreads one keeps only the keys written out by hand — so
+     * `record.invoice_number` became a type error on a field that is certainly
+     * there at runtime. Saying what the shape is costs a line and keeps the
+     * reads honest.
+     */
+    const record: Record<string, unknown> = {
+      ...built.record,
+      createdAt: existing?.createdAt || existing?.created_at || now,
+      updatedAt: now,
+      syncedFromQuoteAt: now,
+    };
+    await kv.set(`invoice:${record.id}`, record);
+
+    if (built.postedTotalIgnored !== null) {
+      console.log(`[draft-invoice] quote ${quoteId} states ${built.postedTotalIgnored} and its lines come to ${record.total_amount}`);
+    }
+    console.log(`[draft-invoice] ${existing ? 'updated' : 'created'} ${record.invoice_number} from quote ${quoteId} (${lines.length} lines, ${record.total_amount})`);
+
+    return c.json({
+      success: true,
+      invoice: record,
+      created: !existing,
+      lineCount: lines.length,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not build the draft invoice.' }, 500);
+  }
+});
 
 app.post('/make-server-3eae23a6/quotes/:id/convert-to-contract', async (c) => {
   try {

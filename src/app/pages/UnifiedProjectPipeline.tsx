@@ -60,6 +60,7 @@ import { invoiceLinesFromQuote, invoiceAmountFromQuote } from '../lib/quoteToInv
 import { API_BASE_URL } from '../lib/apiConfig';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import QuoteMarginControl from '../components/quotes/QuoteMarginControl';
+import QuoteLineMarkupTable from '../components/quotes/QuoteLineMarkupTable';
 import { loadPricingConfigFromServer } from '../lib/pricingConfig';
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
 import { asFraction } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -410,6 +411,52 @@ export default function UnifiedProjectPipeline() {
     } catch (error) {
       console.error('[Pipeline] Error saving item:', error);
       throw error;
+    }
+  };
+
+  /**
+   * Keep this quote's copy in the Invoice Manager up to date.
+   *
+   * Eric: "when i save them the invocie manager should show a copy."
+   *
+   * The server builds it from the STORED quote and prices the lines itself —
+   * nothing here sends a figure, which is the rule this codebase settled on
+   * for money. It is find-or-update, so re-saving a quote moves its existing
+   * draft rather than raising a second one.
+   *
+   * NOT ALLOWED TO FAIL THE SAVE.
+   *
+   * The quote is already persisted by the time this runs. A failed sync means
+   * the copy is stale, which is worth a word on screen; throwing here would
+   * make a successful save report itself as a failure and invite somebody to
+   * press it again.
+   */
+  const syncDraftInvoice = async (item: PipelineItem) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const id = (item as any).quote?.id || item.id;
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${encodeURIComponent(id)}/draft-invoice`,
+        { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }, body: '{}' },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        toast.warning(data?.error || 'The quote saved, but its invoice copy could not be updated.');
+        return;
+      }
+      // A locked invoice is not a problem to solve silently — somebody needs
+      // to know the sent invoice no longer matches the quote.
+      if (data.locked) { toast.warning(data.note); return; }
+      if (data.skipped) return;
+      if (data.invoice) {
+        toast.success(
+          `${data.created ? 'Draft invoice' : 'Invoice'} ${data.invoice.invoice_number} ${data.created ? 'created in' : 'updated in'} the Invoice Manager`,
+          { description: `${data.lineCount} line${data.lineCount === 1 ? '' : 's'}, ${Number(data.invoice.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        );
+      }
+    } catch {
+      // Deliberately quiet: see above. The quote itself is saved.
     }
   };
 
@@ -1948,7 +1995,15 @@ export default function UnifiedProjectPipeline() {
                         await saveItemToBackend(updated);
                         setItems(prev => prev.map(i => (i.id === updated.id ? updated : i)));
                         setSelectedItem(updated);
-                        toast.success(`Quote #${updated.itemNumber} set to $${patch.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+                        toast.success(`Quote #${updated.itemNumber} set to ${patch.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+                        /*
+                         * The overhead and contingency are now on the quote,
+                         * so the copy in the Invoice Manager is out of date
+                         * until this runs. Awaited rather than fired off, so
+                         * its own message lands after the save confirmation
+                         * instead of racing it.
+                         */
+                        await syncDraftInvoice(updated);
                       } catch (error: any) {
                         // Not swallowed: the figure on screen would otherwise
                         // look saved, and the next person to open it would be
@@ -1958,6 +2013,22 @@ export default function UnifiedProjectPipeline() {
                     }}
                   />
                 ) : null}
+
+                {/*
+                  WHERE the overhead and contingency landed.
+
+                  The control above sets them and the quote stores three
+                  totals; this says what each line carries. Eric asked for
+                  them "destributed over all the line item" — they already
+                  were, proportionally, by the factor every customer-facing
+                  document prices with. What was missing was being able to
+                  see it, which is the difference between a number and an
+                  answer to "what is the overhead on the tile".
+
+                  Collapsed by default. It is a detail panel on a screen
+                  that already carries the figures somebody came to read.
+                */}
+                {selectedItem.quote ? <QuoteLineMarkupTable quote={selectedItem.quote} /> : null}
 
                 {/*
                   How this job is doing.
