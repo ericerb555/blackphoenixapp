@@ -471,6 +471,25 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       {!bounceDone && (
         <motion.div
           initial={{ opacity: 0, scale: 0 }}
+          /*
+            THE KEYFRAMES. Without this line there is no flourish at all.
+
+            It was dropped when the duration was shortened on 2026-11-17, and
+            losing it does not look like a bug in the obvious way: `initial`
+            still holds, so the overlay mounts at opacity 0 and scale 0, is
+            given nothing to animate towards, and is simply never seen. The
+            backstop timer then unmounts it on schedule. Nothing errors,
+            nothing warns, and the page looks like a page that was never
+            supposed to have an opening mark — which is exactly how Eric found
+            it: "the logo isnt blowing up big and then going back to normal
+            size on landing page".
+
+            The four values are read against `times` in the transition below —
+            [0, 0.3, 0.6, 1] — so they must stay four long and in this order:
+            burst in, hold big, hold, settle onto the disc in the hero. Change
+            one array without the other and the beats stop lining up.
+          */
+          animate={{ opacity: [0, 1, 1, 0], scale: [0, 10, 10, 1] }}
           transition={{
             /*
               1.6s, was 4.0. Eric, 2026-11-17: "yes shorten the delay."
