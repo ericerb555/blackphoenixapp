@@ -10,7 +10,7 @@ Status: `OPEN`, `DOING`, `DONE`, or `WAITING` on somebody.
 
 | # | Item | Why it is where it is | Who | Status |
 |---|---|---|---|---|
-| 1 | **`/cart` is public and takes `:customerId`** | The only remaining hole reachable with **no session at all**: read, add to, modify or empty a named customer's basket. Everything below needs either a session or Eric. | me | DONE |
+| 1 | **`/cart` is public and takes `:customerId`** | Was the only remaining hole reachable with **no session at all**. Measured on production first — `DELETE /cart/victim-customer-id` answered 200 and emptied it — then closed by deciding on the SHAPE of the id: a minted `session_…` is a capability and stays public, anything else needs staff or the signed-in owner. Verified live. | me | **DONE 2026-11-17** |
 | 2 | **WAF-1 — the firewall can be walked around** | `*.supabase.co` answers directly, so the Cloudflare rules never see the traffic. Every rate limit and bot rule above it is advisory until this closes. Needs `EDGE_ORIGIN_SECRET` set in two places, then `ORIGIN_LOCK_ENFORCE=true`. | Eric + me | WAITING |
 | 3 | **~950 routes that check *something*** | The scan that found the four unguarded modules finds only the *absence* of a check. A route that checks the wrong thing — the wrong role, or an id taken from the request — still reads as guarded. This is the largest unknown left and needs its own scanner. | me | OPEN |
 | 4 | **`POST /variances/scan-fill` trusts `body.email`** | A signed-in caller can file a draft under somebody else's address. Not a disclosure; the guard above it already stops them reading it back. | me | OPEN |
