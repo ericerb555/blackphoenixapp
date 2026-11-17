@@ -916,8 +916,30 @@ export default function CustomerPortalView() {
             )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          {/*
+            Tabs
+
+            Eric, from an iPhone: "the tabs and words are over lapping."
+
+            Nineteen tabs in a flex row, and a flex item shrinks by default.
+            So at 390px all nineteen were squeezed toward nothing while their
+            labels carried `whitespace-nowrap` and could not reflow — the text
+            overflowed each shrunken button and landed on top of its
+            neighbour's. `overflow-x-auto` never engaged, because the items
+            shrank to fit rather than overflowing the container, so the one
+            thing meant to rescue this was the reason it looked broken instead
+            of scrollable.
+
+            `shrink-0` on each button is the fix: they keep their natural
+            width, the row genuinely overflows, and the scroll the container
+            was always asking for actually happens. `flex-nowrap` is already
+            the default and is written out because this row depends on it.
+
+            The negative margin lets the strip run to the screen edges inside
+            the parent's px-6, so a half-visible tab at the edge reads as "more
+            this way" rather than as a cut-off mistake.
+          */}
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-2 -mx-6 px-6 sm:mx-0 sm:px-0">
             {tabs.map(tab => {
               const Icon = tab.icon;
               const isMessages = tab.id === 'messages';
@@ -926,7 +948,7 @@ export default function CustomerPortalView() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`relative flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
+                  className={`relative flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
                     activeTab === tab.id
                       ? 'bg-orange-600 text-white'
                       : hasUnread
