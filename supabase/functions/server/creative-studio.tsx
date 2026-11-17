@@ -15,6 +15,7 @@
  * Mounted with `app.route("/make-server-3eae23a6", creativeStudioRouter)`, so
  * route paths here are relative (like marketing-assets.tsx).
  */
+import { requireStaffOn } from './requireStaff.ts';
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
@@ -23,6 +24,19 @@ import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { imageModel } from "./imageModel.ts";
 
 export const creativeStudioRouter = new Hono();
+
+/**
+ * STAFF ONLY. Added 2026-11-17 as part of the authorisation sweep.
+ *
+ * Every route here sat at the auth wall's default of "signed in", so any
+ * customer, tenant, vendor or subcontractor with a session could reach the
+ * company's own /creative-studio tooling — including the deletes. This is
+ * internal marketing work; every screen that calls it is a staff screen.
+ *
+ * Mounted at the API prefix, so the path check inside `requireStaffOn` is
+ * what keeps this middleware off every other request the server handles.
+ */
+creativeStudioRouter.use('*', requireStaffOn(['/make-server-3eae23a6/creative-studio']));
 
 const BUCKET = "make-3eae23a6-creative";
 const ASSET_PREFIX = "creative_asset:";
