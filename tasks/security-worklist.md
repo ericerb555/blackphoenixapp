@@ -153,3 +153,15 @@ The 19 fall into three kinds, which is how they should be worked:
 usual helper `requireStaffOn` prefix-matches, and on that module a prefix would
 have put a staff gate in front of the PUBLIC vendor and subcontractor
 application forms. Check what else lives under a prefix before reaching for it.
+
+### Item 3 — bucket A, second pass
+
+| Cluster | Routes | Status |
+|---|---|---|
+| five marketing modules — creative-studio, content-studio, marketing-assets, video-studio, autopilot | 14 | **DONE** staff-only; autopilot hand-matched so the public cron survives |
+| remaining bucket A | 25 | open |
+
+The recurring hazard, now three for three: the obvious guard would have broken
+a live public route every time — the vendor application forms, the storefront
+reels, and the autopilot scheduler. **Check what else lives under a prefix
+before reaching for the prefix helper.**
