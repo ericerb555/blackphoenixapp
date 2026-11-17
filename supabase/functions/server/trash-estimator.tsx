@@ -297,23 +297,20 @@ trashEstimatorRouter.post("/read", async (c: any) => {
     const dayKey = globalDayKey(nowIso);
 
     /*
-     * Which header answered, recorded once per anonymous estimate.
+     * The address is never logged, and never stored unhashed.
      *
-     * `clientIp` reads `cf-connecting-ip` unconditionally while its neighbour
-     * `x-client-ip` is gated behind a trusted proxy — so the per-address half
-     * of this limit trusts a header a client can set, IF one survives to the
-     * function. It almost certainly does not: Supabase fronts these with its
-     * own Cloudflare, which overwrites it. But "almost certainly" rests on
-     * another company's edge configuration and was written down nowhere, so
-     * this logs what actually arrived and lets the question be answered from
-     * production rather than from reasoning.
+     * A diagnostic line here printed the resolved address and which headers
+     * carried it, to answer one question: can a caller set `cf-connecting-ip`
+     * and be counted as somebody else? Answered 2026-11-17 — Cloudflare 403s
+     * any request that supplies it, and appends the real address to the end of
+     * `x-forwarded-for`, so the genuine address wins either way. The three
+     * requests and how to repeat them are written above `clientIp` in
+     * `ipReputation.ts`.
+     *
+     * With the question settled the line was removed rather than left in: it
+     * put a visitor's IP address in the function logs on every anonymous
+     * estimate, which is the thing `ipDayKey` exists to avoid.
      */
-    const h = c.req.raw.headers;
-    console.log(
-      `[trash-estimator] anon ip=${ip || "none"} cf=${h.get("cf-connecting-ip") ? "present" : "absent"} ` +
-      `xff=${h.get("x-forwarded-for") ? "present" : "absent"} xci=${h.get("x-client-ip") ? "present" : "absent"} ` +
-      `viaProxy=${c.get("viaEdgeProxy") === true}`,
-    );
 
     const [ipUsed, globalUsed] = await Promise.all([
       ipKey ? kv.get(ipKey).catch(() => 0) : Promise.resolve(0),

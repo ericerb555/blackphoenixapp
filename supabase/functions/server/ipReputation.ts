@@ -377,6 +377,52 @@ export function presentedCredential(headers: Headers): boolean {
   return true;
 }
 
+/**
+ * The caller's address, or null.
+ *
+ * WHY cf-connecting-ip IS READ WITHOUT A TRUSTED-PROXY GATE
+ *
+ * Its neighbour `x-client-ip` is gated, and the asymmetry looked like a bug:
+ * a per-address rate limit that reads a header the client can set is a rate
+ * limit the client can escape, and `ORIGIN_LOCK_ENFORCE` is off, so
+ * `viaTrustedProxy` is false on real traffic. Both header candidates are
+ * therefore reachable in principle.
+ *
+ * MEASURED 2026-11-17 against the deployed function, one request each:
+ *
+ *   cf-connecting-ip: 203.0.113.77   403 at the edge, Cloudflare error 1000.
+ *                                    The function never ran; no log line.
+ *                                    Supabase fronts these with Cloudflare,
+ *                                    which treats a client-supplied
+ *                                    cf-connecting-ip as a protocol violation
+ *                                    and refuses the request outright.
+ *                                    Setting it costs you the request.
+ *   x-forwarded-for: 203.0.113.55    reached the function, resolved to the
+ *                                    real address anyway. Cloudflare APPENDS
+ *                                    the connecting IP to any XFF it is
+ *                                    handed, so the last element is the one
+ *                                    the edge observed — which is why the
+ *                                    loop below takes `parts.length - 1` and
+ *                                    not `parts[0]`.
+ *   x-client-ip: 198.51.100.9        reached the function and was ignored,
+ *                                    viaProxy=false.
+ *
+ * All four requests resolved to the same genuine egress address. The real
+ * address wins, so the gate would buy nothing and could cost something:
+ * gating cf-connecting-ip would hand the decision to `x-forwarded-for` and,
+ * on a day Supabase's edge stops setting XFF, to null — which turns a
+ * per-address limit into no limit at all.
+ *
+ * This rests on another company's edge configuration, so it is a measurement
+ * and not a law. To re-establish it: log `headers.get('cf-connecting-ip')`
+ * alongside the resolved value on one anonymous route, send the three
+ * requests above, and read the function logs. If a spoofed value ever
+ * survives to here, gate this read behind `viaTrustedProxy` like its
+ * neighbour and treat the per-address ceilings as advisory until it is.
+ *
+ * `x-real-ip` last is a nothing-left fallback; no caller on this platform is
+ * known to set it.
+ */
 export function clientIp(
   headers: { get(name: string): string | null },
   viaTrustedProxy = false,
