@@ -20,7 +20,6 @@
  */
 import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import * as kv from "./kv_store.tsx";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const storeAiPricingRouter = new Hono();
@@ -31,8 +30,7 @@ async function requireAdmin(c: any) {
   const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
   const { data: { user }, error } = await supabase.auth.getUser(accessToken ?? "");
   if (error || !user?.id) return { ok: false, error: `Authorization error while running AI pricing: ${error?.message || "no user"}`, status: 401 };
-  const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
-  const role = perms?.role || user.app_metadata?.role;
+  const role = user.app_metadata?.role;
   if (role !== "admin" && role !== "owner" && role !== "super_admin") {
     return { ok: false, error: "Administrator access is required to run AI pricing.", status: 403 };
   }

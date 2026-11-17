@@ -100,14 +100,19 @@ export async function intakeIsAdmin(user: any) {
   if (!user?.id) return false;
   if (PLATFORM_OWNER_EMAILS.has(String(user.email || '').toLowerCase())) return true;
   if (INTAKE_ADMIN_ROLES.has(trustedRole(user))) return true;
+  /*
+   * The `user_permissions` query that used to sit beside this was dropped
+   * 2026-11-17. That table does not exist — confirmed against production —
+   * so it answered with an error object and an empty list every time this
+   * helper ran, which is 112 call sites, the most-used on this server.
+   *
+   * Company membership was carrying the decision on its own already. Nothing
+   * about who is an administrator changes here; one query per call does.
+   */
   try {
-    const [permissions, memberships] = await Promise.all([
-      admin().from('user_permissions').select('role_name').eq('user_id', user.id),
-      admin().from('company_members').select('role').eq('user_id', user.id).eq('is_active', true),
-    ]);
-    const hasPermissionRole = (permissions.data || []).some((row: any) => INTAKE_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
-    const hasCompanyAuthority = (memberships.data || []).some((row: any) => ['owner', 'admin'].includes(String(row.role || '').toLowerCase()));
-    return hasPermissionRole || hasCompanyAuthority;
+    const memberships = await admin().from('company_members')
+      .select('role').eq('user_id', user.id).eq('is_active', true);
+    return (memberships.data || []).some((row: any) => ['owner', 'admin'].includes(String(row.role || '').toLowerCase()));
   } catch { return false; }
 }
 

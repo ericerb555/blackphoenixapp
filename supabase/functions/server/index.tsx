@@ -11870,11 +11870,33 @@ async function rewardsActor(c: any) {
   return error || !user ? null : user;
 }
 
+/**
+ * THIS HAS BEEN REFUSING EVERYBODY. Fixed 2026-11-17.
+ *
+ * It asked one question — does this user hold an admin row in the
+ * `user_permissions` TABLE — and that table **does not exist**. Confirmed
+ * against production: `relation "public.user_permissions" does not exist`.
+ * So `error` was set on every call, the function returned `false` on every
+ * call, and every route behind it answered "Administrator access is
+ * required." to the owner of the company.
+ *
+ * Unlike the eight sibling gates that read the same record, this one had no
+ * `|| app_metadata.role` fallback, so there was nothing underneath it to
+ * catch the fall. Gift cards, redemptions and the rewards admin routes have
+ * been unreachable by anybody.
+ *
+ * It failed CLOSED, which is the right direction to fail and the reason this
+ * was a broken feature rather than a hole. It is also why nobody found it
+ * from the outside: a permanently refused admin route looks exactly like a
+ * correctly guarded one.
+ *
+ * Now reads the role the way every other gate on this server does —
+ * `trustedRole`, which is `app_metadata` only, because `user_metadata` is
+ * browser-writable.
+ */
 async function rewardsAdmin(user: any) {
   if (!user?.id) return false;
-  const { data, error } = await supabase.from('user_permissions').select('role_name').eq('user_id', user.id);
-  if (error) return false;
-  return (data || []).some((row: any) => REWARDS_ADMIN_ROLES.has(String(row.role_name || '').toLowerCase()));
+  return REWARDS_ADMIN_ROLES.has(trustedRole(user));
 }
 
 function rewardsEmail(value: unknown) {
@@ -12249,13 +12271,15 @@ app.get('/make-server-3eae23a6/auth/me', async (c) => {
     let role = allowedRoles.has(metadataRole) ? metadataRole : '';
     if (!role) {
       try {
-        const [permissionResult, membershipResult] = await Promise.all([
-          supabase.from('user_permissions').select('role_name, level').eq('user_id', user.id).order('level', { ascending: true }).limit(10),
-          supabase.from('company_members').select('role').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true }).limit(10),
-        ]);
-        const roles = (permissionResult.data || []).map((row: any) => String(row.role_name || '').toLowerCase()).filter((value: string) => allowedRoles.has(value));
+        // The `user_permissions` half of this was dropped 2026-11-17: the
+        // table does not exist, so it contributed an error object and an
+        // empty list on every call. Company membership is the real answer
+        // and always was.
+        const membershipResult = await supabase.from('company_members')
+          .select('role').eq('user_id', user.id).eq('is_active', true)
+          .order('created_at', { ascending: true }).limit(10);
         const membershipRoles = (membershipResult.data || []).map((row: any) => String(row.role || '').toLowerCase());
-        role = membershipRoles.includes('owner') ? 'owner' : membershipRoles.includes('admin') ? 'admin' : roles.find((value: string) => INTAKE_ADMIN_ROLES.has(value)) || roles[0] || '';
+        role = membershipRoles.includes('owner') ? 'owner' : membershipRoles.includes('admin') ? 'admin' : '';
       } catch { /* Fall through to the approved application role. */ }
     }
     let applicationId = await kv.get(`intake:email:${String(user.email).toLowerCase()}`) as string | null;

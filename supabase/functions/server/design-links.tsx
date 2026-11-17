@@ -72,12 +72,10 @@ async function isStaff(user: any): Promise<boolean> {
   if (STAFF_ROLES.has(role)) return true;
 
   try {
-    const sb = service();
-    const [perms, members] = await Promise.all([
-      sb.from("user_permissions").select("role_name").eq("user_id", user.id),
-      sb.from("company_members").select("role").eq("user_id", user.id).eq("is_active", true),
-    ]);
-    if ((perms.data || []).some((r: any) => STAFF_ROLES.has(String(r.role_name || "").toLowerCase()))) return true;
+    // The `user_permissions` query beside this was dropped 2026-11-17 — the
+    // table does not exist, so it never granted anybody anything.
+    const members = await service().from("company_members")
+      .select("role").eq("user_id", user.id).eq("is_active", true);
     if ((members.data || []).some((r: any) => ["owner", "admin"].includes(String(r.role || "").toLowerCase()))) return true;
   } catch {
     // A lookup failure must not grant access.

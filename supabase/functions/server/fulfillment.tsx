@@ -98,10 +98,9 @@ async function requireAdmin(c: any) {
   const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
   const { data: { user }, error } = await supabase.auth.getUser(accessToken ?? "");
   if (error || !user?.id) return { ok: false, error: `Authorization error: ${error?.message || "no user"}`, status: 401 };
-  const perms = (await kv.get(`user_permissions:${user.id}`)) as any;
   // Server-owned permission record, or app_metadata. Never user_metadata: the
   // browser can write that bag, so it would be the caller naming their own role.
-  const role = perms?.role || trustedRole(user);
+  const role = trustedRole(user);
   if (role !== "admin" && role !== "owner" && role !== "super_admin") return { ok: false, error: "Administrator access is required.", status: 403 };
   return { ok: true };
 }

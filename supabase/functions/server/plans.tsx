@@ -38,8 +38,11 @@ async function authenticatedActor(c: any) {
 async function hasAdminAccess(user: any) {
   const role = String(user?.app_metadata?.role || user?.app_metadata?.accountType || '').toLowerCase();
   if (ADMIN_ROLES.has(role)) return true;
-  if (!user?.id) return false;
-  try { const { data } = await auth.from('user_permissions').select('role_name').eq('user_id', user.id); return (data || []).some((row: any) => ADMIN_ROLES.has(String(row.role_name || '').toLowerCase())); } catch { return false; }
+  // The `user_permissions` fallback that used to be here was dropped
+  // 2026-11-17: that table does not exist, so it returned an error object and
+  // an empty list on every call that got this far. `app_metadata` above is and
+  // was the whole answer.
+  return false;
 }
 function ownsPlan(plan: any, user: any) { return String(plan?.ownerEmail || '').toLowerCase() === String(user?.email || '').toLowerCase(); }
 

@@ -34,13 +34,10 @@ async function authenticatedActor(c: any) {
 async function hasAdminAccess(user: any) {
   const metadataRole = String(user?.app_metadata?.role || user?.app_metadata?.accountType || "").toLowerCase();
   if (ADMIN_ROLES.has(metadataRole)) return true;
-  if (!user?.id) return false;
-  try {
-    const { data } = await auth.from("user_permissions").select("role_name").eq("user_id", user.id);
-    return (data || []).some((row: any) => ADMIN_ROLES.has(String(row.role_name || "").toLowerCase()));
-  } catch {
-    return false;
-  }
+  // The `user_permissions` fallback that used to be here was dropped
+  // 2026-11-17: that table does not exist, so it answered with an error and an
+  // empty list on every call. The metadata role above is the whole answer.
+  return false;
 }
 
 function ownsEmployee(c: any, employeeId: string) {
