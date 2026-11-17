@@ -119,3 +119,37 @@ account. Staff-only now, reads included.
 (twelve property-management writes). The remainder are mostly admin-tier or
 behind path middleware and need reading to confirm rather than guarding, with
 a tail at tier "user" that does not.
+
+### Item 3 — bucket A, in progress
+
+| Cluster | Routes | Status |
+|---|---|---|
+| `property-management` — condos, landlords, work requests, offers, crew assignment | 12 | **DONE** staff-only |
+| `territory-cohorts` — territory writes, application reject, members, founders, analytics | 10 | **DONE** staff-only, segment-matched |
+| `reel-scoreboard` (from bucket B) | 5 | **DONE** staff-only |
+| still at tier "user" with no caller resolved | 19 | open |
+
+**32 left in bucket A, 19 of them at tier "user".** The rest are admin-tier or
+behind path middleware and need reading to confirm rather than guarding.
+
+The 19 fall into three kinds, which is how they should be worked:
+
+- **Company marketing and content** — `marketing-assets`, `creative-studio`,
+  `content-studio`, `autopilot`, `store-content` reels and posts,
+  `video-studio`, `growth-marketing` ranking publish, `crm-content` blog
+  delete. All staff work; none is customer self-service. A uniform staff gate,
+  one module at a time, each with its own path-scope check.
+- **Capability tokens** — `/review/:token`, `/review/:token/respond`,
+  `/screening/:token/apply`, `/screening/fee/:token/accept`. The token is the
+  principal, which is the same design as the junk pricing links. These are
+  probably correct by construction and need reading, not gating — but the
+  token's entropy and expiry are worth checking while in there.
+- **Operations** — `fulfillment/orders/:id`, `media/:mediaId` delete,
+  `landlord/conditions-reports/:id` delete, `schedule/confirm`. Each needs its
+  own answer: `media-library` has customer uploads behind `requireSignedIn`,
+  so a blanket staff gate there would break a customer attaching a photo.
+
+**The lesson from territory-cohorts, worth repeating before the next one:** the
+usual helper `requireStaffOn` prefix-matches, and on that module a prefix would
+have put a staff gate in front of the PUBLIC vendor and subcontractor
+application forms. Check what else lives under a prefix before reaching for it.
