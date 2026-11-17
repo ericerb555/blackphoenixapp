@@ -36,8 +36,56 @@ import { Hono } from "npm:hono@4";
 import * as kv from "./kv_store.tsx";
 import { intakeActor, intakeIsAdmin } from "./identity.ts";
 import { stripBase64 } from "./payloadLimits.ts";
+import { requireStaffOn } from "./requireStaff.ts";
 
 export const propertyManagementRouter = new Hono();
+
+/**
+ * STAFF ONLY. Added 2026-11-17, and it resolves the deferral above.
+ *
+ * The note at the top of this file recorded the problem and declined to fix
+ * it: these routes have no authorisation of their own, so they sat on the
+ * wall's default of "signed in" — reachable by every customer, tenant, vendor
+ * and subcontractor. Twelve of them WRITE: creating, rewriting and deleting
+ * condo associations, landlords' properties, their work requests, the offers
+ * sent out on those, and the crew assigned to them.
+ *
+ * WHY IT WAS DEFERRED, AND WHY THAT REASONING NO LONGER HOLDS
+ *
+ * The note says a `requireStaff` "would break the portals it was written for",
+ * because landlords and property managers are signed in and are not staff. A
+ * fair worry, and checkable rather than arguable. Every caller in `src/`:
+ *
+ *   AdminPortalView.tsx          POST …/work-requests/:id/assign — dispatching
+ *                                a work order to an employee. A staff action,
+ *                                from the admin portal.
+ *   PropertyManagementTest.tsx   a routed test harness.
+ *
+ * That is all of them. Nothing landlord-facing calls this module at all — no
+ * screen anywhere fetches `/property-management/landlords/…` or
+ * `/property-management/condos`. The real landlord and tenant features live in
+ * `rental-portals.tsx`, which has its own per-record ownership checks (see
+ * `PATCH /tenant/leases/:id/sign`, which compares the caller's email to the
+ * lease's `tenantEmail`). The portals the note was protecting are served from
+ * somewhere else.
+ *
+ * So the choice the note could not make is now made on evidence: staff only.
+ *
+ * IF LANDLORD SELF-SERVICE IS EVER BUILT ON THESE ROUTES, the answer is not to
+ * relax this guard — it is per-account scoping, a landlord seeing their own
+ * records, which is what the original note asked for and is a data-model
+ * change rather than a gate. Relaxing this would hand every signed-in account
+ * the whole property book again.
+ *
+ * `requireStaffOn` and not `use('*', requireStaff)`: this router declares full
+ * paths and is mounted at `/`, so a bare `use('*')` would run on every request
+ * the server receives. `/property-management-test` is included deliberately —
+ * it is a test harness over the same records.
+ */
+propertyManagementRouter.use('*', requireStaffOn([
+  '/make-server-3eae23a6/property-management',
+  '/make-server-3eae23a6/property-management-test',
+]));
 
 // ============================================
 // PROPERTY MANAGEMENT (Condos, Landlords, Property Managers)

@@ -2158,9 +2158,23 @@ app.route("/", designStandardsRouter);
  * they need per-record ownership checks. `providerBids` shows why, taking the
  * provider's identity from the URL (`/my-opportunities/:providerId`), so any
  * signed-in caller could read another provider's opportunities by changing a
- * number. They stay unmounted. `property-management` is a different case again:
- * twenty-one of its twenty-two routes are duplicates of the guarded ones in this
- * file, so mounting it would shadow them with unguarded copies.
+ * number. They stay unmounted.
+ *
+ * `property-management` WAS DESCRIBED HERE AS UNMOUNTED TOO. Corrected
+ * 2026-11-17. This said it "stays unmounted" because "twenty-one of its
+ * twenty-two routes are duplicates of the guarded ones in this file, so
+ * mounting it would shadow them with unguarded copies". Both halves had
+ * stopped being true: `indexSplit.mjs` lifted the duplicates OUT of this file
+ * — searching it for `property-management` now finds comments and not one
+ * route — and the module is mounted, at the bottom of this block.
+ *
+ * So a comment was telling an auditor the module was unreachable while twelve
+ * of its write routes were live on the wall's "signed in" default: any
+ * customer, tenant or vendor could create, rewrite or delete condo
+ * associations, landlords' properties, their work requests and the crew
+ * assigned to them. It now carries its own staff guard — see the note at the
+ * top of `property-management.tsx` for why staff is the right shape, and what
+ * to build instead if landlord self-service ever needs these routes.
  *
  * `providerBids` AND `serviceProviders` ARE NOT WAITING ON OWNERSHIP CHECKS
  *
