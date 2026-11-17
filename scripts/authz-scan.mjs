@@ -296,6 +296,32 @@ function scopedByKey(scope) {
   }));
 }
 
+/**
+ * A MODULE GUARD WITH EXEMPTIONS DOES NOT COVER THE PATHS IT EXEMPTS.
+ *
+ * `trash-estimator.tsx` has a `use('*')` auth wall, so "this module has a
+ * router-level guard" was true and the scan skipped all nine of its routes.
+ * But that wall deliberately lets two paths through — `/trash-estimator/read`
+ * and `/trash-estimator/confirm-anonymous`, both public by design — and those
+ * are exactly the rows worth looking at.
+ *
+ * Caught when a new public POST, `confirm-anonymous`, was added and the scan
+ * said nothing at all about it. "The module is guarded" is too coarse a claim
+ * when the guard names its own exceptions: the exceptions are the attack
+ * surface.
+ *
+ * So the literal paths mentioned inside the middleware are collected, and a
+ * route whose path appears among them is treated as NOT covered — it goes back
+ * into the buckets to be judged on its own handler like any ungated route.
+ */
+function exemptedPaths(code, useAt) {
+  if (useAt < 0) return [];
+  const region = code.slice(useAt, useAt + 4000);
+  const out = [];
+  for (const m of region.matchAll(/["'`](\/[A-Za-z0-9_\-/]{3,})["'`]/g)) out.push(m[1]);
+  return out;
+}
+
 const noCaller = [], noCheck = [];
 for (const f of fs.readdirSync(DIR)) {
   if (!/\.tsx?$/.test(f)) continue;
@@ -312,7 +338,8 @@ for (const f of fs.readdirSync(DIR)) {
     const args = code.slice(m.index, bodyStart === -1 ? m.index : bodyStart);
     const body = bodyAfter(code, m.index);
     if (!any(WRITES, body) || !any(FROM_REQUEST, body)) continue;
-    if (moduleGuard) continue;
+    const exempt = exemptedPaths(code, useAt).some((x) => route === x || route.endsWith(x) || x.endsWith(route));
+    if (moduleGuard && !exempt) continue;
     const scope = args + body;
     if (any(STAFF, scope)) continue;
     const full = fullPathOf(mount, route);
