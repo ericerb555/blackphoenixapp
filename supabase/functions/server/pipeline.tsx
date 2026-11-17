@@ -1,6 +1,8 @@
 import { Hono } from "npm:hono@4";
 import { cors } from "npm:hono@4/cors";
 import * as kv from "./kv_store.tsx";
+import { financialActor } from "./identity.ts";
+import { isTrustedStaff, trustedRole } from "./trustedRole.ts";
 
 const pipelineRouter = new Hono();
 
@@ -30,12 +32,86 @@ pipelineRouter.options("*", (c) => {
 
 console.log("📋 Pipeline Router loaded with CORS enabled");
 
+
+/**
+ * WHO MAY TOUCH THE PIPELINE.
+ *
+ * Every route in this file had no authentication of any kind. Not a token
+ * check, not a role check — `PUT /pipeline/items/:id` rewrote any item by id
+ * with whatever the body contained, and a pipeline item carries the quote:
+ * its materials, its labour, its margins and its total. So the figures a
+ * customer is about to sign were editable by anyone who could name the job.
+ *
+ * The gateway runs this function with verify_jwt on, which is why this was
+ * not wide open to the whole internet — but the token it accepts includes the
+ * PUBLISHABLE anon key, which ships inside the JavaScript bundle on purpose.
+ * Any visitor had one. `POST /pipeline/items/batch` was the sharpest edge of
+ * it: an array in, `kv.mset` out, no validation, so a single request could
+ * overwrite every job on the board.
+ *
+ * This is the same fix `PUT /quotes/:id` already carries, under a comment
+ * calling it "the most important of these checks".
+ *
+ * THREE TIERS, AND THEY ARE NOT ARBITRARY
+ *
+ * Reading the board means reading what every job is priced at, so it is
+ * company-staff only. Creating an item is also done by field crew — the
+ * change-order camera app posts one from somebody's phone when the job on
+ * site differs from the job on paper — so that one admits the field roles
+ * `internalWorkAccess` already names. Rewriting an existing item can change a
+ * price, so it stays with staff. Deleting a job, and writing many at once,
+ * are admin.
+ *
+ * Roles come from `trustedRole`, which reads `app_metadata` only. Reading the
+ * browser-writable bag is what once let any portal guest call themselves an
+ * administrator and be believed on the next request.
+ */
+
+/** Field roles that work on jobs without running the office. */
+const FIELD_ROLES = new Set(['technician', 'field_technician', 'maintenance_tech']);
+
+async function pipelineActor(c: any) {
+  const { user, admin } = await financialActor(c);
+  const role = trustedRole(user);
+  return {
+    user,
+    admin,
+    staff: Boolean(user) && (admin || isTrustedStaff(user)),
+    crew: Boolean(user) && FIELD_ROLES.has(role),
+  };
+}
+
+/** Reading or repricing the board: company staff only. */
+async function requirePipelineStaff(c: any): Promise<Response | null> {
+  const { user, staff } = await pipelineActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!staff) return c.json({ success: false, error: 'Company staff access is required.' }, 403);
+  return null;
+}
+
+/** Creating an item: staff, or field crew raising one from site. */
+async function requirePipelineContributor(c: any): Promise<Response | null> {
+  const { user, staff, crew } = await pipelineActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!staff && !crew) return c.json({ success: false, error: 'Company staff access is required.' }, 403);
+  return null;
+}
+
+/** Deleting a job, or writing many at once: administrators. */
+async function requirePipelineAdmin(c: any): Promise<Response | null> {
+  const { user, admin } = await pipelineActor(c);
+  if (!user?.email) return c.json({ success: false, error: 'Sign in required.' }, 401);
+  if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+  return null;
+}
 // ============================================================================
 // PIPELINE MANAGEMENT ENDPOINTS
 // ============================================================================
 
 // Get all pipeline items
 pipelineRouter.get("/make-server-3eae23a6/pipeline/items", async (c) => {
+  const refused = await requirePipelineStaff(c);
+  if (refused) return refused;
   try {
     console.log("[Pipeline] Fetching all pipeline items...");
     const items = await kv.getByPrefix("pipeline_");
@@ -58,6 +134,8 @@ pipelineRouter.get("/make-server-3eae23a6/pipeline/items", async (c) => {
 
 // Get a single pipeline item by ID
 pipelineRouter.get("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
+  const refused = await requirePipelineStaff(c);
+  if (refused) return refused;
   try {
     const id = c.req.param("id");
     console.log(`[Pipeline] Fetching item: ${id}`);
@@ -87,6 +165,8 @@ pipelineRouter.get("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
 
 // Create a new pipeline item
 pipelineRouter.post("/make-server-3eae23a6/pipeline/items", async (c) => {
+  const refused = await requirePipelineContributor(c);
+  if (refused) return refused;
   try {
     const body = await c.req.json();
     console.log("[Pipeline] Creating new item:", body.id);
@@ -115,6 +195,8 @@ pipelineRouter.post("/make-server-3eae23a6/pipeline/items", async (c) => {
 
 // Update a pipeline item
 pipelineRouter.put("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
+  const refused = await requirePipelineStaff(c);
+  if (refused) return refused;
   try {
     const id = c.req.param("id");
     const body = await c.req.json();
@@ -157,6 +239,8 @@ pipelineRouter.put("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
 
 // Delete a pipeline item
 pipelineRouter.delete("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
+  const refused = await requirePipelineAdmin(c);
+  if (refused) return refused;
   try {
     const id = c.req.param("id");
     console.log(`[Pipeline] Deleting item: ${id}`);
@@ -179,6 +263,8 @@ pipelineRouter.delete("/make-server-3eae23a6/pipeline/items/:id", async (c) => {
 
 // Move item to different stage
 pipelineRouter.post("/make-server-3eae23a6/pipeline/items/:id/move", async (c) => {
+  const refused = await requirePipelineStaff(c);
+  if (refused) return refused;
   try {
     const id = c.req.param("id");
     const { stage } = await c.req.json();
@@ -217,6 +303,8 @@ pipelineRouter.post("/make-server-3eae23a6/pipeline/items/:id/move", async (c) =
 
 // Batch update multiple items
 pipelineRouter.post("/make-server-3eae23a6/pipeline/items/batch", async (c) => {
+  const refused = await requirePipelineAdmin(c);
+  if (refused) return refused;
   try {
     const { items } = await c.req.json();
     console.log(`[Pipeline] Batch updating ${items?.length || 0} items`);
@@ -228,6 +316,31 @@ pipelineRouter.post("/make-server-3eae23a6/pipeline/items/batch", async (c) => {
       }, 400);
     }
     
+    /*
+     * An id per item, and a ceiling on how many.
+     *
+     * An item with no id becomes the key `pipeline_undefined`, so a batch
+     * containing one writes a junk record — and the next such batch overwrites
+     * it, which is how two unrelated jobs come to be the same row.
+     *
+     * The cap is there because this is an `mset`: one request should not be
+     * able to rewrite the whole board. A real drag-and-drop reorder moves a
+     * board's worth of cards, not a database's worth.
+     */
+    const withoutIds = items.filter((item) => !String(item?.id || '').trim()).length;
+    if (withoutIds > 0) {
+      return c.json({
+        success: false,
+        error: `${withoutIds} of ${items.length} items have no id, so they cannot be saved.`,
+      }, 400);
+    }
+    if (items.length > 200) {
+      return c.json({
+        success: false,
+        error: `That batch holds ${items.length} items. Refusing more than 200 at once.`,
+      }, 413);
+    }
+
     // Prepare items for batch update
     const kvPairs = items.map(item => ({
       key: `pipeline_${item.id}`,
