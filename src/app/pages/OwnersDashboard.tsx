@@ -648,7 +648,12 @@ export default function OwnersDashboard({ onNavigate }: OwnersDashboardProps) {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-6 py-4 font-medium transition-all whitespace-nowrap relative flex items-center gap-2 ${
+                  // `shrink-0` is what makes the row's `overflow-x-auto`
+                  // actually scroll. A flex item shrinks by default, so
+                  // without it these squeeze together instead of overflowing
+                  // and the scroll never engages — which is what "the tabs
+                  // and words are over lapping" looked like on an iPhone.
+                  className={`shrink-0 px-6 py-4 font-medium transition-all whitespace-nowrap relative flex items-center gap-2 ${
                     activeTab === tab.id
                       ? 'text-[#ea580c] border-b-2 border-[#ea580c]'
                       : 'text-gray-400 hover:text-gray-200 hover:bg-[#2A2A2A]/50'
