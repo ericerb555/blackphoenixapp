@@ -103,6 +103,27 @@ cartRouter.use('*', async (c: any, next: any) => {
   if (!first) return await next();
 
   /*
+   * THE REFUSAL IS WORD-FOR-WORD WHAT AN EMPTY CART SAYS, ON PURPOSE.
+   *
+   * The handlers answer `{ error: 'Cart not found' }` when there is no cart at
+   * that key. This guard answers exactly the same thing, so a caller cannot
+   * tell "that cart is not yours" from "there is no such cart" — which is the
+   * whole point of refusing with a 404 rather than a 403.
+   *
+   * The first version differed by one character: 'Cart not found.' with a full
+   * stop. That was enough to tell the two apart from outside, and it also made
+   * verifying this change harder than it needed to be, because the probe could
+   * not tell which code path had answered.
+   *
+   * Distinguishable from the INSIDE instead: the guard logs, the handlers do
+   * not. Same answer to a stranger, different answer to us.
+   */
+  const refuse = () => {
+    console.log(`[cart] refused an unowned cart id: ${first.slice(0, 12)}…`);
+    return c.json({ error: 'Cart not found' }, 404);
+  };
+
+  /*
    * `merge` takes `customerId` from its body, so it is checked there rather
    * than skipped: merging a guest cart INTO somebody else's account cart is
    * the same door from the other side.
@@ -115,7 +136,7 @@ cartRouter.use('*', async (c: any, next: any) => {
     const who = await verifiedActor(c);
     if (who?.staff) return await next();
     if (who && (target === who.id || target.toLowerCase() === who.email)) return await next();
-    return c.json({ error: 'Cart not found.' }, 404);
+    return refuse();
   }
 
   if (MINTED_CART_ID.test(first)) return await next();
@@ -123,7 +144,7 @@ cartRouter.use('*', async (c: any, next: any) => {
   const who = await verifiedActor(c);
   if (who?.staff) return await next();
   if (who && (first === who.id || first.toLowerCase() === who.email)) return await next();
-  return c.json({ error: 'Cart not found.' }, 404);
+  return refuse();
 });
 const generateCartItemId = () => `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
