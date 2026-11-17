@@ -25,11 +25,35 @@ whether the thing is well built. It is.
 | Checked | Result |
 |---|---|
 | Secret values in the shipped browser bundle | **None.** 459 JS chunks scanned for service-role keys, Stripe live/test keys, Resend/Anthropic keys, Slack and Google key shapes. The only hits are UI strings naming env vars in setup instructions. |
-| The nine newest or most sensitive API routes, called anonymously | **All 401.** `team/members`, `team/role-changes`, `trash-estimator/links`, `social/platforms`, `owner-provisioning/invites`, `owner-provisioning/portal-access`, `crm/contacts`, `media-library`, `images/upload`. |
+| The nine newest or most sensitive API routes, called anonymously | **All 401** — `team/members`, `team/role-changes`, `trash-estimator/links`, `social/platforms`, `owner-provisioning/invites`, `owner-provisioning/portal-access`, `crm/contacts`, `media-library`, `images/upload`. **See the correction below: this proves less than it appears to.** |
 | Machine routes (cron ticks, watchdog, escalation, probe reporting) | **Secret-gated and fail closed.** Each refuses when its secret is unset rather than running, and returns the same answer for "unset" and "wrong" so a caller learns nothing. |
 | `/sms/test` — an unauthenticated endpoint that spends money | Gated on `SMS_TEST_SECRET`, 404 when unset. |
 | Prompt injection on the public AI pricing path | **Genuinely defended.** Customer notes are fenced in `<customer-notes>` and labelled as description-not-instruction; the model answers with array indices only; an out-of-range answer is rejected whole rather than clamped; the price is computed downstream from a takeoff, never read off the model. |
 | Live probe `npm run security` | **15 passed · 1 failed · 0 warnings · 2 skipped.** The CSP warning present on 11 November is gone. |
+
+### Correction, same day — a 401 does not mean the route exists
+
+Written into the table above as if nine 401s established nine working
+controls. They do not, and the error is worth keeping rather than quietly
+editing out.
+
+The auth wall answers **before** routing. So an invented path returns exactly
+what a real one does:
+
+    GET /team/members                     401  {"error":"Sign in required."}
+    GET /team/zzz-not-a-real-route-9f3a   401  {"error":"Sign in required."}
+    GET /completely/invented/path         401  {"error":"Sign in required."}
+
+Byte-identical. What the nine probes actually prove is that **no anonymous
+caller reaches any of those routes** — which is worth knowing and is a real
+control. What they do not prove is that the routes exist, that they are
+mounted, or that the authorization *inside* them works. For the Team routes
+that came from reading the deployed bundle instead.
+
+This is good design and a real limitation at once: a uniform 401 defeats route
+enumeration, and it also means **no amount of external anonymous probing can
+verify authorization**. Anything past the wall needs a real, non-staff
+credential. The concurrent route sweep is blocked on exactly this.
 
 ---
 
@@ -152,7 +176,48 @@ bought for.
 
 ---
 
-### P4-5 — Open items that are configuration, not code · carried
+### P4-5 — The anonymous pricer's per-IP ceiling rests on an undocumented dependency · **LOW, conditional**
+
+Reviewed at the author's request: `anonPricer.ts` plus its call site, added
+after this pass began. It lets anyone price a job with no credential, and
+every call spends an Anthropic request.
+
+**The design is right.** Two ceilings — 3 per address per day, 150 overall —
+with the date in the key so nothing needs resetting, deliberately *not*
+through `aiSpend`, whose budgets never reset and would have permanently
+refused everyone behind a carrier NAT after two estimates. Counted after a
+price exists, so our own failure to read a photograph does not consume one of
+a stranger's three. The global ceiling is what actually bounds the money, and
+it holds regardless of everything below.
+
+**The dependency.** The per-IP half rests on `clientIp()`
+(`ipReputation.ts:380`), which reads `cf-connecting-ip` **unconditionally** —
+unlike `x-client-ip`, which is correctly gated behind `viaTrustedProxy`. A
+client-supplied `cf-connecting-ip` is therefore trusted on any path where one
+survives to the function.
+
+It almost certainly does not: Supabase fronts these functions with its own
+Cloudflare, which *overwrites* `cf-connecting-ip` rather than passing a
+client's through — that is the only reason the header is trustworthy anywhere.
+`x-forwarded-for` is handled correctly for the same topology (the code takes
+the **last** element, which is the one the nearest trusted proxy appends).
+
+**So this is not a claim that it is exploitable.** It is a claim that nobody
+has written down why it is safe, and that the reason lives in another
+company's edge configuration. If the per-IP ceiling is ever bypassed, the
+global 150 still caps the spend — but a stranger could exhaust the day's
+pricing for real customers at the cost of rotating one header fifty times.
+
+**Cheap verification, before trusting it:** log the resolved address once on
+the anonymous path, then send a request with `cf-connecting-ip: 1.2.3.4`. If
+the log shows the real address, the dependency holds and should be written
+into `clientIp()`'s header comment. If it shows `1.2.3.4`, gate
+`cf-connecting-ip` behind `viaTrustedProxy` exactly as `x-client-ip` already
+is.
+
+---
+
+### P4-6 — Open items that are configuration, not code · carried
 
 | Item | Waiting on |
 |---|---|

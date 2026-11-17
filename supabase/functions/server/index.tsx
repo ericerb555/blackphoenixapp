@@ -120,6 +120,7 @@ import hourTransfersRouter from "./hour-transfers.tsx";
 import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import { registerTeamRoutes } from "./teamDirectory.ts";
+import { BUILD_INFO } from "./buildInfo.generated.ts";
 import { mayInviteAs, normalizeRole } from "./accountStanding.ts";
 import invoiceAttachablesRouter from "./invoiceAttachables.tsx";
 import rateLearningRouter from "./rateLearningRoutes.tsx";
@@ -2283,6 +2284,21 @@ app.get("/make-server-3eae23a6/health", (c) => {
     message: "Black Phoenix Server Running",
     timestamp: new Date().toISOString(),
     version: "2.9.0-command-center-resilient",
+    /**
+     * WHICH BUILD THIS IS. Generated at build time; see `buildInfo.generated.ts`.
+     *
+     * `version` above is hand-written and was identical before and after every
+     * deploy, which is why two sessions could spend days replacing each
+     * other's function without it being visible anywhere. `/health` answered
+     * `ok` throughout — correctly, since a server missing a route is a
+     * perfectly healthy server.
+     *
+     * Public on purpose, and safe to be: a short commit hash and a branch name
+     * identify a build in a repository a stranger cannot read. The value of
+     * being able to ask production what it is running — from a phone, from
+     * CI, from the other session — is worth more than the nothing it reveals.
+     */
+    build: BUILD_INFO,
     emailConfig: {
       from: Deno.env.get('NOTIFICATION_FROM_EMAIL') || '(unset → onboarding@resend.dev)',
       replyTo: Deno.env.get('REPLY_TO_EMAIL') || '(unset → blackphoenixbuilds@proton.me)',
