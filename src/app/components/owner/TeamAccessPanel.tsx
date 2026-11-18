@@ -88,6 +88,26 @@ export default function TeamAccessPanel() {
   const [loadError, setLoadError] = useState('');
   const [savingEmail, setSavingEmail] = useState('');
 
+  /**
+   * BULK ROLE SETTING. Eric, 2026-11-18: "add bulk role setting".
+   *
+   * Selection is by email because that is what the server's route takes, and
+   * `id` is not what `mayAssignRole` compares.
+   *
+   * `bulkArmed` is a deliberate second step. Everything else on this screen
+   * changes one person; this changes several people's authority at once, and a
+   * mis-click on a dropdown next to "Apply to 9 people" is not a mistake that
+   * announces itself. The button names the count and the role before it will
+   * do anything.
+   */
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState('employee');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkArmed, setBulkArmed] = useState(false);
+  const [bulkDone, setBulkDone] = useState<null | {
+    changed: string[]; unchanged: string[]; refused: { who: string; why: string }[]; stopped: boolean;
+  }>(null);
+
   const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'employee' });
   const [sendEmail, setSendEmail] = useState(true);
   const [sendSms, setSendSms] = useState(false);
@@ -192,6 +212,106 @@ export default function TeamAccessPanel() {
     } finally {
       setSavingEmail('');
     }
+  };
+
+
+  /**
+   * Who may be selected: everybody but you.
+   *
+   * The server refuses a change to your own role and always will — a sole
+   * owner who demotes themselves locks themselves out of the screen that
+   * would undo it. Making your row unselectable keeps a guaranteed refusal
+   * out of every bulk result rather than explaining it afterwards.
+   */
+  const selectableEmails = members.filter(m => m.email !== actorEmail).map(m => m.email);
+  const selectedCount = selected.length;
+  const allSelected = selectableEmails.length > 0 && selectedCount === selectableEmails.length;
+
+  const toggleOne = (email: string) => {
+    setBulkArmed(false); setBulkDone(null);
+    setSelected(cur => (cur.includes(email) ? cur.filter(e => e !== email) : [...cur, email]));
+  };
+
+  const toggleAll = () => {
+    setBulkArmed(false); setBulkDone(null);
+    setSelected(allSelected ? [] : selectableEmails);
+  };
+
+  /**
+   * APPLY ONE ROLE TO SEVERAL PEOPLE.
+   *
+   * THERE IS NO BULK ROUTE ON THE SERVER, AND THAT IS THE POINT. Each change
+   * goes through `POST /team/members/role` exactly as the single dropdown
+   * does, so:
+   *
+   *   - `mayAssignRole` decides every one of them. An administrator doing this
+   *     still cannot mint a second administrator, because the same check runs
+   *     each time. A new bulk endpoint would be a second route that writes
+   *     `app_metadata.role`, needing its own guard and its own proof — and the
+   *     existing one has been tested against a real non-staff session.
+   *   - the audit log keeps one `team_role_change:` row per person, with who
+   *     did it and when, which is what makes "who made them an administrator?"
+   *     answerable. A single bulk write would collapse nine decisions into one
+   *     record.
+   *   - a partial failure stays truthful. Six changed and three refused is
+   *     reported as six changed and three refused.
+   *
+   * SEQUENTIAL, NOT PARALLEL. The log stays in order, and a 401 stops the rest
+   * instead of firing eight more requests that cannot succeed. A team is tens
+   * of people, not thousands; the wall-clock cost is not worth the mess.
+   *
+   * REFUSALS CARRY THE SERVER'S OWN WORDS. The browser does not re-implement
+   * `mayAssignRole` to grey out combinations it thinks will fail — that would
+   * be a second copy of an authorisation rule, drifting from the first, which
+   * is the exact mistake `/me/permissions` exists to have stopped.
+   */
+  const applyBulkRole = async () => {
+    if (!token) { toast.error('Sign in again.'); return; }
+    if (!selectedCount) return;
+    setBulkBusy(true);
+    const changed: string[] = [];
+    const unchanged: string[] = [];
+    const refused: { who: string; why: string }[] = [];
+    let stopped = false;
+
+    for (const email of selected) {
+      const member = members.find(m => m.email === email);
+      if (!member) continue;
+      const who = member.name || member.email;
+      if (member.role === bulkRole) { unchanged.push(who); continue; }
+      try {
+        const res = await fetch(`${SERVER}/team/members/role`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, role: bulkRole }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          refused.push({ who, why: 'Your session expired part way through.' });
+          stopped = true;
+          break;
+        }
+        if (!res.ok || !payload?.success) {
+          refused.push({ who, why: String(payload?.error || 'The server refused it.') });
+          continue;
+        }
+        changed.push(who);
+        setMembers(ms => ms.map(m => (m.email === email ? { ...m, role: bulkRole } : m)));
+      } catch (err: any) {
+        refused.push({ who, why: err?.message || 'The request did not go through.' });
+      }
+    }
+
+    setBulkBusy(false);
+    setBulkArmed(false);
+    setBulkDone({ changed, unchanged, refused, stopped });
+    setSelected([]);
+    if (changed.length) {
+      toast.success(`${changed.length} ${changed.length === 1 ? 'person is' : 'people are'} now ${labelFor(bulkRole)}.`);
+    }
+    if (refused.length) toast.error(`${refused.length} refused — see the panel.`);
+    // The directory is the authority, not this list. Re-read it.
+    load();
   };
 
   const setActive = async (member: Member, active: boolean) => {
@@ -322,11 +442,125 @@ export default function TeamAccessPanel() {
           </p>
         )}
 
+        {/*
+          THE BULK BAR — only on screen when something is selected.
+          A permanently visible row-of-controls on a screen that writes
+          authority is an invitation; this appears when it is asked for.
+        */}
+        {!loading && !loadError && selectedCount > 0 && (
+          <div className="flex flex-col gap-3 rounded-lg border border-red-900/40 bg-red-950/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-white">
+              <span className="font-semibold">{selectedCount}</span>{' '}
+              {selectedCount === 1 ? 'person' : 'people'} selected
+              <button
+                onClick={() => { setSelected([]); setBulkArmed(false); }}
+                disabled={bulkBusy}
+                className="ml-3 text-xs text-gray-400 underline hover:text-white disabled:opacity-50"
+              >
+                clear
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-xs uppercase tracking-wide text-gray-400">Set role to</label>
+              <select
+                value={bulkRole}
+                onChange={e => { setBulkRole(e.target.value); setBulkArmed(false); }}
+                disabled={bulkBusy}
+                /* text-base, not text-sm: iOS Safari zooms into a focused
+                   control under 16px and never zooms back out. */
+                className="rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] px-3 py-2 text-base text-white outline-none focus:border-red-500 disabled:opacity-50"
+              >
+                {assignable.map(r => (
+                  <option key={r} value={r}>{labelFor(r)}</option>
+                ))}
+              </select>
+
+              {/*
+                Two clicks, deliberately. The first arms it and the button then
+                says exactly what it will do, naming the count and the role.
+                One dropdown plus one button is how nine people silently become
+                administrators.
+              */}
+              <button
+                onClick={() => (bulkArmed ? applyBulkRole() : setBulkArmed(true))}
+                disabled={bulkBusy}
+                className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  bulkArmed
+                    ? 'bg-red-600 text-white hover:bg-red-500'
+                    : 'border border-red-900/60 bg-[#1A1A1A] text-red-200 hover:border-red-600'
+                } disabled:opacity-50`}
+              >
+                {bulkBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                {bulkBusy
+                  ? 'Applying…'
+                  : bulkArmed
+                    ? `Yes — make ${selectedCount} ${selectedCount === 1 ? 'person' : 'people'} ${labelFor(bulkRole)}`
+                    : 'Apply to selected'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/*
+          WHAT ACTUALLY HAPPENED, per person. A bulk action that reports only
+          "done" is worse than no bulk action: the refusals are the part
+          somebody has to act on, and they carry the server's own words.
+        */}
+        {bulkDone && (
+          <div className="space-y-2 rounded-lg border border-[#2A2A2A] bg-[#0D0D0D] p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white">Result</span>
+              <button onClick={() => setBulkDone(null)} className="text-xs text-gray-500 hover:text-white">dismiss</button>
+            </div>
+            {bulkDone.changed.length > 0 && (
+              <p className="flex items-start gap-2 text-green-300">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Changed: {bulkDone.changed.join(', ')}</span>
+              </p>
+            )}
+            {bulkDone.unchanged.length > 0 && (
+              <p className="text-gray-400">Already that role: {bulkDone.unchanged.join(', ')}</p>
+            )}
+            {bulkDone.refused.map(r => (
+              <p key={r.who} className="flex items-start gap-2 text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span><span className="font-medium">{r.who}</span> — {r.why}</span>
+              </p>
+            ))}
+            {bulkDone.stopped && (
+              <p className="text-amber-200">
+                Stopped part way through, so anybody after that point was not changed.
+                Sign in again and re-select them.
+              </p>
+            )}
+            {bulkDone.changed.length === 0 && bulkDone.refused.length === 0 && bulkDone.unchanged.length === 0 && (
+              <p className="text-gray-400">Nothing to do.</p>
+            )}
+          </div>
+        )}
+
         {!loading && !loadError && members.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A2A] text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="pb-2 pr-3 font-medium">
+                    {/*
+                      Select-all covers everybody BUT you — see selectableEmails.
+                      h-5 w-5 rather than the browser default, because Eric works
+                      from a phone and a 13px native checkbox in a table row is
+                      not a tap target.
+                    */}
+                    <input
+                      type="checkbox"
+                      aria-label="Select everybody"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      disabled={bulkBusy || selectableEmails.length === 0}
+                      className="h-5 w-5 cursor-pointer accent-red-500"
+                    />
+                  </th>
                   <th className="pb-2 pr-3 font-medium">Person</th>
                   <th className="pb-2 pr-3 font-medium">Role</th>
                   <th className="pb-2 pr-3 font-medium">Last signed in</th>
@@ -339,6 +573,19 @@ export default function TeamAccessPanel() {
                   const busy = savingEmail === m.email;
                   return (
                     <tr key={m.id || m.email} className="border-b border-[#1F1F1F] last:border-0">
+                      <td className="py-3 pr-3 align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${m.name || m.email}`}
+                          checked={selected.includes(m.email)}
+                          onChange={() => toggleOne(m.email)}
+                          /* Your own row cannot be selected: the server refuses a
+                             change to your own role, so offering it would only
+                             manufacture a refusal. */
+                          disabled={isSelf || bulkBusy || busy}
+                          className="h-5 w-5 cursor-pointer accent-red-500 disabled:cursor-not-allowed disabled:opacity-30"
+                        />
+                      </td>
                       <td className="py-3 pr-3">
                         <div className="font-medium text-white">{m.name || '—'}{isSelf && <span className="ml-2 text-[10px] uppercase text-gray-500">you</span>}</div>
                         <div className="text-xs text-gray-500">{m.email}</div>
