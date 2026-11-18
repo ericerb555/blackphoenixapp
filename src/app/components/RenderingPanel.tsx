@@ -151,7 +151,7 @@ export default function RenderingPanel({
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-[#1a1a1a]">
+        <div className="flex flex-nowrap overflow-x-auto border-b border-[#1a1a1a]">
           {[
             { id: 'quality', label: 'Quality', icon: Settings },
             { id: 'lighting', label: 'Lighting', icon: Sun },
@@ -163,7 +163,7 @@ export default function RenderingPanel({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 px-4 py-3 flex items-center justify-center gap-2 transition-colors ${
+                className={`shrink-0 px-4 py-3 flex items-center justify-center gap-2 whitespace-nowrap transition-colors ${
                   activeTab === tab.id
                     ? 'bg-[#1a1a1a] text-[#ea580c] border-b-2 border-[#ea580c]'
                     : 'text-gray-400 hover:text-white hover:bg-[#1a1a1a]'

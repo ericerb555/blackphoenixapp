@@ -538,6 +538,30 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         that lets anybody into the app should never depend on an animation
         having run.
       */}
+      {/*
+        Sign In moved to the LEFT corner on 2026-11-17.
+        Eric: "it should be the linked button on the top right corner".
+
+        The two swapped rather than crowding the same corner. Together they are
+        about 300px of a 358px row at 390px, so side by side on the right they
+        would overlap — and the right-hand one would be the one pushed off,
+        which is the junk pricer he has just asked to be the prominent control.
+        Mirroring keeps both reachable and changes nothing about the clearance
+        the hero already reserves for this row.
+      */}
+      {/*
+        BACK ON THE RIGHT, 2026-11-18, because Eric asked for it back.
+
+        It went left earlier the same day to stop the two colliding at 390px
+        — together they are about 300px of a 358px row, so side by side the
+        RIGHT-hand one is what falls off. The reasoning was sound and the
+        conclusion was the wrong way round: the junk pricer is the control he
+        asked to be prominent, and Sign In is the one people already know to
+        look for.
+
+        So the pair is mirrored rather than restacked, and the overflow risk
+        now falls on the button that can afford it.
+      */}
       <div className="fixed top-4 right-4 z-[60]">
         <CornerCard
           label="Sign In"
@@ -550,10 +574,22 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
       </div>
 
       {/*
-        Junk removal — floating, top left, opposite Sign In.
+        Junk removal — floating, top RIGHT, and the only way into the pricer
+        from this page.
 
         Eric, 2026-11-14: "can we also put a floating button on the landing page
         in the top section on the lefthand side click for Junk removal".
+        Then 2026-11-17: "there should only be one junk pricer and it should be
+        the linked button on the top right corner of the landing page" — so it
+        moved across and Sign In took the left corner.
+
+        TWO OTHER DOORS INTO THE SAME PRICER WERE REMOVED WITH IT: a full-width
+        banner further down the page and a pill in the services row, both
+        calling `startTrashQuote` exactly as this does. Three controls starting
+        the same flow is three places to keep in step, and on a phone it read as
+        the page asking the same question over and over. The service CARD is
+        left alone — it goes to the demolition landing page, which is marketing
+        about the service rather than the estimator.
 
         THREE THINGS THIS INHERITS FROM THE BUTTON ACROSS THE ROW
 
@@ -1344,37 +1380,6 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         </div>
       </div>
 
-      {/* ── JUNK & DEMO: A PRICE FROM YOUR OWN PHOTOGRAPHS ──────────────────── */}
-      <div className="w-full px-4 pb-8 flex justify-center">
-        <motion.button
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          onClick={() => void startTrashQuote()}
-          className="w-full max-w-4xl text-left rounded-2xl p-5 sm:p-6 group"
-          style={{ background: "linear-gradient(135deg, rgba(234,88,12,0.12), rgba(0,0,0,0))", border: "1px solid rgba(234,88,12,0.35)" }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ background: "rgba(234,88,12,0.18)" }}>
-              <Trash2 className="w-6 h-6 text-orange-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-black tracking-widest uppercase text-orange-500">Junk removal · Demolition · Haul-away</p>
-              <h3 className="mt-1 text-lg sm:text-xl font-black text-white">Photograph the pile. Get a price.</h3>
-              <p className="mt-1 text-sm text-gray-400">
-                Send photos and a short video. We read them twice and come back with a range, what
-                we could not see, and exactly what would change the price. No visit needed first.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 px-5 py-3 rounded-xl font-black text-sm text-black whitespace-nowrap group-hover:gap-3 transition-all"
-              style={{ background: "linear-gradient(90deg,#f97316,#ea580c)" }}>
-              Get my price
-              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-            </div>
-          </div>
-        </motion.button>
-      </div>
       {/* ── SERVICE PILLS ROW ────────────────────────────────────────────────── */}
       <div className="w-full px-4 pb-10 flex justify-center">
         <div className="w-full max-w-4xl mx-auto">
@@ -1383,9 +1388,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             {[
               { label: 'Home Services', icon: Building, navigate: 'handyman-landing-page' },
               { label: 'Builds & Renovation', icon: Building2, navigate: 'builds-landing-page' },
-              // Was pointed at 'demo-landing-page', which routes back to THIS page —
-              // a pill that reloaded the landing page. It goes to the estimator now.
-              { label: 'Junk & Demo Quote', icon: Trash2, navigate: 'demo-landing-page', action: 'trash-quote' },
+              /*
+               * The 'Junk & Demo Quote' pill was removed 2026-11-17.
+               *
+               * Eric: "there should only be one junk pricer and it should be
+               * the linked button on the top right corner of the landing
+               * page." This pill and the banner that used to sit above this
+               * row both called `startTrashQuote`, the same as the corner
+               * button — three doors into one flow, on one page.
+               *
+               * Worth noting what it was before it was deleted: it pointed at
+               * 'demo-landing-page', which routes back to THIS page, so for a
+               * while it was a pill that reloaded the landing page. Fixing it
+               * to open the estimator is what made it a third duplicate.
+               */
               { label: 'Property Management', icon: Building, navigate: 'property-management-landing-page' },
               { label: 'Contractor Network', icon: Users, navigate: 'contractor-network-landing-page' },
               { label: 'Advertise With Us', icon: Megaphone, navigate: 'advertiser-application' },
@@ -1398,7 +1414,9 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3, delay: 0.05 * i }}
-                onClick={() => ((pill as any).action === 'trash-quote' ? void startTrashQuote() : handleNavigate(pill.navigate))}
+                // The 'trash-quote' branch went with the pill that used it; no
+                // pill carries an action now, so every one of them navigates.
+                onClick={() => handleNavigate(pill.navigate)}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 hover:bg-[#2A2A2A] text-gray-300 hover:text-white text-sm font-semibold transition-all"
               >
                 <pill.icon className="w-3.5 h-3.5 text-orange-400" />

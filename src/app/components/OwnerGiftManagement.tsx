@@ -332,7 +332,7 @@ export default function OwnerGiftManagement({ onClose }: OwnerGiftManagementProp
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-2 mt-4">
+          <div className="flex flex-nowrap gap-2 overflow-x-auto mt-4">
             {[
               { id: 'templates', label: 'Gift Templates', icon: Package },
               { id: 'active-gifts', label: 'Active Gifts', icon: Sparkles },
@@ -341,7 +341,7 @@ export default function OwnerGiftManagement({ onClose }: OwnerGiftManagementProp
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition ${
                   activeTab === tab.id
                     ? 'bg-[#ea580c] text-white'
                     : 'bg-[#1a1a1a] text-gray-400 hover:bg-[#2a2a2a]'
