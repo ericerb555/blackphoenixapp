@@ -122,7 +122,24 @@ function clipForSeam(
   ctx.clip();
 }
 
-export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput): void {
+/**
+ * The boxes the renderer put on the canvas.
+ *
+ * Returned rather than recomputed by the caller, because a second copy of
+ * the placement arithmetic is a second answer: the day they disagree,
+ * clicking a logo picks up the photograph behind it and nobody can see why.
+ * These are the rectangles that were actually painted.
+ */
+export interface DrawnBoxes {
+  logo: Rect | null;
+  banner: Rect | null;
+  text: Rect | null;
+}
+
+interface Rect { x: number; y: number; width: number; height: number }
+
+export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput): DrawnBoxes {
+  const drawn: DrawnBoxes = { logo: null, banner: null, text: null };
   const { composition: comp, brand } = input;
   canvas.width = comp.canvas.width;
   canvas.height = comp.canvas.height;
@@ -220,6 +237,7 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
     const place = readPlacement(input.bannerPlacement, DEFAULT_BANNER_PLACEMENT);
     const aspect = input.banner.naturalWidth / Math.max(1, input.banner.naturalHeight);
     const box = placeOn(comp.canvas, aspect, place);
+    drawn.banner = box;
     ctx.save();
     ctx.drawImage(input.banner, box.x, box.y, box.width, box.height);
     ctx.restore();
@@ -229,6 +247,7 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
   if (input.overlayText) {
     const place = readPlacement(input.textPlacement, DEFAULT_TEXT_PLACEMENT);
     const box = placeText(comp.canvas, place, 1);
+    drawn.text = box;
     ctx.save();
     /*
      * The dark band is as wide as the TEXT BOX now, not the whole canvas.
@@ -263,6 +282,7 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
     const place = readPlacement(input.logoPlacement, DEFAULT_LOGO_PLACEMENT);
     const aspect = input.logo.naturalWidth / Math.max(1, input.logo.naturalHeight);
     const box = placeOn(comp.canvas, aspect, place);
+    drawn.logo = box;
     ctx.save();
     ctx.drawImage(input.logo, box.x, box.y, box.width, box.height);
     ctx.restore();
@@ -310,6 +330,8 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
     }
     ctx.restore();
   }
+
+  return drawn;
 }
 
 /** The finished design as a file, ready to download or upload. */
