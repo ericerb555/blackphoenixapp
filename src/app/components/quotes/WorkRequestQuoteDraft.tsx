@@ -24,6 +24,7 @@
  * they are not. Sending it is a separate decision made on the quote screen.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { quoteTotalOf } from '../documents/quoteMath';
 import { Loader2, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { API_BASE_URL } from '../../lib/apiConfig';
@@ -139,7 +140,7 @@ export default function WorkRequestQuoteDraft({ workRequestId }: Props) {
           </p>
         </div>
         <div className="text-right">
-          <p className="font-bold text-white">{money(q.total)}</p>
+          <p className="font-bold text-white">{money(quoteTotalOf(q))}</p>
           {/* Said out loud, because a screen that silently re-generates is how a
               bill appears without anybody deciding anything. */}
           <p className="text-[11px] text-gray-500">
