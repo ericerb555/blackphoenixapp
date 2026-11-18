@@ -5359,8 +5359,52 @@ app.post('/make-server-3eae23a6/auth/reset-password', async (c) => {
 });
 
 // ── NOTIFICATION TEST BUTTONS (admin Notification Settings page) ──────────────
+/**
+ * STAFF ONLY. Added 2026-11-18, at Eric's instruction: "make sure it has auth
+ * and role check."
+ *
+ * Both test routes below took a destination from the request and sent on the
+ * company's own credentials with NO role check at all. `/notifications` is on
+ * no public or admin list, so they sat at the wall's default: reachable by any
+ * account with a session — every customer, tenant, vendor and subcontractor.
+ *
+ * WHAT THAT WAS WORTH TO SOMEBODY
+ *
+ * Neither lets a caller choose the words, which is the only reason this was
+ * limited rather than an open relay. What they could choose is the
+ * DESTINATION, and the sender is us:
+ *
+ *   test-sms     a text from the company's Bird number to any mobile on
+ *                earth, on the company's credits and sender reputation.
+ *   test-email   a message from the company's own domain through Resend to
+ *                any address. Mail arriving from a real business domain is
+ *                the scarce half of a phishing attempt; the body being fixed
+ *                does not change who it appears to come from, and bulk
+ *                complaints land on that domain's reputation, not the
+ *                sender's.
+ *
+ * Both are now staff-only. `isStaffRequest` reads `app_metadata` through
+ * `trustedRole`, so a browser cannot talk itself into it.
+ *
+ * STAFF RATHER THAN ADMIN, deliberately, though the neighbouring
+ * `/owner-provisioning/invite-test-sms` requires admin. That one provisions
+ * and sends a real invitation; these answer "is the provider working", which
+ * is exactly what an office person diagnosing "the texts stopped arriving"
+ * needs to press. Tightening a diagnostic to admin is how the diagnosis gets
+ * done by guesswork instead.
+ */
+async function requireStaffForTest(c: any) {
+  if (await isStaffRequest(c)) return null;
+  return c.json(
+    { success: false, error: 'Company access is required to send a test message.' },
+    403,
+  );
+}
+
 app.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
   try {
+    const refused = await requireStaffForTest(c);
+    if (refused) return refused;
     const body = await c.req.json().catch(() => ({}));
     const email = String(body.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.json({ success: false, error: 'Enter a valid email address.' }, 400);
@@ -5384,6 +5428,8 @@ app.post('/make-server-3eae23a6/notifications/test-email', async (c) => {
 
 app.post('/make-server-3eae23a6/notifications/test-sms', async (c) => {
   try {
+    const refused = await requireStaffForTest(c);
+    if (refused) return refused;
     const body = await c.req.json().catch(() => ({}));
     const phone = String(body.phone || '').trim();
     if (!phone) return c.json({ success: false, error: 'Enter a phone number to test.' }, 400);
