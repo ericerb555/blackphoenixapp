@@ -46,6 +46,7 @@ import {
   canvasScale, clampUnit, dragToFraming, dragToOffset, hitTest, toCanvasPoint,
   type HitKind,
 } from '../../lib/beforeAfterHitTest';
+import { isDirection, readDirection } from '../../lib/adDirection';
 import { companyInfo } from '../../lib/config/companyInfo';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
@@ -304,7 +305,7 @@ export default function BeforeAfterCreator() {
   /** '' = every photo, '__none' = the ones with no job, otherwise a job id. */
   const [jobFilter, setJobFilter] = useState('');
   const [picking, setPicking] = useState<Slot | null>(null);
-  const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing' | 'picking'>('');
+  const [busy, setBusy] = useState<'' | 'saving' | 'downloading' | 'writing' | 'picking' | 'directing'>('');
   /** What Phoenix said about the pair it proposed, shown beside the slots. */
   const [pickNote, setPickNote] = useState('');
 
@@ -403,6 +404,101 @@ export default function BeforeAfterCreator() {
    * Nothing here publishes. The person exporting decides, which is the whole
    * reason the reason is shown.
    */
+  /**
+   * Attach the photographs and let it build the whole advertisement.
+   *
+   * Eric, on what an AI ad assistant should do: "it means i can attach the
+   * photos a ai can create them."
+   *
+   * `pickWithAi` below chooses a pair and stops; the caption writer writes
+   * copy and never looks at the pictures. This is the step between: the
+   * pair, the layout and the line, from the photographs themselves.
+   *
+   * IT PROPOSES. Everything it returns lands in the controls — the pair,
+   * the layout, the headline — and every one stays draggable and editable
+   * afterwards. Nothing here exports or posts.
+   *
+   * The reply is validated AGAIN here, with the same rule the server used:
+   * an index outside the set we sent throws the whole direction away rather
+   * than being clamped. Two checks because a stale deployment of either side
+   * must not be able to put a photograph nobody chose into an advertisement.
+   */
+  const buildAdWithAi = useCallback(async () => {
+    const pool = candidatesFor(shown);
+    if (pool.length < 2) {
+      toast.error('Attach at least two photographs of the job first.');
+      return;
+    }
+
+    setBusy('directing');
+    setPickNote('');
+    try {
+      const encoded = await Promise.all(pool.map((q) => smallCopy(photoSrc(q))));
+      const usable = pool.filter((_, i) => encoded[i]);
+      const images = encoded.filter(Boolean) as string[];
+      if (images.length < 2) {
+        toast.error('Those photographs could not be read.');
+        return;
+      }
+
+      const res = await fetch(`${SERVER}/content-studio/ad-direction`, {
+        method: 'POST',
+        headers: { ...(await authedHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          images,
+          /*
+           * The facts it is allowed to use, and nothing else. Given none it
+           * is told to leave the headline empty rather than invent one — so
+           * an untyped note costs a headline, not a fabricated claim.
+           */
+          facts: projectNote.trim(),
+          shape: size === 'story' ? 'story' : 'square',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        toast.error(String(data?.error || 'The director could not be reached.'));
+        return;
+      }
+
+      const direction = readDirection(data?.direction, usable.length);
+      if (!direction) {
+        const why = String(data?.why || '');
+        setPickNote(why ? `Phoenix would not lay this out: ${why}` : '');
+        toast.info('Phoenix did not build one', {
+          description: why || 'Nothing was changed. Choose the photographs by hand.',
+        });
+        return;
+      }
+      if (!isDirection(direction)) {
+        setPickNote(`Phoenix would not lay this out: ${direction.why}`);
+        toast.info('Phoenix would not choose these', { description: direction.why });
+        return;
+      }
+
+      await take('before', photoSrc(usable[direction.before]));
+      await take('after', photoSrc(usable[direction.after]));
+      setLayout(direction.layout as BeforeAfterLayout);
+      /*
+       * An empty headline is left alone rather than written as "".
+       * Clearing a line somebody typed, because the model had no facts to
+       * justify one, would delete their work to make a point.
+       */
+      if (direction.headline) setOverlayText(direction.headline);
+
+      setPickNote(direction.why || 'Phoenix built this one.');
+      toast.success('Phoenix built an ad', {
+        description: direction.why || 'Check it, then adjust anything you like.',
+      });
+    } catch (err: any) {
+      toast.error(String(err?.message || 'The director could not be reached.'));
+    } finally {
+      setBusy('');
+    }
+    // `take` is declared below and is stable, so it is left out of the
+    // dependencies — the same way `pickWithAi` beside this one does it.
+  }, [shown, smallCopy, projectNote, size]);
+
   const pickWithAi = useCallback(async () => {
     const pool = candidatesFor(shown);
     if (pool.length < 2) {
@@ -1118,6 +1214,30 @@ export default function BeforeAfterCreator() {
             */}
             {shown.length >= 2 && (
               <div className="mt-3 border-t border-gray-800 pt-3">
+                {/*
+                  Build the whole advertisement, not just the pair.
+
+                  Above the pair-picker because it is the bigger offer and the
+                  one Eric asked for: attach the photographs and have the ad
+                  made. The picker stays underneath for when the layout is
+                  already right and only the two photographs are wrong.
+                */}
+                <button
+                  onClick={() => void buildAdWithAi()}
+                  disabled={busy !== ''}
+                  className="w-full px-3 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-40"
+                  style={{ background: 'linear-gradient(135deg,#ea580c,#f59e0b)' }}
+                >
+                  {busy === 'directing'
+                    ? <><Loader2 className="w-4 h-4 inline mr-1 animate-spin" />Building from {Math.min(shown.length, 8)} photos…</>
+                    : <><Wand2 className="w-4 h-4 inline mr-1" />Build the ad for me</>}
+                </button>
+                <p className="mt-1 mb-2 text-[11px] leading-relaxed text-gray-600">
+                  Chooses the pair, the layout and a headline from your photos. It only writes a
+                  headline from the job notes below — given none, it leaves yours alone rather
+                  than inventing one.
+                </p>
+
                 <button
                   onClick={() => void pickWithAi()}
                   disabled={busy !== ''}
