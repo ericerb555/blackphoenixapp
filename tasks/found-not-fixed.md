@@ -390,6 +390,72 @@ to staff, who legitimately prepare filings on a customer's behalf — which is
 the same shape as the guard already added above it, and is a small change
 worth making next time this file is open.
 
+### SMS has never worked: the sender is not registered (Bird E12014)
+
+Found 2026-11-18 when Eric tested a text to his own phone and nothing arrived.
+**This is not a code defect and no amount of work in this repository fixes
+it.** It is a registration at the provider, and it blocks every text the
+platform sends.
+
+```
+[Bird][SMS FAILED] 422 to +16177…
+code E12014  name SenderNotRegistered
+"This sender is not registered to send to the destination country.
+ Registration is required before sending there."
+```
+
+The key is set, the sender is set, the request reaches Bird and is understood.
+US destinations require the sending number to be registered — A2P 10DLC —
+before any text is accepted. **Until that is approved every text to a US
+mobile is rejected identically.**
+
+`onCallPaging.tsx` recorded the same error on **2026-11-13** and built the
+only mitigation that exists: an email fallback on emergency pages,
+deliberately NOT counted as a page, so the loud `NOT PAGED` line still fires
+and the escalation does not believe somebody was woken. That comment carries
+its own removal condition — take it out once 10DLC is approved and the ring is
+proven.
+
+**ERIC'S ACTION, NOT A DEVELOPER'S:** register `BIRD_SMS_FROM` for the United
+States in the Bird console, or move to a sender already registered. Approval
+takes days.
+
+#### What is affected, and what it does today
+
+Surveyed every `sendTextMessage` call site. **No route claims a text was sent
+when it was not** — that was the thing worth checking and it came back clean.
+
+| Feature | Today, with SMS rejected |
+|---|---|
+| On-call emergency paging | email fallback, not counted as a page; `NOT PAGED` still logged |
+| QR code "send by text" | refuses with the provider's error, 502 |
+| Portal invites | the invite screen shows the failure as a notice |
+| Invite test SMS | refuses with the provider's error |
+| Notification test screen | refuses with the provider's error |
+| Staff signup alerts | logged `not sent`; the email still goes |
+| Market alerts, SMS consent, fulfillment, exchange claims | logged; callers get `sent: false` with a reason |
+
+So the failure is loud where somebody is waiting on it and quiet where it runs
+in the background — which is the right way round, and is why this went
+unnoticed: the background cases are the ones that have been failing all along.
+
+#### What was fixed here
+
+`describeBirdError` now reads Bird's NESTED error shape and translates the
+setup codes. It read `parsed.code` and `parsed.type` at the top level, found
+neither — Bird nests under `error` — and fell through to stringifying the
+whole body, so the one line worth reading arrived wrapped in eighty characters
+of JSON. E12014 now reads:
+
+> SMS not sent — the sender number is not registered to text that country yet.
+> In the US this is A2P 10DLC registration: register BIRD_SMS_FROM for the
+> destination country in the Bird console, and texts will start working once
+> it is approved. Nothing in this app needs changing. (Bird E12014
+> SenderNotRegistered)
+
+Every caller gets that, not just the test screen. `tests/bird.test.ts` pins it
+to the exact body production returned.
+
 ## HOUSEKEEPING
 
 ### `ui/Input.tsx` and `ui/input/` both exist

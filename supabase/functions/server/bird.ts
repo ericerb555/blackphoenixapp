@@ -140,23 +140,67 @@ export function resolveBirdSms(): BirdConfig {
 }
 
 /**
+ * The Bird errors worth translating, because they are setup steps and not bugs.
+ *
+ * MEASURED 2026-11-18. The first SMS this platform ever attempted came back:
+ *
+ *   {"error":{"type":"validation_error","code":"E12014",
+ *             "name":"SenderNotRegistered",
+ *             "message":"This sender is not registered to send to the
+ *                        destination country. Registration is required
+ *                        before sending there."}}
+ *
+ * Eric read that as "nothing came in on my phone", which is the only thing it
+ * looks like from outside. Nothing in the app is broken: the key is right, the
+ * sender is right, the request reached Bird and was understood. What is
+ * missing is a registration at Bird — in the United States, A2P 10DLC — and no
+ * amount of retrying will change it until that is approved.
+ *
+ * So the codes that recur during setup get plain words and the action, rather
+ * than the provider's own sentence echoed through. The raw code stays in the
+ * string because it is what a support ticket needs.
+ */
+const BIRD_SETUP_ERRORS: Record<string, string> = {
+  E12014:
+    'the sender number is not registered to text that country yet. '
+    + 'In the US this is A2P 10DLC registration: register BIRD_SMS_FROM for the '
+    + 'destination country in the Bird console, and texts will start working once '
+    + 'it is approved. Nothing in this app needs changing.',
+  E12001: 'the recipient number is not a valid mobile number in E.164 form (+15551234567).',
+  E12002: 'the sender in BIRD_SMS_FROM is not a number this Bird account may send from.',
+};
+
+/**
  * Turns a failed Bird response into something that names what to change.
  *
  * Mirrors describeTwilioError: the raw body is JSON with a code, and the codes
  * that actually recur in setup are worth translating rather than echoing.
+ *
+ * BIRD NESTS THE REAL ERROR UNDER `error`, which the first version of this did
+ * not know. It read `parsed.code` and `parsed.type` at the top level, found
+ * neither, and fell through to stringifying the whole body — so the one line
+ * worth reading arrived wrapped in eighty characters of JSON. The nested shape
+ * is read first now, and the flat shape still works.
  */
 export function describeBirdError(status: number, body: string): string {
   let message: unknown = body;
   let code = '';
+  let name = '';
   try {
     const parsed = JSON.parse(body);
-    message = parsed?.message ?? parsed?.error ?? body;
-    code = String(parsed?.code || parsed?.type || '');
-    // Bird nests the real reason under message.errors or a detail object, and a
-    // bare `${message}` renders that as "[object Object]" — which hid the one
-    // thing worth reading. Keep the whole body when the message is not a string.
+    const inner = parsed?.error && typeof parsed.error === 'object' ? parsed.error : parsed;
+    code = String(inner?.code || inner?.type || parsed?.code || parsed?.type || '');
+    name = String(inner?.name || '');
+    message = inner?.message ?? parsed?.message ?? parsed?.error ?? body;
+    // A nested object rendered as "[object Object]" hid the one thing worth
+    // reading; keep the whole body when the message is not a string.
     if (message && typeof message === 'object') message = JSON.stringify(parsed);
   } catch { /* keep the raw body */ }
+
+  const known = BIRD_SETUP_ERRORS[code];
+  if (known) {
+    return `SMS not sent — ${known}${code ? ` (Bird ${code}${name ? ` ${name}` : ''})` : ''}`;
+  }
 
   if (status === 401 || status === 403) {
     return `Bird rejected the API key (${status}). Confirm BIRD_API_SMS_KEY is the whole key from the Bird console and that its region (bk_<region>_…) matches the account.`;
