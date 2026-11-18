@@ -374,7 +374,16 @@ export default function EmailLeadGen() {
               </div>
               <ChevronRight className="w-5 h-5 text-gray-600 ml-auto" />
             </button>
-            <button onClick={() => setIntentFilter('hot') || setTab('leads')}
+            {/*
+              Two calls, sequenced with a block rather than with `||`.
+
+              It was `setIntentFilter('hot') || setTab('leads')`, which works by
+              accident: the first returns void, void is falsy, so the second
+              runs. TypeScript calls it TS1345 — a void expression tested for
+              truthiness — and it reads as a condition to anybody skimming,
+              which is the real cost. The `||` is doing the job of a semicolon.
+            */}
+            <button onClick={() => { setIntentFilter('hot'); setTab('leads'); }}
               className="flex items-center gap-4 p-5 rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] hover:border-red-500/40 hover:bg-red-500/5 transition text-left">
               <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center flex-shrink-0">
                 <Flame className="w-6 h-6 text-red-400" />

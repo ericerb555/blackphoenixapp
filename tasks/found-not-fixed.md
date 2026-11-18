@@ -408,7 +408,34 @@ for roughly 25 of the app's.
 every commit in this tree. The commit succeeds. Probably a stale worktree
 registration holding a lock; `git worktree prune` when nothing is using it.
 
-### The typecheck ratchet reads a syntax error as an improvement
+### ~~The typecheck ratchet reads a syntax error as an improvement~~ — FIXED 2026-11-17
+
+`scripts/typecheckVerdict.mjs` now reads the error CLASS as well as the
+count, and `precommit.mjs` uses it. Any `TS1xxx` fails outright regardless of
+the totals, and a count falling by more than half fails as a suspected
+collapse rather than being reported as an improvement to bake into the
+baseline. `PRECOMMIT_ALLOW_COLLAPSE=1` is the deliberate override.
+
+The decision moved into its own module so it could be tested against captured
+output without running a compiler — 12 tests, including the 2026-11-14
+scenario verbatim.
+
+**It found a live one on its first run.** `src/app/pages/EmailLeadGen.tsx`
+carried `onClick={() => setIntentFilter('hot') || setTab('leads')}` — TS1345,
+a void expression tested for truthiness. It worked by accident (void is
+falsy, so the second call ran) and read as a condition. Now a block. The app
+baseline went 281 → 280 with it.
+
+One honest limit, since a guard nobody understands is a guard nobody trusts:
+this would NOT have caught the `/^Bearers+/i` bug that cost an afternoon on
+the same day — a lost backslash is valid syntax and a valid regex.
+`tests/bearerToken.test.ts` covers that one.
+
+The original is kept below, because the measurement is the useful part.
+
+#### Original entry
+
+**The typecheck ratchet reads a syntax error as an improvement**
 `precommit.mjs` compares the NUMBER of typecheck findings against a baseline
 and passes when the number does not rise. A parse error defeats that: `tsc`
 stops analysing a file it cannot parse, so the semantic errors it was holding

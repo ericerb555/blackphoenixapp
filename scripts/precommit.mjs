@@ -44,6 +44,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const BASELINE = JSON.parse(readFileSync(new URL('precommit-baseline.json', import.meta.url), 'utf8'));
+import { typecheckVerdict } from './typecheckVerdict.mjs';
 const quick = process.argv.includes('--quick');
 
 /**
@@ -152,21 +153,23 @@ line('exchange map…');
 line('typecheck…');
 {
   const { output, ranAtAll } = run('npm run typecheck');
-  // The summary `typecheck.mjs` prints: "  app      316 findings".
-  const counts = {};
-  for (const m of output.matchAll(/^\s{2}(app|server)\s+(?:(\d+) findings?|DID NOT RUN)\s*$/gm)) {
-    counts[m[1]] = m[2] === undefined ? null : Number(m[2]);
-  }
 
-  const problems = [];
-  const movements = [];
-  for (const [half, allowed] of Object.entries(BASELINE.typecheck)) {
-    const found = counts[half];
-    if (found === undefined) problems.push(`${half}: no count in the output`);
-    else if (found === null) problems.push(`${half}: tsc DID NOT RUN`);
-    else if (found > allowed) problems.push(`${half}: ${found} findings, baseline ${allowed} — this change ADDED ${found - allowed}`);
-    else if (found < allowed) movements.push(`${half}: ${found} findings, baseline ${allowed} — ${allowed - found} fewer, lower the baseline`);
-  }
+  /*
+   * The reading is in `typecheckVerdict`, and it is not only a count.
+   *
+   * It used to be: parse two numbers, compare each against a baseline, pass if
+   * neither rose. A syntax error defeats that completely — tsc stops analysing
+   * a file it cannot parse, so the count COLLAPSES and the ratchet reports an
+   * improvement. Measured on 2026-11-14: a stray backtick took the server
+   * count from 82 to 3 and this step printed "ok — server 3 (under baseline)".
+   *
+   * It lives in its own module so the decision can be tested against captured
+   * output without running a compiler, which is the only way anybody was ever
+   * going to notice this was wrong.
+   */
+  const { counts, problems, movements } = typecheckVerdict(output, BASELINE.typecheck, {
+    allowSyntaxErrors: process.env.PRECOMMIT_ALLOW_COLLAPSE === '1',
+  });
 
   const ok = ranAtAll && problems.length === 0;
   steps.push({
