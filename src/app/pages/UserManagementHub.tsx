@@ -1,29 +1,45 @@
 /**
- * User Management Hub - Consolidated User Administration
- * 
- * Consolidates 4 pages into tabs:
- * 1. Users - User account management
- * 2. Admin Users - Administrative user management
- * 3. Roles & Permissions - Role configuration
- * 4. Employees - Employee directory
- * 
- * Features:
- * - URL parameter support for direct tab access
- * - Unified back button to dashboard
- * - Deep orange dark theme (#ea580c, #0A0A0A)
- * - Comprehensive user and role management
+ * User Management Hub — the team, and the mail that goes to them.
+ *
+ * WHAT THIS WAS UNTIL 2026-11-18, AND WHY IT HAD TO CHANGE
+ *
+ * Eric: "the user management hub isnt not working correctly the add butoon
+ * does nothing." It did nothing because it was never wired to anything. Four
+ * of its five tabs — Users, Admin Users, Roles & Permissions, Employees —
+ * rendered a placeholder under a comment that said so: an icon, a sentence,
+ * three buttons with NO onClick, and a row of invented statistics reading
+ * "24 Total / 18 Active". Pressing Add New could not have done anything;
+ * there was no handler, no form and no request.
+ *
+ * This is the same thing `TeamAccessPanel` was built to replace — a 1350-line
+ * `RoleManagementSystem` under a header reading "FULLY FUNCTIONAL", seeded
+ * with twenty invented people, which made no network call of any kind. A
+ * screen that looks like it works is worse than an empty one: somebody spends
+ * an afternoon in it and changes nothing.
+ *
+ * WHY THE FIX IS NOT "WIRE UP THE ADD BUTTON"
+ *
+ * Because the working version already exists. `TeamAccessPanel` lists the real
+ * team from `/team/members`, changes a role through `POST /team/members/role`
+ * — the one field thirty-odd route guards read — invites somebody with an
+ * emailed link, switches an account off and on, and sets a role on several
+ * people at once. Building a second Add button here would mean two screens
+ * writing authority, free to disagree, which is the mistake the server's own
+ * `/me/permissions` route exists to have ended.
+ *
+ * So this hub now renders the real panel. Four tabs promising four different
+ * screens, all showing the same one, would be a fresh lie — so there are two
+ * honest tabs instead, and the old tab names still resolve to the right one
+ * so existing links and bookmarks keep working.
  */
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from '../hooks/useNavigate';
-import {
-  Users, Shield, Briefcase, UserCog, ChevronRight, Settings,
-  Plus, Search, Filter, Edit2, Trash2, MoreVertical, Star, Mail
-} from 'lucide-react';
-import { toast } from 'sonner';
+import { Users, ChevronRight, Mail, Settings } from 'lucide-react';
 import { EmailCenter } from '../components/EmailCenter';
+import TeamAccessPanel from '../components/owner/TeamAccessPanel';
 
-type TabType = 'users' | 'admin-users' | 'roles' | 'employees' | 'emails';
+type TabType = 'team' | 'emails';
 
 interface TabConfig {
   id: TabType;
@@ -34,121 +50,50 @@ interface TabConfig {
 
 export default function UserManagementHub() {
   const navigate = useNavigate();
-  
-  // Get tab from URL or default to 'users'
+
+  /**
+   * The four old tab names all meant "the team", so they all land there.
+   * `?tab=roles` was a bookmark somebody may still have.
+   */
   const getTabFromUrl = (): TabType => {
     const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    return (tab as TabType) || 'users';
+    const tab = String(params.get('tab') || '');
+    return tab === 'emails' ? 'emails' : 'team';
   };
 
   const [activeTab, setActiveTab] = useState<TabType>(getTabFromUrl());
 
-  // Tab configurations
   const tabs: TabConfig[] = [
     {
-      id: 'users',
-      label: 'Users',
+      id: 'team',
+      label: 'Team & Access',
       icon: Users,
-      description: 'Manage user accounts and access'
-    },
-    {
-      id: 'admin-users',
-      label: 'Admin Users',
-      icon: UserCog,
-      description: 'Administrative user management'
-    },
-    {
-      id: 'roles',
-      label: 'Roles & Permissions',
-      icon: Shield,
-      description: 'Configure roles and permissions'
-    },
-    {
-      id: 'employees',
-      label: 'Employees',
-      icon: Briefcase,
-      description: 'Employee directory and management'
+      description: 'Who works here, what they can reach, and bringing somebody on',
     },
     {
       id: 'emails',
       label: 'Emails',
       icon: Mail,
-      description: 'View sent emails and edit templates'
-    }
+      description: 'View sent emails and edit templates',
+    },
   ];
 
-  // Update URL when tab changes
   const handleTabChange = (tabId: TabType) => {
     setActiveTab(tabId);
-    const newUrl = `/user-management-hub?tab=${tabId}`;
-    window.history.pushState({}, '', newUrl);
+    window.history.pushState({}, '', `/user-management-hub?tab=${tabId}`);
   };
 
-  // Sync with URL changes (browser back/forward)
   useEffect(() => {
-    const handlePopState = () => {
-      setActiveTab(getTabFromUrl());
-    };
+    const handlePopState = () => setActiveTab(getTabFromUrl());
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Render placeholder content for each tab
   const renderTabContent = () => {
-    if (activeTab === 'emails') {
-      return <EmailCenter />;
-    }
+    if (activeTab === 'emails') return <EmailCenter />;
     return (
-      <div className="p-8 text-center">
-        <div className="max-w-md mx-auto">
-          <div className="w-20 h-20 bg-gradient-to-br from-[#ea580c] to-[#c2410c] rounded-2xl flex items-center justify-center mx-auto mb-6">
-            {tabs.find(t => t.id === activeTab)?.icon && 
-              (() => {
-                const Icon = tabs.find(t => t.id === activeTab)!.icon;
-                return <Icon className="w-10 h-10 text-white" />;
-              })()
-            }
-          </div>
-          <h3 className="text-2xl font-bold text-white mb-3">
-            {tabs.find(t => t.id === activeTab)?.label}
-          </h3>
-          <p className="text-gray-400 mb-6">
-            {tabs.find(t => t.id === activeTab)?.description}
-          </p>
-          
-          {/* Quick Action Buttons */}
-          <div className="grid grid-cols-1 gap-3 max-w-xs mx-auto">
-            <button className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-br from-[#ea580c] to-[#c2410c] hover:from-[#dc2626] hover:to-[#b91c1c] text-white rounded-xl transition-all duration-200 shadow-lg shadow-orange-500/20">
-              <Plus className="w-5 h-5" />
-              <span className="font-semibold">Add New</span>
-            </button>
-            <button className="flex items-center justify-center gap-2 px-6 py-3 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] hover:border-[#ea580c] text-white rounded-xl transition-all duration-200">
-              <Search className="w-5 h-5" />
-              <span className="font-semibold">Search</span>
-            </button>
-            <button className="flex items-center justify-center gap-2 px-6 py-3 bg-[#1A1A1A] hover:bg-[#2A2A2A] border border-[#2A2A2A] hover:border-[#ea580c] text-white rounded-xl transition-all duration-200">
-              <Filter className="w-5 h-5" />
-              <span className="font-semibold">Filter</span>
-            </button>
-          </div>
-
-          {/* Sample Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-8">
-            <div className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A]">
-              <div className="text-3xl font-bold text-[#ea580c] mb-1">24</div>
-              <div className="text-sm text-gray-400">Total</div>
-            </div>
-            <div className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A]">
-              <div className="text-3xl font-bold text-green-400 mb-1">18</div>
-              <div className="text-sm text-gray-400">Active</div>
-            </div>
-            <div className="bg-[#1A1A1A] rounded-xl p-4 border border-[#2A2A2A]">
-              <div className="text-3xl font-bold text-blue-400 mb-1">6</div>
-              <div className="text-sm text-gray-400">Pending</div>
-            </div>
-          </div>
-        </div>
+      <div className="p-4 sm:p-6">
+        <TeamAccessPanel />
       </div>
     );
   };
@@ -174,7 +119,7 @@ export default function UserManagementHub() {
             <div>
               <h1 className="text-3xl font-bold text-white">User Management Hub</h1>
               <p className="text-gray-400 mt-1">
-                Comprehensive user, role, and employee administration
+                Who works here, what they can reach, and the mail that goes to them
               </p>
             </div>
           </div>
@@ -182,7 +127,7 @@ export default function UserManagementHub() {
 
         {/* Tab Navigation */}
         <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-2">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
