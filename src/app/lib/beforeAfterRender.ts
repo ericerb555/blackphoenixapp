@@ -17,6 +17,16 @@
  */
 import type { Composition, Pane } from './beforeAfterLayout';
 
+import {
+  DEFAULT_BANNER_PLACEMENT,
+  DEFAULT_LOGO_PLACEMENT,
+  DEFAULT_TEXT_PLACEMENT,
+  placeOn,
+  placeText,
+  readPlacement,
+  type Placement,
+} from './beforeAfterPlacement';
+
 export interface Brand {
   name: string;
   website?: string;
@@ -34,6 +44,27 @@ export interface RenderInput {
   logo?: HTMLImageElement | null;
   /** Drawn across the foot of the image when set — a promotional line. */
   overlayText?: string;
+  /**
+   * Where the furniture sits.
+   *
+   * Eric: "can we also have editing options for the logo branding placement and
+   * have the ability to upload texts a banners to add on". All three are
+   * optional and all three fall back to where they have always been drawn, so
+   * a caller that passes none renders exactly what it rendered before.
+   */
+  logoPlacement?: Partial<Placement> | null;
+  textPlacement?: Partial<Placement> | null;
+  /** An uploaded strip — a price, an offer, a seasonal banner. */
+  banner?: HTMLImageElement | null;
+  bannerPlacement?: Partial<Placement> | null;
+  /**
+   * Draw the logo loose on the design rather than inside the brand strip.
+   *
+   * Off by default: the strip is where the logo has always been, and moving it
+   * for everybody because one person wanted it in a corner would change every
+   * design in the library.
+   */
+  freeLogo?: boolean;
 }
 
 /** Load an image from a URL or data URI, with CORS set for canvas export. */
@@ -178,19 +209,62 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
     ctx.restore();
   }
 
-  /* A promotional line, if one was asked for, above the brand strip. */
-  if (input.overlayText) {
-    const strip = comp.brand;
-    const fontSize = comp.canvas.width * 0.042;
-    const y = (strip ? strip.y : comp.canvas.height) - fontSize * 2.1;
+  /*
+   * An uploaded banner, under the text so a caption can sit on top of it.
+   *
+   * Drawn before the headline deliberately: somebody who uploads a strip and
+   * then types a line over it means the line to be legible, and reversing the
+   * order would hide it behind the artwork half the time.
+   */
+  if (input.banner) {
+    const place = readPlacement(input.bannerPlacement, DEFAULT_BANNER_PLACEMENT);
+    const aspect = input.banner.naturalWidth / Math.max(1, input.banner.naturalHeight);
+    const box = placeOn(comp.canvas, aspect, place);
     ctx.save();
+    ctx.drawImage(input.banner, box.x, box.y, box.width, box.height);
+    ctx.restore();
+  }
+
+  /* A promotional line, if one was asked for. */
+  if (input.overlayText) {
+    const place = readPlacement(input.textPlacement, DEFAULT_TEXT_PLACEMENT);
+    const box = placeText(comp.canvas, place, 1);
+    ctx.save();
+    /*
+     * The dark band is as wide as the TEXT BOX now, not the whole canvas.
+     *
+     * A full-width bar was fine when the line was always pinned above the brand
+     * strip. Once it can sit in a corner, a bar spanning the design with a few
+     * words off to one side reads as a rendering fault rather than a caption.
+     */
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, y - fontSize * 0.7, comp.canvas.width, fontSize * 1.9);
+    ctx.fillRect(box.x, box.y, box.width, box.height);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = `600 ${fontSize}px Inter, "Helvetica Neue", Arial, sans-serif`;
+    ctx.font = `600 ${box.fontSize}px Inter, "Helvetica Neue", Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(input.overlayText, comp.canvas.width / 2, y + fontSize * 0.25, comp.canvas.width * 0.92);
+    ctx.fillText(
+      input.overlayText,
+      box.x + box.width / 2,
+      box.y + box.height / 2,
+      box.width * 0.94,
+    );
+    ctx.restore();
+  }
+
+  /*
+   * The logo on its own, when it has been taken out of the brand strip.
+   *
+   * Drawn last so it sits above the photographs, the banner and the headline —
+   * a mark that disappears behind a banner somebody has just uploaded is the
+   * one thing nobody would choose.
+   */
+  if (input.freeLogo && input.logo) {
+    const place = readPlacement(input.logoPlacement, DEFAULT_LOGO_PLACEMENT);
+    const aspect = input.logo.naturalWidth / Math.max(1, input.logo.naturalHeight);
+    const box = placeOn(comp.canvas, aspect, place);
+    ctx.save();
+    ctx.drawImage(input.logo, box.x, box.y, box.width, box.height);
     ctx.restore();
   }
 
@@ -204,7 +278,9 @@ export function renderBeforeAfter(canvas: HTMLCanvasElement, input: RenderInput)
     ctx.fillRect(b.x, b.y, b.width, Math.max(2, b.height * 0.05));
 
     let textLeft = b.x + b.height * 0.3;
-    if (input.logo) {
+    // Not twice. A freed logo is drawn loose above, and leaving the strip's
+    // copy in place would put two of them on one design.
+    if (input.logo && !input.freeLogo) {
       const logoSize = b.height * 0.56;
       const ratio = input.logo.width / Math.max(1, input.logo.height);
       const logoWidth = Math.min(logoSize * ratio, b.width * 0.3);

@@ -34,6 +34,11 @@ import {
   type BeforeAfterLayout, type BeforeAfterSize,
 } from '../../lib/beforeAfterLayout';
 import { renderBeforeAfter, loadImage, canvasToBlob, type Brand } from '../../lib/beforeAfterRender';
+import {
+  ANCHORS, ANCHOR_LABELS,
+  DEFAULT_BANNER_PLACEMENT, DEFAULT_LOGO_PLACEMENT, DEFAULT_TEXT_PLACEMENT,
+  type Anchor, type Placement,
+} from '../../lib/beforeAfterPlacement';
 import { companyInfo } from '../../lib/config/companyInfo';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
@@ -167,6 +172,74 @@ function FramingRow({ label, framing, onChange, canMoveX = true, canMoveY = true
   );
 }
 
+/**
+ * Where one piece of furniture sits: a nine-box anchor, a size, a nudge.
+ *
+ * Eric: "editing options for the logo branding placement".
+ *
+ * The nine-box grid rather than two number fields, because the choice being
+ * made is "top right", not a coordinate — and because an anchor survives a
+ * change of output size, which a coordinate does not. The nudge is there for
+ * what an anchor cannot say: lifting a mark clear of a doorway behind it.
+ */
+function PlacementControl({ label, placement, onChange, onReset, children }: {
+  label: string;
+  placement: Placement;
+  onChange: (p: Placement) => void;
+  onReset: () => void;
+  children?: React.ReactNode;
+}) {
+  const set = (patch: Partial<Placement>) => onChange({ ...placement, ...patch });
+  return (
+    <div className="rounded-lg border border-gray-800 bg-black/30" style={{ padding: '10px' }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{label}</span>
+        <button onClick={onReset} className="text-[11px] text-gray-500 hover:text-gray-300">Reset</button>
+      </div>
+      {children}
+      <div className="flex items-start gap-3" style={{ marginTop: '8px' }}>
+        {/* The nine boxes, laid out as the canvas is. */}
+        <div className="grid grid-cols-3 gap-1" style={{ width: '66px' }}>
+          {ANCHORS.map((a: Anchor) => (
+            <button
+              key={a}
+              title={ANCHOR_LABELS[a]}
+              aria-label={ANCHOR_LABELS[a]}
+              onClick={() => set({ anchor: a })}
+              className={`h-5 w-5 rounded-sm border ${placement.anchor === a
+                ? 'border-[#ea580c] bg-[#ea580c]'
+                : 'border-gray-700 bg-black/60 hover:border-gray-500'}`}
+            />
+          ))}
+        </div>
+        <div className="flex-1">
+          <label className="flex items-center gap-2">
+            <span className="w-12 text-[11px] text-gray-500">Size</span>
+            <input type="range" min={0.05} max={1} step={0.01} value={placement.scale}
+              onChange={(e) => set({ scale: Number(e.target.value) })}
+              className="flex-1 accent-[#ea580c]" />
+            <span className="w-9 text-right text-[11px] tabular-nums text-gray-500">
+              {Math.round(placement.scale * 100)}%
+            </span>
+          </label>
+          <label className="flex items-center gap-2" style={{ marginTop: '4px' }}>
+            <span className="w-12 text-[11px] text-gray-500">Nudge X</span>
+            <input type="range" min={-0.3} max={0.3} step={0.005} value={placement.offsetX}
+              onChange={(e) => set({ offsetX: Number(e.target.value) })}
+              className="flex-1 accent-[#ea580c]" />
+          </label>
+          <label className="flex items-center gap-2" style={{ marginTop: '4px' }}>
+            <span className="w-12 text-[11px] text-gray-500">Nudge Y</span>
+            <input type="range" min={-0.3} max={0.3} step={0.005} value={placement.offsetY}
+              onChange={(e) => set({ offsetY: Number(e.target.value) })}
+              className="flex-1 accent-[#ea580c]" />
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BeforeAfterCreator() {
   const [layout, setLayout] = useState<BeforeAfterLayout>('side-by-side');
   const [size, setSize] = useState<BeforeAfterSize>('square');
@@ -185,6 +258,14 @@ export default function BeforeAfterCreator() {
    * the same way. The arithmetic is `framedCrop`, which is tested, so this
    * only carries the numbers.
    */
+  /* Where the logo, the headline and an uploaded banner sit. */
+  const [brandingOpen, setBrandingOpen] = useState(false);
+  const [freeLogo, setFreeLogo] = useState(false);
+  const [logoPlacement, setLogoPlacement] = useState<Placement>(DEFAULT_LOGO_PLACEMENT);
+  const [textPlacement, setTextPlacement] = useState<Placement>(DEFAULT_TEXT_PLACEMENT);
+  const [bannerPlacement, setBannerPlacement] = useState<Placement>(DEFAULT_BANNER_PLACEMENT);
+  const [bannerImg, setBannerImg] = useState<HTMLImageElement | null>(null);
+  const [bannerName, setBannerName] = useState('');
   const [beforeFraming, setBeforeFraming] = useState<Framing>(NO_FRAMING);
   const [afterFraming, setAfterFraming] = useState<Framing>(NO_FRAMING);
   const [beforeImg, setBeforeImg] = useState<HTMLImageElement | null>(null);
@@ -409,11 +490,14 @@ export default function BeforeAfterCreator() {
       renderBeforeAfter(canvas, {
         composition, before: beforeImg, after: afterImg,
         brand, logo: logoImg, overlayText: overlayText.trim() || undefined,
+        freeLogo, logoPlacement, textPlacement,
+        banner: bannerImg, bannerPlacement,
       });
     } catch (err: any) {
       toast.error(err?.message || 'The design could not be drawn.');
     }
-  }, [composition, beforeImg, afterImg, brand, logoImg, overlayText]);
+  }, [composition, beforeImg, afterImg, brand, logoImg, overlayText,
+      freeLogo, logoPlacement, textPlacement, bannerImg, bannerPlacement]);
 
   /**
    * Whether a photograph has anywhere to move on each axis.
@@ -431,6 +515,30 @@ export default function BeforeAfterCreator() {
       y: pane.source.height < img.naturalHeight,
     };
   }, [composition, beforeImg, afterImg]);
+
+  /**
+   * Read an uploaded banner into an image the canvas can draw.
+   *
+   * Through a data URL rather than an object URL: the canvas is exported
+   * with `toBlob`, and a blob: source taints it in some browsers, which
+   * turns Save and Download into a security error at the last step.
+   */
+  const onBannerFile = useCallback(async (file: File | null) => {
+    if (!file) return;
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('That file could not be read.'));
+        reader.readAsDataURL(file);
+      });
+      const img = await loadImage(dataUrl);
+      setBannerImg(img);
+      setBannerName(file.name);
+    } catch (err: any) {
+      toast.error(err?.message || 'That image could not be opened.');
+    }
+  }, []);
 
   const ready = Boolean(afterImg) && (layout === 'full-bleed' || Boolean(beforeImg));
 
@@ -703,6 +811,114 @@ export default function BeforeAfterCreator() {
             </div>
           )}
 
+          {/*
+            Branding and extras: where the logo sits, where the headline
+            sits, and a banner to drop on top.
+
+            Eric: "editing options for the logo branding placement and have
+            the ability to upload texts a banners to add on".
+
+            Under the framing panel because it is the same kind of work —
+            done while watching the canvas, one slider at a time. Collapsed,
+            because most designs never need any of it and an always-open
+            panel of nine controls makes the simple case look complicated.
+          */}
+          {ready && (
+            <div className="mt-3 rounded-lg border border-gray-800 bg-black/30" style={{ padding: '12px' }}>
+              <button
+                onClick={() => setBrandingOpen((v) => !v)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Branding &amp; extras
+                </span>
+                <span className="text-[11px] text-gray-500">{brandingOpen ? 'Hide' : 'Show'}</span>
+              </button>
+
+              {brandingOpen && (
+                <div className="space-y-2" style={{ marginTop: '10px' }}>
+                  <PlacementControl
+                    label="Logo"
+                    placement={logoPlacement}
+                    onChange={setLogoPlacement}
+                    onReset={() => setLogoPlacement(DEFAULT_LOGO_PLACEMENT)}
+                  >
+                    {/*
+                      The logo stays in the brand strip unless this is ticked.
+                      Moving it for everybody would change every design in the
+                      library, so freeing it is a decision somebody makes.
+                    */}
+                    <label className="flex items-center gap-2" style={{ marginTop: '6px' }}>
+                      <input
+                        type="checkbox"
+                        checked={freeLogo}
+                        onChange={(e) => setFreeLogo(e.target.checked)}
+                        className="accent-[#ea580c]"
+                      />
+                      <span className="text-[11px] text-gray-400">
+                        Place it anywhere (otherwise it sits in the brand strip)
+                      </span>
+                    </label>
+                    {!freeLogo && (
+                      <p className="text-[10px] text-gray-600" style={{ marginTop: '4px' }}>
+                        Tick the box above for these controls to do anything.
+                      </p>
+                    )}
+                  </PlacementControl>
+
+                  <PlacementControl
+                    label="Headline"
+                    placement={textPlacement}
+                    onChange={setTextPlacement}
+                    onReset={() => setTextPlacement(DEFAULT_TEXT_PLACEMENT)}
+                  >
+                    {!overlayText.trim() && (
+                      <p className="text-[10px] text-gray-600" style={{ marginTop: '4px' }}>
+                        Type a line in “Overlay text” below for these to do anything.
+                      </p>
+                    )}
+                  </PlacementControl>
+
+                  <PlacementControl
+                    label="Banner"
+                    placement={bannerPlacement}
+                    onChange={setBannerPlacement}
+                    onReset={() => setBannerPlacement(DEFAULT_BANNER_PLACEMENT)}
+                  >
+                    <div className="flex flex-wrap items-center gap-2" style={{ marginTop: '6px' }}>
+                      <label className="cursor-pointer rounded-lg border border-gray-700 bg-black/60 text-[11px] font-bold text-gray-300 hover:text-white"
+                        style={{ padding: '5px 10px' }}>
+                        {bannerName ? 'Change image' : 'Upload an image'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => { void onBannerFile(e.target.files?.[0] || null); }}
+                        />
+                      </label>
+                      {bannerName && (
+                        <>
+                          <span className="max-w-[10rem] truncate text-[11px] text-gray-500">{bannerName}</span>
+                          <button
+                            onClick={() => { setBannerImg(null); setBannerName(''); }}
+                            className="text-[11px] text-gray-500 hover:text-red-400"
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {!bannerImg && (
+                      <p className="text-[10px] leading-relaxed text-gray-600" style={{ marginTop: '4px' }}>
+                        A strip with a price, an offer or a seasonal graphic. It is drawn under the
+                        headline, so a line typed over it stays readable.
+                      </p>
+                    )}
+                  </PlacementControl>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 mt-3">
             <button
               disabled={!ready || busy !== ''}
