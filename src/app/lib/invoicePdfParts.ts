@@ -93,7 +93,10 @@ export function invoicePdfParts(invoice: any, forCustomer: boolean): InvoicePdfP
     lines: g.lines.map((l: any) => ({
       description: l.description,
       quantity: Number(l.quantity) || 0,
-      rate: Number(l.unit_price) || 0,
+      // `rate` beside `unit_price`: both spellings reach here depending on
+      // where the invoice came from, and a line priced under the other one
+      // printed a rate of 0.00 next to a correct amount.
+      rate: Number(l.unit_price ?? l.rate) || 0,
       /*
        * The line's OWN amount where it has one, because quantity times rate
        * is not always it. A withheld line carries its amount and no quantity

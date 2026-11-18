@@ -159,6 +159,58 @@ export function quoteTotals(doc: QuoteDoc) {
 }
 
 /**
+ * THE quote total. One figure, one reader, so nothing can show a different
+ * one to anybody.
+ *
+ * Eric, 2026-11-18, on Jason's quote: *"the view pdf should be created from
+ * the quote editor and only show what i allow with correct totalls"* — and,
+ * asked which of the two totals that quote carried was the real one,
+ * *"14.435.81"*.
+ *
+ * WHAT WAS WRONG, WITH THE NUMBERS
+ *
+ * `quote:qt-1794354942724` stored BOTH:
+ *
+ *     totalCost  14435.81   ← the PDF and the estimate email
+ *     total      13359.79   ← the customer portal and the draft list
+ *
+ * Tax on that quote is zero, so those two should be identical. They differ by
+ * $1,076.02, and nothing kept them in step: one was written and the other
+ * recomputed later. Across every other quote in the system the pair agrees,
+ * which is why this read as intermittent rather than as a bug.
+ *
+ * The lines were never the problem. Materials 2,943.20 and labour 6,917.50
+ * are raw COST, scaled up by the markup to reach the printed total — that
+ * machinery works. It was reaching the wrong target.
+ *
+ * WHY `totalCost` WINS
+ *
+ * Because Eric said so, and because it is the figure the PDF and the estimate
+ * email have been quoting to customers. Making the portal agree with the
+ * document the customer was sent is the direction that cannot surprise
+ * anybody.
+ *
+ * `total` stays as the fallback for older quotes that never had `totalCost` —
+ * removing it would zero their value rather than fix anything.
+ */
+export const quoteTotalOf = (doc: any): number =>
+  Number(doc?.totalCost) || Number(doc?.total) || 0;
+
+/**
+ * Do the two stored totals disagree? Null when there is nothing to compare.
+ *
+ * Exported so a screen can SAY "this quote carries two totals" rather than
+ * silently picking one, and so the test can assert the live shapes.
+ */
+export const totalsDisagreeBy = (doc: any): number | null => {
+  const a = Number(doc?.totalCost);
+  const b = Number(doc?.total);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === 0 || b === 0) return null;
+  const gap = Math.round((a - b) * 100) / 100;
+  return gap === 0 ? null : gap;
+};
+
+/**
  * The quote, as the PDF generator wants it.
  *
  * `subQuotes` are deliberately not mapped — they carry what the trade quoted

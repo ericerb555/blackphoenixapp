@@ -97,8 +97,43 @@ export const phaseKeyOf = (line: any): string => String(line?.phase || '').trim(
  * One line's money. Credits are stored with a negative `unit_price`, so the
  * sign falls out of the arithmetic and is never applied twice.
  */
-export const amountOf = (line: any): number =>
-  Math.round((Number(line?.quantity) || 0) * (Number(line?.unit_price) || 0) * 100) / 100;
+/**
+ * What a line is worth — ITS OWN AMOUNT FIRST, and only then the arithmetic.
+ *
+ * Eric, 2026-11-18: *"all line items and prices only and they dont add up to
+ * the total"*. This function is why.
+ *
+ * It used to be quantity × `unit_price` and nothing else, while the renderer
+ * two files away printed `l.amount` where the line had one:
+ *
+ *     selection (phase subtotals):  qty × unit_price
+ *     renderer  (the printed row):  l.amount ?? qty × unit_price
+ *
+ * Two readings of one line's money. They agree on an ordinary line and part
+ * company on every line that carries an `amount` without a matching
+ * `unit_price` — a flat fee, a line adjusted after it was priced, a line
+ * converted from a quote that stored `rate`, or any withheld line, which by
+ * design has an amount and no quantity or rate at all.
+ *
+ * On those, the page printed the real money on the row and counted ZERO in
+ * the phase subtotal. A column of correct prices under a subtotal that does
+ * not include them, which is exactly what was reported and exactly what it
+ * looks like.
+ *
+ * This is the same shape as the defect commit 265154bc6 fixed for quotes —
+ * one money computed two ways — and the invoice half was never touched.
+ * `amount` first, because it is the only field that is always the line's
+ * actual money; the multiplication is the fallback for a line that has no
+ * amount of its own, and `rate` is accepted beside `unit_price` because both
+ * spellings reach this code depending on where the invoice came from.
+ */
+export const amountOf = (line: any): number => {
+  const stated = Number(line?.amount);
+  if (Number.isFinite(stated)) return Math.round(stated * 100) / 100;
+  const qty = Number(line?.quantity) || 0;
+  const rate = Number(line?.unit_price ?? line?.rate) || 0;
+  return Math.round(qty * rate * 100) / 100;
+};
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 

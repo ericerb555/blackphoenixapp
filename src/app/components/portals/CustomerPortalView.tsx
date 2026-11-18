@@ -1,4 +1,5 @@
 import PortalFeatureGuide from './PortalFeatureGuide';
+import { quoteTotalOf } from '../documents/quoteMath';
 import OnCallSetup from './OnCallSetup';
 import SponsoredMarquee from '../SponsoredMarquee';
 import PortalTrialBanner from './PortalTrialBanner';
@@ -1650,7 +1651,17 @@ export default function CustomerPortalView() {
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <p className="text-sm text-gray-400 mb-1">Quote Amount</p>
-                          <p className="text-2xl font-bold">${(quote.amount || quote.total || 0).toLocaleString()}</p>
+                          {/*
+                            Through `quoteTotalOf`, so the customer sees the
+                            figure on the PDF they were sent.
+
+                            This read `quote.amount || quote.total`, and
+                            Jason's quote stored `totalCost` 14,435.81 beside
+                            `total` 13,359.79 — so the portal showed him
+                            $1,076.02 less than the document in his inbox.
+                            One reader now, for every screen.
+                          */}
+                          <p className="text-2xl font-bold">${(Number(quote.amount) || quoteTotalOf(quote)).toLocaleString()}</p>
                         </div>
                         {quote.items && (
                           <div className="text-right">
