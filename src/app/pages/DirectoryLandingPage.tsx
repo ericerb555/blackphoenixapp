@@ -549,7 +549,20 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         Mirroring keeps both reachable and changes nothing about the clearance
         the hero already reserves for this row.
       */}
-      <div className="fixed top-4 left-4 z-[60]">
+      {/*
+        BACK ON THE RIGHT, 2026-11-18, because Eric asked for it back.
+
+        It went left earlier the same day to stop the two colliding at 390px
+        — together they are about 300px of a 358px row, so side by side the
+        RIGHT-hand one is what falls off. The reasoning was sound and the
+        conclusion was the wrong way round: the junk pricer is the control he
+        asked to be prominent, and Sign In is the one people already know to
+        look for.
+
+        So the pair is mirrored rather than restacked, and the overflow risk
+        now falls on the button that can afford it.
+      */}
+      <div className="fixed top-4 right-4 z-[60]">
         <CornerCard
           label="Sign In"
           icon={User}
@@ -603,10 +616,10 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         reported as covering the page on a phone.
       */}
       <motion.div
-        initial={{ opacity: 0, x: 12 }}
-        animate={{ opacity: pastHero ? 0 : 1, x: pastHero ? 12 : 0 }}
+        initial={{ opacity: 0, x: -12 }}
+        animate={{ opacity: pastHero ? 0 : 1, x: pastHero ? -12 : 0 }}
         transition={{ duration: 0.25 }}
-        className="fixed top-4 right-4 z-[60]"
+        className="fixed top-4 left-4 z-[60]"
         style={{ pointerEvents: pastHero ? 'none' : 'auto' }}
         aria-hidden={pastHero}
       >
