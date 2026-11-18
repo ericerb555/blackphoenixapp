@@ -96,6 +96,7 @@ import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import { burdenFor, burdenOnSubtotal } from '../../../supabase/functions/server/laborBurden.ts';
 import { loadPricingConfigFromServer } from '../lib/pricingConfig';
+import QuoteMarginControl from './quotes/QuoteMarginControl';
 import {
   customerPricingOf, preTaxTotalOf, allocate,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -4126,6 +4127,61 @@ export function QuoteToContractEditor({
                 </details>
 
                 <QuoteBasis quote={currentQuote} />
+
+                {/*
+                  Overhead, profit and contingency, SET HERE.
+
+                  Eric, 2026-11-18, looking at Jason's quote in this editor:
+                  *"i am in the quote editor right now and it doesnt say that
+                  maybe we needs to add the overhead profit and contingency
+                  inside the editor so when a save happens its all in the same
+                  spot?"* — which is exactly right, and is why the panel above
+                  could not explain his total.
+
+                  `applyMargins` prices a quote on the SERVER, defaulting to
+                  10/10/5 when no rates are given, and never writes those
+                  percentages back onto the quote. So `qt-1794354942724` holds
+                  a `preTaxTotal` of 14,435.81 over 9,860.70 of materials and
+                  labour, with no `overheadPercent`, `profitPercent` or
+                  `contingencyPercent` anywhere on the record — $4,575.11 that
+                  `QuoteBasis` reads as three blank rows because there is
+                  nothing stored to read.
+
+                  The control is not new and the arithmetic is not
+                  reimplemented: it is the same component the project pipeline
+                  has, calling the same `applyMargins` the server prices with.
+                  It was simply never mounted in the editor, which is the one
+                  screen where somebody is deciding what to charge.
+
+                  AND IT FIXES THE TWO-TOTALS PROBLEM BY CONSTRUCTION. Its
+                  patch carries `directCost`, `preTaxTotal`, `taxAmount`,
+                  `totalCost` AND `total` from a single calculation, so the
+                  pair that disagreed by $1,076.02 on Jason's quote cannot
+                  drift apart again through this path.
+                */}
+                {editMode && (
+                  <QuoteMarginControl
+                    quote={currentQuote}
+                    companyBurden={companyBurden}
+                    onApply={async (patch: any) => {
+                      // In edit mode  IS , and this only
+                      // renders in edit mode, so the live preview updates here.
+                      setEditedQuote((q: any) => ({ ...q, ...patch }));
+                      const saved = await persistQuotePatch(patch);
+                      if (saved) {
+                        toast.success(
+                          `Quote set to ${Number(patch.totalCost || 0)
+                            .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                        );
+                      } else {
+                        // Said out loud: the preview already moved, and a
+                        // silent failure here is a price somebody believes is
+                        // saved and is not.
+                        toast.error('That did not save. The figures on screen are not stored yet.');
+                      }
+                    }}
+                  />
+                )}
               </div>
 
               {/* Quote Edit Tabs */}

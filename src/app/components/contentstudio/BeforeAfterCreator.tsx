@@ -33,12 +33,19 @@ import {
   composeBeforeAfter, LAYOUTS, OUTPUT_SIZES, NO_FRAMING, MAX_ZOOM, type Framing,
   type BeforeAfterLayout, type BeforeAfterSize,
 } from '../../lib/beforeAfterLayout';
-import { renderBeforeAfter, loadImage, canvasToBlob, type Brand } from '../../lib/beforeAfterRender';
+import {
+  renderBeforeAfter, loadImage, canvasToBlob,
+  type Brand, type DrawnBoxes,
+} from '../../lib/beforeAfterRender';
 import {
   ANCHORS, ANCHOR_LABELS,
   DEFAULT_BANNER_PLACEMENT, DEFAULT_LOGO_PLACEMENT, DEFAULT_TEXT_PLACEMENT,
   type Anchor, type Placement,
 } from '../../lib/beforeAfterPlacement';
+import {
+  canvasScale, clampUnit, dragToFraming, dragToOffset, hitTest, toCanvasPoint,
+  type HitKind,
+} from '../../lib/beforeAfterHitTest';
 import { companyInfo } from '../../lib/config/companyInfo';
 import { authedHeaders } from '../../utils/authHeaders';
 import { API_BASE_URL } from '../../lib/apiConfig';
@@ -259,6 +266,21 @@ export default function BeforeAfterCreator() {
    * only carries the numbers.
    */
   /* Where the logo, the headline and an uploaded banner sit. */
+  /**
+   * What the renderer last drew, and what is being dragged.
+   *
+   * Eric: "the before and after section it not top tier it should be
+   * better." Every number here was already adjustable through the sliders
+   * beside the picture — which is a form with a preview attached. Being
+   * able to put a finger on the thing and move it is the difference.
+   *
+   * The boxes come back FROM the render rather than being recomputed, so a
+   * click can never land on a rectangle that is not what was painted.
+   */
+  const drawnRef = useRef<DrawnBoxes>({ logo: null, banner: null, text: null });
+  const dragRef = useRef<{ kind: HitKind; x: number; y: number } | null>(null);
+  const [hovering, setHovering] = useState<HitKind>(null);
+  const [dragging, setDragging] = useState<HitKind>(null);
   const [brandingOpen, setBrandingOpen] = useState(false);
   const [freeLogo, setFreeLogo] = useState(false);
   const [logoPlacement, setLogoPlacement] = useState<Placement>(DEFAULT_LOGO_PLACEMENT);
@@ -487,7 +509,7 @@ export default function BeforeAfterCreator() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     try {
-      renderBeforeAfter(canvas, {
+      drawnRef.current = renderBeforeAfter(canvas, {
         composition, before: beforeImg, after: afterImg,
         brand, logo: logoImg, overlayText: overlayText.trim() || undefined,
         freeLogo, logoPlacement, textPlacement,
@@ -540,7 +562,111 @@ export default function BeforeAfterCreator() {
     }
   }, []);
 
+  /*
+   * Declared here, above the handlers that read it. It is one line derived
+   * from two pieces of state, so hoisting it is free — and the handlers
+   * below genuinely need it, because a pointer on an empty canvas must do
+   * nothing rather than drag a photograph that is not there.
+   */
   const ready = Boolean(afterImg) && (layout === 'full-bleed' || Boolean(beforeImg));
+
+  /** What is under this pointer event, in canvas coordinates. */
+  const hitAt = useCallback((e: { clientX: number; clientY: number }): HitKind => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const point = toCanvasPoint(e.clientX, e.clientY, rect, composition.canvas);
+    return hitTest(point, {
+      logo: freeLogo ? drawnRef.current.logo : null,
+      banner: drawnRef.current.banner,
+      text: drawnRef.current.text,
+      panes: composition.panes.map((pane) => ({ role: pane.role, dest: pane.dest })),
+    }).kind;
+  }, [composition, freeLogo]);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!ready) return;
+    const kind = hitAt(e);
+    if (!kind) return;
+    /*
+     * Capture the pointer so a fast drag that leaves the canvas keeps
+     * moving the thing instead of stopping dead at the edge.
+     */
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragRef.current = { kind, x: e.clientX, y: e.clientY };
+    setDragging(kind);
+  }, [ready, hitAt]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag) { setHovering(hitAt(e)); return; }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scale = canvasScale(rect, composition.canvas);
+    // Screen pixels to canvas pixels, or the drag moves the wrong distance.
+    const dx = (e.clientX - drag.x) / scale;
+    const dy = (e.clientY - drag.y) / scale;
+    if (dx === 0 && dy === 0) return;
+    dragRef.current = { ...drag, x: e.clientX, y: e.clientY };
+
+    if (drag.kind === 'before' || drag.kind === 'after') {
+      const pane = composition.panes.find((q) => q.role === drag.kind);
+      if (!pane) return;
+      const step = dragToFraming(dx, dy, pane.dest);
+      const apply = (f: Framing): Framing => ({
+        ...f,
+        offsetX: clampUnit(f.offsetX + step.offsetX),
+        offsetY: clampUnit(f.offsetY + step.offsetY),
+      });
+      if (drag.kind === 'before') setBeforeFraming(apply); else setAfterFraming(apply);
+      return;
+    }
+
+    const step = dragToOffset(dx, dy, composition.canvas);
+    const apply = (pl: Placement): Placement => ({
+      ...pl,
+      offsetX: pl.offsetX + step.offsetX,
+      offsetY: pl.offsetY + step.offsetY,
+    });
+    if (drag.kind === 'logo') setLogoPlacement(apply);
+    else if (drag.kind === 'text') setTextPlacement(apply);
+    else if (drag.kind === 'banner') setBannerPlacement(apply);
+  }, [composition, hitAt]);
+
+  const endDrag = useCallback(() => {
+    dragRef.current = null;
+    setDragging(null);
+  }, []);
+
+  /**
+   * The wheel zooms the photograph under the pointer.
+   *
+   * Only a photograph: a wheel over the logo would fight the page scroll for
+   * no gain, and the size slider is right there. `preventDefault` is why this
+   * is attached as a non-passive listener in the effect below rather than as
+   * a React prop — React attaches wheel passively and the page would scroll
+   * underneath the zoom.
+   */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!ready) return;
+      const kind = hitAt(e);
+      if (kind !== 'before' && kind !== 'after') return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      const apply = (f: Framing): Framing => ({
+        ...f,
+        zoom: Math.min(MAX_ZOOM, Math.max(1, f.zoom * factor)),
+      });
+      if (kind === 'before') setBeforeFraming(apply); else setAfterFraming(apply);
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, [ready, hitAt]);
 
   const download = useCallback(async (format: 'png' | 'jpeg') => {
     const canvas = canvasRef.current;
@@ -741,8 +867,23 @@ export default function BeforeAfterCreator() {
           <div className="bg-black rounded-lg p-3 flex items-center justify-center min-h-[320px]">
             <canvas
               ref={canvasRef}
-              className="max-w-full max-h-[62vh] object-contain rounded"
-              style={{ aspectRatio: `${OUTPUT_SIZES[size].width} / ${OUTPUT_SIZES[size].height}` }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onPointerLeave={() => { if (!dragRef.current) setHovering(null); }}
+              /*
+                touch-none stops the browser treating a drag on the design as a
+                page scroll, which on a phone makes the canvas impossible to
+                work on. It is the single line that decides whether this is
+                usable on the device Eric actually uses.
+              */
+              style={{
+                aspectRatio: `${OUTPUT_SIZES[size].width} / ${OUTPUT_SIZES[size].height}`,
+                touchAction: 'none',
+                cursor: dragging ? 'grabbing' : hovering ? 'grab' : 'default',
+              }}
+              className="max-w-full max-h-[62vh] object-contain rounded touch-none"
             />
           </div>
           {!ready && (
@@ -769,6 +910,23 @@ export default function BeforeAfterCreator() {
             Only shown for a slot that actually holds a photograph, and the
             before row is hidden on a full-bleed design where there is only one.
           */}
+          {/*
+            Saying the picture can be dragged.
+
+            A canvas gives no affordance of its own — the cursor only turns
+            to a grab hand once you are already over something, which is
+            after the moment somebody decides the tool has no direct editing.
+            One line costs nothing and is the difference between the feature
+            existing and the feature being used.
+          */}
+          {ready && (
+            <p className="mt-2 text-[11px] text-gray-500">
+              Drag a photo to move it inside its pane, or scroll over it to zoom. Drag the
+              logo, headline or banner to reposition them. The sliders below do the same
+              thing more precisely.
+            </p>
+          )}
+
           {ready && (
             <div className="mt-3 rounded-lg border border-gray-800 bg-black/30" style={{ padding: '12px' }}>
               <div className="flex items-center justify-between">
