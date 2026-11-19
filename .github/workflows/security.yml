@@ -54,7 +54,7 @@ jobs:
       #
       # A cache that exists to speed up an install that never happens is worth
       # nothing even when it works.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       # No install. `pnpm audit` resolves from the lockfile, so this stays
@@ -130,7 +130,7 @@ jobs:
       # doing. package.json says pnpm@8.15.6 and that is the one true place;
       # pinning it twice is how the two drift apart later anyway.
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
