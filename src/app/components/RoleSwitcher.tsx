@@ -24,12 +24,35 @@ export function RoleSwitcher() {
   const authEmail = String(authUser?.email || '').trim().toLowerCase();
   const canUse = isOwner || isAdmin || OWNER_EMAILS.includes(authEmail);
 
-  // Supabase sign-in and the legacy preview context load independently. Restore
-  // the owner preview identity from the authenticated owner instead of hiding
-  // the switcher when current_user was cleared by a sign-out or cache cleanup.
+  /*
+   * Supabase sign-in and the legacy preview context load independently.
+   * Restore the owner preview identity from the authenticated owner instead
+   * of hiding the switcher when current_user was cleared by a sign-out or
+   * cache cleanup.
+   *
+   * AND WHEN THE TWO DISAGREE, THE SESSION WINS.
+   *
+   * This repaired only the ABSENT case, so a `current_user` left behind by a
+   * previous sign-in simply stayed — and the badge below renders its email.
+   * Observed on production: signed in as the owner, with
+   * `user_metadata.name: ericerb555` and `app_metadata.role: owner`, under a
+   * header reading "Platform Owner (You)" and a customer's address,
+   * jbrenes19@gmail.com. The page said "Welcome back, Eric" three lines
+   * above it.
+   *
+   * One customer’s email displayed inside another user’s "(You)" badge is
+   * wrong twice over: it misidentifies the person holding the session, and it
+   * shows one account holder the address of another.
+   *
+   * The authenticated session is the authority here, the same way
+   * `trustedRole` reads app_metadata and never the browser. A stale preview
+   * identity is corrected rather than displayed.
+   */
+  const previewEmail = String((user as any)?.email || '').trim().toLowerCase();
   useEffect(() => {
-    if (canUse && !user && authEmail) login(authEmail, '').catch(() => undefined);
-  }, [canUse, user, authEmail, login]);
+    if (!canUse || !authEmail) return;
+    if (!user || previewEmail !== authEmail) login(authEmail, '').catch(() => undefined);
+  }, [canUse, user, previewEmail, authEmail, login]);
 
   if (!canUse || !user) return null;
 
