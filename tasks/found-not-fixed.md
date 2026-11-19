@@ -456,7 +456,46 @@ of JSON. E12014 now reads:
 Every caller gets that, not just the test screen. `tests/bird.test.ts` pins it
 to the exact body production returned.
 
-## STILL BROKEN — FIELDS OVERLAP ON A PHONE
+## RESOLVED 2026-11-19 — FIELDS OVERLAP ON A PHONE
+
+**Third cause found, by rendering the page instead of reading the CSS.**
+
+The live-chat bubble. `--chat-lift: 4rem` was set on bare `:root` in the
+phone media block; its own comment says it exists so the bubble clears a
+fixed bottom nav, and exactly one screen has one. On every other phone page
+the lift did not avoid a collision, it caused one — carrying the bubble 84px
+out of the corner and into the form.
+
+Measured on /sign-up at 390x844, the page in a 390px frame so the media query
+actually matched:
+
+```
+bubble (fixed, z-9998)      306,704  56x56
+label "Confirm Password"     13,697  356x20   covered
+input  type=password         13,725  356x52   covered
+button show/hide            337,740  20x20    covered ENTIRELY
+```
+
+`elementFromPoint` at the bubble centre returns the bubble: the show/hide
+toggle could not be tapped, not merely not seen.
+
+**On reproducing it at all.** `resize_window` reports success and does
+nothing — `window.innerWidth` stayed at 1410 and the phone media query stayed
+false, which is the same wall the previous attempt hit. Rendering the page in
+a same-origin 390px iframe works: media queries resolve against the frame, so
+the mobile rules apply and the geometry is real.
+
+Fixed by scoping the lift to `:root.has-bottom-nav`, which
+`UnifiedDashboardMobile` adds while mounted and removes on unmount.
+`tests/chatBubbleClearance.test.ts` holds it, and fails if another screen
+grows a fixed bottom bar without declaring it.
+
+**Why the first two fixes missed.** Both were real, both are kept, and both
+were diagnosed by reading the stylesheet — where nothing is wrong. The rule
+did exactly what it said, on pages it was never meant for. The note below
+said reproduce it first; that is what found it.
+
+### The original record, kept
 
 ### Reported twice, two causes fixed, still reported. NOT RESOLVED.
 

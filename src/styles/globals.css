@@ -570,10 +570,34 @@ input::placeholder, textarea::placeholder {
      a fixed bottom nav instead of sitting on top of it. Read by
      LiveChatWidget; 0 everywhere else, so nothing moves on desktop.
      A variable rather than a class because the widget composes its
-     own bottom offset with the safe-area inset. */
-  :root {
-    --chat-lift: 4rem;
+     own bottom offset with the safe-area inset.
 
+     ONLY ON THE SCREEN THAT HAS THE BAR — see .has-bottom-nav below.
+
+     This was on bare :root, so every phone page lifted the bubble 4rem
+     whether or not there was anything under it to clear. On a page with
+     no bottom bar that does not avoid a collision, it CAUSES one: the
+     bubble leaves the corner and climbs into the content.
+
+     Measured on /sign-up at 390x844, which is the page Eric reported
+     three times as "overlapping in the feild boxes them selfs". Lifted
+     84px (4rem + the 20px bottom), the bubble lands at y 704-760 and
+     covers the Confirm Password label, its field, and the 20x20
+     show/hide toggle at (337,740) completely. The widget is z-9998, so
+     hit-testing at that point returns the bubble: the toggle is not
+     merely hidden, it cannot be tapped.
+
+     Two earlier fixes for this report — the pl-* padding and the
+     label margins — were real and are kept, and neither was what he was
+     pointing at. Both were diagnosed by reading this stylesheet. This
+     one was only ever going to be found by rendering the page at 390px,
+     because nothing here is overridden or wrong: the rule does exactly
+     what it says, on pages it was never meant for. */
+  :root.has-bottom-nav {
+    --chat-lift: 4rem;
+  }
+
+  :root {
     /* Clearance under the landing page's fixed "Sign In" button.
        At 390px the hero title wraps to three lines and the first of them
        runs underneath that button — found by the device sweep, invisible
