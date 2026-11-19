@@ -304,6 +304,51 @@ input, textarea, select {
    Unlayered on purpose, for the same cascade reason: inside @layer it would
    lose to the `*` reset and change nothing.
    ───────────────────────────────────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────────────────────────────────
+   MAKE iOS USE OUR BOX, NOT ITS OWN.
+
+   Eric, 2026-11-19, after both spacing fixes shipped and were verified:
+   "inside all the text boxes the john doe and the symbol overlap on mobile
+   not on desktop same as email logo and example email."
+
+   So the placeholder runs under the icon, on a phone, with CSS that is
+   provably correct on a desktop. Measured at a real 386px viewport with the
+   mobile media query active: padding-left 44px, icon ending at 45px, text
+   starting at 57px — twelve pixels of clearance and no overlap. In Chrome.
+
+   WHAT IS LEFT, AND IT IS HONEST TO SAY IT IS A STRONG SUSPICION RATHER THAN
+   A REPRODUCTION
+
+   Nothing in this stylesheet distinguishes a phone from a desk for padding.
+   The one thing that does is the BROWSER: `-webkit-appearance` was never
+   reset anywhere in this app, so on iOS a text field keeps Apple's native
+   rendering, which lays out its own content box and is documented to ignore
+   parts of an author's padding. That produces exactly this: right on every
+   desktop engine, wrong on iOS, from one stylesheet.
+
+   It could not be reproduced here — the test browser would not resize below
+   1410px and an iframe at 386px renders it correctly, because the iframe is
+   still Chrome. An iPhone is the only thing that can confirm this, which is
+   the same limit `index.css` records about the 16px zoom rule above.
+
+   WHY THIS IS SAFE EVEN IF IT IS NOT THE CAUSE
+
+   The app already paints every part of these fields itself — background,
+   border, radius, colour, focus ring. Turning off the native appearance
+   removes decoration nothing is relying on, and makes padding mean the same
+   thing on every engine.
+
+   DELIBERATELY NOT `select`: without its native appearance a select loses
+   its dropdown arrow and becomes a box with no affordance. Checkboxes,
+   radios, ranges and colour swatches are excluded for the same reason — they
+   ARE their native rendering.
+   ───────────────────────────────────────────────────────────────────────── */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+textarea {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 input.pl-8,  textarea.pl-8  { padding-left: 2rem; }
 input.pl-9,  textarea.pl-9  { padding-left: 2.25rem; }
 input.pl-10, textarea.pl-10 { padding-left: 2.5rem; }
