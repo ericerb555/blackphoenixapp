@@ -456,6 +456,57 @@ of JSON. E12014 now reads:
 Every caller gets that, not just the test screen. `tests/bird.test.ts` pins it
 to the exact body production returned.
 
+## STILL BROKEN — FIELDS OVERLAP ON A PHONE
+
+### Reported twice, two causes fixed, still reported. NOT RESOLVED.
+
+Eric, 2026-11-19: "please fix the overlapping in the feild boxes them selfs
+within the sign ups of the junk removal pricing app" — then, after each fix,
+"still overlapping on the mobile device."
+
+**Two real causes were found and fixed.** Both were genuine and both are
+verified in the built CSS:
+
+1. `pl-*` on an input computes to 0px — Tailwind v4 emits utilities inside
+   `@layer`, the `*{padding:0}` reset is unlayered, and unlayered wins without
+   specificity being consulted. The icon sat at 12–32px and the text began at
+   16px. 173 inputs across 109 files. Fixed by `input.pl-N` rules.
+2. `space-y-*` and `mb-*` are margins, flattened by the same reset, so a label
+   sat on its own field and that field on the next label. 1,323 labels, 30 of
+   42 forms. Fixed by `label.mb-N` and `form.space-y-N > * + *`.
+
+**Neither fixed what Eric is seeing.** That is the important part: two
+plausible causes were confirmed by measurement, fixed, verified in the
+shipped CSS — and the symptom did not move. So there is a third cause, and
+the first two were almost certainly not what he was pointing at.
+
+**What has NOT been done: nobody has reproduced it.** Every diagnosis so far
+was read out of the stylesheet rather than observed. An attempt to look at
+the page at 390px failed because the browser window would not resize —
+`window.innerWidth` stayed at 1410 and `matchMedia("(max-width: 640px)")`
+reported false, so the mobile rules never applied and the screenshot showed a
+desktop layout, which looked correct.
+
+**Do this before writing any more CSS:**
+
+- Reproduce it at a real 390px viewport, or get a screenshot from the phone.
+  Chrome device emulation via CDP, or `--window-size`, rather than the resize
+  tool used here.
+- Establish WHICH elements collide. "Overlapping" has at least three readings
+  and they have different causes: text over the icon INSIDE a box, a label
+  over the box above it, or two boxes over each other.
+- Check the shared `<Input>` component as well as raw `<input>`. The mobile
+  block in `globals.css` notes it "sets its own `text-base sm:text-sm`", so
+  it does not go through the raw-element path, and the scans that found the
+  173 and the 1,323 only looked at raw `<input>` and `<label>` tags.
+- Check the junk flow specifically. Eric named "the sign ups of the junk
+  removal pricing app"; the work so far assumed `pages/SignUp.tsx` because
+  that is where `startTrashQuote` routes, which may simply be the wrong
+  screen.
+
+The two fixes are worth keeping regardless — 173 inputs and 1,323 labels were
+genuinely rendering without the spacing their authors asked for.
+
 ## HOUSEKEEPING
 
 ### `ui/Input.tsx` and `ui/input/` both exist
