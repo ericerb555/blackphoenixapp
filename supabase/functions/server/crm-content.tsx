@@ -13,9 +13,49 @@
 
 import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
-import { verifiedActor } from "./requireStaff.ts";
+import { verifiedActor, isStaffRequest } from "./requireStaff.ts";
 
 const router = new Hono();
+
+/**
+ * Staff, checked per handler rather than per path. The method is the point.
+ *
+ * WHY NOT `requireStaffOn`, WHICH IS THE USUAL TOOL
+ *
+ * Because three paths in this file carry both a public method and a staff
+ * method, and `requireStaffOn` matches on path alone:
+ *
+ *   /chat/leads     POST is the chat widget handing over a visitor's contact
+ *                   details — it MUST stay open. GET is the whole captured
+ *                   lead list and DELETE empties it.
+ *   /chat/config    GET is the widget reading its own settings to render.
+ *                   POST rewrites them.
+ *   /blog/posts     GET is the published articles, which exist to be read
+ *                   (it is in PUBLIC_GET_PREFIXES). POST creates or
+ *                   overwrites one and DELETE removes it.
+ *
+ * A path-level guard here would have closed the lead-capture endpoint and the
+ * public blog in the course of fixing them, which is the kind of fix that gets
+ * reverted in a hurry.
+ *
+ * WHAT WAS OPEN
+ *
+ * Everything above, to any signed-in account — and every portal customer,
+ * tenant, vendor and subcontractor is signed in. `GET /chat/leads` was the
+ * serious one: it returns every captured visitor name, email and phone this
+ * company has collected, and it was readable by anyone with any account.
+ *
+ * Found during the batch-5 triage of `authz:scan` bucket A. Note that the
+ * scanner did NOT flag the read — bucket A only inspects writes — so the
+ * worst item in this file came out of reading it, not out of the tool.
+ */
+async function staffOnly(c: any): Promise<Response | null> {
+  if (await isStaffRequest(c)) return null;
+  return c.json(
+    { success: false, error: "Company access is required for this." },
+    403,
+  );
+}
 
 // ── KV key helpers ──────────────────────────────────────────────────────────
 const LEAD = (id: string) => `lead:${id}`;
@@ -58,6 +98,9 @@ function normalizeLead(l: any) {
 
 router.get("/make-server-3eae23a6/crm/leads", async (c) => {
   try {
+    // Staff only — every lead: name, email, phone, city, service and value.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const raw = (await kv.getByPrefix("lead:")) || [];
     const leads = raw.map(normalizeLead).sort((a: any, b: any) => (b._ts || 0) - (a._ts || 0));
     return c.json({ success: true, leads });
@@ -69,6 +112,9 @@ router.get("/make-server-3eae23a6/crm/leads", async (c) => {
 
 router.post("/make-server-3eae23a6/crm/leads", async (c) => {
   try {
+    // Staff only — creates a lead; LeadCRM is the only caller.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const b = await c.req.json();
     if (!b.name || !b.email) return c.json({ success: false, error: "Name and email are required" }, 400);
     const id = uid("lead");
@@ -143,6 +189,9 @@ router.delete("/make-server-3eae23a6/crm/leads/:id", async (c) => {
 
 router.get("/make-server-3eae23a6/crm/notes", async (c) => {
   try {
+    // Staff only — what staff have written about each lead.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const notes = (await kv.getByPrefix("crm_note:")) || [];
     notes.sort((a: any, b: any) => new Date(b.at).getTime() - new Date(a.at).getTime());
     return c.json({ success: true, notes });
@@ -153,6 +202,9 @@ router.get("/make-server-3eae23a6/crm/notes", async (c) => {
 
 router.post("/make-server-3eae23a6/crm/notes", async (c) => {
   try {
+    // Staff only — writes a note against a lead.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const b = await c.req.json();
     if (!b.leadId || !b.body) return c.json({ success: false, error: "leadId and body are required" }, 400);
     const id = uid("note");
@@ -170,6 +222,9 @@ router.post("/make-server-3eae23a6/crm/notes", async (c) => {
 
 router.get("/make-server-3eae23a6/reviews/moderation", async (c) => {
   try {
+    // Staff only — which reviews are hidden, and why.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const state = (await kv.get(REVIEWS_MODERATION)) || { approved: [], hidden: [] };
     return c.json({ success: true, approved: state.approved || [], hidden: state.hidden || [] });
   } catch (e: any) {
@@ -179,6 +234,9 @@ router.get("/make-server-3eae23a6/reviews/moderation", async (c) => {
 
 router.post("/make-server-3eae23a6/reviews/moderation", async (c) => {
   try {
+    // Staff only — decides which reviews the public sees.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const b = await c.req.json();
     const state = {
       approved: Array.isArray(b.approved) ? b.approved : [],
@@ -294,6 +352,9 @@ router.get("/make-server-3eae23a6/chat/config", async (c) => {
 
 router.post("/make-server-3eae23a6/chat/config", async (c) => {
   try {
+    // Staff only — the widget reads this; only staff rewrite it.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const b = await c.req.json();
     const config = { ...b, updatedAt: new Date().toISOString() };
     await kv.set(CHAT_CONFIG, config);
@@ -305,6 +366,9 @@ router.post("/make-server-3eae23a6/chat/config", async (c) => {
 
 router.get("/make-server-3eae23a6/chat/leads", async (c) => {
   try {
+    // Staff only — every captured visitor contact detail.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const leads = (await kv.getByPrefix("chat_lead:")) || [];
     leads.sort((a: any, b: any) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
     return c.json({ success: true, leads });
@@ -335,6 +399,9 @@ router.post("/make-server-3eae23a6/chat/leads", async (c) => {
 
 router.delete("/make-server-3eae23a6/chat/leads", async (c) => {
   try {
+    // Staff only — empties the captured lead list.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const leads = (await kv.getByPrefix("chat_lead:")) || [];
     if (leads.length) await kv.mdel(leads.map((l: any) => CHAT_LEAD(l.id)));
     return c.json({ success: true });
@@ -360,6 +427,9 @@ router.get("/make-server-3eae23a6/blog/posts", async (c) => {
 // Upsert a blog post (create or update).
 router.post("/make-server-3eae23a6/blog/posts", async (c) => {
   try {
+    // Staff only — creates or overwrites a published article.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     const b = await c.req.json();
     if (!b.id) return c.json({ success: false, error: "Post id is required" }, 400);
     await kv.set(BLOG_POST(b.id), b);
@@ -371,6 +441,9 @@ router.post("/make-server-3eae23a6/blog/posts", async (c) => {
 
 router.delete("/make-server-3eae23a6/blog/posts/:id", async (c) => {
   try {
+    // Staff only — removes a published article.
+    const denied = await staffOnly(c);
+    if (denied) return denied;
     await kv.del(BLOG_POST(c.req.param("id")));
     return c.json({ success: true });
   } catch (e: any) {

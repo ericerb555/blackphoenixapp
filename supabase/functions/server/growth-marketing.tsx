@@ -75,6 +75,17 @@ async function sendEmailViaResend(to: string[], subject: string, html: string) {
 
 router.get("/make-server-3eae23a6/sms/contacts", async (c) => {
   try {
+    /*
+     * Staff only — the company marketing list: names and phone numbers.
+     *
+     * The abandoned-cart and promotions routes in this same file sit behind
+     * ADMIN_PREFIXES; /sms is in no gate list at all, which is how these
+     * stayed open. Found in the batch-5 triage of authz:scan bucket A.
+     */
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const contacts = (await kv.getByPrefix("sms_contact:")) || [];
     contacts.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
     return c.json({ success: true, contacts });
@@ -86,6 +97,17 @@ router.get("/make-server-3eae23a6/sms/contacts", async (c) => {
 
 router.post("/make-server-3eae23a6/sms/contacts", async (c) => {
   try {
+    /*
+     * Staff only — adds a number to the list that /sms/send texts.
+     *
+     * The abandoned-cart and promotions routes in this same file sit behind
+     * ADMIN_PREFIXES; /sms is in no gate list at all, which is how these
+     * stayed open. Found in the batch-5 triage of authz:scan bucket A.
+     */
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const b = await c.req.json();
     if (!b.phone) return c.json({ success: false, error: "Phone number is required" }, 400);
     const id = uid("c");
@@ -125,6 +147,17 @@ router.delete("/make-server-3eae23a6/sms/contacts/:id", async (c) => {
 
 router.get("/make-server-3eae23a6/sms/campaigns", async (c) => {
   try {
+    /*
+     * Staff only — what was sent, to whom, and when.
+     *
+     * The abandoned-cart and promotions routes in this same file sit behind
+     * ADMIN_PREFIXES; /sms is in no gate list at all, which is how these
+     * stayed open. Found in the batch-5 triage of authz:scan bucket A.
+     */
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const campaigns = (await kv.getByPrefix("sms_campaign:")) || [];
     campaigns.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
     return c.json({ success: true, campaigns });
@@ -136,6 +169,17 @@ router.get("/make-server-3eae23a6/sms/campaigns", async (c) => {
 // Actually send an SMS blast through Twilio to a chosen audience.
 router.post("/make-server-3eae23a6/sms/send", async (c) => {
   try {
+    /*
+     * Staff only — THE SERIOUS ONE. It texts every opted-in contact from the company number. Open to any signed-in account, this was a stranger with a portal login able to send a marketing blast under this company name — and the price of a carrier complaint is the number itself, which every transactional message also depends on.
+     *
+     * The abandoned-cart and promotions routes in this same file sit behind
+     * ADMIN_PREFIXES; /sms is in no gate list at all, which is how these
+     * stayed open. Found in the batch-5 triage of authz:scan bucket A.
+     */
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const b = await c.req.json();
     const { name, message, audience } = b as { name?: string; message?: string; audience?: string };
     if (!message) return c.json({ success: false, error: "Message body is required" }, 400);
@@ -461,6 +505,11 @@ router.get("/make-server-3eae23a6/exit-intent/leads", async (c) => {
 
 router.get("/make-server-3eae23a6/ranking/content", async (c) => {
   try {
+    // Staff only — unpublished marketing drafts.
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const content = (await kv.getByPrefix("ranking_content:")) || [];
     content.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
     const settings = (await kv.get(RANK_SETTINGS)) || { autoRunning: false };
@@ -472,6 +521,11 @@ router.get("/make-server-3eae23a6/ranking/content", async (c) => {
 
 router.post("/make-server-3eae23a6/ranking/generate", async (c) => {
   try {
+    // Staff only — it calls OpenAI directly, unmetered. Any signed-in account could spend the company AI budget in a loop, bypassing aiSpend entirely.
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const b = await c.req.json();
     const type: string = b.type || "blog";
     const businessName: string = b.businessName || "Black Phoenix Company";
@@ -538,6 +592,21 @@ Return STRICT JSON only, no markdown fences, with keys:
 
 router.post("/make-server-3eae23a6/ranking/publish/:id", async (c) => {
   try {
+    /*
+     * Staff only. Publishing is a decision, not a side effect.
+     *
+     * This flips a piece of ranking content to `published` for any id, and it
+     * was reachable by any signed-in account — so a portal customer could put
+     * draft marketing copy live on the company's own site. The sibling routes
+     * in this file that manage promotions and abandoned carts sit behind
+     * ADMIN_PREFIXES; `/ranking` does not, which is how this one slipped
+     * through. Found in the batch-5 triage of `authz:scan` bucket A.
+     */
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
+
     const id = c.req.param("id");
     const piece: any = await kv.get(RANK_CONTENT(id));
     if (!piece) return c.json({ success: false, error: "Content not found" }, 404);
@@ -551,6 +620,11 @@ router.post("/make-server-3eae23a6/ranking/publish/:id", async (c) => {
 
 router.post("/make-server-3eae23a6/ranking/auto", async (c) => {
   try {
+    // Staff only — it switches the automation on and off.
+    const who_ = await verifiedActor(c);
+    if (!who_?.staff) {
+      return c.json({ success: false, error: "Company access is required for this." }, 403);
+    }
     const b = await c.req.json().catch(() => ({}));
     const settings = { autoRunning: !!b.autoRunning, updatedAt: new Date().toISOString(), ...b };
     await kv.set(RANK_SETTINGS, settings);

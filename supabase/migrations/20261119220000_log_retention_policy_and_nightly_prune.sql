@@ -50,7 +50,7 @@ create or replace function public.prune_security_audit_log(keep_days integer def
 returns integer
 language plpgsql
 security definer
-set search_path to 'public', 'pg_temp'
+set search_path = public, pg_temp
 as $$
 declare
   removed integer;

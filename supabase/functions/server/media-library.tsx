@@ -28,7 +28,7 @@
 import { Hono } from "npm:hono@4.13.19";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
-import { verifiedActor } from "./requireStaff.ts";
+import { verifiedActor, isStaffRequest } from "./requireStaff.ts";
 import { sniffMedia } from "./mediaSniff.ts";
 
 const mediaRouter = new Hono();
@@ -415,6 +415,27 @@ mediaRouter.get("/make-server-3eae23a6/media/:mediaId", async (c) => {
 // Delete media
 mediaRouter.delete("/make-server-3eae23a6/media/:mediaId", async (c) => {
   try {
+    /*
+     * STAFF, not merely signed in. This is the only destructive route here.
+     *
+     * The router-level guard above is `requireSignedIn`, which is the right
+     * floor for reading and uploading into a shared company library. It is not
+     * enough for this: the handler below removes the object from Storage AND
+     * drops the KV record, for any id, with no owner check — so any portal
+     * customer, tenant, vendor or subcontractor with an account could have
+     * emptied the gallery, the house captures and the reels one id at a time.
+     *
+     * Permanent, too. The nightly storage backup mirrors latest-known state
+     * rather than keeping versions, so a deletion propagates to the backup on
+     * the next run — the copy is insurance against losing the project, not
+     * against somebody deleting a file on purpose.
+     *
+     * Found in the batch-5 triage of `authz:scan` bucket A.
+     */
+    if (!await isStaffRequest(c)) {
+      return c.json({ error: 'Company access is required to delete media.' }, 403);
+    }
+
     const { mediaId } = c.req.param();
     const mediaItem = await kv.get(`media:${mediaId}`);
 
