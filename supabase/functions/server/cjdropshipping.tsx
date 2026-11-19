@@ -52,8 +52,52 @@ import { isAccessDisabled, isStaleToken, CJ_ACCESS_DISABLED as DISABLED_MARKER }
  * For everything else use `storedOrSecretKey`, which is the other way round.
  * The CJ key format is `CJUserNum@api@…`.
  */
+/**
+ * The secret names a CJ key may be stored under, in order of preference.
+ *
+ * `CJ_API_KEY` is the name this code was written around and the one to use.
+ * `CJ-MCP-API` is here because that is where the WORKING key actually lives
+ * on this project, and the store has been unable to trade for 43 days while
+ * a dead key sat under the name the code read.
+ *
+ * HOW THAT HAPPENED, SO IT IS NOT READ AS CARELESSNESS. The two names were
+ * created for two different integrations. On 2026-11-19 CJ answered a direct
+ * curl with live inventory while this server was still being told
+ * "API access has been disabled" — the account was never blocked, the server
+ * was simply presenting a different, dead credential. Four keys were
+ * compared by SHA-256 against the three stored secrets to establish that.
+ *
+ * Reading both names is not the tidy answer; one key under one name is. But
+ * the tidy answer needs somebody to find the key again in CJ's dashboard,
+ * and the untidy one works now. When `CJ_API_KEY` is set correctly this
+ * falls back to nothing and can be deleted.
+ */
+const CJ_KEY_SECRETS = ["CJ_API_KEY", "CJ-MCP-API"] as const;
+
+/** The first CJ key any of the known secret names actually holds. */
+function keyFromEnv(): string {
+  for (const name of CJ_KEY_SECRETS) {
+    const value = (Deno.env.get(name) || "").trim();
+    if (!value) continue;
+    /*
+     * A CJ REST key is `CJ<usernum>@api@<32 hex>`. An ACCESS TOKEN looks
+     * like `MCP@CJ…@CJ:eyJ…` and is what gets pasted here by mistake,
+     * because both come off the same page and only one of them is short
+     * enough to look like a key. Sending a token as a key makes CJ answer
+     * "APIkey is wrong", which reads as a bad credential rather than as the
+     * wrong KIND of credential — so it is checked here instead.
+     */
+    if (!value.includes("@api@")) {
+      console.log(`[CJ] ${name} does not look like an API key (no @api@) — skipping it`);
+      continue;
+    }
+    return value;
+  }
+  return "";
+}
+
 export function resolveKey(bodyKey?: string): string | null {
-  const key = (bodyKey && bodyKey.trim()) || Deno.env.get("CJ_API_KEY") || "";
+  const key = (bodyKey && bodyKey.trim()) || keyFromEnv();
   return key.trim() || null;
 }
 
@@ -71,7 +115,7 @@ export function resolveKey(bodyKey?: string): string | null {
  * stored copy can then be deleted without an outage in between.
  */
 export function storedOrSecretKey(storedKey?: string): string | null {
-  const secret = (Deno.env.get("CJ_API_KEY") || "").trim();
+  const secret = keyFromEnv();
   if (secret) return secret;
   const stored = (storedKey || "").trim();
   if (stored) {
