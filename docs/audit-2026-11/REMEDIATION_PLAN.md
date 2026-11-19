@@ -340,21 +340,75 @@ defect list would be the error the brief warns about in the other direction:
 counting unverified items as failures. They need reading before they need
 fixing.
 
-### Batch 6 — Hardening, after the above (P3/P4)
+### Batch 6 — Hardening (P3/P4) — 2 of 10 done
 
-- `A-1` the client fires ~1,300 unauthenticated requests a day — gate panel
-  fetches on a session. Fixes the blank dashboard *and* stops poisoning the
-  abuse signal. ~3h, and it is the highest-value P3 here.
+#### ✅ A-1 — done 2026-11-19. One file, and it explained a user-visible bug.
+
+`src/app/lib/database.ts` had `getAuthToken()` returning the session token
+`|| publicAnonKey` ("demo mode") and `getUserId()` returning the user's id
+`|| 'anonymous'`. Signed out, that layer sent the publishable key as a
+credential and built every key as `<key>_anonymous`. Now: **no session, no
+request** — `saveDual` / `loadDual` carry on with localStorage, which is what
+"working offline" always meant. The signed-in key shape is unchanged, because
+113 keys are already written that way.
+
+The third consequence was the one nobody had connected to it. `loadDual` syncs
+localStorage *up* to the server, so work done before signing in was stored
+under `_anonymous` and is then **invisible to the same person once they sign
+in**, because the read asks for `<key>_<their uuid>`. Eight such keys hold
+2.7 MB of real company data. That is why **Service Area Settings looks blank
+to its own owner** — and there are two copies of it, seven months apart:
+
+| Key | Saved | Radius |
+|---|---|---:|
+| `service_area_settings_anonymous` | 2026-05-10 | 50 |
+| `service_area_settings_<owner uuid>` | 2026-09-27 | **55** |
+
+So `/public/service-area` now reads whichever was saved most recently, making
+that settings screen authoritative rather than a number in the source. 50
+survives only as the floor for a project that has configured nothing.
+
+**Not done, deliberately:** migrating the eight `_anonymous` keys. That is
+moving 2.7 MB of production data between namespaces and wants the owner's
+say-so, not a tidy-up inside a hardening commit.
+
+#### ✅ D-3 — done 2026-11-19, and the first attempt silently did nothing
+
+`REVOKE … FROM anon` reported success and changed no privilege:
+`has_function_privilege('anon', …)` stayed true on all nine. Postgres grants
+EXECUTE to **PUBLIC** by default and `anon` inherited it there. The ACL named
+it — the leading empty grantee is PUBLIC:
+
+```
+{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+```
+
+Safe to revoke PUBLIC precisely because `authenticated` and `service_role`
+hold explicit grants in that same ACL — which matters, because **27 policies
+across 9 Exchange tables evaluate `org_id in (select my_org_ids())`**, a policy
+body runs as the querying role, and revoking from a role a policy applies to
+makes it *error* rather than return no rows. All 27 are scoped to
+`{authenticated}`; not one to `anon`. Verified both directions afterwards:
+
+| | Result |
+|---|---|
+| `anon` → `rpc/is_platform_operator` | `401` `42501 permission denied for function` (was `200 false`) |
+| `authenticated` → count orgs / bids / bid_requests | **0 rows, no error** — the policies still evaluate |
+
+#### Still open
 - `DEP-1` pin one Hono version and one `supabase-js` version in a single
   import module for the edge function, and `pnpm update hono` for the npm
   side. Today the server imports `npm:hono` unpinned in 90 places, so no
   dependency advisory about it can be answered either way. ~2h, and it turns
   A06 from unanswerable into answerable.
-- `D-3` `REVOKE EXECUTE … FROM anon` on nine `SECURITY DEFINER` functions. ~30m.
-- `L-2` a retention policy and a deletion job. ~2h.
+- `L-2` a retention policy and a deletion job. ~2h. Note `prune_ai_call_log`
+  and `prune_app_error_log` already exist as functions — what is missing is a
+  stated period and a schedule, and now `security_audit_log` needs its own
+  answer, which should not be the same as an error log's.
 - `A-3` enable `IP_REPUTATION_ENFORCE` after confirming `IP_REPUTATION_ALLOW`
-  holds the owner's address. Not before `A-1`, or the dashboard bans its own
-  operator.
+  holds the owner's address. **`A-1` was the blocker and it is now closed** —
+  the ~1,300 signed-out requests a day that pinned the owner's own address at
+  the score cap are gone at the source.
 - `S-1` one Supabase config module, three imports. ~30m.
 - `F-2` landing-page clipping. ~15m.
 - `I-3` remove shipped dev tooling. ~1h.
