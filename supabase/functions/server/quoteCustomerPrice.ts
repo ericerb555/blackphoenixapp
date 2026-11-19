@@ -95,8 +95,60 @@ export function customerPricingOf(quote: any): CustomerPricing {
   const overhead = asFraction(quote?.overheadPercent);
   const profit = asFraction(quote?.profitPercent);
   const contingency = asFraction(quote?.contingencyPercent);
-  const markup = overhead + profit + contingency;
-  return { overhead, profit, contingency, markup, factor: 1 + markup };
+  const stated = overhead + profit + contingency;
+  if (stated > 0) {
+    return { overhead, profit, contingency, markup: stated, factor: 1 + stated };
+  }
+
+  /**
+   * NO PERCENTAGES STORED, BUT THE TOTALS SAY THERE IS MARGIN.
+   *
+   * Eric, 2026-11-19: *"i am really getting aggrivated with the view quote in
+   * the quote builder not hidding the items i have hidden and not adding up
+   * to the quote"*. This is the "not adding up" half, and it is the whole of
+   * it.
+   *
+   * `applyMargins` prices a quote on the server, defaulting to 10/10/5, and
+   * does NOT write those percentages back onto the record. So the margin
+   * exists in `preTaxTotal` and nowhere else — and every consumer that asks
+   * "what markup does this quote carry?" got zero and did nothing.
+   *
+   * Measured on Jason's quote, `qt-1794354942724`:
+   *
+   *     materialsSubtotal   2,943.20
+   *     laborSubtotal       6,917.50   → direct cost 9,860.70
+   *     preTaxTotal        14,435.81   → 4,575.11 of margin
+   *     overheadPercent     (absent)
+   *     profitPercent       (absent)
+   *     contingencyPercent  (absent)
+   *
+   * `quoteToPdfDocument` guards its entire distribution on
+   * `pricing.markup > 0`, so with a stated markup of zero it skipped scaling
+   * altogether: the lines and phase subtotals printed at COST, summing
+   * 9,860.70, under a footer reading 14,435.81. The customer adds the column
+   * up and is $4,575.11 short. That is the complaint, exactly, and it is not
+   * a rounding or a hiding problem — the margin was never put into the lines
+   * because nothing could tell there was any.
+   *
+   * So when the percentages are silent, the TOTALS are asked instead. They
+   * are the figures the document actually prints, which makes this the
+   * authoritative source rather than a guess: whatever the quote charges
+   * above its direct cost IS its markup, however it came to be.
+   *
+   * The split across overhead/profit/contingency is deliberately left at
+   * zero. Only the OFFICE copy itemises those three, and inventing a split
+   * that was never recorded would print a "profit" figure nobody chose — the
+   * same objection `markupRatesOf` makes about defaulting absent rates. The
+   * customer's document needs the total markup and nothing else.
+   */
+  const direct = directCostOf(quote);
+  const preTax = Number(quote?.preTaxTotal);
+  if (direct > 0 && Number.isFinite(preTax) && preTax > direct) {
+    const derived = (preTax - direct) / direct;
+    return { overhead: 0, profit: 0, contingency: 0, markup: derived, factor: 1 + derived };
+  }
+
+  return { overhead, profit, contingency, markup: stated, factor: 1 + stated };
 }
 
 /** True when there is any markup to spread. Saves scaling a quote by 1.0. */
@@ -205,11 +257,38 @@ export function preTaxTotalOf(quote: any, pricing: CustomerPricing): number {
 export function directCostOf(quote: any): number {
   const stored = Number(quote?.directCost);
   if (Number.isFinite(stored) && stored > 0) return round2(stored);
-  return round2(
+  const subtotals = round2(
     (Number(quote?.materialsSubtotal) || 0)
     + (Number(quote?.laborSubtotal) || 0)
     + (Number(quote?.additionalCostsSubtotal) || 0),
   );
+  if (subtotals > 0) return subtotals;
+  /*
+   * NO SUBTOTALS STORED — ADD THE ROWS UP INSTEAD.
+   *
+   * Quotes come in two shapes. The estimator writes `materials` and `labor`
+   * with their subtotals alongside; the quote builder writes one flat
+   * `items` array and stores no subtotal at all. This function only ever
+   * read the subtotals, so on an items-shaped quote it returned zero.
+   *
+   * Zero direct cost is not a harmless answer. `customerPricingOf` derives
+   * the markup from the gap between cost and the stored total, and guards
+   * that derivation on `direct > 0` — so a zero here means no markup, which
+   * means `quoteToPdfDocument` skips distributing it into the line prices
+   * entirely. The document then prints lines at cost beneath a total that
+   * includes margin, which is Eric’s complaint in its original form: the
+   * line items do not add up to the total.
+   *
+   * Summed the way `costOfRow` resolves a row, so a stored `totalCost` with
+   * a waste factor in it still wins over quantity times unit price.
+   */
+  const rows = [
+    ...(Array.isArray(quote?.items) ? quote.items : []),
+    ...(Array.isArray(quote?.materials) ? quote.materials : []),
+    ...(Array.isArray(quote?.labor) ? quote.labor : []),
+    ...(Array.isArray(quote?.additionalCosts) ? quote.additionalCosts : []),
+  ];
+  return round2(rows.reduce((sum: number, r: any) => sum + costOfRow(r), 0));
 }
 
 /**

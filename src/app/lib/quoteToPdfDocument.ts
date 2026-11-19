@@ -152,10 +152,33 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       [...trueCost.values()].reduce((sum, v) => sum + (Number(v) || 0), 0),
     );
     const pricedTarget = round2(share * preTaxTotalOf(quote, pricing));
-    const phaseScale = costBeforePricing > 0
-      ? pricedTarget / costBeforePricing
-      : pricing.factor;
-    for (const [name, cost] of trueCost) trueCost.set(name, round2(cost * phaseScale));
+    /*
+     * Allocated, not rounded one at a time.
+     *
+     * Scaling each phase and rounding it independently leaves the column of
+     * subtotals a cent from the footer: on Jason's quote nine phases came to
+     * 14,435.80 under a total of 14,435.81. A penny is not a pricing error
+     * and it is the same sentence from the customer either way — "your
+     * sections do not add up to your total" — which is the one sentence this
+     * document exists to prevent.
+     *
+     * `allocate` is the same apportionment the LINES already use a few lines
+     * below, and for the same reason. Using it in both places is what keeps
+     * the two columns agreeing with each other as well as with the footer.
+     */
+    if (costBeforePricing > 0) {
+      const phaseNames = [...trueCost.keys()];
+      const phaseAmounts = allocate(phaseNames.map((n) => trueCost.get(n) || 0), pricedTarget);
+      phaseNames.forEach((name, i) => trueCost.set(name, phaseAmounts[i]));
+    } else {
+      /*
+       * Nothing to apportion against. `allocate` weights by the costs it is
+       * given, so handing it a column of zeros would put the entire total on
+       * one arbitrary phase. Falling back to the stated factor leaves each
+       * phase where it was, which on an all-zero quote is zero.
+       */
+      for (const [name, cost] of trueCost) trueCost.set(name, round2(cost * pricing.factor));
+    }
 
     /**
      * AND THEN THE ROUNDING REMAINDER IS PLACED, OR THE COLUMN STILL MISSES.
@@ -187,11 +210,65 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
      * would be overcharged, which is the worse of the two failures.
      */
     const printedSubtotal = round2(share * preTaxTotalOf(quote, pricing));
-    const amounts = allocate(
-      lines.map((l: any) => (Number(l.quantity) || 0) * (Number(l.unit_price) || 0)),
-      printedSubtotal,
-    );
-    lines.forEach((line: any, i: number) => { line.priced_amount = amounts[i]; });
+    /*
+     * WEIGHTED BY THE LINE'S OWN AMOUNT, NOT BY QUANTITY TIMES RATE.
+     *
+     * A withheld row carries its money in `amount` and prints no quantity
+     * and no rate, because naming either would give back the detail the row
+     * exists to withhold. Weighting on quantity x rate scores every one of
+     * those rows zero, and `allocate` handed nothing but zeroes has no shape
+     * to follow — it splits the subtotal evenly. On Jason’s quote that drew
+     * nine rows of 1,603.98 each: the column still summed to 14,435.81, so
+     * the footer agreed and the bug looked fixed, while every phase was
+     * wrong. A demolition phase worth 1,827.04 printed 1,603.97 beside a
+     * heading reading 1,827.04.
+     *
+     * `amount` first, quantity x rate second — the same precedence `amountOf`
+     * uses a few lines down, so the weight and the printed figure agree about
+     * what a line is worth.
+     */
+    const weightOf = (l: any) =>
+      Number.isFinite(Number(l?.amount))
+        ? Number(l.amount)
+        : (Number(l?.quantity) || 0) * (Number(l?.unit_price) || 0);
+    /*
+     * APPORTIONED INSIDE EACH PHASE, AGAINST THAT PHASE’S OWN HEADING.
+     *
+     * One allocation across every line on the document makes the COLUMN
+     * match the footer and says nothing about any phase in between. The
+     * phase headings were apportioned separately a few lines above, so the
+     * two placed their rounding remainders on different rows: on Jason’s
+     * quote, plumbing printed two lines summing to 2,588.30 under a heading
+     * reading 2,588.31, and waterproofing was a penny the other way. Both
+     * columns reached 14,435.81, and a customer reading one section still
+     * saw lines that did not add up to the number beside the section name.
+     *
+     * Allocating within the phase makes each section self-consistent, and
+     * the sections were already allocated to the footer — so the rows reach
+     * the footer through the headings rather than alongside them.
+     */
+    const byPhase = new Map<string, any[]>();
+    for (const line of lines) {
+      const key = String((line as any).phase ?? '');
+      if (!byPhase.has(key)) byPhase.set(key, []);
+      byPhase.get(key)!.push(line);
+    }
+    /*
+     * What is left for lines whose phase carries no heading of its own.
+     * They are apportioned against the footer minus everything the headings
+     * have already claimed, so adding this group cannot push the document
+     * past its own total.
+     */
+    let claimed = 0;
+    for (const key of byPhase.keys()) {
+      if (trueCost.has(key)) claimed += Number(trueCost.get(key)) || 0;
+    }
+    const unphasedTarget = round2(printedSubtotal - claimed);
+    for (const [key, group] of byPhase) {
+      const target = trueCost.has(key) ? round2(Number(trueCost.get(key)) || 0) : unphasedTarget;
+      const amounts = allocate(group.map(weightOf), target);
+      group.forEach((line: any, i: number) => { line.priced_amount = amounts[i]; });
+    }
   }
 
   const grouped = groupLinesByPhase(lines, steps);

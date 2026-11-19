@@ -22,6 +22,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { quoteToPdfDocument } from '../src/app/lib/quoteToPdfDocument.ts';
+import { customerPricingOf } from '../supabase/functions/server/quoteCustomerPrice.ts';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -256,9 +257,22 @@ test('nothing else is marked withheld', () => {
 /**
  * Eric's report, to the penny: Q-2026-0002 with five lines hidden. The gap
  * was $2,633.19 — every line in Wall Modifications and Fixture Installation.
- * All five now print their amounts, so the column reaches the total.
+ * The money now prints, so the column reaches the total.
+ *
+ * ONE ROW PER PHASE, NOT ONE PER HIDDEN LINE.
+ *
+ * This test used to assert all five kept a row of their own. Eric,
+ * 2026-11-19: *"the view quote in the quote builder not hidding the items i
+ * have hidden"*. Five rows all reading "Additional work", two of them under
+ * the same heading, is a list of what was hidden with the names filed off —
+ * the count and the shape of the work still read off the page. His
+ * instruction was always *"the line item should stay with a total only"*,
+ * singular. So a phase shows one withheld row carrying the combined amount:
+ * five hidden lines across two phases draw two rows, and 16 - 5 + 2 = 13.
+ *
+ * The money is the invariant and it does not move — 2,633.19 either way.
  */
-test('his five hidden lines all keep their rows, and the column totals', () => {
+test('his five hidden lines collapse to one row per phase, and the column totals', () => {
   const q = sarah({ processSteps: SARAH_STEPS });
   for (const name of ['Drywall work', 'Hair Dryers', 'Custom Benches']) {
     Object.assign((q.materials as any[]).find((r) => r.name === name), { visible: false });
@@ -268,15 +282,29 @@ test('his five hidden lines all keep their rows, and the column totals', () => {
   }
 
   const doc = quoteToPdfDocument(q, { forCustomer: true });
-  assert.equal(drawnLines(doc).length, 16, 'nothing dropped');
+  assert.equal(drawnLines(doc).length, 13, 'five hidden rows became two, and nothing else moved');
   assert.equal(drawnSum(doc), 12666.13, 'his column now reaches his total');
   assertAddsUp(doc, 'Eric report');
 
   const withheld = drawnLines(doc).filter((l: any) => l.detailWithheld);
-  assert.equal(withheld.length, 5);
+  assert.equal(withheld.length, 2, 'one per phase — Wall Modifications and Fixture Installation');
   assert.equal(
     r2(withheld.reduce((s: number, l: any) => s + l.amount, 0)), 2633.19,
     'and they come to exactly the money that used to vanish',
+  );
+  /*
+   * Collapsing must not merge ACROSS a heading — one withheld row in each
+   * of the two phases, not two rows in one phase and none in the other.
+   * The drawn row carries no phase of its own, so this reads the document.
+   */
+  const perPhase = (doc.phases as any[]).map((p) => ({
+    label: p.label,
+    withheld: (p.groups?.length ? p.groups.flatMap((g: any) => g.lines || []) : p.lines || [])
+      .filter((l: any) => l.detailWithheld).length,
+  }));
+  assert.deepEqual(
+    perPhase.filter((p) => p.withheld).map((p) => [p.label, p.withheld]),
+    [['Wall Modifications', 1], ['Fixture Installation', 1]],
   );
 
   const labels = (doc.phases as any[]).map((p) => p.label);
@@ -441,4 +469,164 @@ test('the notice does not change what the document totals', () => {
   const doc = quoteToPdfDocument(sarah(), { forCustomer: true, company: LETTERHEAD as any });
   assert.equal(doc.total, 12666.13, 'unchanged by the disclosure');
   assertAddsUp(doc, 'with the card notice');
+});
+
+/* ── every section adds up on its own, not just the document ───────────── */
+
+/**
+ * A PHASE MUST EQUAL ITS OWN ROWS.
+ *
+ * `assertAddsUp` above compares the two COLUMNS against the footer, and
+ * both of them reached it while individual sections were wrong. The phase
+ * headings and the line amounts were apportioned by two separate calls to
+ * `allocate`, which placed their rounding remainders on different rows: on
+ * Jason’s quote, plumbing printed two lines summing to 2,588.30 under a
+ * heading reading 2,588.31, and waterproofing was a penny the other way.
+ * The pennies cancelled, the document footed, and a customer reading one
+ * section still saw lines that did not add up to the number beside it.
+ *
+ * Nobody adds up a whole quote. They add up the section they are arguing
+ * about.
+ */
+function assertEachPhaseAddsUp(doc: any, label: string) {
+  for (const phase of doc.phases || []) {
+    const rows = phase.groups?.length
+      ? phase.groups.flatMap((g: any) => g.lines || [])
+      : phase.lines || [];
+    if (!rows.length) continue;   // a process step carries its money in the heading
+    const sum = r2(rows.reduce((s: number, l: any) => s + (Number(l?.amount) || 0), 0));
+    assert.equal(
+      sum, r2(Number(phase.subtotal) || 0),
+      `${label}: ${phase.label} prints rows totalling ${sum} under a heading reading ${phase.subtotal}`,
+    );
+  }
+}
+
+const hideAll = (q: any) => {
+  for (const r of (q.items || q.materials || [])) r.visible = false;
+  for (const r of (q.labor || [])) r.visible = false;
+  return q;
+};
+
+/**
+ * JASON AS HE IS ACTUALLY STORED — WITH MARGIN ON HIM.
+ *
+ * `jason()` carries no stored total, and `sarah()` stores one equal to her
+ * direct cost. On both, `customerPricingOf` returns a markup of zero, so
+ * `quoteToPdfDocument` skips the whole pricing block — every `allocate` call
+ * in it, and every bug that lives in one. Two tests written against those
+ * fixtures passed with the fix reverted, which is how this was noticed.
+ *
+ * `quote:qt-1794354942724` stores a direct cost of 9,860.70 beneath a
+ * preTaxTotal of 14,435.81 and no percentages at all — the margin is implied
+ * by the gap. That is the quote Eric was looking at, and the only shape that
+ * exercises the apportionment. The ratio is applied to whatever this fixture
+ * costs rather than pinning 14,435.81, so editing a line above does not turn
+ * this into a test of a stale constant.
+ */
+const JASON_MARKUP = 14435.81 / 9860.70;
+const jasonPriced = () => {
+  const cost = r2(Number(quoteToPdfDocument(jason(), { forCustomer: false }).total) || 0);
+  const priced = r2(cost * JASON_MARKUP);
+  return jason({ preTaxTotal: priced, totalCost: priced });
+};
+
+test('the priced fixture really is priced, or the tests below prove nothing', () => {
+  const pricing = customerPricingOf(jasonPriced());
+  assert.ok(
+    pricing.markup > 0.4,
+    `markup came out ${pricing.markup} — the pricing block is being skipped and these tests are inert`,
+  );
+});
+
+test('every phase foots on its own, hidden or not', () => {
+  for (const [label, doc] of [
+    ['Jason priced', quoteToPdfDocument(jasonPriced(), { forCustomer: true })],
+    ['Jason priced, all hidden', quoteToPdfDocument(hideAll(jasonPriced()), { forCustomer: true })],
+    ['Jason', quoteToPdfDocument(jason(), { forCustomer: true })],
+    ['Jason, all hidden', quoteToPdfDocument(hideAll(jason()), { forCustomer: true })],
+    ['Sarah', quoteToPdfDocument(sarah(), { forCustomer: true })],
+    ['Sarah, all hidden', quoteToPdfDocument(hideAll(sarah()), { forCustomer: true })],
+  ] as [string, any][]) {
+    assertEachPhaseAddsUp(doc, label);
+    assertAddsUp(doc, label);
+  }
+});
+
+/**
+ * HIDING EVERY LINE MUST NOT FLATTEN THE QUOTE INTO EQUAL SLICES.
+ *
+ * A withheld row prints no quantity and no rate, so weighting the
+ * apportionment on quantity x rate scored every row zero, and `allocate`
+ * given nothing but zeroes has no shape to follow — it split the total
+ * evenly. Jason’s nine phases each drew 1,603.98, one ninth of 14,435.81.
+ * The column summed to the total, so every check that looked at the footer
+ * passed, while demolition and waterproofing printed the same price.
+ *
+ * Equal slices are the signature. Assert the rows DIFFER, and that each one
+ * still carries its own phase’s money.
+ */
+test('hiding every line keeps each phase its own price', () => {
+  const doc = quoteToPdfDocument(hideAll(jasonPriced()), { forCustomer: true });
+
+  const rows = drawnLines(doc);
+  assert.ok(rows.length > 1, 'the quote still has sections');
+  assert.ok(rows.every((l: any) => l.detailWithheld), 'every row is a withheld one');
+
+  const amounts = rows.map((l: any) => r2(Number(l.amount) || 0));
+  assert.ok(
+    new Set(amounts).size > 1,
+    `every withheld row printed the same ${amounts[0]} — the total was split evenly instead of by phase`,
+  );
+  assertEachPhaseAddsUp(doc, "Jason all hidden");
+  assertAddsUp(doc, "Jason all hidden");
+});
+
+/**
+ * A HIDDEN LINE BESIDE A VISIBLE ONE KEEPS ITS SHARE OF THE MONEY.
+ *
+ * The withheld row prints no quantity and no rate — that is the whole point
+ * of it — so apportioning on quantity x rate scores it zero and `allocate`
+ * hands it nothing. Its money does not disappear: it is pushed onto the
+ * visible lines sharing the phase, which then print MORE than they cost.
+ *
+ * That is the worse direction of the two. The section still foots, so every
+ * check against a total passes, and the customer is quoted a visible line at
+ * a price it was never estimated at — with the line they would have queried
+ * sitting beside it reading 0.00.
+ *
+ * Floor tiling is two lines. Hide one.
+ */
+test('a hidden line beside a visible one keeps its own money', () => {
+  const q: any = jasonPriced();
+  const hidden = q.items.find((r: any) => r.name === 'Grout');
+  const shown = q.items.find((r: any) => r.name === 'Tile Adhesive');
+  hidden.visible = false;
+
+  const doc = quoteToPdfDocument(q, { forCustomer: true });
+  const phase = (doc.phases as any[]).find((p) => p.label === 'Floor tiling');
+  const rows = phase.groups?.length ? phase.groups.flatMap((g: any) => g.lines || []) : phase.lines;
+
+  const withheld = rows.find((l: any) => l.detailWithheld);
+  const visible = rows.find((l: any) => !l.detailWithheld);
+  assert.ok(withheld, 'the hidden line still has a row');
+  assert.ok(withheld.amount > 0, 'and it was not allocated zero');
+
+  /*
+   * Both are priced from the same cost ratio, so each should land on its own
+   * cost times the markup. Grout costs 39.60 and the adhesive 61.60 — the
+   * adhesive is the dearer of the two and must stay that way.
+   */
+  const ratio = r2(Number(phase.subtotal)) / (hidden.totalCost + shown.totalCost);
+  assert.ok(
+    Math.abs(withheld.amount - hidden.totalCost * ratio) <= 0.01,
+    `the withheld row printed ${withheld.amount}, not its own ${r2(hidden.totalCost * ratio)}`,
+  );
+  assert.ok(
+    Math.abs(visible.amount - shown.totalCost * ratio) <= 0.01,
+    `the visible row printed ${visible.amount}, not its own ${r2(shown.totalCost * ratio)} — it absorbed the hidden line's money`,
+  );
+
+  assertEachPhaseAddsUp(doc, 'Jason, one line hidden in a shared phase');
+  assertAddsUp(doc, 'Jason, one line hidden in a shared phase');
 });

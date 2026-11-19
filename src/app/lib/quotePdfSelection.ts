@@ -385,6 +385,61 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
     });
   }
 
+  /**
+   * ONE "Additional work" ROW PER PHASE, NOT ONE PER HIDDEN LINE.
+   *
+   * Eric, 2026-11-19: *"i am really getting aggrivated with the view quote in
+   * the quote builder not hidding the items i have hidden"*.
+   *
+   * He had hidden every line on Q-2026-0006 — all eighteen — and the customer
+   * copy printed eighteen rows, every one of them reading "Additional work",
+   * each with a different number beside it. Two of them inside the same
+   * phase. That is not hiding anything: it discloses exactly how many pieces
+   * of work there are and what each costs, while refusing to say what they
+   * are. The worst of both.
+   *
+   * His instruction all along was *"the line item should stay with a total
+   * only"*, which reads correctly as ONE line carrying the withheld money,
+   * not one per thing withheld.
+   *
+   * So the withheld rows in a phase collapse into a single row with their
+   * combined amount. The money is untouched — `phaseCost` below counts every
+   * line regardless, and this only changes how many rows the same sum is
+   * drawn across.
+   *
+   * Order is preserved by rebuilding in place: the collapsed row takes the
+   * position of the FIRST withheld line in its phase, so a phase that begins
+   * with hidden work still reads top to bottom.
+   */
+  if (forCustomer) {
+    const mergedAmount = new Map<string, number>();
+    for (const l of lines) {
+      if (!l.detailWithheld) continue;
+      const key = String(l.phase || '');
+      mergedAmount.set(key, round2((mergedAmount.get(key) || 0) + (Number(l.amount) || 0)));
+    }
+    if (mergedAmount.size) {
+      const placed = new Set<string>();
+      const collapsed: typeof lines = [];
+      for (const l of lines) {
+        if (!l.detailWithheld) { collapsed.push(l); continue; }
+        const key = String(l.phase || '');
+        if (placed.has(key)) continue;
+        placed.add(key);
+        collapsed.push({
+          ...l,
+          description: WITHHELD_LABEL,
+          quantity: 0,
+          unit_price: 0,
+          amount: mergedAmount.get(key) || 0,
+          detailWithheld: true,
+        });
+      }
+      lines.length = 0;
+      lines.push(...collapsed);
+    }
+  }
+
   /*
    * A STEP IS NOT A LINE. Hiding a process step removes it outright — it
    * carries no money of its own, so there is no total to keep on the page
