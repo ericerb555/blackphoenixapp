@@ -713,6 +713,29 @@ if (MOBILE) {
     if (bleeding.length > 30) console.log(`    …and ${bleeding.length - 30} more, all in last-run.json`);
   }
 
+  /*
+   * COVERED CONTROLS — the finding the other three could not make.
+   *
+   * `bleed`, `tinyFields` and `smallTargets` all describe a control in
+   * isolation. The chat-bubble defect was a perfectly good 20x20 button at
+   * a perfectly good font size, inside the viewport, that happened to be
+   * underneath a floating widget. Three clean checks and a page that could
+   * not be used.
+   */
+  const buried = seen.filter((r) => r.mobile.covered > 0)
+    .sort((a, b) => b.mobile.covered - a.mobile.covered);
+
+  console.log('');
+  if (!buried.length) {
+    console.log('  no control has anything painted on top of it.');
+  } else {
+    console.log(`  ${buried.length} page(s) hide a control under something else — these cannot be tapped:`);
+    for (const r of buried.slice(0, 30)) {
+      console.log(`    ${r.name.padEnd(34)} ${String(r.mobile.covered).padStart(3)}  ${r.mobile.coveredWorst || ''}`);
+    }
+    if (buried.length > 30) console.log(`    …and ${buried.length - 30} more, all in last-run.json`);
+  }
+
   console.log('');
   if (!zooming.length) {
     console.log('  no form field under 16px — nothing zooms iOS on focus.');

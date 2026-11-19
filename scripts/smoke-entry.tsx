@@ -81,6 +81,24 @@ interface MobileFindings {
   tinyFieldWorst?: string;
   /** Buttons and links under 40px in either axis. */
   smallTargets: number;
+  /**
+   * Controls with something else painted on top of them.
+   *
+   * The check that was missing. On 2026-11-19 the live-chat bubble was
+   * lifted 4rem on every phone page — a lift meant for the one screen with
+   * a fixed bottom bar — and on /sign-up it landed on the Confirm Password
+   * field, covering its show/hide toggle completely. The widget is z-9998,
+   * so the toggle could not be tapped at all.
+   *
+   * Nothing here would have caught it. `bleed` measures the right edge,
+   * `tinyFields` the font size, `smallTargets` the box — and the box was a
+   * perfectly good 20x20. It was simply underneath something. Eric reported
+   * it three times and two plausible causes were found, fixed and shipped
+   * before anybody rendered the page at 390px.
+   */
+  covered: number;
+  /** The control, and what is sitting on it. */
+  coveredWorst?: string;
 }
 
 /**
@@ -250,7 +268,70 @@ function measure(root: HTMLElement): MobileFindings {
     if (r.height < 40 || r.width < 40) smallTargets++;
   }
 
-  return { widest: Math.round(widest), bleed, bleedWorst, tinyFields, tinyFieldWorst, smallTargets };
+  /*
+   * CAN IT ACTUALLY BE TAPPED?
+   *
+   * `elementFromPoint` at the control's centre answers the real question,
+   * which comparing rectangles does not: a rectangle tells you two things
+   * occupy the same space, hit-testing tells you which one the finger gets.
+   * It is what proved the chat-bubble defect — the point in the middle of
+   * the password toggle returned the bubble.
+   *
+   * WHY THE NESTING CHECKS MATTER. A control almost always sits inside
+   * wrappers and often contains an icon, so the hit is rarely the control
+   * itself. Anything that is the control, inside it, or an ancestor of it
+   * is the control for this purpose; only an element from somewhere else in
+   * the tree counts as covering it.
+   *
+   * AND THE HIT HAS TO BELONG TO THIS PAGE, WHICH IS THE WHOLE TRAP.
+   *
+   * A batch stacks fifteen pages into one document, so `elementFromPoint`
+   * answers for the topmost element anywhere in that pile — usually a
+   * different page sitting over this one. The first run of this check
+   * reported 17 pages with buried controls, and its own output gave it away:
+   * "button 'Sign In' is under Sign In", two pages’ identical buttons on top
+   * of each other. Every one of those was an artefact of the harness.
+   *
+   * So a hit outside this page’s own subtree is discarded. The cost is real
+   * and worth stating: a body-level floating widget — the live-chat bubble,
+   * for instance — is outside every page root, so this check would NOT have
+   * caught the defect described above. It catches overlaps WITHIN a page.
+   * Catching a global overlay needs one page per document, which this
+   * harness is deliberately not built for.
+   */
+  let covered = 0;
+  let coveredWorst: string | undefined;
+  const CONTROLS = 'button,a,input,select,textarea,[role="button"]';
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>(CONTROLS))) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) continue;
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    /* Off-screen controls cannot be hit-tested; the answer would be null. */
+    if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) continue;
+
+    const hit = document.elementFromPoint(cx, cy);
+    if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
+    /* Another page in the stack, not a defect on this one. See above. */
+    if (!root.contains(hit)) continue;
+
+    covered++;
+    if (!coveredWorst) {
+      const name = (el as HTMLInputElement).placeholder
+        || el.getAttribute('aria-label')
+        || (el.textContent || '').trim().slice(0, 24)
+        || el.getAttribute('name') || '';
+      const by = (hit as HTMLElement).getAttribute?.('aria-label')
+        || (hit.textContent || '').trim().slice(0, 24)
+        || hit.tagName.toLowerCase();
+      coveredWorst = `${el.tagName.toLowerCase()}${name ? ` "${name}"` : ''} is under ${by}`;
+    }
+  }
+
+  return {
+    widest: Math.round(widest), bleed, bleedWorst,
+    tinyFields, tinyFieldWorst, smallTargets, covered, coveredWorst,
+  };
 }
 
 const params = new URLSearchParams(location.search);
