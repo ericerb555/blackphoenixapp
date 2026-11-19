@@ -209,6 +209,103 @@ async function blogIndexMeta() {
   };
 }
 
+/**
+ * A single product, as a crawler sees it.
+ *
+ * Eric, 2026-11-19: "i want the ecommerce store to start making money".
+ *
+ * Measured that morning: 123 products, one real sale ever, and a sitemap
+ * that listed the shop as a single page. Nobody searching for a thing this
+ * shop sells could arrive at it, because no page described a thing it
+ * sells. The checkout was never the problem — one August order proves the
+ * money path works end to end.
+ *
+ * PRICE AND AVAILABILITY GO IN THE STRUCTURED DATA, because that is what
+ * puts a price under a result instead of a blue link, and it is the whole
+ * difference between being listed and being clicked.
+ *
+ * A MISSING PRODUCT RETURNS THE SHOP, not a page claiming to be a product
+ * that is not there. Dropship catalogues churn: an item withdrawn upstream
+ * would otherwise leave a page insisting it is for sale, which is a soft
+ * 404 at best and a complaint at worst. Same rule the work pages already
+ * follow for an unpublished project.
+ */
+async function productMeta(id) {
+  const data = await fetchJson(`/products/${encodeURIComponent(id)}`);
+  const item = data?.product || (data && data.id ? data : null);
+  if (!item || !item.id) return shopIndexMeta();
+
+  const name = String(item.name || '').trim();
+  const price = Number(item.price);
+  const image = Array.isArray(item.images) ? item.images[0] : item.image || '';
+  const url = `${ORIGIN}/shop-item/${encodeURIComponent(item.id)}`;
+
+  /*
+   * The description a searcher reads. Built from the product\u2019s own text,
+   * trimmed to roughly what Google shows, and falling back to the name and
+   * category rather than to nothing \u2014 an empty description is a result
+   * nobody clicks.
+   */
+  const blurb = String(item.description || '').replace(/\s+/g, ' ').trim();
+  const description = (blurb ||
+    `${name}${item.category ? ` \u2014 ${item.category}` : ''}. Shipped by ${BUSINESS.name}.`)
+    .slice(0, 300);
+
+  return {
+    title: `${name} | ${BUSINESS.name}`,
+    description,
+    url,
+    image,
+    links: [{ href: `${ORIGIN}/public-store`, text: 'Everything in the shop' }],
+    schema: {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name,
+      description,
+      image: image ? [image] : undefined,
+      sku: String(item.sku || item.id),
+      url,
+      /*
+       * Only when there is a real price. An Offer with a zero or missing
+       * price is rejected by Google and can suppress the rich result for
+       * the whole page \u2014 worse than having none.
+       */
+      offers: Number.isFinite(price) && price > 0 ? {
+        '@type': 'Offer',
+        price: price.toFixed(2),
+        priceCurrency: 'USD',
+        url,
+        availability: 'https://schema.org/InStock',
+        seller: { '@type': 'Organization', name: BUSINESS.name },
+      } : undefined,
+    },
+  };
+}
+
+/** The shop itself, for a crawler that asked for no particular product. */
+async function shopIndexMeta() {
+  const data = await fetchJson('/products?limit=24');
+  const products = Array.isArray(data?.products) ? data.products : [];
+  return {
+    title: `Shop | ${BUSINESS.name}`,
+    description:
+      `Homeware, tools and everyday goods shipped by ${BUSINESS.name}` +
+      (products.length ? ` \u2014 ${products.length}+ items in stock.` : '.'),
+    url: `${ORIGIN}/public-store`,
+    image: (Array.isArray(products[0]?.images) ? products[0].images[0] : '') || '',
+    links: products.slice(0, 25).map((item) => ({
+      href: `${ORIGIN}/shop-item/${encodeURIComponent(item.id)}`,
+      text: String(item.name || 'Product'),
+    })),
+    schema: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: `Shop | ${BUSINESS.name}`,
+      url: `${ORIGIN}/public-store`,
+    },
+  };
+}
+
 export default async function handler(req, res) {
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const proto = req.headers['x-forwarded-proto'] || 'https';
@@ -227,6 +324,18 @@ export default async function handler(req, res) {
 
   const id = (req.query?.id || '').toString().trim();
   const kind = (req.query?.kind || 'work').toString().trim();
+
+  if (kind === 'product') {
+    const meta = id ? await productMeta(id) : await shopIndexMeta();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    /*
+     * A shorter cache than the blog keeps, because a dropship price and its
+     * availability move under us and a stale price in a search result is a
+     * customer arriving expecting a number we no longer charge.
+     */
+    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=3600');
+    return res.status(200).send(applyMeta(shell, meta));
+  }
 
   if (kind === 'blog') {
     const meta = id ? await articleMeta(id) : await blogIndexMeta();

@@ -74,8 +74,43 @@ async function fetchProjects() {
   }
 }
 
+/**
+ * The shop, one entry per product.
+ *
+ * Eric, 2026-11-19: "i want the ecommerce store to start making money".
+ *
+ * MEASURED THAT DAY: 123 products in the catalogue, 48 URLs in this
+ * sitemap, and not one of them a product. The whole shop was a single line
+ * — `/public-store`. A dropship catalogue lives or dies on long-tail
+ * product search, and a search engine was being told the shop had one page
+ * with no idea what was in it.
+ *
+ * The limit is 1000 because a sitemap may hold 50,000 URLs but this one is
+ * generated on every request; a catalogue that grows past a thousand wants
+ * a sitemap index rather than a bigger single file.
+ */
+async function fetchProducts() {
+  try {
+    const res = await fetch(`${API}/products?limit=1000`, { headers: { Authorization: `Bearer ${ANON}` } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rows = Array.isArray(data?.products) ? data.products : Array.isArray(data) ? data : [];
+    /*
+     * A product with no id cannot have a URL, and one with no name gives a
+     * crawler nothing to index. Both are dropped rather than emitted as a
+     * page that resolves to nothing — a sitemap full of soft 404s is worse
+     * for a domain than a short sitemap.
+     */
+    return rows.filter((r) => r && String(r.id || '').trim() && String(r.name || '').trim());
+  } catch {
+    return [];
+  }
+}
+
 export default async function handler(req, res) {
-  const [projects, articles] = await Promise.all([fetchProjects(), fetchArticles()]);
+  const [projects, articles, products] = await Promise.all([
+    fetchProjects(), fetchArticles(), fetchProducts(),
+  ]);
 
   const entries = [
     ...STATIC_PAGES.map((p) => urlEntry({ loc: `${ORIGIN}${p.path}`, changefreq: p.changefreq, priority: p.priority })),
@@ -94,6 +129,22 @@ export default async function handler(req, res) {
         changefreq: 'monthly',
         priority: '0.6',
         lastmod: a.publishedAt,
+      }),
+    ),
+    /*
+     * Every product, with its photograph.
+     *
+     * 'daily' because a dropship price and its stock move under us, and 0.7
+     * because these are the pages the shop actually wants found — above a
+     * blog post, below the front door.
+     */
+    ...products.map((item) =>
+      urlEntry({
+        loc: `${ORIGIN}/shop-item/${encodeURIComponent(item.id)}`,
+        changefreq: 'daily',
+        priority: '0.7',
+        image: Array.isArray(item.images) ? item.images[0] : item.image,
+        title: item.name,
       }),
     ),
   ];

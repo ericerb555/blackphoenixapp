@@ -347,6 +347,16 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   "property-manager-application": PropertyManagerApplication,
   "dropshipper-admin":          DropshipperAdmin,
   "public-store":               PublicStore,
+  /*
+   * One product, by id, and it is the SAME page as the shop.
+   *
+   * The value of this route is what a crawler reads before React runs —
+   * `api/render` fills in the title, the price and the Product schema.
+   * A person who follows the link wants to buy, and the shop is where
+   * buying happens, so it opens there with the item in view rather than on
+   * a detail page that would then have to reimplement the cart.
+   */
+  "shop-item":                  PublicStore,
   "order-tracking":             OrderTracking,
   "promotions-manager":         PromotionsManager,
   "exit-intent":                ExitIntentManager,

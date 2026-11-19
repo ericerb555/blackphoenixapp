@@ -713,6 +713,41 @@ export default function PublicStore() {
     ), { duration: 6000 });
   };
 
+  /**
+   * Arrived from a search result at /shop-item/<id>.
+   *
+   * The crawler already had a proper page for this product from
+   * `api/render`; this is the half a PERSON sees. Without it they land on a
+   * grid of 123 items with no idea which one they clicked, which wastes the
+   * click that the indexing was for.
+   *
+   * It scrolls to the item and highlights it rather than adding it to the
+   * cart. Somebody following a link from Google is looking, not buying yet,
+   * and a cart drawer opening unbidden is how a shop feels pushy.
+   */
+  const handledItemRef = useRef(false);
+  useEffect(() => {
+    if (handledItemRef.current || !allProducts.length) return;
+    const match = window.location.pathname.match(/^\/shop-item\/([^/?#]+)/);
+    if (!match) { handledItemRef.current = true; return; }
+    handledItemRef.current = true;
+    const wanted = decodeURIComponent(match[1]);
+    const found = allProducts.find((x) => x.id === wanted);
+    if (!found) return;
+    setSearchQuery(found.name || wanted);
+    /*
+     * After paint, because the grid has not rendered the card yet on the
+     * tick this runs. One frame is enough and avoids a timeout nobody can
+     * tune.
+     */
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`product-${found.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }, [allProducts]);
+
   // "Buy in place" — campaign landing pages deep-link here with ?add=<productId>.
   // Once products have loaded, auto-add that product and open the cart drawer.
   const handledAddRef = useRef(false);
@@ -874,6 +909,13 @@ export default function PublicStore() {
     };
     return (
       <div
+        /*
+          An anchor per card, so a visitor arriving from a search result at
+          /shop-item/<id> can be scrolled to the thing they clicked. Without
+          it they land on a grid of 123 items with no idea which was theirs,
+          and the click the indexing bought is wasted.
+        */
+        id={`product-${product.id}`}
         className="group relative rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 cursor-pointer"
         style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)' }}
         onClick={() => openQuickView(product)}

@@ -33,6 +33,10 @@
       "destination": "/api/render?kind=blog&id=:id"
     },
     {
+      "source": "/shop-item/:id",
+      "destination": "/api/render?kind=product&id=:id"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/sitemap"
     },

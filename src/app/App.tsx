@@ -379,7 +379,14 @@ function CompanySelector() {
 // Eric texts to somebody standing in front of a pile, and the token is a path
 // segment rather than a query parameter because SMS clients truncate the end
 // of a long URL, which is precisely where a query parameter lives.
-const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote']);
+/*
+ * `shop-item` joins these because a product's URL carries its id:
+ * /shop-item/cj_CJYD3061696. Without it the router would look for a page
+ * named after the whole path and find nothing, so every link a search
+ * engine sent us would land on a blank screen — which is a worse outcome
+ * than not being indexed at all.
+ */
+const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote', 'shop-item']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
