@@ -228,13 +228,21 @@ async function postSecurity(
      * readable one. So it is flattened to `k=v` pairs here, where it can be
      * read in a list of events without being parsed.
      */
-    const flat = detail
-      ? Object.entries(detail)
-        .filter(([, v]) => v !== undefined && v !== null && v !== '')
-        .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-        .join(' ')
-        .slice(0, 480)
-      : null;
+    /*
+     * `company_id` and `outcome` are lifted out into their own fields.
+     *
+     * They are columns in `security_audit_log`, and the question the table
+     * exists to answer — who has been refused at which boundary, how often —
+     * is a `where` on exactly those two. Leaving them inside a flattened blob
+     * would have made that a substring search over text.
+     */
+    const { company_id: companyId, outcome, ...rest } = detail ?? {};
+
+    const flat = Object.entries(rest)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+      .join(' ')
+      .slice(0, 480) || null;
 
     /*
      * Deduped on the event AND its detail, so only a genuine repeat collapses.
@@ -244,7 +252,12 @@ async function postSecurity(
      * two attempts on two boundaries, and keying on the event type alone would
      * have recorded the first and thrown the second away.
      */
-    const key = `security|${eventType}|${flat ?? ''}`;
+    // companyId and outcome belong in the key even though they are no longer
+    // inside `flat`. They were, until they were lifted into their own fields
+    // just above, and keying on `flat` alone would quietly have made two
+    // refusals at two different company boundaries look like one repeat —
+    // re-breaking the under-reporting this dedupe was written to avoid.
+    const key = `security|${eventType}|${companyId ?? ''}|${outcome ?? ''}|${flat ?? ''}`;
     const now = Date.now();
     const when = lastSeen.get(key);
     if (when && now - when < SAME_AGAIN_MS) return;
@@ -262,8 +275,10 @@ async function postSecurity(
       headers,
       body: JSON.stringify({
         kind: 'security',
+        // `message` is the event type; the server stores it as `event_type`.
         message: eventType.slice(0, 500),
-        feature: `security/${eventType}`.slice(0, 120),
+        companyId: companyId == null ? null : String(companyId).slice(0, 200),
+        outcome: outcome === 'denied' || outcome === 'allowed' ? outcome : null,
         detail: flat,
         path: typeof window !== 'undefined' ? window.location?.pathname || null : null,
         appVersion: buildStamp(),

@@ -48,21 +48,18 @@ appErrorsRouter.use('*', requireStaffOn([GROUPS]));
 const MAX_BODY_BYTES = 8 * 1024;
 
 /**
- * `security` is not an error, and it is here anyway. On purpose.
+ * `security` shares this ROUTE and not this TABLE.
  *
- * A tenant boundary refusing somebody is not a bug report, so on taxonomy it
- * does not belong in a table called `app_error_log`. What it needs is a sink
- * that is on a server, append-only to the people it describes, rate limited,
- * and attributed from a verified token rather than from the request body —
- * and this route is already all four. It was that or leave the events where
- * they were, which was the browser console of whoever had just been refused.
+ * A tenant boundary refusing somebody is not a bug report, and the database
+ * says so: `app_error_log` carries a CHECK constraint naming the four kinds
+ * above, and widening it was tried and was wrong. What a security event needed
+ * from here was the hardening — rate limiting, field caps, and an actor taken
+ * from a verified token instead of the body — so it reuses the door and goes
+ * to `security_audit_log`. See the branch in the handler.
  *
- * Every such row carries `kind = 'security'` and a `feature` of
- * `security/<event_type>`, so they are one `where` away from being filtered
- * out of the broken-things list, or moved into a dedicated
- * `security_audit_log` when that table is built.
- *
- * `route` is written by the server itself; the other three by the browser.
+ * `route` is written by the server itself; `fetch`, `unhandled` and
+ * `rejection` by the browser; `security` by `reportSecurityEvent`, which is
+ * the only caller that sends a session token.
  */
 const KINDS = new Set(['fetch', 'unhandled', 'rejection', 'route', 'security']);
 
@@ -176,6 +173,43 @@ appErrorsRouter.post(INGEST, async (c) => {
     const path = pathOnly(body.path);
     const statusRaw = Number(body.status);
     const status = Number.isInteger(statusRaw) && statusRaw > 0 && statusRaw < 600 ? statusRaw : null;
+
+    /*
+     * A SECURITY EVENT GOES TO ITS OWN TABLE.
+     *
+     * It shares this route because this route is the hardened one — per-caller
+     * rate limiting, field caps, query strings stripped, and above all an
+     * actor resolved from the VERIFIED token rather than from the body. What
+     * it does not share is the destination.
+     *
+     * The first attempt did put these in `app_error_log` with `kind =
+     * 'security'`, and the database refused them: that table carries a
+     * deliberate CHECK naming the four kinds it accepts, and it is read as
+     * "what is broken" through `app_error_groups`. The constraint was right.
+     * Every report answered 204 and wrote nothing, which is exactly the
+     * failure shape this work exists to remove — so it is worth saying plainly
+     * that the 204 below is not an acknowledgement that anything was stored.
+     */
+    if (kind === 'security') {
+      const { error } = await admin().from('security_audit_log').insert({
+        event_type: message.slice(0, 200),
+        // From the token. Never from the body: a caller must not be able to
+        // put somebody else's name on the record of their own refusal.
+        actor_email: actorEmail,
+        actor_id: actorId,
+        company_id: trim(body.companyId, 200),
+        outcome: body.outcome === 'denied' ? 'denied'
+          : body.outcome === 'allowed' ? 'allowed'
+            : null,
+        detail: trim(body.detail, 500),
+        path,
+        user_agent: trim(c.req.header('user-agent'), 300),
+      });
+      if (error) {
+        console.error('[app-errors] could not record a security event:', error.message);
+      }
+      return done();
+    }
 
     const row = {
       source: 'client',
