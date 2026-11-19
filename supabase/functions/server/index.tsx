@@ -118,6 +118,12 @@ import authRouter from "./auth.tsx";
 import { entitlementsRouter, recordEntitlementEvent } from "./entitlements.tsx";
 import paymentProcessingRouter from "./payment-processing.tsx";
 import hourTransfersRouter from "./hour-transfers.tsx";
+/*
+ * Imported, not redeclared. This file and `crmContacts.ts` each used to
+ * spell the key out, and the whole CRM defect was two places disagreeing
+ * about where the CRM is.
+ */
+import { CRM_CONTACTS_KEY, upsertCrmContact, putIntoCrmSafely } from './crmContacts.ts';
 import timeTrackingRouter from "./time-tracking.tsx";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import { registerTeamRoutes } from "./teamDirectory.ts";
@@ -3309,11 +3315,27 @@ async function syncPortalAccess(application: any, intake: any, statusOverride?: 
   const portalType = intake?.portalType || intakePortalType(application); const now = new Date().toISOString();
   const key = `portal_access:${email}:${portalType}`; const prior = await kv.get(key) as any;
   const access = { ...(prior || {}), id: prior?.id || `ACCESS-${crypto.randomUUID()}`, applicationId: application.id, email, portalType, applicantName: application.name || intake?.applicantName || '', status: statusOverride || (intake?.status === 'active' ? 'active' : 'onboarding'), onboardingStatus: intake?.status || 'pending_documents', updatedAt: now, createdAt: prior?.createdAt || now };
-  await kv.set(key, access); return access;
+  await kv.set(key, access);
+  /*
+   * A portal grant is somebody arriving in the app, so they belong in the
+   * CRM. Five of ten portal grants were missing from it before this.
+   *
+   * `employee` rather than `customer`: a portal grant is staff or a trade
+   * partner, and filing them as a customer would put them in the customer
+   * list and the revenue stats.
+   */
+  await putIntoCrmSafely(kv, {
+    email,
+    name: application?.name || intake?.applicantName || '',
+    phone: application?.phone || intake?.applicantPhone || '',
+    type: 'employee',
+    source: 'portal-access',
+    tags: ['portal-access', portalType].filter(Boolean),
+  });
+  return access;
 }
 
 const APPLICATIONS_KEY = 'applications';
-const CRM_CONTACTS_KEY = 'crm_contacts:default';
 // Leads moved from a single `leads:all` array to one key per lead; see
 // leadsStore.ts. The application upsert below now goes through that store.
 const APPLICATION_PLAN_PROPOSAL_PREFIX = 'application_plan_proposal:';
@@ -12506,6 +12528,25 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
       : { id: applicationId, applicationId, applicantEmail: email, applicantName: name, applicantPhone: phone, portalType, status: 'profile_required', ownerProvisioned: true, provisionedBy: actor.user.email, provisionedAt: now, requiredTasks: [], documents: [], profile: { fullName: name, email, phone, completed: false }, planInterest: 'not_selected', createdAt: now, updatedAt: now };
     const access = { id: `ACCESS-${crypto.randomUUID()}`, applicationId, email, portalType, applicantName: name, status: 'onboarding', onboardingStatus: intake.status, freeProvisioned: true, provisionedBy: actor.user.email, createdAt: now, updatedAt: now };
     await kv.set(`intake:onboarding:${applicationId}`, intake); await kv.set(`intake:email:${email}`, applicationId); await kv.set(`portal_access:${email}:${portalType}`, access); await kv.set(`owner_provision:${applicationId}`, { ...intake, inviteStatus: 'pending' });
+    /*
+     * An owner-provisioned invite is a person the business added on
+     * purpose, which makes it the LEAST excusable arrival to leave out of
+     * the CRM. This path writes four keys about them and, before this,
+     * none of them was the CRM.
+     *
+     * Not routed through `syncPortalAccess`, which does the CRM write for
+     * the ordinary grant path — this handler writes `portal_access`
+     * directly, so it has to say so directly too.
+     */
+    await putIntoCrmSafely(kv, {
+      email,
+      name,
+      phone,
+      type: 'employee',
+      source: isResend ? 'owner-invite-resend' : 'owner-invite',
+      tags: ['owner-invite', portalType].filter(Boolean),
+      extra: { applicationId },
+    });
 
     /**
      * The organisation, created here rather than never.

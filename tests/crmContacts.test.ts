@@ -24,7 +24,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CRM_CONTACTS_KEY, upsertCrmContact, mergeCrmContact, crmContactFrom,
-  bestStatus, nameOf, normaliseEmail,
+  bestStatus, nameOf, normaliseEmail, phoneDigits, contactKeyOf,
 } from '../supabase/functions/server/crmContacts.ts';
 
 /** A kv stand-in that records exactly which keys were touched. */
@@ -174,9 +174,143 @@ test('signup writes the CRM, and no longer claims it without doing it', async ()
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
 
-  assert.match(code, /upsertCrmContact\(/, 'signup no longer puts anybody into the CRM');
+  assert.match(code, /putIntoCrmSafely\(/, 'signup no longer puts anybody into the CRM');
   assert.doesNotMatch(
     code, /Added signup to CRM/,
     'the log line that claimed the CRM write is back, and it is still not the CRM',
   );
+});
+
+/* ── phone-only leads, which the junk pricer produces ───────────────────── */
+
+/**
+ * The junk-removal pricer requires a PHONE and leaves email optional, on the
+ * reasoning in `anonContact.ts`: *"an email with no name is a lead nobody
+ * knows how to greet; a name and a number is a phone call"*. Those leads
+ * belong in the CRM, so the contact key falls back to the number.
+ */
+test('a phone-only lead reaches the CRM', async () => {
+  const store = fakeStore();
+  const { created, contact } = await upsertCrmContact(store, {
+    email: '', name: 'Dana', phone: '(603) 555-0188', type: 'customer',
+    source: 'junk-estimate', tags: ['junk-estimate', 'unverified-contact'],
+  });
+
+  assert.equal(created, true);
+  assert.deepEqual(store.writes, [CRM_CONTACTS_KEY]);
+  assert.equal(contact.phone, '(603) 555-0188', 'stored as they typed it');
+  assert.equal('email' in contact, false, 'and no empty email pretending to be a cleared field');
+});
+
+test('formatting does not split one number into two people', async () => {
+  const store = fakeStore();
+  await upsertCrmContact(store, { email: '', name: 'Dana', phone: '(603) 555-0188' });
+  const { created } = await upsertCrmContact(store, { email: '', name: 'Dana W', phone: '603-555-0188' });
+
+  assert.equal(created, false);
+  assert.equal((store.data[CRM_CONTACTS_KEY] as any[]).length, 1);
+});
+
+test('digits are compared, and a country code does not make a new person', () => {
+  assert.equal(phoneDigits('(603) 555-0188'), '6035550188');
+  assert.equal(phoneDigits('603-555-0188'), '6035550188');
+  assert.equal(phoneDigits('+1 603 555 0188'), '6035550188');
+  assert.equal(phoneDigits('555-0188'), '5550188', 'a short number is left as it is rather than padded');
+  assert.equal(phoneDigits(null), '');
+});
+
+test('an email identifies somebody in preference to their phone', () => {
+  assert.deepEqual(contactKeyOf({ email: 'a@b.c', phone: '6035550188' }), { kind: 'email', value: 'a@b.c' });
+  assert.deepEqual(contactKeyOf({ phone: '(603) 555-0188' }), { kind: 'phone', value: '6035550188' });
+  assert.equal(contactKeyOf({}), null);
+});
+
+test('neither an email nor a phone is refused, and writes nothing', async () => {
+  const store = fakeStore();
+  await assert.rejects(() => upsertCrmContact(store, { email: ' ', phone: ' ' }), /needs an email or a phone/);
+  assert.deepEqual(store.writes, []);
+});
+
+/**
+ * A DELIBERATE DUPLICATE, AND WHY IT IS THE SAFER FAILURE.
+ *
+ * An anonymous caller who types a number belonging to a known customer gets
+ * their own new lead rather than being merged into that customer's contact.
+ * Matching them would let an unverified arrival rewrite a real customer's
+ * name and tags by guessing a phone number — the same objection the junk
+ * flow already makes about `customerEmail`, where it refuses to let
+ * unverified details confer ownership of an estimate.
+ *
+ * The cost is a duplicate the office can merge by hand. That is recoverable;
+ * an overwritten customer record is not.
+ */
+test('a phone-only arrival does not merge into a contact that has an email', async () => {
+  const store = fakeStore({
+    [CRM_CONTACTS_KEY]: [{ id: 'c1', email: 'jane@example.com', name: 'Jane Doe', phone: '603-555-0188', status: 'vip' }],
+  });
+  const { created } = await upsertCrmContact(store, { email: '', name: 'Someone Else', phone: '(603) 555-0188' });
+
+  assert.equal(created, true, 'a separate lead, not a write into Jane');
+  const list = store.data[CRM_CONTACTS_KEY] as any[];
+  assert.equal(list.length, 2);
+  const jane = list.find((c: any) => c.email === 'jane@example.com');
+  assert.equal(jane.name, 'Jane Doe', 'Jane was not renamed');
+  assert.equal(jane.status, 'vip');
+});
+
+/* ── every arrival path calls it ─────────────────────────────────────────── */
+
+/**
+ * ONE TEST PER DOOR, BECAUSE THE DEFECT WAS A DOOR NOBODY CHECKED.
+ *
+ * The helper being right proves nothing about whether a given arrival path
+ * uses it. Signup wrote the wrong key for however long, and the only reason
+ * it was ever found was somebody looking at the CRM and asking why it was
+ * empty. These assert the call exists at each place a person is created, so
+ * a future path that forgets is a failing test rather than a quiet absence.
+ */
+test('every path that creates a person puts them into the CRM', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const root = join(import.meta.dirname, '..');
+  const strip = (code: string) => code
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  for (const [file, what] of [
+    ['supabase/functions/server/auth.tsx', 'signup'],
+    ['supabase/functions/server/index.tsx', 'portal grants and owner invites'],
+    ['supabase/functions/server/trash-estimator.tsx', 'the no-account junk estimate'],
+  ] as [string, string][]) {
+    const code = strip(readFileSync(join(root, file), 'utf8'));
+    assert.match(
+      code, /putIntoCrmSafely\(/,
+      `${what} no longer puts anybody into the CRM (${file})`,
+    );
+  }
+});
+
+/**
+ * The CRM key is spelled once.
+ *
+ * `index.tsx` and `crmContacts.ts` each used to declare it, and the whole
+ * defect was two places disagreeing about where the CRM is.
+ */
+test('nothing redeclares the CRM key', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const root = join(import.meta.dirname, '..');
+
+  for (const file of [
+    'supabase/functions/server/index.tsx',
+    'supabase/functions/server/design-links.tsx',
+  ]) {
+    const code = readFileSync(join(root, file), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(
+      code, /const\s+CRM_CONTACTS_KEY\s*=/,
+      `${file} declares its own copy of the CRM key — import it from crmContacts.ts instead`,
+    );
+  }
 });
