@@ -125,9 +125,49 @@ Per the brief: an untested item is not a passing item.
 | Load behaviour, and the unauthenticated POST paths that write records | Production is the only environment. Testing would create real leads. |
 | Payment flows | Would charge real methods. |
 | Nine autonomous cron jobs (`AI-3`) | `on-call-escalation` every minute, `autopilot-tick` every fifteen. Failure, retry and spend unexercised. |
-| Restoring from `storage-backup-nightly` | The job has run; **a restore has never been attempted.** A backup nobody has restored from is a hypothesis. |
+| ~~Restoring from `storage-backup-nightly`~~ | **Superseded 2026-11-19 — see the drill below.** The contents are now verified byte-for-byte; what is missing is a restore *procedure* (`BK-1`). |
 | `A10` SSRF — `outboundGuard.ts` | Exists, gates outbound fetches, not probed. |
 | Whether the GitHub PAT was **revoked** | Reported deleted Tuesday. Deleted is not revoked. Only the owner can answer. |
+
+## The storage-backup drill — and a correction to this document
+
+Run 2026-11-19, non-destructively: **nothing was written to production
+storage.** Every original was compared against its backup twin instead.
+
+| | |
+|---|---:|
+| Originals (all buckets except `media-backup`) | 168 |
+| With a backup twin | **168** |
+| Missing from backup | **0** |
+| Size mismatches | **0** |
+| **Pairs with identical `eTag` and identical mimetype** | **168** |
+| Source size | 227 MB |
+
+`eTag` is the content MD5 for a simple upload, so that last row is byte-level
+evidence that the second copy matches — obtained with no downloads and no
+writes.
+
+**The correction.** This report said the job "has run once". The manifests say
+three nights, and incrementally: 17 Nov copied 165 of 165, 18 Nov copied 3 new,
+19 Nov copied 0. It is working, and it is genuinely incremental.
+
+**And a warning about how not to check it.** `cron.job_run_details` says
+`succeeded` for both nights, and that proves nothing either way:
+`net.http_post` is asynchronous, so the job only ever learns that the statement
+queued. Another success-shaped answer. The manifest is the evidence; the cron's
+own verdict is not.
+
+### BK-1 (P3) — the backup has no restore path
+
+Only `/storage-backup/run` and `/storage-backup/status` exist. The word
+"restore" appears once in the codebase, in a comment explaining why the path
+layout would help one. So the bytes are provably present and provably
+identical, and recovery today means somebody writing a procedure under
+pressure or clicking through the dashboard object by object.
+
+P3 rather than P2 because the data is safe and a manual restore is feasible —
+but a backup with no tested restore is a hypothesis about the part that
+matters. A restore script with a `--dry-run` is ~2h.
 
 ## The honest bottom line
 

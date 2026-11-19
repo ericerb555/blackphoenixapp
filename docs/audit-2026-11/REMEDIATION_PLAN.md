@@ -149,20 +149,72 @@ well-formed signed JWT, the `'unreadable-token'` branch of the log line is
 effectively unreachable in production. It stays as a guard rather than an
 expectation.
 
-### Batch 3 — The thing that will break if nobody touches it (P2)
+### Batch 3 — Make the origin lock safe to switch on — ✅ CODE DONE 2026-11-19, flag still off
 
-| | Finding | Fix | Effort |
-|---|---|---|---|
-| A-2 | Enabling the origin lock stops the nightly storage backup | give the cron the shared header, or exempt its path, **then** set `ORIGIN_LOCK_ENFORCE=true` | ~1h |
+`A-2`. The cron exemption was one line. Finding out what *else* breaks when the
+flag flips was the work.
 
-This is the one item with a wrong order of operations baked in. Flipping the
-flag first means the cron keeps firing, the function keeps answering 403, and
-the backups stop with no error anywhere. Header first, verify one nightly run,
-then enforce.
+**`/storage-backup/run` is now on `ORIGIN_LOCK_EXEMPT`.** Safe for the same
+reason as every other entry: it carries its own 32-byte
+`X-Storage-Backup-Secret` and refuses outright when that secret is unset, so
+the origin lock was never what protected it. Checked against the whole crontab
+rather than fixed in isolation — nine `pg_cron` jobs, eight hit this function,
+seven were already exempt. **This was the only gap**, the newest cron having
+been added after the list.
 
-Restoration from `storage-backup-nightly` has **never been exercised.** A
-backup nobody has restored from is a hypothesis. Add a restore drill here
-(~2h) — it is the difference between A08 being covered and being claimed.
+Verified after deploying, by differential, under identical conditions:
+
+| Path | `[originlock]` line | Answer |
+|---|---|---|
+| `/invoices` (control, not exempt) | **yes** — `would-block … header=absent` | 401, auth gate |
+| `/storage-backup/run` (exempt) | **none** | 401, its own secret check |
+
+#### The part that mattered more: enforcement would have broken the retest
+
+`scripts/security-probe.mjs` — the instrument this audit used for its own
+retest — sent every functional check straight to `*.supabase.co`. Under an
+enforced lock:
+
+- **`AUTH-1`** asks eleven gated paths for a 401 or 403. Every one would answer
+  **403 from the lock, never reaching the auth gate.** The check counts 403 as
+  refused, so **it would keep passing while measuring something else entirely.**
+- **`AUTH-2`** exists precisely to stop `AUTH-1` passing for the wrong reason,
+  by proving the API is up. It asks `/health` — which is **on the exempt
+  list**, so it would still answer 200 and report that all is well.
+
+The designed interlock fails exactly there. So `AUTH-1`, `AUTH-2` and
+`RETIRED-1` now go through the front door like the application does (via
+`fnPublic`, overridable with `SECURITY_PROBE_API`), and `WAF-1` keeps the
+direct call because the direct call is its subject. Re-run: identical results,
+14 passed / 1 failed / 3 skipped, the failure still `WAF-1`.
+
+That re-run is also independent proof Cloudflare adds the header correctly —
+`AUTH-1`'s eleven paths went through it and came back 401 from the auth gate
+rather than 403 from the lock.
+
+#### Is enforcement ready? The traffic says yes
+
+Measured over 24h: **7,964 responses logged, 168 `would-block`, and zero
+`header=wrong`.** So ~98% of traffic already presents a correct `X-Edge-Auth`
+and nothing presents a broken one. The `would-block` remainder is this audit
+probing directly plus the backup cron — and my own probing is the dominant
+source, which inflates that figure.
+
+**`ORIGIN_LOCK_ENFORCE` is still `false`.** Flipping it is a production
+behaviour change and the remaining step is the owner's. The safe sequence now:
+confirm one nightly cron run after this deploy, then set the flag, then confirm
+`WAF-1` turns green and `AUTH-1` stays green.
+
+#### The restore drill — done, non-destructively
+
+Full results in `FINAL_VERIFICATION_REPORT.md`. **168 of 168 originals have a
+backup twin with an identical `eTag` and mimetype** — byte-level evidence, no
+downloads, no writes. It also corrected this audit's claim that the job had
+"run once": it has run three nights, incrementally.
+
+**`BK-1` (P3, new): there is no restore path.** Only `run` and `status` exist.
+The bytes are provably there; the procedure is not. ~2h for a restore script
+with a `--dry-run`.
 
 ### Batch 4 — The eleven tables that never existed (P2, the largest single job)
 
