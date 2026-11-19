@@ -5,6 +5,7 @@ import { publicAnonKey } from '../utils/supabase/info';
 import { authedHeadersOrAnon } from "../utils/authHeaders";
 import type { CompanyScope, CompanyContext } from '../lib/companyScope';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { reportSecurityEvent } from '../lib/errorReport';
 
 interface UserRole {
   role_id: string;
@@ -379,27 +380,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsOwner(false);
   };
 
+  /**
+   * Record a security-relevant event ON A SERVER.
+   *
+   * This used to be a `console.log`, under a comment explaining that
+   * `security_audit_log` did not exist. It still does not — but the console was
+   * not a stand-in for it, because the console in question belongs to the
+   * person being refused. Five of this function's call sites are
+   * `company_switch_denied`, so the single category of event this application
+   * deliberately names a security event was recorded only by the one party who
+   * should not be its custodian, and nowhere a reader would ever look.
+   *
+   * It now posts to the hardened client-report route, which takes the actor
+   * from the verified bearer token and never from the body — so a caller
+   * cannot sign somebody else's name to their own refusal. See
+   * `reportSecurityEvent` for why that sink and not a new table.
+   *
+   * `user_id` is deliberately NOT sent. The server resolves it from the token,
+   * and sending it as well would invite a later reader to trust the copy that
+   * came from the browser.
+   */
   const logSecurityEvent = async (
     eventType: string,
     metadata: any = {},
     success: boolean = true
   ) => {
-    try {
-      // Note: security_audit_log table doesn't exist - logging to console instead
-      console.log('🔒 Security Event:', {
-        user_id: user?.id || null,
-        event_type: eventType,
-        company_id: companyContext.activeCompany?.company_id || null,
-        metadata,
-        success,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Skip database insert - table doesn't exist
-      // await supabase.from('security_audit_log').insert({...})
-    } catch (error) {
-      console.warn('Security event logging skipped:', error);
-    }
+    reportSecurityEvent(eventType, {
+      ...(metadata && typeof metadata === 'object' ? metadata : { metadata }),
+      company_id: companyContext.activeCompany?.company_id || null,
+      outcome: success ? 'allowed' : 'denied',
+    });
   };
 
   const validateCompanyAccessSecure = async (targetCompanyId: string): Promise<{

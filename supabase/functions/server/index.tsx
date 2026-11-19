@@ -12,6 +12,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import {
   clientIp, decide, record as recordReputation, freshReputation, presentedCredential,
+  tokenClaims,
   type Reputation, type Signal,
 } from "./ipReputation.ts";
 import { customerQuoteView } from "./customerQuoteView.ts";
@@ -505,6 +506,70 @@ app.use("/*", cors({
 }));
 
 app.use('*', logger(console.log));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DENIAL LOG — write down every refusal of somebody who HAD a session
+//
+// WHAT WAS MISSING
+//
+// The auth wall below logs the callers it turns away, and it logs a lot of
+// them: 1,304 lines in 24 hours, every one `tier=user signedIn=false`. Those
+// are a signed-out browser mounting a staff screen. Useful, and not the
+// interesting event.
+//
+// The interesting event was silent. A signed-in customer — and every portal
+// customer, tenant, vendor and subcontractor IS signed in — could probe thirty
+// admin routes, be refused thirty times by thirty different guards, and leave
+// no trace anywhere. `requireStaff` returned its 403 and wrote nothing. So did
+// the twenty module-local guards.
+//
+// WHY IT SITS HERE AND NOT IN THE GUARDS
+//
+// There are more than four hundred `403` responses across twenty-odd guard
+// functions in this server. Instrumenting them one at a time is four hundred
+// chances to miss one, and every guard written next year starts out silent
+// again. A refusal is observable from outside the guard that made it: it is a
+// 401 or 403 on a request that carried a credential. One place, every guard,
+// including the ones that do not exist yet.
+//
+// It is deliberately NOT folded into the IP-reputation middleware below, which
+// already inspects the response status. That one returns early for OPTIONS, for
+// a request with no usable address, and for an allowlisted address — and the
+// allowlist holds the owner's own IPs, so the refusals most worth reading
+// would have been the ones it skipped.
+//
+// WHY IT STAYS QUIET IN NORMAL USE
+//
+// `presentedCredential` ignores a missing header and ignores the publishable
+// anon key every browser carries. So the 1,304 signed-out 401s a day do not
+// appear here; a refused SESSION token does. That is the gap this closes, and
+// it is why this does not simply double the existing log volume.
+//
+// `claimed=` IS NOT ESTABLISHED IDENTITY
+//
+// The email comes from `tokenClaims`, a local base64 decode of an unverified
+// token body — see the note on it in `ipReputation.ts`. Naming the refused
+// party properly would cost a `getUser` round trip per refusal, which would
+// make the logging more expensive than the thing being logged and would let an
+// attacker make us do work by being refused repeatedly. So it is the identity
+// the caller ASSERTED, which is exactly why the field is called `claimed`
+// rather than `actor`. Read it as a lead, never as proof.
+app.use('*', async (c, next) => {
+  await next();
+
+  const status = c.res.status;
+  if (status !== 401 && status !== 403) return;
+  if (!presentedCredential(c.req.raw.headers)) return;
+
+  const bearer = String(c.req.header('Authorization') || '').replace(/^Bearer\s*/i, '').trim();
+  const { role, email, sub } = tokenClaims(bearer);
+  // A token we cannot even read is worth saying so about: it is the shape a
+  // forged or truncated credential arrives in.
+  const who = email ?? (sub ? `sub:${sub}` : 'unreadable-token');
+  console.warn(
+    `[authz] DENIED ${status} ${c.req.method} ${new URL(c.req.url).pathname} claimed=${who} role=${role ?? '?'}`,
+  );
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ORIGIN LOCK — make the WAF the only way in

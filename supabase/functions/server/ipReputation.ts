@@ -328,15 +328,52 @@ export function record(
  * Returns null when there is no readable payload.
  */
 export function tokenRole(bearer: string): string | null {
+  return tokenClaims(bearer).role;
+}
+
+/**
+ * The `role`, `email` and `sub` a bearer token CLAIMS, read locally.
+ *
+ * WHY THIS IS SEPARATE FROM `verifiedActor`
+ *
+ * `verifiedActor` in `requireStaff.ts` costs a `getUser` round trip and gives
+ * you an identity you can act on. This costs a base64 decode and gives you an
+ * identity you may only write down.
+ *
+ * That distinction is the whole point. The caller of this is the denial logger
+ * in `index.tsx`, which runs on the way out of every refused request. Spending
+ * a network call per refusal to name the refused party would make the logging
+ * more expensive than the thing it is logging, and would hand an attacker a
+ * way to make us do work by being refused repeatedly.
+ *
+ * SO THE EMAIL IT RETURNS IS UNVERIFIED, AND ITS CONSUMER MUST SAY SO.
+ *
+ * Anybody can put any `email` in an unsigned JWT body. A log line built from
+ * this must label it as claimed rather than established — otherwise the record
+ * of who was refused becomes something the refused party writes. The log line
+ * in `index.tsx` prints `claimed=` for exactly this reason.
+ *
+ * Nothing is authorised on the strength of any of these fields, here or
+ * anywhere else. Returns nulls when there is no readable payload.
+ */
+export function tokenClaims(
+  bearer: string,
+): { role: string | null; email: string | null; sub: string | null } {
+  const none = { role: null, email: null, sub: null };
   const parts = String(bearer || '').split('.');
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) return none;
   try {
     const pad = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const json = atob(pad + '='.repeat((4 - (pad.length % 4)) % 4));
-    const role = JSON.parse(json)?.role;
-    return typeof role === 'string' ? role : null;
+    const body = JSON.parse(json);
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return {
+      role: str(body?.role),
+      email: str(body?.email)?.toLowerCase() ?? null,
+      sub: str(body?.sub),
+    };
   } catch {
-    return null;
+    return none;
   }
 }
 

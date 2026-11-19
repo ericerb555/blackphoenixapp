@@ -47,7 +47,24 @@ appErrorsRouter.use('*', requireStaffOn([GROUPS]));
 /** Longer than any honest report, shorter than anything worth storing. */
 const MAX_BODY_BYTES = 8 * 1024;
 
-const KINDS = new Set(['fetch', 'unhandled', 'rejection', 'route']);
+/**
+ * `security` is not an error, and it is here anyway. On purpose.
+ *
+ * A tenant boundary refusing somebody is not a bug report, so on taxonomy it
+ * does not belong in a table called `app_error_log`. What it needs is a sink
+ * that is on a server, append-only to the people it describes, rate limited,
+ * and attributed from a verified token rather than from the request body —
+ * and this route is already all four. It was that or leave the events where
+ * they were, which was the browser console of whoever had just been refused.
+ *
+ * Every such row carries `kind = 'security'` and a `feature` of
+ * `security/<event_type>`, so they are one `where` away from being filtered
+ * out of the broken-things list, or moved into a dedicated
+ * `security_audit_log` when that table is built.
+ *
+ * `route` is written by the server itself; the other three by the browser.
+ */
+const KINDS = new Set(['fetch', 'unhandled', 'rejection', 'route', 'security']);
 
 const trim = (v: unknown, max: number): string | null => {
   const s = String(v ?? '').trim();

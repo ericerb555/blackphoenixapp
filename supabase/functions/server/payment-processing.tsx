@@ -300,8 +300,26 @@ app.get('/ecommerce/orders/customer/:email', async (c) => {
      * Compared case-insensitively because the path carries whatever the
      * browser sent and the token carries whatever Supabase stored.
      */
+    /*
+     * THIS DENIAL IS INVISIBLE FROM OUTSIDE, SO IT HAS TO BE VISIBLE FROM IN.
+     *
+     * The empty list is deliberate — a stranger asking about an address with
+     * no orders and a stranger asking about somebody else's orders get the
+     * same answer, which is the point. But it made the fix unverifiable: the
+     * authorisation probe recorded this route as a 200 and scored it as a
+     * breach, because from the outside a correct refusal and an empty history
+     * are the same bytes. Only reading the code could tell them apart.
+     *
+     * A control nobody can verify in production is not much of a control. The
+     * 403 guards are covered by the denial logger in `index.tsx`; this branch
+     * is not, because it answers 200. So it says so itself.
+     */
     const who = await actor(c);
     if (!who || (!who.staff && who.email !== String(email || '').toLowerCase())) {
+      console.warn(
+        `[authz] DENIED-200 GET /payment/ecommerce/orders/customer/:email` +
+        ` actor=${who?.email || 'unresolved'} asked-about=${String(email || '').toLowerCase()}`,
+      );
       return c.json({ orders: [] });
     }
 

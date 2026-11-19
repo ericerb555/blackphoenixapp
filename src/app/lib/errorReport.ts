@@ -34,6 +34,8 @@ import { publicAnonKey } from '../utils/supabase/info';
 const ENDPOINT = `${API_BASE_URL}/make-server-3eae23a6/app-errors`;
 
 export type ErrorKind = 'fetch' | 'unhandled' | 'rejection';
+/** `'security'` is written only by `reportSecurityEvent`, which sends the session token. */
+export type ReportKind = ErrorKind | 'security';
 
 export interface ErrorReport {
   kind: ErrorKind;
@@ -131,6 +133,145 @@ export function reportAppError(report: ErrorReport): void {
     }).catch(() => { /* see rule 2 in the header */ });
   } catch {
     // See rule 1. There is no failure here worth a second one.
+  }
+}
+
+/**
+ * Report a security-relevant event — a tenant boundary refusing somebody.
+ *
+ * WHY THIS IS NOT JUST `reportAppError`
+ *
+ * One header. `reportAppError` sends the publishable anon key, which identifies
+ * the project and nobody in particular; that is right for "a page broke",
+ * because an anonymous visitor's breakage is still worth hearing about. It is
+ * useless here. A security event whose subject is `null` records that somebody
+ * was refused and declines to say who.
+ *
+ * So this one sends the signed-in user's access token when there is one, and
+ * **the server takes the actor from that verified token and never from the
+ * body** — see the `c.get('actor')` block in `app-errors.tsx`. That is the
+ * actual fix, not the transport: a caller cannot name themselves in a record of
+ * their own refusal.
+ *
+ * WHAT THIS REPLACED
+ *
+ * `logSecurityEvent` in `AuthContext` used to be a `console.log`, under a
+ * comment saying the table did not exist. It still does not. So the one
+ * category of event this application deliberately calls a security event — a
+ * tenant-boundary violation, five of its eight call sites being
+ * `company_switch_denied` — was written to the browser console of the person
+ * who had just been refused, and nowhere else. The one party who should not
+ * hold that record was the only one holding it.
+ *
+ * WHY `app_error_log` AND NOT A NEW TABLE
+ *
+ * Because this sink already exists and is already hardened: RLS on with zero
+ * policies, so it is deny-all to `anon` and `authenticated` and only the
+ * service role touches it; per-caller rate limiting; field caps; query strings
+ * stripped on the way in. A new `security_audit_log` is the tidier home and
+ * wants a migration and a decision that is not mine to make at speed. `kind`
+ * is `'security'` on every row this writes, so filtering them out later — or
+ * backfilling them into that table — is one `where`.
+ *
+ * Rules 1 through 4 in the header still hold. This never throws, never changes
+ * behaviour, and is capped by the same counters.
+ */
+export function reportSecurityEvent(
+  eventType: string,
+  detail?: Record<string, unknown> | null,
+): void {
+  try {
+    const type = String(eventType || '').trim();
+    if (!type) return;
+    void postSecurity(type, detail);
+  } catch {
+    // See rule 1. A logger must not be able to break what it is watching.
+  }
+}
+
+/**
+ * Security events get their OWN counter, and a stricter idea of "the same".
+ *
+ * The "say it once per minute" rule above is right for errors and wrong here.
+ * A render loop throwing every frame is one bug and should say so once. Thirty
+ * refusals in a minute are thirty refusals — collapsing them to one would
+ * under-report a probe by thirty times, on the exact trail that exists to make
+ * probing visible. That would be a worse bug than the one being fixed.
+ *
+ * So two changes. The dedupe key includes the detail, which means a different
+ * target company or a different reason is a different event rather than a
+ * repeat. And the budget is separate, so twenty broken images cannot starve
+ * the security trail — these shared one counter at first, which is exactly how
+ * a page full of failures would have swallowed the refusal that mattered.
+ *
+ * A ceiling still exists, because a loop must not be able to bill us. It is
+ * deliberately generous and it is not the real one: the server caps at 40 a
+ * minute per caller, which is the ceiling that actually holds, and it is on a
+ * machine the caller does not control.
+ */
+const MAX_SECURITY_PER_PAGE = 60;
+let securitySent = 0;
+
+async function postSecurity(
+  eventType: string,
+  detail?: Record<string, unknown> | null,
+): Promise<void> {
+  try {
+    if (securitySent >= MAX_SECURITY_PER_PAGE) return;
+
+    /*
+     * The detail is summarised, not forwarded.
+     *
+     * These objects carry company ids and reason codes, which is what makes
+     * them worth keeping — but the server caps `detail` at 500 characters and
+     * silently truncates, and a truncated JSON blob is worse than a short
+     * readable one. So it is flattened to `k=v` pairs here, where it can be
+     * read in a list of events without being parsed.
+     */
+    const flat = detail
+      ? Object.entries(detail)
+        .filter(([, v]) => v !== undefined && v !== null && v !== '')
+        .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+        .join(' ')
+        .slice(0, 480)
+      : null;
+
+    /*
+     * Deduped on the event AND its detail, so only a genuine repeat collapses.
+     *
+     * Checked here rather than at the top of the function because the detail is
+     * half the key: `company_switch_denied` against two different companies is
+     * two attempts on two boundaries, and keying on the event type alone would
+     * have recorded the first and thrown the second away.
+     */
+    const key = `security|${eventType}|${flat ?? ''}`;
+    const now = Date.now();
+    const when = lastSeen.get(key);
+    if (when && now - when < SAME_AGAIN_MS) return;
+    lastSeen.set(key, now);
+    securitySent += 1;
+
+    // Session token when there is one, anon key otherwise. Never throws: an
+    // expired session is a thing worth recording, not a reason to drop the
+    // record. The server decides whose event this is, from the token.
+    const { authedHeadersOrAnon } = await import('../utils/authHeaders');
+    const headers = await authedHeadersOrAnon(publicAnonKey);
+
+    await fetch(ENDPOINT, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        kind: 'security',
+        message: eventType.slice(0, 500),
+        feature: `security/${eventType}`.slice(0, 120),
+        detail: flat,
+        path: typeof window !== 'undefined' ? window.location?.pathname || null : null,
+        appVersion: buildStamp(),
+      }),
+      keepalive: true,
+    }).catch(() => { /* rule 2 */ });
+  } catch {
+    /* rule 1 */
   }
 }
 

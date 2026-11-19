@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { reportSecurityEvent } from '../lib/errorReport';
 
 interface Company {
   id: string;
@@ -102,56 +103,69 @@ export function CompanyContextProvider({ children }: CompanyContextProviderProps
     }
   };
 
+  /**
+   * Record a security-relevant event on a server, not in the browser.
+   *
+   * The twin of the one in `AuthContext`, and it had the same defect: a
+   * `console.log` in the browser of the person being refused. The long note is
+   * over there; the short version is that the server now attributes the event
+   * from the verified bearer token, so the subject of a refusal cannot be the
+   * author of its record.
+   *
+   * The `getUser()` call that used to be here is gone with it. It was a network
+   * round trip to fetch an id that was then written into a console line nobody
+   * reads, and the server resolves the same identity anyway — from a token it
+   * has verified rather than one the page asserted.
+   *
+   * A SIGNATURE BUG CAME OUT WITH THIS ONE, and it is worth recording.
+   *
+   * The interface above has always declared `(eventType, details?)`, and all
+   * three call sites in this file pass `(eventType, { target_company_id, … })`
+   * accordingly. The implementation took `(eventType, companyId, details)`.
+   * So the object every caller passed landed in the `companyId` parameter and
+   * `details` fell back to `{}` — **the detail of all three events was
+   * discarded before it was logged.**
+   *
+   * Nothing caught it because the destination was a `console.log` nobody read,
+   * which is the whole theme: the defect was invisible precisely because the
+   * output went nowhere. Pointing the function at a real sink is what made the
+   * compiler's complaint matter. The vestigial `companyId` parameter is gone
+   * and the signature now matches what the callers were already doing.
+   */
   const logSecurityEvent = async (
     eventType: string,
-    companyId: string | null = null,
-    details: any = {}
+    details: Record<string, unknown> = {}
   ) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      // Note: security_audit_log table doesn't exist in this setup
-      // Logging to console instead
-      console.log('🔒 Security Event:', {
-        user_id: user?.id || null,
-        event_type: eventType,
-        company_id: activeCompany?.id || null,
-        details,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Skip database insert - table doesn't exist
-      // await supabase.from('security_audit_log').insert({...})
-    } catch (error) {
-      // Silent fail - don't break the app
-      console.warn('Security event logging skipped:', error);
-    }
+    reportSecurityEvent(eventType, {
+      ...(details && typeof details === 'object' ? details : { details }),
+      company_id: activeCompany?.id || null,
+    });
   };
 
+  /**
+   * Which company this session is acting as, and when that changed.
+   *
+   * Fixed alongside `logSecurityEvent` above, because it was the identical
+   * stub — two nonexistent tables, a console line, and a `getUser()` round
+   * trip to decorate it. Leaving it would have meant the record of *who was
+   * refused* reached a server while the record of *who successfully switched
+   * tenant* still did not, which is half a trail and worse than none: it
+   * would read as though no switch had ever happened.
+   *
+   * `previous_company_id` is the field worth having. A denial tells you
+   * somebody tried a boundary; this tells you which boundaries they actually
+   * crossed, in order.
+   */
   const logContextChange = async (
     companyId: string,
     action: 'login' | 'switch' | 'logout' | 'session_restore',
     previousCompanyId?: string | null
   ) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Note: Tables don't exist in this setup - logging to console instead
-      console.log('📝 Context Change:', {
-        user_id: user.id,
-        company_id: companyId,
-        previous_company_id: previousCompanyId || null,
-        action,
-        timestamp: new Date().toISOString()
-      });
-
-      // Skip database inserts - tables don't exist
-      // await supabase.from('company_context_logs').insert({...})
-      // await supabase.from('security_audit_log').insert({...})
-    } catch (error) {
-      console.warn('Context change logging skipped:', error);
-    }
+    reportSecurityEvent(`company_context_${action}`, {
+      company_id: companyId,
+      previous_company_id: previousCompanyId || null,
+      action,
+    });
   };
 
   const validateCompanyAccess = async (companyId: string): Promise<SecurityValidationResult> => {

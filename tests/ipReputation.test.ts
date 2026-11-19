@@ -17,7 +17,7 @@ import {
   freshReputation, record, decide, decayed, clientIp,
   WARN_SCORE, BAN_SCORE, BAN_MS, HALF_LIFE_MS, MAX_SCORE, BREADTH_PATHS,
   banDuration, banCount, nextBanLength, BAN_MAX_MS, BAN_FORGET_MS, BAN_ESCALATION,
-  presentedCredential, tokenRole,
+  presentedCredential, tokenRole, tokenClaims,
   type Reputation,
 } from '../supabase/functions/server/ipReputation.ts';
 
@@ -376,4 +376,77 @@ test('tokenRole reads the claim and gives up cleanly', () => {
   assert.equal(tokenRole('nonsense'), null);
   assert.equal(tokenRole(''), null);
   assert.equal(tokenRole('a.b.c'), null);
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * tokenClaims — what the denial logger in index.tsx writes down
+ *
+ * These exist because the thing being read is an UNVERIFIED token body, and
+ * the risk is not that the decode breaks. It is that somebody later reads a
+ * `claimed=` line as though it established who did something. The last test
+ * here is the one that matters: a forged body decodes perfectly.
+ */
+
+/** A JWT with an arbitrary body. Unsigned: nothing here verifies one. */
+function jwtBody(body: Record<string, unknown>): string {
+  const b64 = (o: unknown) =>
+    Buffer.from(JSON.stringify(o)).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(body)}.sig`;
+}
+
+test('tokenClaims reads role, email and sub from a session token', () => {
+  const t = jwtBody({ role: 'authenticated', email: 'Someone@Example.com', sub: 'uuid-1' });
+  assert.deepEqual(tokenClaims(t), {
+    role: 'authenticated',
+    email: 'someone@example.com',
+    sub: 'uuid-1',
+  });
+});
+
+test('the email is lowercased, because the token carries whatever was typed', () => {
+  // The log is read by a person scanning for one address. Two spellings of the
+  // same account would read as two different callers.
+  assert.equal(tokenClaims(jwtBody({ email: 'ERIC@Example.COM' })).email, 'eric@example.com');
+});
+
+test('missing claims are null, not empty strings or undefined', () => {
+  // The logger falls back `email ?? sub ?? 'unreadable-token'`, which only
+  // works if an absent claim is null rather than ''.
+  assert.deepEqual(tokenClaims(jwtBody({ role: 'anon' })), {
+    role: 'anon', email: null, sub: null,
+  });
+  assert.equal(tokenClaims(jwtBody({ email: '' })).email, null);
+});
+
+test('a non-string claim is dropped rather than stringified', () => {
+  // `email: 12345` must not become the string "12345" in a log line that a
+  // reader will take for an address.
+  const t = jwtBody({ role: 42, email: { not: 'a string' }, sub: ['x'] });
+  assert.deepEqual(tokenClaims(t), { role: null, email: null, sub: null });
+});
+
+test('garbage yields all nulls instead of throwing', () => {
+  for (const bad of ['', 'not-a-jwt', 'a.b', 'a.b.c.d', 'x.!!!!.y', null, undefined]) {
+    assert.deepEqual(
+      tokenClaims(bad as any),
+      { role: null, email: null, sub: null },
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test('tokenRole still answers exactly as it did, now via tokenClaims', () => {
+  assert.equal(tokenRole(jwtBody({ role: 'service_role' })), 'service_role');
+  assert.equal(tokenRole(jwtBody({ email: 'a@b.com' })), null);
+  assert.equal(tokenRole('not-a-jwt'), null);
+});
+
+test('A FORGED EMAIL DECODES PERFECTLY — this is why the log says "claimed"', () => {
+  // Nothing signed this. Anybody can assert any address, so the denial log
+  // records a claim and not an identity. If a future change ever authorises
+  // anything on tokenClaims, this test is the note explaining why it must not.
+  const forged = jwtBody({ role: 'authenticated', email: 'owner@theblackphoenixcompany.com' });
+  assert.equal(tokenClaims(forged).email, 'owner@theblackphoenixcompany.com');
 });
