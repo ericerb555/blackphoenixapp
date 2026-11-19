@@ -126,7 +126,7 @@ credential may still be live.
 | A03 | Injection | No string-built SQL on the server; the KV layer is parameterised. XSS surface reviewed in `BROKEN_BUTTONS_REPORT.md`; a hostile QR label is escaped, with a test. |
 | A04 | Insecure design | The `_anonymous` KV keys (`A-1`) and eleven non-existent tables (`D-1`) are design-level: features that fail quietly instead of loudly. |
 | A05 | Misconfiguration | `origin:"*"` tolerable (bearer-only auth). Two staged defences still report-only, and one of them **breaks the backups when enabled** (`A-2`). 9 `SECURITY DEFINER` functions anon-callable (`D-3`). |
-| A06 | Vulnerable components | Audited in Phase 10: 5 prod advisories (1 low, 4 moderate, 0 high/critical), all `hono`, all patched in ≥4.13.16. But **production's version is undeclared** — the edge function imports `npm:hono` unpinned (`DEP-1`), so whether those advisories are live cannot be determined from this repo. |
+| A06 | Vulnerable components | 5 advisories (1 low, 4 moderate, 0 high/critical), all `hono`, patched in ≥4.13.16. **They were live in production**: `deno.lock` pinned `npm:hono@4` to **4.12.32**, inside the vulnerable range. Fixed and deployed 2026-11-19 — every server specifier is now exact, hono at 4.13.19. See the correction note below. |
 | A07 | Identity failures | GoTrue. The `app_metadata` fix above closed the real one. No lockout policy of our own — delegated. |
 | A08 | Integrity failures | Storage objects are outside Supabase's daily backup; `storage-backup-nightly` covers it, has run once, and **restoration has never been exercised**. |
 | A09 | Logging failures | `AUDIT_LOGGING_REPORT.md`. A permission denial leaves no trace (`L-1`); the one instrumented security event logs to the denied user's own browser (`D-2`). |
@@ -134,9 +134,42 @@ credential may still be live.
 
 A10 is listed as a gap rather than a pass: `outboundGuard.ts` exists and gates
 outbound fetches, and I did not probe it. Per the brief, an untested item is
-not a passing item. A06 was a gap when this document was written and was
-closed in Phase 10 — see `FINAL_VERIFICATION_REPORT.md`, including what the
-first, wrong dependency audit looked like.
+not a passing item.
+
+### Correction — A06 was understated twice before it was right
+
+Worth leaving in, because the shape of the mistake is the subject of this
+audit.
+
+1. **First pass:** `npm audit` returned `{}` and looked clean. It could not
+   read the project's `pnpm-lock.yaml` at all.
+2. **Second pass:** run properly, 5 `hono` advisories. I then reasoned that
+   `npm:hono@4` floats to the latest 4.x, so production must already be
+   patched, and wrote the finding up as merely *undeclared*.
+
+Both were wrong in the same direction — assuming a benign answer instead of
+checking. `supabase/functions/server/deno.lock` pins the specifier:
+
+```
+"npm:hono@*": "4.12.32",
+"npm:hono@4": "4.12.32",
+```
+
+**4.12.32 is inside the vulnerable range of all five.** They were live in the
+deployed function. `deno.json` said `^4.0.0`, the lock held it eight minor
+versions back, and nothing in the repo named the version actually running.
+
+Fixed and verified 2026-11-19: every `npm:` specifier in the server is now
+exact, hono at 4.13.19, deployed, and measured afterwards — 1,429 responses in
+20 minutes with **zero 500s and zero module-load errors**, and the probe still
+at 14 passed / 1 failed / 3 skipped.
+
+**Still open on the npm side:** `package.json` says `hono: ^4.13.13` and the
+lockfile resolves 4.13.13, so `pnpm audit` continues to report those five.
+That copy is a build-and-typecheck dependency and is not shipped, so the
+runtime risk is closed. Bumping it needs the project's own pnpm 8 — pnpm 9
+rewrote `lockfileVersion` from `6.0` to `9.0`, a repo-wide migration that is
+not a side effect to smuggle into a dependency bump, so it was reverted.
 
 ## The pattern underneath most of this
 

@@ -396,11 +396,34 @@ makes it *error* rather than return no rows. All 27 are scoped to
 | `authenticated` → count orgs / bids / bid_requests | **0 rows, no error** — the policies still evaluate |
 
 #### Still open
-- `DEP-1` pin one Hono version and one `supabase-js` version in a single
-  import module for the edge function, and `pnpm update hono` for the npm
-  side. Today the server imports `npm:hono` unpinned in 90 places, so no
-  dependency advisory about it can be answered either way. ~2h, and it turns
-  A06 from unanswerable into answerable.
+- ✅ **`DEP-1` done 2026-11-19, and it was worse than this plan said.** Not
+  merely undeclared: `deno.lock` pinned `npm:hono@4` to **4.12.32**, inside
+  the vulnerable range of all five advisories. They were live in production.
+  Every `npm:` specifier in the server is now exact:
+
+  | | was | now |
+  |---|---|---|
+  | `hono` | `@4`, `@^4.0.0`, `@`, bare (139×) | `@4.13.19` |
+  | `@supabase/supabase-js` | `@2` (98×) + one `@2.39.7` | `@2.39.7` |
+  | `@anthropic-ai/sdk` | **completely unpinned** | `@1.11.0` |
+  | `qrcode` | **completely unpinned** | `@1.5.4` |
+  | `stripe` | `@17` | `@17.7.0` |
+  | `openai` | `@4` | `@4.104.0` |
+
+  The worst of it named plainly: an **AI SDK and a payment SDK** were
+  resolving "whatever is newest" at every deploy with nothing recording what
+  arrived, so two deploys of identical source could run different Stripe code.
+
+  Verified after deploying: 1,429 responses in 20 minutes, **zero 500s, zero
+  module-load errors**, probe still 14/1/3.
+
+  `supabase-js` pinned to the already-locked 2.39.7 rather than the current
+  2.119.2 — the goal was a declared inventory, and an 80-minor upgrade of the
+  database client deserves its own testing. **Recommended separately.**
+  Remaining: `package.json` still says `^4.13.13`, so `pnpm audit` keeps
+  reporting those five against a build-only copy that is never shipped.
+  Bumping it needs the project's own pnpm 8; pnpm 9 rewrote
+  `lockfileVersion` 6.0 → 9.0 and was reverted.
 - `L-2` a retention policy and a deletion job. ~2h. Note `prune_ai_call_log`
   and `prune_app_error_log` already exist as functions — what is missing is a
   stated period and a schedule, and now `security_audit_log` needs its own
