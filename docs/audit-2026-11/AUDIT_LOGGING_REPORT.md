@@ -69,6 +69,30 @@ sibling — `console.warn` with path, method and actor email. The cart guard
 already does exactly this and its comment explains why: *same answer to a
 stranger, different answer to us*.
 
+### Addendum — the one place it *is* instrumented writes to the browser
+
+Found while auditing the database (`DATABASE_RLS_AUDIT.md`, D-2). The client
+has a function called `logSecurityEvent`, with eight call sites across
+`AuthContext.tsx` and `CompanyContext.tsx`. Every one of them is a
+tenant-boundary event; five are `company_switch_denied`. Its body:
+
+```js
+// Note: security_audit_log table doesn't exist - logging to console instead
+console.log('🔒 Security Event:', { user_id, event_type, company_id, … });
+// Skip database insert - table doesn't exist
+```
+
+`security_audit_log` has never existed. So the single category of event this
+application deliberately names a security event is recorded in the console of
+the browser belonging to **the person who was denied** — the one party who
+should not be the custodian of that record, and the one place no operator will
+ever read.
+
+It is honestly commented, which makes it a known stub rather than a hidden
+failure. The consequence is identical: a customer probing company boundaries
+leaves nothing behind on any server. This does not change L-1's priority; it
+removes the last reason to think a denial is recorded somewhere.
+
 ## L-2 (P3) — No retention or deletion policy
 
 The tables are 11 days old and hold everything since. There is no documented
