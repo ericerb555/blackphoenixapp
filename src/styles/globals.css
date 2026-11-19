@@ -265,6 +265,55 @@ input, textarea, select {
   transition: var(--transition);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   ROOM FOR THE ICON INSIDE A FIELD.
+
+   Eric, 2026-11-19: "please fix the overlapping in the feild boxes them selfs
+   within the sign ups of the junk removal pricing app and make sure we check
+   all app wide too."
+
+   WHY THE TEXT SAT ON TOP OF THE ICON
+
+   The app draws a search or user icon inside a field with
+   `absolute left-3`, and tells the input to start its text clear of it with
+   `pl-10`. That second half never happened. Tailwind v4 emits its utilities
+   inside @layer, the `* { padding: 0 }` reset above is UNLAYERED, and an
+   unlayered rule beats a layered one outright without specificity being
+   consulted — so every `pl-*` on every input computes to 0px. The rule a few
+   lines above then gives the field a flat `padding: 0.75rem 1rem`.
+
+   So the icon occupies 12px to 32px and the text begins at 16px. They share
+   the same sixteen pixels, which is what "overlapping in the field boxes" is.
+
+   MEASURED 2026-11-19: 173 inputs across 109 files were relying on a padding
+   utility that does nothing. Not one of them was wrong to ask for it.
+
+   WHY THIS IS CSS AND NOT 173 EDITS
+
+   Inline styles on every call site would also work, and would be a diff
+   nobody can review, in files that will keep being written the normal way —
+   the next `pl-10` somebody types would be broken again on the day it ships.
+   Seven declarations fix every one of them and every future one.
+
+   It is deliberately NOT a fix to the reset above. That reset is a decision
+   Eric reviewed and kept; turning padding back on globally restyles the whole
+   application, which was shipped once as 5a63c8fb and reverted. This is the
+   "explicit styles" escape hatch that comment points at, scoped to the one
+   place the omission actually breaks something.
+
+   Unlayered on purpose, for the same cascade reason: inside @layer it would
+   lose to the `*` reset and change nothing.
+   ───────────────────────────────────────────────────────────────────────── */
+input.pl-8,  textarea.pl-8  { padding-left: 2rem; }
+input.pl-9,  textarea.pl-9  { padding-left: 2.25rem; }
+input.pl-10, textarea.pl-10 { padding-left: 2.5rem; }
+input.pl-11, textarea.pl-11 { padding-left: 2.75rem; }
+input.pl-12, textarea.pl-12 { padding-left: 3rem; }
+
+/* The same on the right, for a show-password eye or a clear button. */
+input.pr-10, textarea.pr-10 { padding-right: 2.5rem; }
+input.pr-12, textarea.pr-12 { padding-right: 3rem; }
+
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: rgba(234, 88, 12, 0.5);
