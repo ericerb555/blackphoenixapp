@@ -66,20 +66,46 @@ redirect, as predicted — but two of the four needed a decision first, and
 neither decision was the obvious one. 4,111 tests pass; `tsc` clean on all
 four files.
 
-### Batch 2 — Make denials visible (P2, cheap, and it unblocks verification)
+### Batch 2 — Make denials visible — ✅ WRITTEN 2026-11-19, ⚠️ NOT YET DEPLOYED
 
-| | Finding | Fix | Effort |
-|---|---|---|---|
-| L-1 | A permission denial leaves no trace | one `console.warn` in `requireStaff` with path, method, actor | ~30m |
-| — | The orders-by-email deny branch is invisible *and* unlogged | same line, on that branch | ~15m |
-| D-2 | `logSecurityEvent` writes to the denied user's own browser | post to a server route; or create `security_audit_log` with service-role-only access | ~2h |
+| | Finding | What was done |
+|---|---|---|
+| L-1 | A permission denial leaves no trace | **One middleware, not four hundred edits.** A refusal is observable from outside the guard that made it — a 401/403 on a request that carried a credential — so it is logged once, centrally, covering every guard including ones not yet written |
+| — | The orders-by-email deny branch is invisible *and* unlogged | `[authz] DENIED-200` on that branch, since it answers 200 by design and the central logger cannot see it |
+| D-2 | `logSecurityEvent` writes to the denied user's own browser | Both copies now post to the `app-errors` ingest route with `kind='security'`; the server attributes them from the **verified token**, never the body |
 
-**Do this second, not later, because it is the prerequisite for verifying
-everything else.** Today a customer can probe thirty admin routes, be refused
-thirty times, and leave no record anywhere — so no fix in this plan can be
-confirmed to be holding in production. The cart guard already does exactly
-this and its comment explains the principle: *same answer to a stranger,
-different answer to us.*
+**Why not instrument `requireStaff`.** Most module-local guards
+(`requireStripeStaff`, `requireOrdersStaff`, `requireQuoteStaff` and the rest)
+never call it, and there are 400+ `403` responses across twenty-odd guards.
+Instrumenting the shared one would have covered a fraction while reading as a
+fix for all of it.
+
+**Why not fold it into the IP-reputation middleware**, which already inspects
+response status: that one returns early for `OPTIONS`, for a request with no
+usable address, and for an allowlisted address — and the allowlist holds the
+owner's own IPs, so the refusals most worth reading are the ones it skips.
+
+**The log says `claimed=`, not `actor=`.** Naming the refused party properly
+costs a `getUser` round trip per refusal, which would make the logging more
+expensive than the thing logged. The email is a local decode of an unverified
+token body. A test named *A FORGED EMAIL DECODES PERFECTLY* exists to stop a
+future reader treating that field as established identity.
+
+#### ⚠️ DEPLOY ORDER — the server must go first, and it has not
+
+Measured 2026-11-19 against production, after pushing: a `kind: 'security'`
+report to the live ingest route answers **204 and writes no row**. The route
+answers 204 to everything by design — it is deliberately not an oracle — so
+the status is not an acceptance. `app_error_log` took 350 rows today and none
+of them is mine.
+
+**So until `npm run deploy:server` runs, every security event the browser sends
+is silently dropped.** The client half ships with Vercel's build on `main`;
+the server half does not ship itself. That is the same ordering hazard as `A-2`
+and the same failure shape as the rest of this audit — a success-shaped answer
+for something that did not happen — and this one would have been of my own
+making. Deploy the server, then confirm a row appears with
+`kind = 'security'`.
 
 ### Batch 3 — The thing that will break if nobody touches it (P2)
 
