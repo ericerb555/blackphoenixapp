@@ -116,7 +116,26 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * that charges for sixteen.
    */
   const share = includedShareOf(quote);
-  if (forCustomer && pricing.markup > 0) {
+  /*
+   * APPORTIONED FOR EVERY CUSTOMER COPY, MARKUP OR NOT.
+   *
+   * This used to be guarded on `pricing.markup > 0`, on the reasoning that
+   * with no markup there is nothing to spread and scaling by 1.0 is a waste.
+   * That stopped being true when a hidden line stopped drawing a row: the
+   * apportionment is now also what carries the withheld money into the
+   * visible lines of its phase, and that has to happen whether or not there
+   * is any margin on the job.
+   *
+   * Caught by Sarah's quote, Q-2026-0002, which stores a total equal to its
+   * direct cost — so markup is zero, the block was skipped, and hiding her
+   * Custom Benches left the column 1,050 short of a total that still
+   * included them. Exactly the defect that started this: money in the total
+   * with nothing on the page accounting for it.
+   *
+   * Scaling by a factor of 1.0 is a no-op, so the old reason to skip costs
+   * nothing to give up.
+   */
+  if (forCustomer) {
     /**
      * Rates are scaled, not re-derived. `toPdfLine` multiplies quantity by
      * rate for the amount, so lifting the rate lifts the amount with it and

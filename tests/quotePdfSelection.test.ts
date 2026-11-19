@@ -210,18 +210,29 @@ const withExcluded = {
   ],
 };
 
+/**
+ * EXCLUDED AND HIDDEN ARE STILL DIFFERENT, AND NEITHER DRAWS A ROW NOW.
+ *
+ * Eric, 2026-11-19: *"i do not want additional work under the line item to
+ * show up on the quote i just want it added into the total it should always
+ * be hidden"*. So a hidden line draws nothing — but it is still CHARGED,
+ * and that is the distinction this test exists for:
+ *
+ *   excluded → not on the quote, not in `phaseCost`, not paid for.
+ *   hidden   → not on the page, still in `phaseCost`, still paid for.
+ *
+ * The two now look identical in `lines` and must never look identical in
+ * the money. Closing the gap is the document layer’s job: it apportions
+ * each phase across the rows it draws, covered in `quotePdfAddsUp`.
+ */
 test('an excluded line is not charged, a hidden one is', () => {
   const sel = selectQuoteLines(withExcluded, true);
   assert.equal(sel.phaseCost.get('Framing'), 1550, '1100 + 450 hidden; the two 700s are out');
-  /*
-   * Eric: "we can hide things but the totals stay as part of the quote."
-   * The hidden line keeps its ROW and its amount and gives up its name, so
-   * the column a customer adds up reaches the total. Excluded work is still
-   * gone outright — it is not being charged for.
-   */
-  assert.deepEqual(sel.lines.map((l) => l.description), ['Lumber', 'Additional work']);
-  const hidden = sel.lines.find((l) => l.detailWithheld);
-  assert.equal(hidden?.amount, 450, 'its money is on the page');
+  assert.deepEqual(sel.lines.map((l) => l.description), ['Lumber'], 'the hidden line draws nothing');
+  assert.equal(
+    sel.lines.filter((l) => l.detailWithheld).length, 0,
+    'and nothing is marked withheld, because there is no row to mark',
+  );
 });
 
 test('an excluded line is gone from the internal copy too', () => {
@@ -288,25 +299,34 @@ test('a material is tagged material and a labour line labour', () => {
 });
 
 /**
- * The per-kind subtotals are summed from DRAWN lines; the phase total counts
- * withheld ones too. The gap between them is real money and the document
- * carries it as a balancing row — so this asserts the gap is what we think it
- * is, because a wrong figure here is a quote whose own column does not add up.
- */
-/**
- * The drawn lines now miss NOTHING, which is the point of the change.
+ * A PHASE CAN COST MORE THAN THE ROWS IT DRAWS, AND MUST.
  *
- * This asserted the opposite while hiding dropped the row: the only Strip
- * out line was hidden, so the phase drew nothing under a subtotal of 450 and
- * a customer adding the column up came out short. The row stays now.
+ * This test has now asserted three different things, which is the honest
+ * record of a requirement that moved twice. Originally hiding dropped the
+ * row and the money was stranded — a phase priced 450 with nothing beneath
+ * it and a column that came up short, logged as a defect. Then the row was
+ * kept so the column footed. Now Eric wants no row at all: *"i just want
+ * it added into the total it should always be hidden"*.
+ *
+ * What makes dropping it safe this time is that the stranding is not fixed
+ * HERE. `phaseCost` still carries the money, and `quoteToPdfDocument`
+ * apportions each phase across the rows it actually draws — so the gap
+ * this test measures is closed one layer up, either by the visible lines
+ * of the phase absorbing it, or by the phase printing as a priced heading
+ * with no rows when everything in it is hidden.
+ *
+ * So the contract at THIS layer is deliberately a gap: lines short,
+ * phaseCost whole. Asserting they agree here would force the money back
+ * onto the page as a row.
  */
-test('the drawn lines come to the phase cost, with nothing withheld from the sum', () => {
+test('a hidden line leaves its phase priced and its row undrawn', () => {
   const sel = selectQuoteLines(quote, true);
   const stripOut = sel.lines.filter((l) => l.phase === 'Strip out');
-  assert.equal(stripOut.length, 1, 'the hidden line keeps its row');
-  assert.equal(stripOut[0].amount, 450, 'and its amount');
-  assert.equal(stripOut[0].detailWithheld, true, 'what it was stays ours');
-  assert.equal(sel.phaseCost.get('Strip out'), 450, 'and the two agree');
+  assert.equal(stripOut.length, 0, 'the only line in it was hidden, so nothing is drawn');
+  assert.equal(
+    sel.phaseCost.get('Strip out'), 450,
+    'and the phase is still charged for it — this is what the document apportions',
+  );
 });
 
 /* ── the floor: a phase and its price, even with everything else off ────── */
