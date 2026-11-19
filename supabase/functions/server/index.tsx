@@ -16371,6 +16371,136 @@ async function runFulfillmentSweep(reason: string, limit?: number, spendCeiling?
  * changes: the same `forwardStoreOrderToSupplier` runs, writes the same
  * fields, and raises the same staff alert on a paid order that did not ship.
  */
+/**
+ * Money Stripe took that never became an order.
+ *
+ * Eric, 2026-11-19: "i want the ecommerce store to start making money."
+ *
+ * THE FAILURE THIS EXISTS FOR
+ *
+ * An order is written when Stripe's webhook fires, or when the storefront calls
+ * `/complete` on the redirect back. Both can miss. The customer's card is
+ * charged either way, because that happened at Stripe before either of ours
+ * ran. What is left is a `store:checkout:` row at `pending_confirmation`, no
+ * order, nothing sent to the supplier, and no sign anywhere that somebody is
+ * out of pocket.
+ *
+ * `/store/orders/recover` has always been able to fix this. Nothing ever called
+ * it. Measured on 2026-11-19: two checkouts had sat unconverted since 23
+ * September — eight weeks — and the only reason that cost nothing is that both
+ * turned out to be an unpaid security probe. The next one will not be.
+ *
+ * `storeWatchJob` does not catch it either, and that is worth stating because
+ * it looks like it should: `findStuck` reads ORDERS that are paid and
+ * unfulfilled. A payment that never produced an order is invisible to it — the
+ * record it would examine does not exist.
+ *
+ * WHY THIS IS SAFE TO RUN EVERY TICK
+ *
+ * `finalizeStoreOrder` is idempotent and a checkout that already has an
+ * `orderId` is skipped before any work, so the worst a repeat run does is ask
+ * Stripe a question it has already answered.
+ *
+ * THE WINDOW IS DELIBERATE, IN BOTH DIRECTIONS
+ *
+ * A Stripe Checkout Session expires about 24 hours after it is created, and an
+ * expired one can never become paid. Checking a three-week-old abandoned cart
+ * every minute forever is a request per minute that can only ever return the
+ * same no. So the sweep looks at the last 72 hours — comfortably longer than a
+ * session can live, short enough that the backlog cannot grow without bound.
+ *
+ * Older unconverted checkouts are not forgotten; they are counted and named in
+ * the heartbeat, because "nothing to do" and "fourteen things too old for me to
+ * check" are different sentences and only one of them needs a person.
+ *
+ * AND IT IS CAPPED PER TICK, so a burst of abandoned carts cannot turn one
+ * minute's cron into a hundred Stripe calls.
+ */
+const RECONCILE_WINDOW_HOURS = 72;
+const RECONCILE_MAX_PER_TICK = 10;
+
+registerStoreJob('reconcile', async (ctx) => {
+  const checkouts = ((await kv.getByPrefix('store:checkout:')) || []) as any[];
+  const now = Date.now();
+
+  const unconverted = checkouts.filter((checkout) => {
+    if (!checkout || checkout.orderId) return false;
+    // No session means no payment was ever started, so there is nothing at
+    // Stripe to ask about.
+    return Boolean(String(checkout.stripeCheckoutSessionId || '').trim());
+  });
+
+  const ageHours = (checkout: any) => {
+    const when = Date.parse(String(checkout?.createdAt || checkout?.created_at || ''));
+    return Number.isFinite(when) ? (now - when) / 3_600_000 : Number.POSITIVE_INFINITY;
+  };
+
+  const fresh = unconverted.filter((checkout) => ageHours(checkout) <= RECONCILE_WINDOW_HOURS);
+  const stale = unconverted.length - fresh.length;
+
+  if (fresh.length === 0) {
+    return {
+      ran: false,
+      detail: stale > 0
+        ? `No checkout inside ${RECONCILE_WINDOW_HOURS}h to re-check. ${stale} older one(s) never converted — their Stripe sessions have expired, so they cannot now be recovered.`
+        : 'Every checkout became an order.',
+      counts: { unconverted: unconverted.length, stale },
+    };
+  }
+
+  // Oldest first: the one closest to falling out of the window is the one most
+  // worth spending this tick's budget on.
+  fresh.sort((a, b) => ageHours(b) - ageHours(a));
+  const batch = fresh.slice(0, RECONCILE_MAX_PER_TICK);
+
+  let recovered = 0;
+  let unpaid = 0;
+  const errors: string[] = [];
+
+  for (const checkout of batch) {
+    const sessionId = String(checkout.stripeCheckoutSessionId || '');
+    const account: StripeAccount = checkout.stripeAccount === 'tbpco_ecommerce'
+      ? 'tbpco_ecommerce'
+      : 'services';
+    try {
+      const verified = await retrieveStripeCheckoutSession(sessionId, account);
+      if (verified?.payment_status === 'paid') {
+        const order = await finalizeStoreOrder(checkout, verified);
+        if (order) {
+          recovered += 1;
+          /*
+           * Loud on purpose. A recovered order means the webhook did not
+           * arrive, and that is a configuration fault that will keep happening
+           * until somebody looks at it. The order being saved is the relief,
+           * not the fix.
+           */
+          console.log(
+            `[store-reconcile] RECOVERED ${order.id} from checkout ${checkout.id} `
+            + `(${account}) — Stripe says paid but no webhook ever created it.`,
+          );
+        }
+      } else {
+        unpaid += 1;
+      }
+    } catch (error: any) {
+      errors.push(`${checkout.id}: ${error?.message || error}`);
+    }
+  }
+
+  const bits = [`${batch.length} checked`];
+  if (recovered) bits.push(`${recovered} RECOVERED — the webhook did not fire`);
+  if (unpaid) bits.push(`${unpaid} not paid`);
+  if (fresh.length > batch.length) bits.push(`${fresh.length - batch.length} left for the next tick`);
+  if (stale) bits.push(`${stale} too old to recover`);
+
+  return {
+    ran: true,
+    detail: bits.join(', '),
+    counts: { checked: batch.length, recovered, unpaid, stale },
+    error: errors.length ? errors.slice(0, 3).join('; ') : undefined,
+  };
+});
+
 registerStoreJob('fulfil', async (ctx) => {
   const result = await runFulfillmentSweep(`cron:${ctx.runId}`, ctx.maxOrdersPerTick, ctx.maxSpendPerTick);
   if (result.examined === 0) {
