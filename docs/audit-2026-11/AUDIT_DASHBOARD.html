@@ -1,0 +1,671 @@
+<title>Black Phoenix Audit Sheet</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    /* concrete + cyanotype. neutrals carry a blue-green bias toward the accent. */
+    --paper:      #f4f5f2;
+    --paper-2:    #eaece7;
+    --paper-3:    #dfe2dc;
+    --rule:       #c7ccc4;
+    --rule-soft:  #dde0d9;
+    --ink:        #141a20;
+    --ink-2:      #3f4a52;
+    --ink-3:      #6b7680;
+    --accent:     #1f4e79;
+    --accent-2:   #2e6da4;
+    --accent-wash:#e2e9f0;
+    --p1:         #a81f26;
+    --p2:         #a8691a;
+    --p3:         #4a6d8c;
+    --p4:         #7b8690;
+    --pass:       #1d6b47;
+    --shadow:     0 1px 0 rgba(20,26,32,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #101620;
+      --paper-2:    #161e29;
+      --paper-3:    #1d2733;
+      --rule:       #2c3844;
+      --rule-soft:  #222c37;
+      --ink:        #e8ebe6;
+      --ink-2:      #aab4bd;
+      --ink-3:      #7a858f;
+      --accent:     #74a6d4;
+      --accent-2:   #9cc2e4;
+      --accent-wash:#1a2836;
+      --p1:         #e8676d;
+      --p2:         #d99a3e;
+      --p3:         #8fb0cc;
+      --p4:         #8a949d;
+      --pass:       #55b183;
+      --shadow:     0 1px 0 rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #101620;
+    --paper-2:    #161e29;
+    --paper-3:    #1d2733;
+    --rule:       #2c3844;
+    --rule-soft:  #222c37;
+    --ink:        #e8ebe6;
+    --ink-2:      #aab4bd;
+    --ink-3:      #7a858f;
+    --accent:     #74a6d4;
+    --accent-2:   #9cc2e4;
+    --accent-wash:#1a2836;
+    --p1:         #e8676d;
+    --p2:         #d99a3e;
+    --p3:         #8fb0cc;
+    --p4:         #8a949d;
+    --pass:       #55b183;
+    --shadow:     0 1px 0 rgba(0,0,0,.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 28px 64px;
+  }
+
+  h1, h2, h3 {
+    font-family: "Archivo Narrow", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: .005em;
+  }
+
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  code, .mono, td.id, .fig {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── title block, as on a drawing sheet ─────────────────────────────── */
+  .titleblock {
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  }
+  .titleblock > div { padding: 18px 20px; }
+  .tb-main { border-right: 1px solid var(--rule); }
+  .tb-main h1 {
+    font-size: clamp(28px, 5.4vw, 44px);
+    line-height: 1.03;
+    margin-block: 6px 10px;
+  }
+  .tb-main p {
+    margin: 0;
+    color: var(--ink-2);
+    max-width: 48ch;
+    font-size: 15.5px;
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 7px 16px;
+    align-content: start;
+    font-size: 13px;
+  }
+  .fields dt {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding-top: 2px;
+  }
+  .fields dd {
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  /* ── measurement strip ──────────────────────────────────────────────── */
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    border: 1px solid var(--rule);
+    border-top: 0;
+    background: var(--paper-2);
+  }
+  .cell {
+    padding: 15px 18px 17px;
+    border-right: 1px solid var(--rule-soft);
+  }
+  .cell:last-child { border-right: 0; }
+  .cell .fig {
+    display: block;
+    font-size: 27px;
+    font-weight: 500;
+    line-height: 1.1;
+    margin-block: 7px 3px;
+    letter-spacing: -.02em;
+  }
+  .cell .note { font-size: 12.5px; color: var(--ink-3); line-height: 1.4; }
+  .fig.good { color: var(--pass); }
+  .fig.warn { color: var(--p2); }
+
+  section { margin-top: 46px; }
+  section > h2 {
+    font-size: 21px;
+    padding-bottom: 7px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 4px;
+  }
+  .sub {
+    color: var(--ink-2);
+    margin: 14px 0 20px;
+    max-width: 68ch;
+  }
+
+  /* ── findings register ──────────────────────────────────────────────── */
+  .scroll { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    min-width: 580px;
+  }
+  thead th {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: left;
+    font-weight: 400;
+    padding: 0 10px 8px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 11px 10px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  tbody tr.sev-p1 td:first-child { box-shadow: inset 3px 0 0 var(--p1); }
+  tbody tr.sev-p2 td:first-child { box-shadow: inset 3px 0 0 var(--p2); }
+  tbody tr.sev-p3 td:first-child { box-shadow: inset 3px 0 0 var(--p3); }
+  tbody tr.sev-p4 td:first-child { box-shadow: inset 3px 0 0 var(--p4); }
+  td.id {
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    padding-left: 14px;
+    color: var(--ink-2);
+  }
+  td.pri { white-space: nowrap; }
+  .pill {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+  }
+  .pill.p1 { color: var(--p1); }
+  .pill.p2 { color: var(--p2); }
+  .pill.p3 { color: var(--p3); }
+  .pill.p4 { color: var(--p4); }
+  td.area {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  tbody td.what { color: var(--ink); }
+  tbody td.what b { font-weight: 600; }
+
+  /* ── three-state evidence panel ─────────────────────────────────────── */
+  .evidence {
+    display: grid;
+    gap: 1px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .ev {
+    background: var(--paper-2);
+    padding: 17px 18px 20px;
+  }
+  .ev h3 {
+    font-size: 15px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .ev h3 .tick {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .ev .def {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule-soft);
+    padding-bottom: 10px;
+    margin-bottom: 11px;
+  }
+  .ev ul { margin: 0; padding-left: 17px; }
+  .ev li { margin-bottom: 7px; font-size: 13.5px; color: var(--ink-2); }
+  .ev li b { color: var(--ink); font-weight: 600; }
+  .ev-measured h3 .tick { color: var(--pass); }
+  .ev-read h3 .tick { color: var(--p2); }
+  .ev-untested h3 .tick { color: var(--p1); }
+
+  /* ── ordered remediation (a real sequence, hence numbered) ──────────── */
+  .batches { list-style: none; counter-reset: b; margin: 0; padding: 0; }
+  .batches > li {
+    counter-increment: b;
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 0 18px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .batches > li::before {
+    content: counter(b, decimal-leading-zero);
+    font-family: "Archivo Narrow", "Arial Narrow", sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .batches h3 { font-size: 17px; margin-bottom: 4px; }
+  .batches p { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 72ch; }
+  .batches .cost {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    display: block;
+    margin-top: 7px;
+  }
+
+  /* ── blocked ────────────────────────────────────────────────────────── */
+  .blocked {
+    border: 1px solid var(--p1);
+    background: var(--paper-2);
+    padding: 20px 22px 22px;
+  }
+  .blocked h2 { border: 0; font-size: 19px; padding: 0; margin-bottom: 4px; }
+  .blocked ol { margin: 14px 0 0; padding-left: 20px; }
+  .blocked li { margin-bottom: 11px; color: var(--ink-2); }
+  .blocked li b { color: var(--ink); }
+  .blocked li:first-child { color: var(--ink); }
+
+  /* ── document index ─────────────────────────────────────────────────── */
+  .docs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .docs li {
+    border-left: 2px solid var(--accent);
+    padding: 3px 0 4px 12px;
+  }
+  .docs .fn {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    display: block;
+    color: var(--ink);
+  }
+  .docs .gist { font-size: 12.5px; color: var(--ink-3); }
+
+  .closing {
+    margin-top: 48px;
+    border-top: 2px solid var(--ink);
+    padding-top: 22px;
+  }
+  .closing p {
+    max-width: 66ch;
+    color: var(--ink-2);
+    font-size: 15.5px;
+  }
+  .closing p b { color: var(--ink); font-weight: 600; }
+  .closing .kicker {
+    font-family: "Archivo Narrow", "Arial Narrow", sans-serif;
+    font-size: clamp(20px, 3.2vw, 27px);
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.18;
+    max-width: 30ch;
+    margin-bottom: 16px;
+    text-wrap: balance;
+  }
+
+  footer {
+    margin-top: 42px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+  }
+
+  @media (max-width: 720px) {
+    .titleblock { grid-template-columns: 1fr; }
+    .tb-main { border-right: 0; border-bottom: 1px solid var(--rule); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="sheet">
+
+  <div class="titleblock">
+    <div class="tb-main">
+      <span class="eyebrow">Enterprise security &amp; functionality audit</span>
+      <h1>Nine of ten controls hold.<br>The risk is what silently does nothing.</h1>
+      <p>Eleven phases against the live platform. Every figure below came from a
+      request, a query, or a production log line — not from reading the source.</p>
+    </div>
+    <div>
+      <dl class="fields">
+        <dt>Subject</dt><dd>Black Phoenix Builds</dd>
+        <dt>Project</dt><dd>plzsvzwwcdopnawtiwzm</dd>
+        <dt>Dated</dt><dd>2026-11-19</dd>
+        <dt>Findings</dt><dd>26 numbered</dd>
+        <dt>Sheets</dt><dd>12 documents</dd>
+        <dt>Retested</dt><dd>2026-11-19</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="cell">
+      <span class="eyebrow">Tables with RLS</span>
+      <span class="fig good">39 / 39</span>
+      <span class="note">Denial proven at GRANT level against two identities</span>
+    </div>
+    <div class="cell">
+      <span class="eyebrow">Auth wall, 24h</span>
+      <span class="fig good">1,304</span>
+      <span class="note">Refusals in production. Zero say <code>would-block</code> — it is enforcing</span>
+    </div>
+    <div class="cell">
+      <span class="eyebrow">Secrets in the bundle</span>
+      <span class="fig good">0</span>
+      <span class="note">4 JWT literals, every one decoding to <code>role: anon</code></span>
+    </div>
+    <div class="cell">
+      <span class="eyebrow">IDOR-class routes</span>
+      <span class="fig good">20 → 0</span>
+      <span class="note">Caller resolved then never compared. 25 leads still to read</span>
+    </div>
+    <div class="cell">
+      <span class="eyebrow">Tables queried that<br>never existed</span>
+      <span class="fig warn">11</span>
+      <span class="note">Across 45 call sites. Fails closed; renders empty</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>The one failure mode</h2>
+    <p class="sub">Nearly every finding across all twelve documents is the same
+    shape: <b>a failure that returns a success-shaped answer.</b> A table that
+    never existed, queried by a client that discards the error. An RPC that
+    never existed, so a dead feature merely looks unused. A permission denial
+    that returns an empty list, indistinguishable from an empty result. A toast
+    that says “Saved” because nothing checked the response. A dependency audit
+    that returned <code>{}</code> because the tool could not read the lockfile —
+    which is the one that caught the auditor.</p>
+    <p class="sub">That is why the method had three rules: a control is not
+    verified until a request proves it; probe as an outsider, not as the author;
+    and <b>an absence is not a presence.</b></p>
+  </section>
+
+  <section>
+    <h2>Findings register</h2>
+    <p class="sub">Severity ordered. All four P1s are the application telling an
+    operator something untrue — which is why they come first, ahead of larger
+    but merely incomplete work.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Pri</th><th>Area</th><th>Finding</th></tr>
+        </thead>
+        <tbody>
+          <tr class="sev-p1"><td class="id">W-3</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>“Member added successfully” adds nobody.</b> The employee is never onboarded and nobody finds out until it matters.</td></tr>
+          <tr class="sev-p1"><td class="id">W-1</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>The job delete button cannot ever work.</b> Not misconfigured — there is no path by which it could succeed.</td></tr>
+          <tr class="sev-p1"><td class="id">W-2</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>The job page seeds invented financial data</b> into the browser, where it reads as real figures.</td></tr>
+          <tr class="sev-p1"><td class="id">I-1</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">incomplete</td><td class="what"><b>The alerts panel invents alerts when there are none.</b> The platform’s only alerting surface manufactures its own content, which makes every alert on it unverifiable.</td></tr>
+
+          <tr class="sev-p2"><td class="id">L-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">logging</td><td class="what"><b>A permission denial leaves no trace.</b> A customer can probe thirty admin routes, be refused thirty times, and leave no record anywhere.</td></tr>
+          <tr class="sev-p2"><td class="id">D-2</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">database</td><td class="what"><b>Company switching is permanently denied</b> — its validation RPC does not exist — and the denial is logged to the browser of the person denied.</td></tr>
+          <tr class="sev-p2"><td class="id">A-2</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">api</td><td class="what"><b>Enabling the origin lock stops the nightly storage backup.</b> The cron arrives without the shared header; the flag would fail it silently on night one.</td></tr>
+          <tr class="sev-p2"><td class="id">D-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">database</td><td class="what"><b>The browser queries eleven tables that do not exist</b> across 45 call sites. <code>supabase-js</code> resolves with an error object the callers discard.</td></tr>
+          <tr class="sev-p2"><td class="id">L-3</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">logging</td><td class="what">The only alerting surface fabricates alerts. The same defect as I-1, from the logging side.</td></tr>
+          <tr class="sev-p2"><td class="id">S-3</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">secrets</td><td class="what">35 history-only fingerprints, each annotated. <b>One GitHub PAT was reported deleted — deleted is not revoked.</b></td></tr>
+          <tr class="sev-p2"><td class="id">S-2</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">secrets</td><td class="what">The strong secret scanner only runs in CI, <b>after the push</b> — and after a push, only rotation helps.</td></tr>
+          <tr class="sev-p2"><td class="id">DEP-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">deps</td><td class="what"><b>The deployed server’s framework version is undeclared.</b> 90 bare <code>npm:hono</code> imports, so no advisory about it can be answered either way.</td></tr>
+          <tr class="sev-p2"><td class="id">AI-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">ai agent</td><td class="what">Prompt-injection mitigation is sound in structure and <b>never proven</b>. No test submits a hostile payload and asserts the output is unchanged.</td></tr>
+          <tr class="sev-p2"><td class="id">AI-3</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">ai agent</td><td class="what">Nine cron jobs run autonomously with no coverage here — <code>on-call-escalation</code> every minute, <code>autopilot-tick</code> every fifteen.</td></tr>
+          <tr class="sev-p2"><td class="id">F-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">functionality</td><td class="what">The header shows the wrong account.</td></tr>
+          <tr class="sev-p2"><td class="id">I-2</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">incomplete</td><td class="what">Invented people rendered as real records.</td></tr>
+          <tr class="sev-p2"><td class="id">W-4</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">workflows</td><td class="what">“Reward payment processed” — announced, not performed.</td></tr>
+
+          <tr class="sev-p3"><td class="id">A-1</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">api</td><td class="what"><b>The client fires ~1,300 unauthenticated requests a day.</b> The user sees a blank dashboard, and it poisons the abuse signal — which is why <code>presentedCredential</code> had to exist at all.</td></tr>
+          <tr class="sev-p3"><td class="id">D-3</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">database</td><td class="what">Nine <code>SECURITY DEFINER</code> functions are callable by <code>anon</code>. Measured: they return nothing without a session. Surface, not a hole.</td></tr>
+          <tr class="sev-p3"><td class="id">L-2</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">logging</td><td class="what">No retention or deletion policy on the log tables.</td></tr>
+          <tr class="sev-p3"><td class="id">L-4</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">logging</td><td class="what">The role-change trail has never been exercised.</td></tr>
+          <tr class="sev-p3"><td class="id">A-3</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">api</td><td class="what">IP reputation has never fired in anger — zero lines in 24h. Correct and idle, which is also no evidence enforcement is safe.</td></tr>
+          <tr class="sev-p3"><td class="id">AI-2</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">ai agent</td><td class="what"><code>aiSpend</code> budgets are cumulative and never reset. Worth knowing before reusing it for anything anonymous.</td></tr>
+          <tr class="sev-p3"><td class="id">I-3</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">incomplete</td><td class="what">Dev tooling shipped to production.</td></tr>
+          <tr class="sev-p3"><td class="id">F-2</td><td class="pri"><span class="pill p3">P3</span></td><td class="area">functionality</td><td class="what">The company name is clipped on the landing page.</td></tr>
+
+          <tr class="sev-p4"><td class="id">S-1</td><td class="pri"><span class="pill p4">P4</span></td><td class="area">secrets</td><td class="what">The publishable key is pasted in four places. Harmless today, a rotation hazard tomorrow.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Evidence, by what kind it is</h2>
+    <p class="sub">The brief was explicit: never count an untested item as
+    passing. These three columns are that rule made visible — and the third one
+    is the reason this audit does not claim full coverage.</p>
+    <div class="evidence">
+      <div class="ev ev-measured">
+        <h3>Measured <span class="tick">a request proved it</span></h3>
+        <p class="def">A probe, a query, or a production log line.</p>
+        <ul>
+          <li><b>14 pass / 1 fail / 3 skip</b> — credential-free production probe, re-run today</li>
+          <li><b>1,304</b> auth-wall refusals in 24h, none report-only</li>
+          <li><b>20× 403, 6× 404</b> of 27 guarded routes probed as a real non-staff customer</li>
+          <li><b>permission denied (42501)</b> on the KV store for both anon and a signed-in customer</li>
+          <li><b>4,111 tests pass</b>, 0 fail</li>
+          <li><b>Cart IDOR: 200 → 404</b>, before and after</li>
+          <li><b>5 advisories</b> in prod deps — 1 low, 4 moderate, 0 high</li>
+        </ul>
+      </div>
+      <div class="ev ev-read">
+        <h3>Read only <span class="tick">source, not behaviour</span></h3>
+        <p class="def">Intent established. Behaviour inferred.</p>
+        <ul>
+          <li>The <b>orders-by-email deny branch</b> — it returns an empty list, so from outside it is indistinguishable from an empty history. Only the code shows the comparison happens.</li>
+          <li><code>outboundGuard.ts</code> gates outbound fetches — <b>not probed</b> (OWASP A10)</li>
+          <li>Nine <code>SECURITY DEFINER</code> functions reasoned about, then spot-checked anonymously</li>
+        </ul>
+      </div>
+      <div class="ev ev-untested">
+        <h3>Untested <span class="tick">recorded as a gap</span></h3>
+        <p class="def">Not a pass. Named so it cannot be mistaken for one.</p>
+        <ul>
+          <li><b>The WAF’s own rules.</b> Every probe here bypassed Cloudflare by design, so nothing in this audit verifies it</li>
+          <li><b>Cross-tenant isolation between two staff accounts</b> at different companies</li>
+          <li><b>Restoring</b> from the nightly storage backup. The job runs; a restore has never been attempted</li>
+          <li>Load behaviour, and the public POST paths that have no limiter and do write records</li>
+          <li>Payment flows</li>
+          <li>Nine autonomous cron jobs</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Order of work</h2>
+    <p class="sub">Numbered because it is a real sequence: batch 2 is the
+    prerequisite for verifying any of the rest, and batch 3 has a wrong order of
+    operations baked into it today.</p>
+    <ol class="batches">
+      <li>
+        <div>
+          <h3>Stop the application lying</h3>
+          <p>All four P1s. Every one is a deletion or a one-line rewire: the
+          member-added toast, the delete button that cannot work, the invented
+          financial seed, the self-manufacturing alerts panel.</p>
+          <span class="cost">~half a day · W-3, W-1, W-2, I-1, L-3</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Make denials visible</h3>
+          <p>One <code>console.warn</code> in the staff guard, the same on the
+          silent deny branch, and a server-side home for the security event log.
+          Until this lands, no fix in this plan can be confirmed to be holding
+          in production.</p>
+          <span class="cost">~3 hours · L-1, D-2</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Header the backup cron, then enforce the origin lock</h3>
+          <p>In that order. Reversed, the cron keeps firing, the function keeps
+          answering 403, and the backups stop with no error anywhere. Add a
+          restore drill while you are here — a backup nobody has restored from
+          is a hypothesis.</p>
+          <span class="cost">~3 hours · A-2</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Classify the eleven tables that never existed</h3>
+          <p>Nothing deleted automatically. Complete the stakeholder and portals
+          features or disable them; likely remove the four that duplicate what
+          KV and <code>app_metadata</code> already hold; and <b>complete
+          <code>security_audit_log</code></b>, because it is the one on the list
+          that is a security control.</p>
+          <span class="cost">1–3 days · D-1</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Triage the scanner output</h3>
+          <p>44 handlers that are only a message, 85 that claim success without
+          reaching the server, 188 controls with no handler, 25 authorization
+          leads. <b>This is scanner output, not a defect list</b> — treating it
+          as findings would be the brief’s warning in the other direction.</p>
+          <span class="cost">~4 days · triage before fixing</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Harden</h3>
+          <p>Gate the panel fetches on a session (highest-value P3, and it must
+          precede enabling IP reputation or the dashboard bans its own operator).
+          Pin one Hono and one <code>supabase-js</code> version. Revoke
+          <code>anon</code> execute. Retention policy.</p>
+          <span class="cost">~1 day · A-1, DEP-1, D-3, L-2, A-3, S-1, F-2, I-3, L-4, AI-2</span>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="blocked">
+      <span class="eyebrow">Waiting on the owner</span>
+      <h2>Four decisions that are not mine</h2>
+      <p class="sub" style="margin-bottom:0">Three of these block <em>verification</em>
+      rather than fixes.</p>
+      <ol>
+        <li><b>Was the GitHub PAT revoked, or only deleted?</b> It was reported
+        deleted on Tuesday. This is the only finding in the audit where a
+        credential may still be live, and it needs one yes or no.</li>
+        <li><b>Test accounts, one per role.</b> Cross-tenant isolation between
+        two staff accounts at different companies is the largest untested area
+        in the security audit; it cannot be probed with one customer token.</li>
+        <li><b>One hostile prompt-injection payload.</b> Designed and unsent.
+        The fencing looks sound and the blast radius is bounded by server-side
+        pricing, but nothing proves it.</li>
+        <li><b>A staging environment.</b> Load and payment testing were skipped
+        because production is the only environment, and the public application
+        forms write real records.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <h2>The twelve sheets</h2>
+    <p class="sub">All committed under <code>docs/audit-2026-11/</code>.</p>
+    <ul class="docs">
+      <li><span class="fn">APPLICATION_INVENTORY.md</span><span class="gist">Every route, screen and job, enumerated first</span></li>
+      <li><span class="fn">SECURITY_AUDIT_REPORT.md</span><span class="gist">Identity, roles, secrets, and the OWASP mapping</span></li>
+      <li><span class="fn">API_SECURITY_AUDIT.md</span><span class="gist">The wall, the three staged defences, the probe</span></li>
+      <li><span class="fn">DATABASE_RLS_AUDIT.md</span><span class="gist">39 tables, two correct shapes, eleven absent ones</span></li>
+      <li><span class="fn">AI_AGENT_SECURITY_AUDIT.md</span><span class="gist">Closed action registry, asymmetric kill switch</span></li>
+      <li><span class="fn">AUDIT_LOGGING_REPORT.md</span><span class="gist">What is recorded, and the denial that is not</span></li>
+      <li><span class="fn">FUNCTIONALITY_AUDIT_REPORT.md</span><span class="gist">Every screen walked</span></li>
+      <li><span class="fn">BROKEN_BUTTONS_REPORT.md</span><span class="gist">188 no-handler, 44 message-only, 85 fake-success</span></li>
+      <li><span class="fn">DEAD_END_WORKFLOWS_REPORT.md</span><span class="gist">Journeys that cannot complete</span></li>
+      <li><span class="fn">INCOMPLETE_IMPLEMENTATIONS.md</span><span class="gist">Classified, not deleted</span></li>
+      <li><span class="fn">REMEDIATION_PLAN.md</span><span class="gist">The six batches above, costed</span></li>
+      <li><span class="fn">FINAL_VERIFICATION_REPORT.md</span><span class="gist">Today’s retest, including the audit’s own mistake</span></li>
+    </ul>
+  </section>
+
+  <div class="closing">
+    <p class="kicker">The deliberate security work holds up to measurement. The
+    risk sits where something quietly does nothing.</p>
+    <p>RLS on 39 of 39 tables, with denial proven at the GRANT level against two
+    separate identities. No secret in the browser bundle, confirmed twice by
+    different methods. Authority read from <code>app_metadata</code> — the bag
+    an account cannot write for itself — after eleven checks were found reading
+    the one it can. The auth wall enforcing in production. A closed action
+    registry for the AI agent with a real, asymmetric kill switch.</p>
+    <p><b>Against that: four P1 findings, every one of them the application
+    telling an operator something untrue.</b> Half a day clears all four, and
+    that is where the plan starts.</p>
+  </div>
+
+  <footer>
+    <span>Black Phoenix Builds · platform audit</span>
+    <span class="mono">26 findings · 12 documents · 11 phases</span>
+    <span class="mono">Retested 2026-11-19</span>
+  </footer>
+
+</div>
