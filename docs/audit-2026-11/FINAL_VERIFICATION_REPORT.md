@@ -178,16 +178,15 @@ manual probing was less disciplined, so here is the full account:
 
 | Residue | State |
 |---|---|
-| `kv_store_57095a78` → `user_profile:authz-probe-1794947626875@…` | orphaned row, named *"Authz Probe (delete me)"* |
-| `kv_store_57095a78` → `user_profile:authz-smstest-1795034044436@…` | orphaned row, named *"SMS guard probe (delete me)"* |
-| The two matching `auth.users` accounts | **already gone** |
+| `kv_store_57095a78` → `user_profile:authz-probe-1794947626875@…` | **deleted 2026-11-19** |
+| `kv_store_57095a78` → `user_profile:authz-smstest-1795034044436@…` | **deleted 2026-11-19** |
+| The two matching `auth.users` accounts | already gone |
 | `security_audit_log` → one `deploy_verification_probe` row | kept deliberately: it is the evidence that `D-2` works, and its `detail` says so |
 | 31 of the 32 `[originlock] would-block` lines in the 24h window | this audit, probing the function directly. Worth knowing before anyone reads that figure as bypass traffic |
 
-The two KV rows are two rows and harmless, and they should still go — they are
-labelled "delete me" by the thing that made them. **Not deleted without
-asking**, because deleting production data on my own initiative is exactly what
-the brief forbids, even when the data is mine.
+The two KV rows were deleted on the owner's say-so. They were asked about
+first rather than quietly tidied, because deleting production data on my own
+initiative is exactly what the brief forbids — even when the data is mine.
 
 Their auth accounts being gone is also why `L-1` could not be verified: the
 token that would have produced a credentialed refusal belonged to one of them.

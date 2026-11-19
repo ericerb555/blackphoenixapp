@@ -216,7 +216,50 @@ downloads, no writes. It also corrected this audit's claim that the job had
 The bytes are provably there; the procedure is not. ~2h for a restore script
 with a `--dry-run`.
 
-### Batch 4 — The eleven tables that never existed — 📋 CLASSIFIED 2026-11-19, awaiting decisions
+### Batch 4 — The eleven tables that never existed — ✅ DONE 2026-11-19
+
+**Decisions taken by the owner: 50 miles for the service radius, "fix them"
+for the rest.** Eleven became six. What was done to each group is recorded
+under its heading below; `supabase/known-tables.json` carries the same answers
+next to the names, so the list cannot drift from the code.
+
+**Group 3 is verified end to end**, and it needed two fixes rather than one.
+The route returned the right address and the check would *still* never have
+run, because the company's `address_line2` is `Ste 3 PMB 9039` and Nominatim
+answers an empty array for it:
+
+```
+"50A Northwestern Drive, Ste 3 PMB 9039, Salem, NH, 03079"  →  []
+"50A Northwestern Drive, Salem, NH, 03079"  →  42.7791658, -71.2631078
+```
+
+A suite or mailbox number never helps a geocoder find a building and reliably
+stops it. With line 2 dropped, measured against the live route using the same
+haversine the form uses:
+
+| Job site | Distance | Result |
+|---|---:|---|
+| 100 Main Street, Nashua NH | 10.3 mi | in range, no warning |
+| 1600 Pennsylvania Ave NW, Washington DC | 403.6 mi | **out of range, warning shown** |
+
+That is the first time that warning has ever been capable of appearing.
+
+**Group 2** now renders `<FeatureNotBuilt />` on `/portal-management` and on
+the three stakeholder tabs of `/reports`. All 2,700 lines of the components are
+intact in the tree; it is a three-line revert each. Taking the portal screen
+off also removed its delete button, which announced *"Portal deleted
+successfully"* against a table that does not exist.
+
+**Group 1** removed: `userService.ts` (489 lines, zero importers),
+`companyScope`'s two uncalled functions — its type exports stay, since
+`AuthContext` uses them — and the three uncalled document methods. Each left a
+note explaining why completing it would have been the wrong answer.
+
+**Two of this repo's own guards caught me while doing it**, and both earned
+their keep: the test that every queried table exists flagged
+`security_audit_log` before I had registered it, and the test that nothing
+lingers on `knownMissing` once the front end stops querying it flagged all five
+I had just removed.
 
 | | Finding | Decision needed | Effort |
 |---|---|---|---|
