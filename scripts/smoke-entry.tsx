@@ -119,6 +119,29 @@ interface MobileFindings {
  * So this answers "does this page FIT and do its controls WORK at 390px",
  * which is the half that can be answered honestly for all 376 pages at once.
  */
+/**
+ * Does anything above this element refuse to show what spills out of it?
+ *
+ * `hidden` and `clip` contain as firmly as `auto` and `scroll`: an element
+ * cannot drag the page sideways if an ancestor will not reveal the overflow.
+ *
+ * STOPS BELOW `body`, and that is the difference between a useful report and
+ * a blank one. `globals.css` sets `html, body { overflow-x: clip }` under
+ * 640px as a safety net, so a walk that reaches that far finds EVERY element
+ * on EVERY page contained. That net is not containment, it is damage control:
+ * it stops the sideways scroll by cutting the content off instead of making
+ * it reachable. Something only `body` contains is still a defect.
+ */
+function clippedByAnAncestor(el: HTMLElement): boolean {
+  let p: HTMLElement | null = el.parentElement;
+  while (p && p !== document.body && p !== document.documentElement) {
+    const ox = getComputedStyle(p).overflowX;
+    if (ox === 'auto' || ox === 'scroll' || ox === 'hidden' || ox === 'clip') return true;
+    p = p.parentElement;
+  }
+  return false;
+}
+
 function measure(root: HTMLElement): MobileFindings {
   const vw = 390;
   let widest = 0;
@@ -186,7 +209,21 @@ function measure(root: HTMLElement): MobileFindings {
      */
     const transformed = getComputedStyle(el).transform !== 'none';
     if (transformed) {
-      if (el.offsetWidth > vw + 1) {
+      /*
+       * CONTAINED COUNTS HERE TOO, AND NOT CHECKING IT COST 25 OF 39.
+       *
+       * This branch used to report and `continue`, so a transformed element
+       * never reached the containment walk below — the walk written for
+       * exactly this element. The advertising marquee is a list duplicated
+       * so it can scroll forever: it is transformed BECAUSE it scrolls, and
+       * it sits inside `overflow: hidden` BECAUSE it is a marquee. Both
+       * halves of what makes it fine were what made it report.
+       *
+       * It came out as "div is 5622px wide (transformed)" on 25 portal and
+       * landing pages — two thirds of every bleed finding, all one element,
+       * none of them a defect.
+       */
+      if (el.offsetWidth > vw + 1 && !clippedByAnAncestor(el)) {
         bleed++;
         if (el.offsetWidth > worstRight) {
           worstRight = el.offsetWidth;
@@ -227,14 +264,7 @@ function measure(root: HTMLElement): MobileFindings {
      * instead of reachable. Something only `body` contains is still a defect,
      * and this is the check that has to find it.
      */
-    let p: HTMLElement | null = el.parentElement;
-    let contained = false;
-    while (p && p !== document.body && p !== document.documentElement) {
-      const ox = getComputedStyle(p).overflowX;
-      if (ox === 'auto' || ox === 'scroll' || ox === 'hidden' || ox === 'clip') { contained = true; break; }
-      p = p.parentElement;
-    }
-    if (contained) continue;
+    if (clippedByAnAncestor(el)) continue;
 
     bleed++;
     if (right > worstRight) {
