@@ -2852,7 +2852,7 @@ app.get('/make-server-3eae23a6/public/service-area', async (c) => {
   try {
     const { data } = await supabase
       .from('companies')
-      .select('company_name, address_line1, address_line2, city, state, zip_code')
+      .select('company_name, address_line1, city, state, zip_code')
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -2870,7 +2870,23 @@ app.get('/make-server-3eae23a6/public/service-area', async (c) => {
       return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_MILES });
     }
 
-    const parts = [co.address_line1, co.address_line2, co.city, co.state, co.zip_code]
+    /*
+     * `address_line2` IS DELIBERATELY LEFT OUT, and this was measured.
+     *
+     * The consumer geocodes this string through Nominatim. The real value of
+     * line 2 on this company's record is "Ste 3 PMB 9039", and with it the
+     * query returns an empty array:
+     *
+     *   "50A Northwestern Drive, Ste 3 PMB 9039, Salem, NH, 03079"  -> []
+     *   "50A Northwestern Drive, Salem, NH, 03079"  -> 42.7791658, -71.2631078
+     *
+     * A suite or mailbox number never helps a geocoder find a building and
+     * reliably stops it. Including it would have left the service-area check
+     * exactly as broken as it was before this route existed — origin present,
+     * geocode empty, distance never computed, warning never shown — and the
+     * failure would have looked like a fix.
+     */
+    const parts = [co.address_line1, co.city, co.state, co.zip_code]
       .map((v: unknown) => String(v ?? '').trim())
       .filter(Boolean);
 
