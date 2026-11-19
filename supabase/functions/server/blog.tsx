@@ -108,7 +108,26 @@ blogRouter.get(`${PREFIX}/blog`, async (c) => {
 });
 
 // ── Public: one article ──────────────────────────────────────────────────────
-blogRouter.get(`${PREFIX}/blog/:id`, async (c) => {
+blogRouter.get(`${PREFIX}/blog/:id`, async (c, next) => {
+  /*
+   * `/blog/posts` is not an article id. It belongs to the blog MANAGER.
+   *
+   * This router is mounted at index.tsx:1911 and `crm-content.tsx` at 2152,
+   * so this wildcard was matching `GET /blog/posts` first and answering the
+   * manager's list request with "Not found." — 241 lines of registration
+   * order deciding it. `BlogManager.loadPosts()` then checked `json.success`,
+   * found it falsy, and rendered nothing. **The blog manager has never listed
+   * a post.**
+   *
+   * Measured rather than deduced: `/blog` answered 200, and `/blog/posts`
+   * answered the same 404 as `/blog/anything-at-all`.
+   *
+   * Falling through rather than renaming either route, because the collision
+   * is the thing worth marking, and it is marked here where it happens. Any
+   * future `/blog/<word>` collection route needs the same line.
+   */
+  if (c.req.param("id") === "posts") return next();
+
   try {
     const id = c.req.param("id");
     const article = (await publishedArticles()).find((a) => a.id === id);
