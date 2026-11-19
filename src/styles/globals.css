@@ -595,6 +595,48 @@ input::placeholder, textarea::placeholder {
   }
 }
 
+/* ── MORE ROOM FOR THE ICON ON A TOUCH DEVICE ───────────────────────
+   Eric, 2026-11-19: "the text is under the icon move it to the right".
+
+   The clearance rules above are correct and measured — at a real 386px
+   viewport the field computes padding-left: 44px, the icon ends at 45px,
+   and the text starts at 57px. On his iPhone the text still lands under
+   the icon, which means less of that padding survives there than the
+   value says.
+
+   THIS IS EMPIRICAL AND IT IS NOT A DIAGNOSIS. Four previous attempts
+   fixed four real defects and none of them was this one. What is actually
+   known is only what he reports: the text is too far left on a phone, and
+   correct on a desk. So the text goes further right on phones, and only on
+   phones.
+
+   `pointer: coarse` rather than a width, because this is about the device
+   and not the window — a narrow desktop window is not an iPhone and should
+   not change. The same keying the touch-target block below uses.
+
+   The icon sits at 12px and is 20px wide, so it ends at 32px. 3.25rem is
+   52px: twenty pixels of clearance instead of twelve. If padding is being
+   partly eaten on iOS, that margin absorbs it. If it is being ignored
+   altogether this will not help — and that is worth knowing, because it
+   would mean the next step is to stop overlaying the icon at all rather
+   than to keep adding padding.
+   ───────────────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  input.pl-8,  textarea.pl-8,
+  input.pl-9,  textarea.pl-9,
+  input.pl-10, textarea.pl-10,
+  input.pl-11, textarea.pl-11,
+  input.pl-12, textarea.pl-12 {
+    padding-left: 3.25rem;
+  }
+
+  /* And the same on the right, so a show-password eye is not sat on. */
+  input.pr-10, textarea.pr-10,
+  input.pr-12, textarea.pr-12 {
+    padding-right: 3.25rem;
+  }
+}
+
 /* ── TOUCH TARGETS ──────────────────────────────────────────────────
    Keyed to the POINTER, not the screen width: a touchscreen laptop
    needs this and a narrow desktop window does not. A mouse pointer
