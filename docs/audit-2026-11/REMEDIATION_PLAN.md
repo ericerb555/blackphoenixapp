@@ -91,21 +91,63 @@ expensive than the thing logged. The email is a local decode of an unverified
 token body. A test named *A FORGED EMAIL DECODES PERFECTLY* exists to stop a
 future reader treating that field as established identity.
 
-#### ⚠️ DEPLOY ORDER — the server must go first, and it has not
+#### My first version of this fix answered 204 and stored nothing
 
-Measured 2026-11-19 against production, after pushing: a `kind: 'security'`
-report to the live ingest route answers **204 and writes no row**. The route
-answers 204 to everything by design — it is deliberately not an oracle — so
-the status is not an acceptance. `app_error_log` took 350 rows today and none
-of them is mine.
+Worth recording in full, because it is the audit's own thesis landing on the
+auditor. I shipped batch 2, deployed it, and then checked for the row instead
+of trusting the status code. There was no row. The function log:
 
-**So until `npm run deploy:server` runs, every security event the browser sends
-is silently dropped.** The client half ships with Vercel's build on `main`;
-the server half does not ship itself. That is the same ordering hazard as `A-2`
-and the same failure shape as the rest of this audit — a success-shaped answer
-for something that did not happen — and this one would have been of my own
-making. Deploy the server, then confirm a row appears with
-`kind = 'security'`.
+```
+[app-errors] could not record a security event: new row for relation
+"app_error_log" violates check constraint "app_error_log_kind_known"
+```
+
+`app_error_log` carries a deliberate `CHECK` naming the four kinds it accepts,
+and it is read as "what is broken" through `app_error_groups`. **The
+constraint was right** — a tenant-boundary refusal is not a bug report. Every
+security event was being answered 204 and dropped, which is the exact failure
+shape these documents catalogue, and it was visible only because the row count
+is the test and the 204 is not.
+
+So `security_audit_log` now exists — the table the code has named since before
+it existed, and one of `D-1`'s eleven. **Verified after creating it:** RLS on,
+zero policies, and no `SELECT` or `INSERT` grant to `anon` or `authenticated`,
+so denial is at the GRANT level exactly as on `ai_call_log` and
+`app_error_log`. The subject of a record cannot read, alter or delete it.
+
+Two deliberate schema choices: `company_id` is text and **not** a foreign key,
+because a record of an attempt on a company must survive that company being
+deleted and a cascade would erase precisely the evidence worth keeping; and
+there is a partial index on `(event_type, at desc) where outcome = 'denied'`,
+because "who has been refused, and how often" is the question the table is for.
+
+#### Verified / not verified, after deploying
+
+| | Status |
+|---|---|
+| **D-2** — security events reach a server | **Verified.** A probe row landed in `security_audit_log` with `company_id`, `outcome` and `detail` intact, and `actor_email` null — correct, since the probe carried the anon key and so had no session to attribute |
+| **L-1** — the central denial logger | **Deployed, NOT verified.** The marker is in the uploaded bundle; no `[authz] DENIED` line has yet been produced |
+
+**Why L-1 cannot be proven from here.** The logger fires on a 401/403 where a
+credential was presented, and the anon key deliberately does not count as one.
+Trying a malformed bearer instead does not reach the application at all:
+
+```
+GET /health   Authorization: Bearer this.is.not-a-real-token
+→ 401 {"code":"UNAUTHORIZED_INVALID_JWT_FORMAT","message":"Invalid JWT"}
+```
+
+That is the Supabase platform gateway, not this function — `/health` otherwise
+answers 200. So a credentialed refusal can only be produced by a **genuinely
+valid session token belonging to a real account that a route then refuses**,
+which is test account #2 on the list below. Until that exists, this control is
+written, shipped, and unproven — and by this audit's own first rule, unproven
+is not working.
+
+A useful by-product: because the gateway rejects anything that is not a
+well-formed signed JWT, the `'unreadable-token'` branch of the log line is
+effectively unreachable in production. It stays as a guard rather than an
+expectation.
 
 ### Batch 3 — The thing that will break if nobody touches it (P2)
 
@@ -189,7 +231,10 @@ These are blocking, and three of them block *verification*, not fixes:
    still be live, and it needs one yes or no.**
 2. **Test accounts, one per role.** Cross-tenant isolation between two staff
    accounts at different companies is the single largest untested area in the
-   security audit. It cannot be probed with one customer token.
+   security audit. It cannot be probed with one customer token. **This now also
+   blocks verifying `L-1`**, the denial logger shipped in batch 2: producing a
+   credentialed refusal needs a valid signed session token, and the platform
+   gateway rejects anything short of one before the function sees it.
 3. **One hostile prompt-injection payload (`AI-1`).** Designed, unsent. The
    fencing looks sound and the blast radius is bounded by server-side pricing,
    but nothing proves it.
