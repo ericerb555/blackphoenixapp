@@ -40,7 +40,11 @@ export const CRM_CONTACTS_KEY = 'crm_contacts:default';
 
 /** What a caller knows about the person who just arrived. */
 export interface ArrivingPerson {
-  email: string;
+  /**
+   * Optional, because the junk-removal pricer collects a phone and leaves the
+   * email blank. One of the two is required — see `contactKeyOf`.
+   */
+  email?: string;
   name?: string;
   firstName?: string;
   lastName?: string;
@@ -64,6 +68,41 @@ const clean = (value: unknown): string => String(value ?? '').trim();
 /** Lower-cased and trimmed, which is how every lookup compares an email. */
 export function normaliseEmail(value: unknown): string {
   return clean(value).toLowerCase();
+}
+
+/**
+ * A phone reduced to its digits, so formatting cannot split one person in two.
+ *
+ * "(603) 555-0188", "603-555-0188" and "6035550188" are one number, and a
+ * CRM that files them as three people is worse than no CRM.
+ *
+ * A number longer than ten digits is compared by its LAST ten, so
+ * "+1 603 555 0188" matches "603-555-0188". A shorter one is left exactly as
+ * it is rather than padded: inventing an area code is how two different
+ * people get merged into one contact, and that is the unrecoverable
+ * direction.
+ */
+export function phoneDigits(value: unknown): string {
+  const digits = clean(value).replace(/[^0-9]+/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+/**
+ * What identifies this person, for matching against the contacts on file.
+ *
+ * Email where there is one. The junk-removal pricer is why there is a
+ * fallback: it requires a PHONE and leaves email optional, on the reasoning
+ * that *"an email with no name is a lead nobody knows how to greet; a name
+ * and a number is a phone call"*. Those leads belong in the CRM, and
+ * refusing them for want of an email would keep out the one arrival route
+ * built for somebody standing in a basement holding a phone.
+ */
+export function contactKeyOf(person: { email?: string; phone?: string }): { kind: 'email' | 'phone'; value: string } | null {
+  const email = normaliseEmail(person?.email);
+  if (email) return { kind: 'email', value: email };
+  const phone = phoneDigits(person?.phone);
+  if (phone) return { kind: 'phone', value: phone };
+  return null;
 }
 
 /**
@@ -104,7 +143,10 @@ export function nameOf(person: ArrivingPerson): string {
  */
 export function crmContactFrom(person: ArrivingPerson, now = new Date().toISOString()): Record<string, unknown> {
   const email = normaliseEmail(person.email);
-  const out: Record<string, unknown> = { email, updatedAt: now };
+  const out: Record<string, unknown> = { updatedAt: now };
+  /* Only written when there is one — a phone-only lead has no email at all,
+     and storing '' would make it look like a cleared field. */
+  if (email) out.email = email;
 
   const name = nameOf(person);
   if (name) out.name = name;
@@ -164,9 +206,10 @@ export function mergeCrmContact(
 /**
  * Put somebody into the CRM, creating or updating their one contact.
  *
- * The array is read, matched on email, and written back — matching how every
- * other writer of this key behaves. Returns what was stored and whether it
- * was new, so a caller can log something true.
+ * The array is read, matched on whatever identifies them, and written back —
+ * matching how every other writer of this key behaves. Returns what was
+ * stored and whether it was new, so a caller can log something true rather
+ * than something hopeful, which is the bug this module was written for.
  *
  * `store` is the kv module, passed in rather than imported, so this can be
  * tested without a database and so a caller cannot accidentally point it at
@@ -177,11 +220,20 @@ export async function upsertCrmContact(
   person: ArrivingPerson,
   now = new Date().toISOString(),
 ): Promise<{ created: boolean; contact: Record<string, unknown> }> {
-  const email = normaliseEmail(person.email);
-  if (!email) throw new Error('a CRM contact needs an email');
+  const key = contactKeyOf(person);
+  if (!key) throw new Error('a CRM contact needs an email or a phone number');
 
   const contacts = ((await store.get(CRM_CONTACTS_KEY)) as Record<string, unknown>[]) || [];
-  const index = contacts.findIndex((c) => normaliseEmail(c?.email) === email);
+  /*
+   * Matched on the same thing that identified them. A phone-only arrival is
+   * compared by number; once they give an email, that becomes the key and
+   * the phone match is what joins the two arrivals into one contact.
+   */
+  const index = contacts.findIndex((c) => (
+    key.kind === 'email'
+      ? normaliseEmail(c?.email) === key.value
+      : phoneDigits(c?.phone) === key.value && !normaliseEmail(c?.email)
+  ));
   const contact = mergeCrmContact(index >= 0 ? contacts[index] : undefined, person, now);
 
   if (index >= 0) contacts[index] = contact;
@@ -189,4 +241,34 @@ export async function upsertCrmContact(
 
   await store.set(CRM_CONTACTS_KEY, contacts);
   return { created: index < 0, contact };
+}
+
+/**
+ * Put somebody into the CRM, and never let that failure lose the arrival.
+ *
+ * Every caller of this is somewhere a person has just been created — an
+ * account, a portal grant, an estimate they want ringing back about. That
+ * record is the durable part and is already written by the time this runs.
+ * A CRM array that cannot be read or written must not turn a successful
+ * signup into a failed one: somebody being told their registration failed,
+ * with a working account sitting there, is the worse bug.
+ *
+ * It logs what ACTUALLY happened. That is the part that was missing — the
+ * old signup path logged the CRM write unconditionally, and there was no
+ * CRM write, so the one place a human might have noticed said it was fine.
+ */
+export async function putIntoCrmSafely(
+  store: { get: (key: string) => Promise<unknown>; set: (key: string, value: unknown) => Promise<unknown> },
+  person: ArrivingPerson,
+  now = new Date().toISOString(),
+): Promise<{ created: boolean; contact: Record<string, unknown> } | null> {
+  const who = normaliseEmail(person?.email) || phoneDigits(person?.phone) || '(nobody)';
+  try {
+    const result = await upsertCrmContact(store, person, now);
+    console.log(`[CRM] ${result.created ? 'added' : 'updated'} contact for ${who} from ${person.source || 'crm'}`);
+    return result;
+  } catch (err: any) {
+    console.error(`[CRM] could not write the contact for ${who}: ${err?.message || err}`);
+    return null;
+  }
 }

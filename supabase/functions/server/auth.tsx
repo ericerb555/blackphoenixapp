@@ -7,7 +7,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { linkInvoicesByEmail } from "./invoice-linking.tsx";
-import { upsertCrmContact } from "./crmContacts.ts";
+import { putIntoCrmSafely } from "./crmContacts.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 const authRouter = new Hono();
@@ -111,23 +111,18 @@ function afterResponse(work: Promise<unknown>, label: string): void {
 async function putIntoCrm(
   email: string, fullName: string, params: any, customer: any,
 ): Promise<void> {
-  try {
-    const { created } = await upsertCrmContact(kv, {
-      email,
-      name: fullName,
-      firstName: customer?.first_name,
-      lastName: customer?.last_name,
-      phone: params?.phone || customer?.phone || "",
-      type: "customer",
-      source: "signup",
-      tags: ["signup"],
-      userId: params?.userId || null,
-      extra: { customer_number: customer?.customer_number },
-    });
-    console.log(`✅ [CRM] ${created ? "added" : "updated"} contact for ${email}`);
-  } catch (err: any) {
-    console.error(`[CRM] could not write the contact for ${email}: ${err?.message || err}`);
-  }
+  await putIntoCrmSafely(kv, {
+    email,
+    name: fullName,
+    firstName: customer?.first_name,
+    lastName: customer?.last_name,
+    phone: params?.phone || customer?.phone || "",
+    type: "customer",
+    source: "signup",
+    tags: ["signup"],
+    userId: params?.userId || null,
+    extra: { customer_number: customer?.customer_number },
+  });
 }
 
 async function ensureCrmCustomer(params: {

@@ -34,11 +34,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { readWorkRequests, workRequestBelongsTo } from "./workRequestStore.ts";
 import { trustedRole } from "./trustedRole.ts";
+import { CRM_CONTACTS_KEY } from "./crmContacts.ts";
 
 const app = new Hono();
 
 const BUCKET = "make-3eae23a6-project-files";
-const CRM_CONTACTS_KEY = "crm_contacts:default";
 
 /** Same set the intake routes treat as internal staff. */
 const STAFF_ROLES = new Set([

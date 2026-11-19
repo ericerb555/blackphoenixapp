@@ -65,6 +65,7 @@ import {
 import { trustedRole } from "./trustedRole.ts";
 import { availabilityOn } from "./availability.ts";
 import { readAnonContact, anonConfirmKey, ANON_CONFIRM_PER_IP_DAILY } from "./anonContact.ts";
+import { putIntoCrmSafely } from "./crmContacts.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 /** Whole dollars, for a subject line somebody reads on a phone. */
@@ -1162,6 +1163,33 @@ trashEstimatorRouter.post("/confirm-anonymous", async (c: any) => {
   };
   await kv.set(`estimate:${id}`, updated);
   await kv.set(dayKey, used + 1);
+
+  /*
+   * INTO THE CRM AS A LEAD — WHICH IS WHAT THIS FLOW PRODUCES.
+   *
+   * Somebody priced a job without signing up and asked us to ring them
+   * back. That is a lead, and the office rings these; leaving them out of
+   * the CRM means the one arrival route built for a person standing in a
+   * basement holding a phone is the one route that reaches nobody.
+   *
+   * Keyed on the PHONE, because this flow requires a number and leaves the
+   * email optional. `crmContacts.contactKeyOf` is built for exactly this.
+   *
+   * Tagged `unverified-contact`, and deliberately so. Nothing here has been
+   * confirmed — the note above explains why the address is not written to
+   * `customerEmail`, since an unverified one would let anybody claim an
+   * estimate. The same caution applies in the CRM: the contact is worth
+   * ringing and is not yet proof of who they are.
+   */
+  await putIntoCrmSafely(kv, {
+    email: contact.email,
+    name: contact.name,
+    phone: contact.phone,
+    type: 'customer',
+    source: 'junk-estimate',
+    tags: ['junk-estimate', 'unverified-contact'],
+    extra: { estimateId: id },
+  });
 
   try {
     const alerts = (await kv.get("admin_alerts") as any[]) || [];
