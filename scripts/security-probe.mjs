@@ -74,7 +74,38 @@ function loadTarget() {
     projectId,
     anonKey,
     api: `https://${projectId}.supabase.co`,
+    /**
+     * The origin, reached directly. Only WAF-1 and the report post should use
+     * this — see `fnPublic`.
+     */
     fn: `https://${projectId}.supabase.co/functions/v1/make-server-3eae23a6`,
+    /**
+     * The function as the application reaches it: through Cloudflare, which
+     * adds the `X-Edge-Auth` header the origin lock looks for.
+     *
+     * WHY THIS HAD TO BE SPLIT OUT, BEFORE THE LOCK IS ENFORCED
+     *
+     * Every functional check here used to go straight to `*.supabase.co`.
+     * That is fine while `ORIGIN_LOCK_ENFORCE` is false and silently ruinous
+     * the moment it is true, and the failure is the kind this probe exists to
+     * catch:
+     *
+     *   AUTH-1 asks eleven gated paths for a 401 or 403. Under an enforced
+     *   lock every one answers 403 — from the LOCK, having never reached the
+     *   auth gate. The check counts 403 as refused, so it keeps passing while
+     *   measuring something else entirely.
+     *
+     *   AUTH-2 exists precisely to stop AUTH-1 passing for the wrong reason,
+     *   by proving the API is up. It asks `/health` — which is on
+     *   ORIGIN_LOCK_EXEMPT, so it still answers 200. The interlock would hold
+     *   its hand up and say everything is fine.
+     *
+     * So the two checks that ask questions ABOUT the application go through
+     * the front door like the application does, and the one check that is
+     * about the lock itself stays on `fn`. Overridable for a staging host.
+     */
+    fnPublic: process.env.SECURITY_PROBE_API
+      || 'https://api.theblackphoenixcompany.com/functions/v1/make-server-3eae23a6',
     site: process.env.SECURITY_PROBE_SITE || 'https://www.theblackphoenixcompany.com',
   };
 }
@@ -138,7 +169,7 @@ const GATED_PATHS = [
 async function checkAuthGate() {
   const leaked = [];
   for (const p of GATED_PATHS) {
-    const r = await get(`${T.fn}/${p}`, { headers: H });
+    const r = await get(`${T.fnPublic}/${p}`, { headers: H });
     if (r.status !== 401 && r.status !== 403) leaked.push(`${p} → ${r.status}`);
   }
   record(
@@ -160,7 +191,7 @@ async function checkAuthGate() {
 // actually an outage. One route must answer 200 for AUTH-1 to mean anything.
 // ─────────────────────────────────────────────────────────────────────────────
 async function checkLiveness() {
-  const r = await get(`${T.fn}/health`, { headers: H });
+  const r = await get(`${T.fnPublic}/health`, { headers: H });
   record(
     'AUTH-2', 'fail',
     'API is actually up (so AUTH-1 is meaningful)',

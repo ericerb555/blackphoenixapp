@@ -627,6 +627,35 @@ const ORIGIN_LOCK_EXEMPT = [
   '/on-call/escalate-due',
   '/cron/screening/expire-invitations',
   /**
+   * The nightly storage backup, and the one that was missing.
+   *
+   * `pg_cron` calls this at 07:23 from inside the database, which does not go
+   * through Cloudflare, so the origin lock would refuse it the moment it
+   * started enforcing. Found in the report-only log rather than by reading
+   * this list: of 32 `would-block` lines in 24 hours, 31 were an audit probing
+   * the function directly and the 32nd was
+   * `07:23:02 POST /storage-backup/run header=absent`.
+   *
+   * WHY THAT WAS WORTH FINDING. Supabase's daily database backup does not
+   * include Storage objects — this job is the only copy of every photograph
+   * behind a trash estimate, every house capture, the gallery and the reels.
+   * Enabling `ORIGIN_LOCK_ENFORCE` without this line would have answered the
+   * cron a 403 every night while `pg_cron` went on reporting `succeeded`,
+   * because `net.http_post` is asynchronous and the job only ever learns that
+   * the statement queued. The symptom would have been
+   * `storage_backup:latest` quietly ceasing to advance, which nobody reads
+   * until the day they need it.
+   *
+   * Safe to exempt for the same reason as every entry above: it carries its
+   * own 32-byte `X-Storage-Backup-Secret` and refuses outright when that
+   * secret is unset, so the origin lock was never the thing protecting it.
+   *
+   * Checked against the whole crontab rather than fixed in isolation: of the
+   * nine `pg_cron` jobs, eight hit this function and seven were already on
+   * this list. This was the only gap.
+   */
+  '/storage-backup/run',
+  /**
    * GitHub Actions posts the probe result from its own runners, which do not
    * go through Cloudflare, so the origin lock would refuse every report the
    * day it starts enforcing — and the symptom would be a security report that

@@ -24,7 +24,7 @@
     "to catch, and adding a name to this file would hide it."
   ],
   "schema": "public",
-  "verifiedAgainstProductionOn": "2026-11-17",
+  "verifiedAgainstProductionOn": "2026-11-19",
   "knownMissingComment": [
     "Tables the FRONT END queries that do not exist. Found 2026-11-17 by the",
     "check this file was written for — the server came back clean, the browser",
@@ -108,6 +108,7 @@
     "payout_distributions",
     "private_cron_config",
     "query_perf_snapshot",
+    "security_audit_log",
     "work_requests"
   ]
 }
