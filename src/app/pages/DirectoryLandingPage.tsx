@@ -706,7 +706,32 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
             className="text-6xl md:text-8xl font-bold mb-8 bg-gradient-to-r from-orange-400 via-red-400 to-purple-400 bg-clip-text text-transparent text-center w-full"
-            style={{ textAlign: 'center' }}
+            /*
+             * F-2 — the name was clipped at both edges on a laptop.
+             *
+             * `md:text-8xl` is a FIXED 96px from 768px upward. "The Black
+             * Phoenix Company" is twenty-five characters, and at 96px bold
+             * that is roughly 1,320px of text inside a `max-w-7xl` column
+             * which is 1,248px after its padding. So it overflowed, and
+             * because the heading is centred it lost a slice off BOTH ends:
+             * "The" on the left and "Company" on the right.
+             *
+             * One property, no structural change. The font size is now fluid
+             * and capped at 5rem, which fits the column with room to spare at
+             * every width the fixed size used to break, and still scales down
+             * on a phone. The inline style wins over the two Tailwind size
+             * classes, which are left in place as the fallback if this line is
+             * ever removed.
+             *
+             * Nothing else here is touched on purpose. The last change to this
+             * hero restructured it and Eric's words were "why did you change
+             * the layout of the home page it was only the logo please fix it".
+             */
+            style={{
+              textAlign: 'center',
+              fontSize: 'clamp(2.25rem, 6vw, 5rem)',
+              textWrap: 'balance',
+            }}
           >
             {companyName}
           </motion.h1>

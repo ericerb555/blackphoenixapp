@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { publicAnonKey } from '../utils/supabase/info';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -493,7 +494,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
     try {
       const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/market-alerts/preferences`, {
         method: 'POST',
-        headers: { Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTczMTIsImV4cCI6MjA4NTEzMzMxMn0.HcaTHZrVUG1qWfHnKr7ItKOHrDhDWoDaPFG46O1lu6o`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: alertEmail, phone: alertPhone, urgencyLevel: alertUrgency }),
       });
       if (res.ok) toast.success('✅ Alert preferences saved! You\'ll receive email & SMS alerts for new trending products.');
@@ -510,7 +511,7 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
     try {
       const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/market-alerts/send`, {
         method: 'POST',
-        headers: { Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTczMTIsImV4cCI6MjA4NTEzMzMxMn0.HcaTHZrVUG1qWfHnKr7ItKOHrDhDWoDaPFG46O1lu6o`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ product: alert.product, spike: alert.spike, category: alert.category, reason: alert.reason, urgency: alert.urgency, revenue: alert.revenue }),
       });
       const data = await res.json().catch(() => ({}));

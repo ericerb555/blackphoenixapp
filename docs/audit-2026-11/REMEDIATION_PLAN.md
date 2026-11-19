@@ -340,7 +340,11 @@ defect list would be the error the brief warns about in the other direction:
 counting unverified items as failures. They need reading before they need
 fixing.
 
-### Batch 6 — Hardening (P3/P4) — 2 of 10 done
+### Batch 6 — Hardening (P3/P4) — 8 of 10 done, 2 left and both are the owner's
+
+Closed: `A-1`, `D-3`, `DEP-1`, `L-2`, `AI-2`, `S-1`, `F-2`, and `I-3` by
+verification. Remaining: `A-3` needs a flag flipped in production, and `L-4`
+needs the test account.
 
 #### ✅ A-1 — done 2026-11-19. One file, and it explained a user-visible bug.
 
@@ -424,10 +428,59 @@ makes it *error* rather than return no rows. All 27 are scoped to
   reporting those five against a build-only copy that is never shipped.
   Bumping it needs the project's own pnpm 8; pnpm 9 rewrote
   `lockfileVersion` 6.0 → 9.0 and was reverted.
-- `L-2` a retention policy and a deletion job. ~2h. Note `prune_ai_call_log`
-  and `prune_app_error_log` already exist as functions — what is missing is a
-  stated period and a schedule, and now `security_audit_log` needs its own
-  answer, which should not be the same as an error log's.
+- ✅ **`L-2` done 2026-11-19.** `prune_ai_call_log` and `prune_app_error_log`
+  already existed, correctly written — and **nothing called them**. No cron job
+  referenced either, so neither had ever run and both tables held everything
+  since creation. The defaults in those signatures were the closest thing to a
+  policy, and a default nobody invokes is not a policy.
+
+  Added `prune_security_audit_log` and one nightly job at 03:40 for all three,
+  with the periods chosen rather than inherited:
+
+  | Table | Keep | Why |
+  |---|---:|---|
+  | `app_error_log` | 30d | Useful while a failure is still happening; highest volume at ~350 rows/day |
+  | `ai_call_log` | 90d | Spend and usage — a quarter is the window anyone asks about |
+  | `security_audit_log` | **400d** | A full year **plus margin**, deliberately the longest: a boundary probe is worth having months later, and an annual review needs a complete year, not one that began expiring on day 366 |
+
+  **Exercised, not just scheduled** — all three called by hand, each returning
+  0 removed, which is correct when the oldest row is eleven days old. That
+  proves they execute rather than merely exist, which is the exact mistake
+  their predecessors were making.
+
+- ✅ **`AI-2` done.** `aiSpend.ts` now says in its header that the counters are
+  cumulative and never reset, why that is right for a per-account lifetime
+  allowance, and why it is a trap for anything anonymous or shared — a
+  never-resetting counter on a shared key permanently refuses everybody behind
+  it once the first exhausts it.
+
+- ✅ **`S-1` done.** `ShopIntelligenceSuite.tsx` had the publishable key baked
+  into two `Authorization` headers; it now imports `publicAnonKey`. Zero JWT
+  literals left in that component. The two remaining copies are in
+  `set-secrets.sh` / `.bat`, which are shell scripts whose job is to *set* the
+  value — not import sites, and not a rotation hazard in the same way.
+
+- ✅ **`F-2` done.** `md:text-8xl` is a fixed 96px from 768px up, and "The
+  Black Phoenix Company" is 25 characters — roughly 1,320px of text in a
+  `max-w-7xl` column that is 1,248px after padding. Centred, so it lost a
+  slice off **both** ends. Now `clamp(2.25rem, 6vw, 5rem)` with
+  `text-wrap: balance`: one property, no structural change, and the Tailwind
+  classes left as the fallback.
+
+- ✅ **`I-3` closed by verification, no change needed.** The finding asked to
+  confirm `RoleSwitcher` is unreachable in production. It is reachable — but
+  only to owner/admin (`isOwner || isAdmin || OWNER_EMAILS`, returning `null`
+  otherwise), and it writes only `localStorage.demo_role_profile` and
+  `sessionStorage.role_switching`. It never touches Supabase auth or
+  `app_metadata`, and the server decides authority regardless. A visual
+  preview for the owner, granting nothing.
+
+- ⛔ **`L-4` blocked, same cause as `L-1`.** Exercising the role-change trail
+  means performing a real role change on a real account through a staff token
+  — a production permission mutation, not mine to run. Verified by reading
+  instead that the write and read agree on their prefix
+  (`team_role_change:` in both), which is the mismatch that would make the
+  trail silently empty. Needs the test account.
 - `A-3` enable `IP_REPUTATION_ENFORCE` after confirming `IP_REPUTATION_ALLOW`
   holds the owner's address. **`A-1` was the blocker and it is now closed** —
   the ~1,300 signed-out requests a day that pinned the owner's own address at

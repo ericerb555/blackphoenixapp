@@ -29,6 +29,26 @@
  * Staff are waived, and staffness is read from `app_metadata` only. This gate
  * decides who spends money without limit, so a self-assigned role would be
  * somebody else spending ours.
+ *
+ * THE COUNTERS ARE CUMULATIVE AND NEVER RESET. READ THIS BEFORE REUSING IT.
+ *
+ * `AI-2` in the November 2026 audit. There is no window here — no day, no
+ * month, no rolling period. A bucket counts what an account has ever spent and
+ * compares it to a ceiling, so an account that reaches its ceiling is refused
+ * from then on until somebody raises the limit or clears the key.
+ *
+ * That is correct for what this guards, and deliberately so: the ceiling is a
+ * lifetime allowance per account on a paid plan, and a monthly reset would
+ * hand a determined caller twelve times the budget a year.
+ *
+ * It is WRONG for anything anonymous or shared, and that is the trap. A
+ * never-resetting counter keyed on something many people share — an IP
+ * address, a device, a signed-out session — permanently refuses everybody
+ * behind it the moment the first of them exhausts it. The anonymous trash
+ * pricer needed a per-day mechanism of its own for exactly this reason rather
+ * than reusing `reserve`; see `trash-estimator.tsx`.
+ *
+ * So: per authenticated account, fine. Per anything else, build a window.
  */
 import * as kv from "./kv_store.tsx";
 import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
