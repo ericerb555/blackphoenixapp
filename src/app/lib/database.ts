@@ -4,37 +4,57 @@
  */
 
 import { supabase } from './supabase';
-import { publicAnonKey } from '../utils/supabase/info';
 import { API_BASE_URL } from './apiConfig';
 
 const API_BASE = `${API_BASE_URL}/make-server-3eae23a6`;
 
 /**
- * Get current user's access token for authenticated requests
- * Falls back to public anon key for demo mode
+ * The signed-in identity, or null. Both halves matter.
+ *
+ * WHAT THIS REPLACED, AND WHY IT WAS COSTING SO MUCH
+ *
+ * There were two functions here. `getAuthToken` returned the session token
+ * `|| publicAnonKey`, described as "demo mode". `getUserId` returned the
+ * user's id `|| 'anonymous'`. Signed out, this layer therefore sent the
+ * publishable key as a credential and built its keys as `<key>_anonymous`.
+ *
+ * Three consequences, measured in the November 2026 audit as finding `A-1`:
+ *
+ *  1. **~1,300 refused requests a day.** The auth wall logged 1,304 blocks in
+ *     24 hours, every one `tier=user signedIn=false`, and the biggest single
+ *     line was `POST /kv/set` at 145. Each one was this code asking the server
+ *     to store something on behalf of nobody.
+ *
+ *  2. **A blank dashboard instead of a sign-in prompt.** The callers discard
+ *     the 401, so panels render empty and the owner sees a working-looking
+ *     screen with nothing on it.
+ *
+ *  3. **A split data namespace, which is the expensive one.** `loadDual`
+ *     syncs localStorage up to the server, so work done before signing in was
+ *     stored under `_anonymous` — and is then invisible to the same person
+ *     once they sign in, because the read asks for `<key>_<their uuid>`. Eight
+ *     such keys hold 2.7 MB of real company data today, including two
+ *     different service-area radii saved seven months apart. That is why the
+ *     Service Area Settings screen looks blank to its own owner.
+ *
+ * It also had to be taught to `ipReputation.presentedCredential`, which must
+ * ignore the anon key precisely so this noise did not score every signed-out
+ * browser into a ban.
+ *
+ * So: no session, no request. `saveDual` and `loadDual` still use
+ * localStorage, which is what "working offline" was always supposed to mean.
+ * The key shape for a signed-in user is unchanged — `<key>_<uuid>` — because
+ * changing it would strand the 113 keys already written that way.
  */
-async function getAuthToken(): Promise<string | null> {
+async function currentIdentity(): Promise<{ token: string; userId: string } | null> {
   try {
     const { data } = await supabase.auth.getSession();
-    const sessionToken = data?.session?.access_token;
-
-    // Use session token if available, otherwise use public anon key
-    return sessionToken || publicAnonKey;
+    const token = data?.session?.access_token;
+    const userId = data?.session?.user?.id;
+    if (!token || !userId) return null;
+    return { token, userId };
   } catch {
-    // Fallback to public anon key
-    return publicAnonKey;
-  }
-}
-
-/**
- * Get current user ID
- */
-async function getUserId(): Promise<string> {
-  try {
-    const { data } = await supabase.auth.getSession();
-    return data?.session?.user?.id || 'anonymous';
-  } catch {
-    return 'anonymous';
+    return null;
   }
 }
 
@@ -43,15 +63,19 @@ async function getUserId(): Promise<string> {
  */
 export async function saveToDatabase(key: string, value: any): Promise<boolean> {
   try {
-    const token = await getAuthToken();
-    const userId = await getUserId();
-    const userKey = `${key}_${userId}`;
+    const who = await currentIdentity();
+    // Signed out: localStorage is the whole story. Asking the server to store
+    // something for nobody was 145 refused POSTs a day and a pile of
+    // `_anonymous` keys that their own author could not read back.
+    if (!who) return false;
+
+    const userKey = `${key}_${who.userId}`;
 
     const response = await fetch(`${API_BASE}/kv/set`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${who.token}`
       },
       body: JSON.stringify({ key: userKey, value })
     });
@@ -78,13 +102,18 @@ export async function saveToDatabase(key: string, value: any): Promise<boolean> 
  */
 export async function loadFromDatabase(key: string): Promise<any | null> {
   try {
-    const token = await getAuthToken();
-    const userId = await getUserId();
-    const userKey = `${key}_${userId}`;
+    const who = await currentIdentity();
+    // Signed out: nothing to ask for. `loadDual` falls through to
+    // localStorage, which is the answer it was always going to end up with
+    // after a 401 anyway — minus the refused request and the misleading
+    // "Database load failed" line in the console.
+    if (!who) return null;
+
+    const userKey = `${key}_${who.userId}`;
 
     const response = await fetch(`${API_BASE}/kv/get/${encodeURIComponent(userKey)}`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${who.token}`
       }
     });
 
