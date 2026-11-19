@@ -1,0 +1,111 @@
+# Historical secret-scan findings, recorded rather than erased.
+#
+# WHAT THIS FILE IS
+#
+# Every line below is one finding gitleaks makes in the git HISTORY of this
+# repository. They are listed here so the secret-scanning job reports on NEW
+# work instead of failing on every push for facts that cannot change — a
+# check that is always red is a check nobody reads.
+#
+# DELETING A FILE DOES NOT REMOVE IT FROM HISTORY. Every path below is gone
+# from the working tree and still reachable by anyone who can clone the
+# repository. That is why this file RECORDS them with dates instead of
+# quietly dropping them.
+#
+# WHAT WAS COMMITTED
+#
+#   github-pat        15 findings, 2026-07-06 and 2026-07-10, in four push
+#                     helper scripts: PUSH_TO_GITHUB.md, push_changes.sh,
+#                     push_to_github.sh, sync.bat (and copies under public/).
+#                     A GitHub personal access token.
+#
+#                     Eric reported the token gone on 2026-11-17. IF IT WAS
+#                     ONLY DELETED AND NOT REVOKED, REVOKE IT:
+#                     github.com/settings/tokens. Listing it here silences a
+#                     check; it does not take a credential back.
+#
+#   generic-api-key   20 findings, 2026-05-03 to 2026-07-10, in
+#                     VendorDirectory.tsx (and its copy under public/).
+#                     High-entropy strings in a component that no longer
+#                     exists. Not identified as a specific provider key.
+#
+# ADDING TO THIS FILE IS NOT A ROUTINE ACT. A new finding means a credential
+# reached a commit; the fix is to rotate it and only then record it here,
+# with the rotation date, as above.
+#
+# Regenerate the list with:
+#   gitleaks detect --source . --redact --report-format json --report-path leaks.json
+
+# ---- github-pat (15) ----
+# 2026-07-06  PUSH_TO_GITHUB.md
+3b4cb38e332fc93e214a0bacc64118e29570a325:PUSH_TO_GITHUB.md:github-pat:10
+# 2026-07-06  PUSH_TO_GITHUB.md
+3b4cb38e332fc93e214a0bacc64118e29570a325:PUSH_TO_GITHUB.md:github-pat:24
+# 2026-07-06  push_changes.sh
+3b4cb38e332fc93e214a0bacc64118e29570a325:push_changes.sh:github-pat:3
+# 2026-07-06  push_to_github.sh
+3b4cb38e332fc93e214a0bacc64118e29570a325:push_to_github.sh:github-pat:6
+# 2026-07-06  sync.bat
+3b4cb38e332fc93e214a0bacc64118e29570a325:sync.bat:github-pat:4
+# 2026-07-07  PUSH_TO_GITHUB.md
+6e30e95054aafe1d41c23d97342111455e1aaba2:PUSH_TO_GITHUB.md:github-pat:10
+# 2026-07-07  PUSH_TO_GITHUB.md
+6e30e95054aafe1d41c23d97342111455e1aaba2:PUSH_TO_GITHUB.md:github-pat:24
+# 2026-07-07  push_changes.sh
+6e30e95054aafe1d41c23d97342111455e1aaba2:push_changes.sh:github-pat:3
+# 2026-07-07  push_to_github.sh
+6e30e95054aafe1d41c23d97342111455e1aaba2:push_to_github.sh:github-pat:6
+# 2026-07-07  sync.bat
+6e30e95054aafe1d41c23d97342111455e1aaba2:sync.bat:github-pat:4
+# 2026-07-10  public/PUSH_TO_GITHUB.md
+fa92a742d845638603e46484147a3fca3df5f68a:public/PUSH_TO_GITHUB.md:github-pat:10
+# 2026-07-10  public/PUSH_TO_GITHUB.md
+fa92a742d845638603e46484147a3fca3df5f68a:public/PUSH_TO_GITHUB.md:github-pat:24
+# 2026-07-10  public/push_changes.sh
+fa92a742d845638603e46484147a3fca3df5f68a:public/push_changes.sh:github-pat:3
+# 2026-07-10  public/push_to_github.sh
+fa92a742d845638603e46484147a3fca3df5f68a:public/push_to_github.sh:github-pat:6
+# 2026-07-10  public/sync.bat
+fa92a742d845638603e46484147a3fca3df5f68a:public/sync.bat:github-pat:4
+
+# ---- generic-api-key (20) ----
+# 2026-05-03  src/app/components/VendorDirectory.tsx
+7fc8e58c4c0c9e192b1eb108ce4bf5e3fdbbdd36:src/app/components/VendorDirectory.tsx:generic-api-key:81
+# 2026-05-03  src/app/components/VendorDirectory.tsx
+7fc8e58c4c0c9e192b1eb108ce4bf5e3fdbbdd36:src/app/components/VendorDirectory.tsx:generic-api-key:93
+# 2026-05-03  src/app/components/VendorDirectory.tsx
+7fc8e58c4c0c9e192b1eb108ce4bf5e3fdbbdd36:src/app/components/VendorDirectory.tsx:generic-api-key:111
+# 2026-05-03  src/app/components/VendorDirectory.tsx
+7fc8e58c4c0c9e192b1eb108ce4bf5e3fdbbdd36:src/app/components/VendorDirectory.tsx:generic-api-key:123
+# 2026-05-31  src/app/components/VendorDirectory.tsx
+477a84cd32fdb128bf145b3af6c3fb5a711fd8c0:src/app/components/VendorDirectory.tsx:generic-api-key:81
+# 2026-05-31  src/app/components/VendorDirectory.tsx
+477a84cd32fdb128bf145b3af6c3fb5a711fd8c0:src/app/components/VendorDirectory.tsx:generic-api-key:93
+# 2026-05-31  src/app/components/VendorDirectory.tsx
+477a84cd32fdb128bf145b3af6c3fb5a711fd8c0:src/app/components/VendorDirectory.tsx:generic-api-key:111
+# 2026-05-31  src/app/components/VendorDirectory.tsx
+477a84cd32fdb128bf145b3af6c3fb5a711fd8c0:src/app/components/VendorDirectory.tsx:generic-api-key:123
+# 2026-07-06  src/app/components/VendorDirectory.tsx
+3b4cb38e332fc93e214a0bacc64118e29570a325:src/app/components/VendorDirectory.tsx:generic-api-key:81
+# 2026-07-06  src/app/components/VendorDirectory.tsx
+3b4cb38e332fc93e214a0bacc64118e29570a325:src/app/components/VendorDirectory.tsx:generic-api-key:93
+# 2026-07-06  src/app/components/VendorDirectory.tsx
+3b4cb38e332fc93e214a0bacc64118e29570a325:src/app/components/VendorDirectory.tsx:generic-api-key:111
+# 2026-07-06  src/app/components/VendorDirectory.tsx
+3b4cb38e332fc93e214a0bacc64118e29570a325:src/app/components/VendorDirectory.tsx:generic-api-key:123
+# 2026-07-07  src/app/components/VendorDirectory.tsx
+6e30e95054aafe1d41c23d97342111455e1aaba2:src/app/components/VendorDirectory.tsx:generic-api-key:81
+# 2026-07-07  src/app/components/VendorDirectory.tsx
+6e30e95054aafe1d41c23d97342111455e1aaba2:src/app/components/VendorDirectory.tsx:generic-api-key:93
+# 2026-07-07  src/app/components/VendorDirectory.tsx
+6e30e95054aafe1d41c23d97342111455e1aaba2:src/app/components/VendorDirectory.tsx:generic-api-key:111
+# 2026-07-07  src/app/components/VendorDirectory.tsx
+6e30e95054aafe1d41c23d97342111455e1aaba2:src/app/components/VendorDirectory.tsx:generic-api-key:123
+# 2026-07-10  public/src/app/components/VendorDirectory.tsx
+fa92a742d845638603e46484147a3fca3df5f68a:public/src/app/components/VendorDirectory.tsx:generic-api-key:81
+# 2026-07-10  public/src/app/components/VendorDirectory.tsx
+fa92a742d845638603e46484147a3fca3df5f68a:public/src/app/components/VendorDirectory.tsx:generic-api-key:93
+# 2026-07-10  public/src/app/components/VendorDirectory.tsx
+fa92a742d845638603e46484147a3fca3df5f68a:public/src/app/components/VendorDirectory.tsx:generic-api-key:111
+# 2026-07-10  public/src/app/components/VendorDirectory.tsx
+fa92a742d845638603e46484147a3fca3df5f68a:public/src/app/components/VendorDirectory.tsx:generic-api-key:123
