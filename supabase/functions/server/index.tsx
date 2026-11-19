@@ -2846,10 +2846,62 @@ app.get('/make-server-3eae23a6/public/branding', async (c) => {
  * returns a business address that is on the public website and a radius; no
  * private field, no customer data.
  */
-const SERVICE_AREA_RADIUS_MILES = 50;
+/**
+ * Only the floor, for when nothing has been configured at all.
+ *
+ * The radius is NOT a constant in this file — see `configuredRadiusMiles`.
+ * Hardcoding it here was the first version and it was wrong: the owner has a
+ * Service Area Settings screen, it saves a radius, and a number in the source
+ * would have silently outranked whatever he typed there.
+ */
+const SERVICE_AREA_RADIUS_FALLBACK_MILES = 50;
+
+/**
+ * The radius the owner actually set, from the screen that sets it.
+ *
+ * WHY THIS IS NOT A SIMPLE KEY LOOKUP
+ *
+ * `ServiceAreaSettings` saves through `database.ts`, which suffixes every key
+ * with the signed-in user's id — or with the literal string `anonymous` when
+ * there is no session. So a per-COMPANY setting is stored under per-USER keys,
+ * and this project has two of them:
+ *
+ *   service_area_settings_anonymous                 2026-05-10   50 miles
+ *   service_area_settings_<owner uuid>              2026-09-27   55 miles
+ *
+ * The first is a save made while signed out, which is also why the settings
+ * screen appears blank to a signed-in owner: it reads the key for his id and
+ * his older work is stranded under `anonymous`. That split is finding `A-1`.
+ *
+ * Most recently updated wins. It is the only rule that does not require this
+ * public route to guess which account speaks for the company, and it matches
+ * what an operator would expect: the last thing you saved is the thing that
+ * applies.
+ */
+async function configuredRadiusMiles(): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from('kv_store_57095a78')
+      .select('value')
+      .like('key', 'service_area_settings%');
+
+    let best: { radius: number; at: string } | null = null;
+    for (const row of data || []) {
+      const v = (row as any)?.value || {};
+      const radius = Number(v.service_area_radius);
+      if (!Number.isFinite(radius) || radius <= 0) continue;
+      const at = String(v.updated_at || '');
+      if (!best || at > best.at) best = { radius, at };
+    }
+    return best ? best.radius : SERVICE_AREA_RADIUS_FALLBACK_MILES;
+  } catch {
+    return SERVICE_AREA_RADIUS_FALLBACK_MILES;
+  }
+}
 
 app.get('/make-server-3eae23a6/public/service-area', async (c) => {
   try {
+    const radiusMiles = await configuredRadiusMiles();
     const { data } = await supabase
       .from('companies')
       .select('company_name, address_line1, city, state, zip_code')
@@ -2867,7 +2919,7 @@ app.get('/make-server-3eae23a6/public/service-area', async (c) => {
        * catch swallow it and behave exactly as it did before this route
        * existed.
        */
-      return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_MILES });
+      return c.json({ success: true, origin: null, radiusMiles });
     }
 
     /*
@@ -2895,12 +2947,12 @@ app.get('/make-server-3eae23a6/public/service-area', async (c) => {
       origin: parts.length ? parts.join(', ') : null,
       city: String(co.city ?? '').trim() || null,
       state: String(co.state ?? '').trim() || null,
-      radiusMiles: SERVICE_AREA_RADIUS_MILES,
+      radiusMiles,
     });
   } catch (error: any) {
     console.error('[service-area] lookup failed:', error?.message || error);
     // Same shape, origin null: the form skips the check rather than guessing.
-    return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_MILES });
+    return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_FALLBACK_MILES });
   }
 });
 
