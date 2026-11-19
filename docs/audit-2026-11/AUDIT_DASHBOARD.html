@@ -208,6 +208,9 @@
     vertical-align: top;
   }
   tbody tr.sev-p1 td:first-child { box-shadow: inset 3px 0 0 var(--p1); }
+  tbody tr.sev-done td:first-child { box-shadow: inset 3px 0 0 var(--pass); }
+  tbody tr.sev-done td.what { color: var(--ink-2); }
+  .pill.done { color: var(--pass); }
   tbody tr.sev-p2 td:first-child { box-shadow: inset 3px 0 0 var(--p2); }
   tbody tr.sev-p3 td:first-child { box-shadow: inset 3px 0 0 var(--p3); }
   tbody tr.sev-p4 td:first-child { box-shadow: inset 3px 0 0 var(--p4); }
@@ -297,6 +300,19 @@
     color: var(--accent);
     line-height: 1;
     font-variant-numeric: tabular-nums;
+  }
+  .batches > li.done::before { color: var(--pass); }
+  .batches h3 .tag {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--pass);
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 1px 6px;
+    margin-left: 8px;
+    vertical-align: 2px;
   }
   .batches h3 { font-size: 17px; margin-bottom: 4px; }
   .batches p { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 72ch; }
@@ -400,6 +416,7 @@
         <dt>Project</dt><dd>plzsvzwwcdopnawtiwzm</dd>
         <dt>Dated</dt><dd>2026-11-19</dd>
         <dt>Findings</dt><dd>26 numbered</dd>
+        <dt>Closed</dt><dd>4 of 4 P1</dd>
         <dt>Sheets</dt><dd>12 documents</dd>
         <dt>Retested</dt><dd>2026-11-19</dd>
       </dl>
@@ -451,19 +468,21 @@
 
   <section>
     <h2>Findings register</h2>
-    <p class="sub">Severity ordered. All four P1s are the application telling an
-    operator something untrue — which is why they come first, ahead of larger
-    but merely incomplete work.</p>
+    <p class="sub">Severity ordered. All four P1s were the application telling
+    an operator something untrue — which is why they came first, ahead of
+    larger but merely incomplete work. <b>All four are now fixed</b>, in 99
+    added lines against 528 deleted; two of them needed a decision first, and
+    neither decision was the obvious one.</p>
     <div class="scroll">
       <table>
         <thead>
           <tr><th>ID</th><th>Pri</th><th>Area</th><th>Finding</th></tr>
         </thead>
         <tbody>
-          <tr class="sev-p1"><td class="id">W-3</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>“Member added successfully” adds nobody.</b> The employee is never onboarded and nobody finds out until it matters.</td></tr>
-          <tr class="sev-p1"><td class="id">W-1</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>The job delete button cannot ever work.</b> Not misconfigured — there is no path by which it could succeed.</td></tr>
-          <tr class="sev-p1"><td class="id">W-2</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">workflows</td><td class="what"><b>The job page seeds invented financial data</b> into the browser, where it reads as real figures.</td></tr>
-          <tr class="sev-p1"><td class="id">I-1</td><td class="pri"><span class="pill p1">P1</span></td><td class="area">incomplete</td><td class="what"><b>The alerts panel invents alerts when there are none.</b> The platform’s only alerting surface manufactures its own content, which makes every alert on it unverifiable.</td></tr>
+          <tr class="sev-done"><td class="id">W-3</td><td class="pri"><span class="pill done">FIXED</span></td><td class="area">workflows</td><td class="what"><b>“Member added successfully” adds nobody.</b> Modal deleted; the button now goes to the applications queue, where members actually come from — the only code that writes a member record is the approval route.</td></tr>
+          <tr class="sev-done"><td class="id">W-1</td><td class="pri"><span class="pill done">FIXED</span></td><td class="area">workflows</td><td class="what"><b>The job delete button cannot ever work.</b> Button removed. Not wired, because there is no <code>DELETE</code> at any path and a job carries hours, receipts and margin — who may delete one is a real decision.</td></tr>
+          <tr class="sev-done"><td class="id">W-2</td><td class="pri"><span class="pill done">FIXED</span></td><td class="area">workflows</td><td class="what"><b>The job page seeds invented financial data</b> into the browser. Removed from <b>two</b> pages — a second route was doing the identical thing, so fixing only the one in the report would have left it reachable.</td></tr>
+          <tr class="sev-done"><td class="id">I-1</td><td class="pri"><span class="pill done">FIXED</span></td><td class="area">incomplete</td><td class="what"><b>The alerts panel invents alerts when there are none.</b> The 274-line fabricated array is gone; the tabs already had empty states. Closes <code>L-3</code> with it.</td></tr>
 
           <tr class="sev-p2"><td class="id">L-1</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">logging</td><td class="what"><b>A permission denial leaves no trace.</b> A customer can probe thirty admin routes, be refused thirty times, and leave no record anywhere.</td></tr>
           <tr class="sev-p2"><td class="id">D-2</td><td class="pri"><span class="pill p2">P2</span></td><td class="area">database</td><td class="what"><b>Company switching is permanently denied</b> — its validation RPC does not exist — and the denial is logged to the browser of the person denied.</td></tr>
@@ -543,13 +562,17 @@
     prerequisite for verifying any of the rest, and batch 3 has a wrong order of
     operations baked into it today.</p>
     <ol class="batches">
-      <li>
+      <li class="done">
         <div>
-          <h3>Stop the application lying</h3>
-          <p>All four P1s. Every one is a deletion or a one-line rewire: the
-          member-added toast, the delete button that cannot work, the invented
-          financial seed, the self-manufacturing alerts panel.</p>
-          <span class="cost">~half a day · W-3, W-1, W-2, I-1, L-3</span>
+          <h3>Stop the application lying <span class="tag">done</span></h3>
+          <p>All four P1s, closed. The member-added toast, the delete button
+          that could not work, the invented financial seed, the
+          self-manufacturing alerts panel. <b>Two needed a decision before a
+          fix:</b> the seed was on a second page nobody had named, and the
+          member modal had no route to wire to because a member only ever comes
+          from an approved application — giving the form an endpoint would have
+          routed around the approval step.</p>
+          <span class="cost">done 2026-11-19 · W-3, W-1, W-2, I-1, L-3 · −528 / +99 lines</span>
         </div>
       </li>
       <li>
@@ -658,13 +681,20 @@
     the one it can. The auth wall enforcing in production. A closed action
     registry for the AI agent with a real, asymmetric kill switch.</p>
     <p><b>Against that: four P1 findings, every one of them the application
-    telling an operator something untrue.</b> Half a day clears all four, and
-    that is where the plan starts.</p>
+    telling an operator something untrue.</b> All four are now closed — 528
+    lines deleted, 99 added, 4,111 tests still passing. Two of them needed a
+    decision before a fix existed, and in both cases the obvious fix would have
+    been the wrong one: one fabrication lived on a second page nobody had
+    named, and wiring the member form to an endpoint would have routed around
+    the approval step that is the only thing authorised to create a member.</p>
+    <p>Batch 2 is next, and it is the one that makes the rest verifiable: until
+    a permission denial leaves a trace, no fix here can be confirmed to be
+    holding in production.</p>
   </div>
 
   <footer>
     <span>Black Phoenix Builds · platform audit</span>
-    <span class="mono">26 findings · 12 documents · 11 phases</span>
+    <span class="mono">26 findings · 4 closed · 12 documents · 11 phases</span>
     <span class="mono">Retested 2026-11-19</span>
   </footer>
 

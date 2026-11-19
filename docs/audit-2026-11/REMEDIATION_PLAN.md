@@ -29,22 +29,42 @@ incomplete.** A button that does nothing wastes a minute. A button that says
 false belief — the employee is never onboarded, and nobody finds out until it
 matters. Every P1 here is a lie, not a gap.
 
-### Batch 1 — Stop the application lying (P1, four findings)
+### Batch 1 — Stop the application lying (P1, four findings) — ✅ DONE 2026-11-19
 
-| | Finding | Fix | Effort |
-|---|---|---|---|
-| W-3 | "Member added successfully" adds nobody | call the real invite route, or disable the control | ~1h |
-| W-1 | The job delete button cannot ever work | wire to the delete route, or remove the button | ~1h |
-| W-2 | The job page seeds invented financial data into the browser | delete the seed; render an empty state | ~1h |
-| I-1 | The alerts panel invents alerts when there are none | remove the fabrication; empty means empty | ~1h |
+| | Finding | What was done |
+|---|---|---|
+| I-1 | The alerts panel invents alerts when there are none | 274-line `demoAlerts` array deleted; the tab bodies already had empty states |
+| W-2 | The job page seeds invented financial data into the browser | Seeding removed — **from two pages, not one.** `JobTrackingHub.tsx` was doing the identical thing on a second route; fixing only the page named in the report would have left the fabrication reachable another way |
+| W-1 | The job delete button cannot ever work | Button removed. Not wired, because the jobs module has no `DELETE` at any path and adding one is a real decision — a job carries hours, receipts and margin |
+| W-3 | "Member added successfully" adds nobody | Modal deleted; the button now goes to `/application-submissions` |
 
-`I-1` and `L-3` are the same defect seen from two angles: **the only alerting
-surface in the platform manufactures its own content.** That makes every alert
-it shows unverifiable, which is worse than having no alerting panel. Fix it in
-this batch even though `L-3` is logged P2.
+**One correction to this document's own research.** The W-3 entry in
+`DEAD_END_WORKFLOWS_REPORT.md` said the backend existed and this was "unwired,
+not unbuilt". That was too loose, and checking it properly changed the fix:
+`POST /cohorts` creates a *cohort*, and `territory-cohorts.tsx` has
+`GET /members` but no `POST`. **The only code that ever writes a `member_`
+record is `POST /applications/:id/approve`** — a territory member comes from an
+approved application. Adding a create-member endpoint so the form had
+something to post to would have routed around the approval step, which is an
+authorisation boundary rather than an inconvenience. So the button goes where
+members actually come from.
 
-Half a day, all four, and every one is a deletion or a one-line rewire. This
-batch should go first regardless of what else is scheduled.
+**What the scanners would not have caught**, measured by re-running them after
+the fixes: C2 fell 85 → 83, exactly the two seeding toasts. A stayed at 188 and
+C1 stayed at 44. **Three of these four were never in any bucket** — `W-1`'s
+handler called `confirm()` and `W-3`'s changed state, so both looked like they
+did something, and `I-1` was a return value rather than a toast. They came out
+of reading. The scanners find the shape; they do not find the lie.
+
+`I-1` and `L-3` were the same defect seen from two angles: **the only alerting
+surface in the platform manufactured its own content.** That made every alert
+it showed unverifiable, which is worse than having no alerting panel. Closed
+in this batch, so `L-3` is closed too even though it is logged P2.
+
+Net effect: **528 lines deleted, 99 added.** Every fix was a deletion or a
+redirect, as predicted — but two of the four needed a decision first, and
+neither decision was the obvious one. 4,111 tests pass; `tsc` clean on all
+four files.
 
 ### Batch 2 — Make denials visible (P2, cheap, and it unblocks verification)
 
@@ -104,7 +124,7 @@ The owner decides. My recommendation is above each group, not a decision.
 | | Scope | Approach | Effort |
 |---|---|---|---|
 | C1a | ~12 handlers that announce a completed action and do nothing | fix or disable, one at a time | ~1 day |
-| C2 | 85 handlers claiming success without reaching the server | triage: many are legitimately local state | ~2 days |
+| C2 | 83 handlers claiming success without reaching the server (was 85; batch 1 took two) | triage: many are legitimately local state | ~2 days |
 | — | 188 controls with no handler at all | triage; most are layout elements the scanner cannot distinguish | ~1 day |
 | — | `authz:scan` bucket A, 25 leads | read each; most are legitimately public | ~0.5 day |
 
