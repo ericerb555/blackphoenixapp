@@ -94,7 +94,7 @@ import { asFraction, markupRatesOf, markupOn, hasMarkup, describeRates } from '.
    the note in recalculateTotals, and the precedent in lib/laborTasks.ts. */
 import { applyMargins } from '../../../supabase/functions/server/quoteMargins.ts';
 import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
-import { burdenFor, burdenOnSubtotal } from '../../../supabase/functions/server/laborBurden.ts';
+import { burdenFor, burdenOnSubtotal, hasBurdenOverride } from '../../../supabase/functions/server/laborBurden.ts';
 import { loadPricingConfigFromServer } from '../lib/pricingConfig';
 import QuoteMarginControl from './quotes/QuoteMarginControl';
 import { pricingRatesToPersist } from '../lib/quotePricingToPersist';
@@ -667,9 +667,27 @@ export function QuoteToContractEditor({
           `${API_BASE_URL}/make-server-3eae23a6`,
           { Authorization: `Bearer ${session.access_token}` },
         );
-        if (!cancelled) setCompanyBurden((config as any)?.burden);
+        /*
+         * `null`, not undefined, when the company has no burden configured.
+         *
+         * The two have to be told apart. `undefined` means "we do not know
+         * yet"; `null` means "we asked, and there is none". Before this they
+         * were the same value, so a company with no burden set and a company
+         * whose settings had not arrived both read as zero — and a zero
+         * burden silently reprices every quote that inherits one.
+         */
+        if (!cancelled) setCompanyBurden((config as any)?.burden ?? null);
       } catch {
-        /* Quotes that carry their own rate are unaffected; see recalculateTotals. */
+        /*
+         * Left UNKNOWN on purpose. The old comment here said quotes carrying
+         * their own rate are unaffected, which is true and was the whole
+         * blind spot: it said nothing about the ones that inherit, and those
+         * are the quotes a failed load silently strips the burden from.
+         *
+         * `recalculateTotals` now refuses rather than guessing, so a failure
+         * here blocks the recalculation instead of quietly discounting the
+         * job.
+         */
       }
     })();
     return () => { cancelled = true; };
@@ -2773,7 +2791,46 @@ export function QuoteToContractEditor({
   };
 
   // Recalculate quote totals
+  /**
+   * Do we know what burden this quote is priced at?
+   *
+   * Eric, 2026-11-19, asked whether the quote editor was working correctly.
+   * This is the answer that was no.
+   *
+   * `companyBurden` is loaded asynchronously, and it is `undefined` until it
+   * arrives — which it never does when there is no session, and never does
+   * when the request fails. `burdenFor(quote, undefined ?? null)` then
+   * resolves a burden of ZERO and prices the labour at the bare wage.
+   *
+   * Measured on Jason’s quote: 2,421.13 of burden on 6,917.50 of wages, so
+   * one recalculation in that window takes his total from 13,345.11 to
+   * 9,860.70. Nothing warns, nothing fails, and the editor saves the result.
+   *
+   * A quote carrying its own `laborBurdenPercent` is unaffected, because
+   * `burdenFor` answers from the quote and never consults the company — so
+   * this only blocks the quotes that actually INHERIT, which is the set that
+   * was being silently repriced.
+   */
+  const burdenIsKnown = (quote: any): boolean =>
+    hasBurdenOverride(quote?.laborBurdenPercent) || companyBurden !== undefined;
+
+  /**
+   * Recompute every figure on a quote, or refuse to.
+   *
+   * Returns `null` when the burden is not known yet. Refusing is the whole
+   * point: the previous behaviour was to carry on with a zero, and a wrong
+   * total that saves is worse than no new total at all. Callers that only
+   * wanted the side effect can ignore the result; the two that PERSIST what
+   * comes back already check it.
+   */
   const recalculateTotals = (quote: Quote) => {
+    if (!burdenIsKnown(quote)) {
+      console.warn(
+        "[quote] refusing to recalculate: the company labour burden has not loaded, "
+        + "and pricing this quote without it would strip the burden off it.",
+      );
+      return null;
+    }
     /**
      * What a line comes to, whichever shape it was written in.
      *
@@ -2890,6 +2947,8 @@ export function QuoteToContractEditor({
      * Applied exactly once, and never written back: `laborSubtotal` goes on
      * meaning wages, so recalculating twice cannot burden a burdened figure.
      */
+    /* `companyBurden` is null-or-settings by here: `burdenIsKnown` above has
+       already rejected the undefined case. */
     const burden = burdenFor(quote, companyBurden ?? null);
     const laborBurdenAmount = burdenOnSubtotal(laborSubtotal, burden);
 
@@ -2978,6 +3037,17 @@ export function QuoteToContractEditor({
 
     const rate = Math.min(0.30, Math.max(0, (Number(percent) || 0) / 100));
     const computed = recalculateTotals({ ...base, taxRate: rate } as Quote);
+    /*
+     * `null` means the recalculation refused — see `burdenIsKnown`. Saying so
+     * matters here because this is a deliberate action on a figure the user
+     * just typed: silently doing nothing reads as the control being broken.
+     */
+    if (!computed && !burdenIsKnown(base)) {
+      toast.error(
+        "The company labour-burden rate has not loaded yet. Saving now would price this job's labour at the bare wage and knock the burden off it, so the figures are being left alone — reload the page and try again.",
+      );
+      return;
+    }
     if (editMode || !computed) return;
 
     const quoteId = workRequest.quote?.id;
@@ -3036,6 +3106,24 @@ export function QuoteToContractEditor({
   // Save quote changes to backend
   const handleSaveQuote = async () => {
     if (!editedQuote) return;
+
+    /*
+     * REFUSED RATHER THAN SAVED HALF-RIGHT.
+     *
+     * While the burden is unknown, `recalculateTotals` declines — so the
+     * LINES on screen have moved and the totals have not. Saving that state
+     * writes edited lines under the previous total, and this function now
+     * sends `total` and `preTaxTotal` too, so the mismatch would be stored
+     * in every field at once rather than leaving a disagreement behind as
+     * evidence.
+     *
+     * A blocked save is visible and recoverable by reloading. A quote
+     * quietly $3,484.41 light is neither.
+     */
+    if (!burdenIsKnown(editedQuote)) {
+      toast.error("The company labour-burden rate has not loaded yet. Saving now would price this job's labour at the bare wage and knock the burden off it, so the figures are being left alone — reload the page and try again.");
+      return;
+    }
 
     setLoading(true);
     try {
