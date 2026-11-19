@@ -365,12 +365,21 @@ export default function CommandCenterHome({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search every tool…  ( / )"
-                // Inline, because globals.css sets `padding: 0.75rem 1rem` on
-                // every input outside any @layer, and an unlayered rule beats a
-                // layered utility — so `pl-10` loses and the magnifier sits on
-                // top of the placeholder.
-                style={{ paddingLeft: '2.5rem', paddingRight: '2.25rem' }}
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] py-2.5 text-sm text-white placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none"
+                // `pl-10` works again, so this no longer needs to be inline.
+                //
+                // It was inline for a good reason: globals.css sets
+                // `padding: 0.75rem 1rem` on every input outside any @layer,
+                // and an unlayered rule beats a layered utility, so `pl-10`
+                // used to lose and the magnifier sat on the placeholder. That
+                // file now carries `input.pl-10` explicitly, which wins.
+                //
+                // Worth converting rather than leaving alone: an inline style
+                // beats the stylesheet, so it would never receive the larger
+                // clearance that touch devices get — and a field that cannot
+                // be reached by the fix is the one that breaks on a phone.
+                // The right padding stays inline; nothing overlays that side.
+                style={{ paddingRight: '2.25rem' }}
+                className="w-full pl-10 rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] py-2.5 text-sm text-white placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none"
               />
               {query && (
                 <button

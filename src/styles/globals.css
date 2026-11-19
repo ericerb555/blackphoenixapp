@@ -630,6 +630,14 @@ input::placeholder, textarea::placeholder {
     padding-left: 3.25rem;
   }
 
+  /* A CURRENCY PREFIX IS NARROWER THAN AN ICON, so it gets a smaller bump.
+     A dollar sign at left-3 spans roughly 12px to 20px, where a 20px icon
+     reaches 32px. Giving these the full 3.25rem would leave a gap wide
+     enough to read as a broken field; they need the same slack, in
+     proportion to what is actually sitting there. */
+  input.pl-6, textarea.pl-6 { padding-left: 2rem; }
+  input.pl-7, textarea.pl-7 { padding-left: 2.25rem; }
+
   /* And the same on the right, so a show-password eye is not sat on. */
   input.pr-10, textarea.pr-10,
   input.pr-12, textarea.pr-12 {
