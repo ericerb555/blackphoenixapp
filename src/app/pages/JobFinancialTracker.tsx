@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { jobFinancialService, type JobFinancialSummary, type TimeEntry, type PurchaseEntry } from '../lib/services/jobFinancialService';
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, CheckCircle, AlertCircle,
-  Search, Filter, Calendar, Eye, Edit, Trash2, Plus, Download, FileText,
+  Search, Filter, Calendar, Eye, Edit, Plus, Download, FileText,
   Package, Users, Building2, ArrowUpRight, ArrowDownRight, BarChart3,
   PieChart, Target, Percent, CreditCard, Receipt, X, ChevronRight
 } from 'lucide-react';
@@ -64,16 +64,28 @@ export default function JobFinancialTracker() {
 
   const refreshJobs = () => setJobs(jobFinancialService.getAllJobs().map(mapSummaryToJob));
 
-  // Hydrate from server, seed starter data only if nothing exists, then render.
+  /**
+   * Hydrate from the server, then render whatever the server has.
+   *
+   * WHY NOTHING IS SEEDED HERE ANY MORE
+   *
+   * This effect used to call `populateDemoData('job_1')` whenever the browser
+   * store was empty, which wrote invented time entries and purchases into
+   * localStorage and then displayed them beside real server data. The comment
+   * three lines above it said "No hardcoded data."
+   *
+   * The export is what made it serious rather than untidy. This page offers a
+   * CSV of job number, customer, estimated and actual revenue, costs and
+   * margin — so the invented figures left the browser in a spreadsheet with
+   * nothing on any row marking them as demo. A toast at page load is not a
+   * label that survives into a file somebody emails to an accountant.
+   *
+   * A financial screen with no data shows no data. If a demo is ever wanted it
+   * belongs behind a control the user presses, labelled on every row it makes.
+   */
   useEffect(() => {
     (async () => {
       await jobFinancialService.hydrateFromServer();
-      const hasTimeData = localStorage.getItem('time_entries_job_1');
-      if (!hasTimeData) {
-        console.log('📊 Populating starter financial data...');
-        jobFinancialService.populateDemoData('job_1');
-        toast.success('Starter financial data loaded! Check job JOB-2026-001');
-      }
       refreshJobs();
     })();
   }, []);
@@ -207,17 +219,22 @@ export default function JobFinancialTracker() {
           >
             <Edit className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => {
-              if (confirm('Delete this job?')) {
-                toast.success('Job deleted');
-              }
-            }}
-            className="p-1.5 bg-red-600/20 hover:bg-red-600/30 rounded text-red-400 transition"
-            title="Delete"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {/*
+            * There was a red trash button here. It asked "Delete this job?",
+            * and on OK it showed "Job deleted" and deleted nothing.
+            *
+            * The confirmation dialog is what made it indefensible: that prompt
+            * is the ritual that tells somebody this is serious and cannot be
+            * undone, and it was attached to nothing at all.
+            *
+            * It is removed rather than wired because there is nothing to wire
+            * it to — the jobs module registers GET /jobs, GET /jobs/orphans,
+            * PATCH /jobs/:id and POST /jobs/backfill, and no DELETE at any
+            * path. Adding one is not a two-line job either: a job carries
+            * hours, receipts and margin, so who may delete one, and whether it
+            * should archive instead, are real decisions and not mine to make
+            * silently. Build the endpoint first, then put the button back.
+            */}
         </div>
       ),
       align: 'right',

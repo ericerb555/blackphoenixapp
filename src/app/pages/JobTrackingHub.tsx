@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { authedHeaders } from '../utils/authHeaders';
-import { toast } from 'sonner';
 import { API_BASE_URL } from '../lib/apiConfig';
 import { TimeEntry, PurchaseEntry, jobFinancialService } from '../lib/services/jobFinancialService';
 
@@ -28,16 +27,18 @@ export default function JobTrackingHub() {
   const [jobs, setJobs] = useState<Array<{ id: string; name: string; status: string; budget: number; spent: number; progress: number }>>([]);
   const [changeOrders, setChangeOrders] = useState<Array<{ id: string; job: string; description: string; amount: number; status: string }>>([]);
 
-  // Hydrate from server, seed starter data only if empty, then load into view.
+  /**
+   * Hydrate from the server, then load whatever the server has.
+   *
+   * The seeding that used to be here is gone, for the reasons written out at
+   * the top of `JobFinancialTracker.tsx` — invented time entries and purchases
+   * written into localStorage and rendered beside real figures. This page was
+   * the second of the two doing it, so fixing only the other one would have
+   * left the same fabrication reachable by a different route.
+   */
   useEffect(() => {
     (async () => {
       await jobFinancialService.hydrateFromServer();
-      const hasTimeData = localStorage.getItem('time_entries_job_1');
-      if (!hasTimeData) {
-        console.log('📊 Populating starter financial data...');
-        jobFinancialService.populateDemoData('job_1');
-        toast.success('Starter financial data loaded!');
-      }
       // Load the data
       loadFinancialData('job_1');
       // Populate the Active Jobs list from the server-synced financial service.

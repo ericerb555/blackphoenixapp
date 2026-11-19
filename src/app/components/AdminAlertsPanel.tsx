@@ -49,295 +49,33 @@ export default function AdminAlertsPanel({ onNavigate }: AdminAlertsPanelProps) 
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [systemFilter, setSystemFilter] = useState<'all' | 'Errors' | 'Payments' | 'Security' | 'Follow-ups' | 'Reviews'>('all');
 
-  // Demo alerts for reference (used when no alerts exist)
-  const demoAlerts: AdminAlert[] = [
-    // L-SHAPED KITCHEN REMODEL - READY FOR QUOTE CREATION
-    {
-      id: 'wr-kitchen-2026-005',
-      type: 'urgent',
-      category: 'Work Requests',
-      title: 'NEW: L-Shaped Kitchen Complete Remodel - $42,000',
-      description: 'High-priority kitchen renovation request from Michael & Jennifer Rodriguez. Budget: $42,000. Full scope includes custom cabinets, quartz countertops, new appliances, flooring, electrical, and plumbing. 168 sq ft L-shaped layout. AI floor plan already generated. Ready for quote creation.',
-      priority: 'critical',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 2 * 60000), // 2 minutes ago
-      source: 'Work Request System',
-      userId: 'rodriguez-2026',
-      userName: 'Michael and Jennifer Rodriguez',
-      actionRequired: true,
-      data: {
-        workRequestId: 'WR-2026-005',
-        requestNumber: 'WR-2026-005',
-        serviceType: 'Kitchen Renovation',
-        title: 'L-Shaped Kitchen Complete Remodel',
-        customerName: 'Michael and Jennifer Rodriguez',
-        customerEmail: 'rodriguez.family2026@email.com',
-        customerPhone: '(555) 987-6543',
-        location: '2847 Maple Grove Lane, Oakville Heights, CA 94582',
-        estimatedCost: 42000,
-        budgetRange: '$40,000 - $45,000',
-        urgency: 'high',
-        dimensions: '14ft x 12ft (168 sq ft)',
-        hasAIFloorPlan: true,
-        description: 'Full L-shaped kitchen renovation for a 14ft x 12ft space with 9ft ceilings. Includes: custom white shaker cabinets with soft-close hinges, quartz countertops (Caesarstone Snow), stainless steel appliances (Bosch/KitchenAid preferred), under-cabinet LED lighting, subway tile backsplash, hardwood flooring, upgraded electrical, new plumbing, recessed lighting, and painting. Modern farmhouse style with brushed nickel hardware.',
-        details: [
-          'Custom white shaker-style cabinets with soft-close hinges',
-          'Quartz countertops (Caesarstone Snow or similar)',
-          'New stainless steel appliances (refrigerator, range, microwave, dishwasher)',
-          'Under-cabinet LED lighting',
-          'White 3x6 subway tile backsplash with grey grout',
-          'Red oak hardwood flooring (natural finish)',
-          'Upgraded electrical with dedicated circuits',
-          'New plumbing for sink and dishwasher',
-          '6 recessed lighting cans with dimmers',
-          'Painting (Benjamin Moore Simply White)',
-          'Apron-front farmhouse sink (33 inch)',
-          'Pull-out trash/recycle bins, lazy Susan corner cabinet',
-          'Deep drawers for pots/pans, built-in spice rack, crown molding'
-        ],
-        notes: 'Customers moving out during renovation. Full property access. Energy-efficient appliances required. Waste removal needed for old cabinets and countertops. Gas line relocation may be needed.',
-        preferredDate: '2026-04-15',
-        timeline: '3-4 weeks'
-      }
-    },
-    // QUOTE APPROVALS - ALL QUOTES GO THROUGH ADMIN ALERTS
-    {
-      id: 'q1',
-      type: 'approval',
-      category: 'Quotes',
-      title: 'Quote Approval Required - $45,000',
-      description: 'Quote #QT-20260314-0001 for ABC Corporation (HVAC Installation) requires admin approval before sending to customer.',
-      priority: 'high',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 10 * 60000),
-      source: 'Quote System',
-      userId: 'q1',
-      userName: 'John Smith',
-      actionRequired: true,
-      data: { 
-        quoteNumber: 'QT-20260314-0001',
-        customerName: 'ABC Corporation',
-        serviceType: 'HVAC Installation',
-        amount: 45000,
-        assignedTo: 'Mike Johnson',
-        quoteId: 'q1'
-      }
-    },
-    {
-      id: 'q2',
-      type: 'approval',
-      category: 'Quotes',
-      title: 'Quote Ready for Review - $125,000',
-      description: 'Quote #QT-20260314-0002 for Tech Innovations Inc (Data Center Electrical) completed by Lisa Anderson. High-value quote requires admin review.',
-      priority: 'critical',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 25 * 60000),
-      source: 'Quote System',
-      userId: 'q3',
-      userName: 'Robert Chen',
-      actionRequired: true,
-      data: { 
-        quoteNumber: 'QT-20260314-0002',
-        customerName: 'Tech Innovations Inc',
-        serviceType: 'Data Center Electrical',
-        amount: 125000,
-        assignedTo: 'Lisa Anderson',
-        quoteId: 'q3'
-      }
-    },
-    {
-      id: 'q3',
-      type: 'pending',
-      category: 'Quotes',
-      title: 'Work Request Needs Quote - Kitchen Remodel',
-      description: 'Work Request #WR-20260314-0045 from Sarah Johnson requires quote preparation. Estimated value: $15,000.',
-      priority: 'high',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 45 * 60000),
-      source: 'Work Request System',
-      userId: 'wr001',
-      userName: 'Sarah Johnson',
-      actionRequired: true,
-      data: { 
-        requestNumber: 'WR-20260314-0045',
-        customerName: 'Sarah Johnson',
-        serviceType: 'Kitchen Remodel',
-        estimatedValue: 15000,
-        location: '456 Oak Street, Anytown'
-      }
-    },
-    {
-      id: 'q4',
-      type: 'approval',
-      category: 'Quotes',
-      title: 'Quote Response Received - $8,500',
-      description: 'Customer Sarah Williams responded to Quote #QT-20260311-0002 (Bathroom Renovation). Requires review and follow-up.',
-      priority: 'medium',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 90 * 60000),
-      source: 'Quote Response System',
-      userId: 'qr002',
-      userName: 'Sarah Williams',
-      actionRequired: true,
-      data: { 
-        quoteNumber: 'QT-20260311-0002',
-        customerName: 'Sarah Williams',
-        serviceType: 'Bathroom Renovation',
-        amount: 8500,
-        responseType: 'Questions',
-        responseId: 'QR-002'
-      }
-    },
-    {
-      id: 'a1',
-      type: 'urgent',
-      category: 'Security',
-      title: 'Multiple Failed Login Attempts',
-      description: 'User account "john.smith@company.com" has 5 failed login attempts in the last 10 minutes from IP 192.168.1.45',
-      priority: 'critical',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 5 * 60000),
-      source: 'Security System',
-      userId: 'u123',
-      userName: 'John Smith',
-      actionRequired: true,
-      data: { attempts: 5, ip: '192.168.1.45' }
-    },
-    {
-      id: 'a2',
-      type: 'urgent',
-      category: 'Payment',
-      title: 'Payment Processing Failure',
-      description: 'Critical: Payment gateway connection failed. 3 transactions pending, total value $12,450.',
-      priority: 'critical',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 15 * 60000),
-      source: 'Payment System',
-      actionRequired: true,
-      data: { pendingTransactions: 3, totalValue: 12450 }
-    },
-    {
-      id: 'a3',
-      type: 'approval',
-      category: 'Users',
-      title: 'New User Registration Pending',
-      description: 'Sarah Martinez requesting Administrator access. Company: NewCo Industries',
-      priority: 'high',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 30 * 60000),
-      source: 'User Management',
-      userId: 'u456',
-      userName: 'Sarah Martinez',
-      actionRequired: true,
-      data: { email: 'sarah.martinez@newcompany.com', requestedRole: 'Administrator' }
-    },
-    {
-      id: 'a4',
-      type: 'approval',
-      category: 'Financial',
-      title: 'Large Invoice Approval Required',
-      description: 'Invoice #INV-2024-1892 for $24,500 requires executive approval. Client: Acme Corporation',
-      priority: 'high',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 60 * 60000),
-      source: 'Billing System',
-      actionRequired: true,
-      data: { invoiceId: 'INV-2024-1892', amount: 24500, client: 'Acme Corporation' }
-    },
-    {
-      id: 'a5',
-      type: 'error',
-      category: 'System',
-      title: 'Database Backup Failed',
-      description: 'Automated backup failed at 2:00 AM. Last successful backup was 48 hours ago.',
-      priority: 'critical',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 360 * 60000),
-      source: 'Backup System',
-      actionRequired: true,
-      data: { lastBackup: new Date(Date.now() - 48 * 3600000), dbSize: '2.4 GB' }
-    },
-    {
-      id: 'a6',
-      type: 'warning',
-      category: 'System',
-      title: 'High Server Load Detected',
-      description: 'Server CPU usage at 85% for past 20 minutes. Consider scaling.',
-      priority: 'medium',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 120 * 60000),
-      source: 'Monitoring System',
-      actionRequired: false,
-      data: { cpuUsage: 85, duration: '20 minutes' }
-    },
-    {
-      id: 'a7',
-      type: 'info',
-      category: 'Users',
-      title: 'New Customer Signup',
-      description: '10 new customers signed up in the last hour. Welcome emails sent.',
-      priority: 'low',
-      status: 'read',
-      timestamp: new Date(Date.now() - 180 * 60000),
-      source: 'User Management',
-      actionRequired: false,
-      data: { newUsers: 10 }
-    },
-    {
-      id: 'a8',
-      type: 'approval',
-      category: 'Projects',
-      title: 'Project Extension Request',
-      description: 'Project "Downtown Renovation" requesting 2-week extension and $5,000 additional budget.',
-      priority: 'high',
-      status: 'unread',
-      timestamp: new Date(Date.now() - 240 * 60000),
-      source: 'Project Management',
-      actionRequired: true,
-      data: { project: 'Downtown Renovation', extension: '2 weeks', additionalBudget: 5000 }
-    },
-    {
-      id: 'a9',
-      type: 'warning',
-      category: 'Payment',
-      title: 'Subscription Renewal Failing',
-      description: '3 subscription renewals failed due to expired credit cards. Auto-retry scheduled.',
-      priority: 'medium',
-      status: 'read',
-      timestamp: new Date(Date.now() - 480 * 60000),
-      source: 'Subscription System',
-      actionRequired: false,
-      data: { failedRenewals: 3 }
-    },
-    {
-      id: 'a10',
-      type: 'info',
-      category: 'Reports',
-      title: 'Weekly Report Generated',
-      description: 'Weekly performance report for Jan 15-21 is ready for review.',
-      priority: 'low',
-      status: 'handled',
-      timestamp: new Date(Date.now() - 1440 * 60000),
-      source: 'Reporting System',
-      actionRequired: false,
-      data: { reportId: 'RPT-2024-03', period: 'Jan 15-21' }
-    }
-  ];
 
-  // Load alerts from localStorage
-  const loadAlerts = () => {
-    const loadedAlerts = getAdminAlerts().map(alert => ({
+  /**
+   * Load alerts from localStorage. Empty means empty.
+   *
+   * WHY THERE IS NO FALLBACK HERE ANY MORE
+   *
+   * This function used to return a hardcoded `demoAlerts` array whenever the
+   * real list came back empty, rendered identically to a real alert. So an
+   * owner with a quiet system did not see a quiet system — they saw a $45,000
+   * quote approval for a company that does not exist, assigned to someone who
+   * is not on the payroll, and a brute-force warning about five failed logins
+   * that never happened.
+   *
+   * That last one is the reason this is not a cosmetic bug. A fabricated
+   * security alert either triggers a response to an attack that never
+   * happened, or it teaches the owner that this panel can be ignored. Both
+   * outcomes destroy the only thing the panel is for.
+   *
+   * This is the one screen whose entire job is to say what needs attention,
+   * so "nothing needs your attention" has to be an answer it can give.
+   * The tab bodies below already render their own empty states.
+   */
+  const loadAlerts = () =>
+    getAdminAlerts().map(alert => ({
       ...alert,
-      timestamp: new Date(alert.timestamp)
+      timestamp: new Date(alert.timestamp),
     }));
-
-    // Add demo alerts if no alerts exist
-    if (loadedAlerts.length === 0) {
-      return demoAlerts;
-    }
-
-    return loadedAlerts;
-  };
 
   // Deduplicate existing localStorage alerts on first load (removes duplicates from previous bug)
   const deduplicatedAlerts = (() => {

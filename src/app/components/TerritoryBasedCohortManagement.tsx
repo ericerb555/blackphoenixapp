@@ -103,8 +103,9 @@ export function TerritoryBasedCohortManagement() {
 
   const [viewMode, setViewMode] = useState<ViewMode>('territories');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
-  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  // `selectedTerritory` and `showAddMemberModal` lived here to drive the
+  // add-member modal. Both went with it — see the note on the Review
+  // Applications button for why that modal could never have worked.
   const [showCreateTerritoryModal, setShowCreateTerritoryModal] = useState(false);
   const [editingTerritory, setEditingTerritory] = useState<Territory | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -785,12 +786,32 @@ export function TerritoryBasedCohortManagement() {
                       })}
                     </div>
 
-                    {/* Add Member Button */}
+                    {/*
+                      * REVIEW APPLICATIONS, rather than "Add Member".
+                      *
+                      * This button used to open a modal whose Add Member
+                      * action showed "Member added successfully! They will
+                      * receive an onboarding email." and then closed. No
+                      * request was made, no member existed, and no email was
+                      * sent. None of that modal's ten inputs was even a
+                      * controlled field, so there was nothing to submit.
+                      *
+                      * It is not wired up because there is nothing to wire it
+                      * to, and that is deliberate on the server's part: the
+                      * only code that ever writes a `member_` record is
+                      * `POST /applications/:id/approve`. A territory member
+                      * comes from an approved application. Adding a
+                      * create-member endpoint so this form could post to
+                      * something would route around the approval step, which
+                      * is a business and authorisation boundary, not an
+                      * inconvenience.
+                      *
+                      * So the button now goes where members actually come
+                      * from. The capacity check stays, because a full
+                      * territory should not invite more review either.
+                      */}
                     <button
-                      onClick={() => {
-                        setSelectedTerritory(territory.id);
-                        setShowAddMemberModal(true);
-                      }}
+                      onClick={() => { window.location.href = '/application-submissions'; }}
                       disabled={totalMembers >= CAPACITY_LIMITS.total}
                       className={`w-full mt-4 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${
                         totalMembers >= CAPACITY_LIMITS.total
@@ -806,7 +827,7 @@ export function TerritoryBasedCohortManagement() {
                       ) : (
                         <>
                           <Plus className="w-5 h-5" />
-                          Add Member to Territory
+                          Review Applications
                         </>
                       )}
                     </button>
@@ -891,212 +912,6 @@ export function TerritoryBasedCohortManagement() {
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
       />
-
-      {/* Add Member Modal */}
-      {showAddMemberModal && selectedTerritory && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1A1A1A] border border-zinc-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-[#1A1A1A] border-b border-zinc-800 p-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-white">Add Member to Territory</h2>
-                <p className="text-sm text-zinc-400 mt-1">
-                  Territory: {territories.find(t => t.id === selectedTerritory)?.name}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowAddMemberModal(false);
-                  setSelectedTerritory(null);
-                }}
-                className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-zinc-400" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              {/* Member Type Selection */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Member Type <span className="text-red-400">*</span>
-                </label>
-                <select className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-purple-500">
-                  <option value="">Select member type...</option>
-                  <option value="subcontractor">Subcontractor</option>
-                  <option value="vendor">Vendor</option>
-                  <option value="advertiser">Advertiser</option>
-                </select>
-              </div>
-
-              {/* Trade Selection (for subcontractors) */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Trade/Specialty <span className="text-red-400">*</span>
-                </label>
-                <select className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-purple-500">
-                  <option value="">Select trade...</option>
-                  {TRADES.map(trade => (
-                    <option key={trade} value={trade}>{trade}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Company Name */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Company Name <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter company name..."
-                  className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              {/* Contact Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Email <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="email@company.com"
-                    className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Phone <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    placeholder="(555) 123-4567"
-                    className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              {/* Location */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Street Address <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="123 Main Street"
-                  className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="col-span-2 md:col-span-1">
-                  <label className="block text-sm font-medium text-white mb-2">
-                    ZIP Code <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="10001"
-                    className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    City
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="New York"
-                    className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    State
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="NY"
-                    maxLength={2}
-                    className="w-full px-4 py-3 bg-[#0F0F0F] border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              {/* Founder Status */}
-              <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <Crown className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <input
-                        type="checkbox"
-                        id="founder-status"
-                        className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-purple-600 focus:ring-purple-500"
-                      />
-                      <label htmlFor="founder-status" className="text-sm font-medium text-white cursor-pointer">
-                        Founder Member (30% off for life)
-                      </label>
-                    </div>
-                    <p className="text-xs text-zinc-400">
-                      Limited to first {CAPACITY_LIMITS.founderSlots} subcontractors
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pricing Preview */}
-              <div className="p-4 bg-[#0F0F0F] border border-zinc-800 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-zinc-400">Standard Rate</span>
-                  <span className="text-white line-through">{formatCurrency(SUBSCRIPTION_RATES.subcontractor)}</span>
-                </div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-zinc-400">Founder Discount (30%)</span>
-                  <span className="text-green-400">-{formatCurrency(SUBSCRIPTION_RATES.subcontractor * 0.30)}</span>
-                </div>
-                <div className="pt-2 border-t border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-semibold text-white">Member Rate</span>
-                    <span className="text-xl font-bold text-purple-400">
-                      {formatCurrency(SUBSCRIPTION_RATES.subcontractor * 0.70)}/mo
-                    </span>
-                  </div>
-                </div>
-                <p className="text-xs text-zinc-500 mt-2">
-                  Includes {CAPACITY_LIMITS.trialMonths}-month free trial
-                </p>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="sticky bottom-0 bg-[#1A1A1A] border-t border-zinc-800 p-6 flex items-center justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowAddMemberModal(false);
-                  setSelectedTerritory(null);
-                }}
-                className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  toast.success('Member added successfully! They will receive an onboarding email.');
-                  setShowAddMemberModal(false);
-                  setSelectedTerritory(null);
-                }}
-                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Add Member
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Create/Edit Territory Modal */}
       {showCreateTerritoryModal && (
