@@ -453,3 +453,96 @@ export function includedCostOf(quote: any): number {
     .filter((r: any) => r?.included !== false)
     .reduce((sum: number, r: any) => sum + costOfRow(r), 0));
 }
+
+/**
+ * A row of a priced section, for `pricesAbsorbingWithheld`.
+ */
+export interface WithheldAwareRow {
+  /** What the row costs us, before markup. */
+  amount: unknown;
+  /** Which phase it belongs to. Absent or blank groups with the other blanks. */
+  phase?: unknown;
+  /** False when the customer must not see this row at all. */
+  visible: boolean;
+}
+
+/**
+ * Price a section's rows so the HIDDEN ones print nothing and are still paid for.
+ *
+ * Eric, 2026-11-19: *"i do not want additional work under the line item to
+ * show up on the quote i just want it added into the total it should always
+ * be hidden"*.
+ *
+ * Returns one figure per row, in order: the priced amount for a visible row,
+ * and zero for a withheld one, which the caller then declines to emit. The
+ * visible rows between them come to exactly what every row together would
+ * have come to, so the section subtotal — which is apportioned from the
+ * stored total and counts withheld work — still equals the rows beneath it.
+ *
+ * WHY THE MONEY MOVES WITHIN A PHASE FIRST
+ *
+ * A phase is the unit a customer reads and queries, so withheld money is
+ * absorbed by the visible rows of its OWN phase wherever there are any. That
+ * keeps a phase total equal to its own rows, which is the invariant the whole
+ * "your lines do not add up" complaint turns on.
+ *
+ * When a phase has no visible rows at all, its money cannot stay there — a
+ * row has to carry it or the section comes up short — so it spills across
+ * the section's remaining visible rows. The phase's own total is then larger
+ * than the rows shown under it, which is unavoidable and is the lesser
+ * failure: a section that does not add up is arithmetic a customer can
+ * check, and a phase with nothing under it is not.
+ *
+ * A section with nothing visible returns all zeroes. The caller emits no
+ * rows and the subtotal stands on its own, which is how a quote set to
+ * phase totals already reads.
+ */
+export function pricesAbsorbingWithheld(
+  rows: WithheldAwareRow[],
+  pricing: CustomerPricing,
+): number[] {
+  const priced = spreadCustomerPrices(rows.map((r) => r.amount), pricing);
+  const out = rows.map(() => 0);
+
+  const visible = rows.map((r, i) => (r.visible ? i : -1)).filter((i) => i >= 0);
+  if (!visible.length) return out;
+
+  const keyOf = (i: number) => String(rows[i]?.phase ?? '').trim();
+
+  /* What each phase is worth, and which of its rows can carry it. */
+  const phaseTotal = new Map<string, number>();
+  const phaseVisible = new Map<string, number[]>();
+  rows.forEach((_, i) => {
+    const key = keyOf(i);
+    phaseTotal.set(key, round2((phaseTotal.get(key) || 0) + priced[i]));
+    if (rows[i].visible) {
+      if (!phaseVisible.has(key)) phaseVisible.set(key, []);
+      phaseVisible.get(key)!.push(i);
+    }
+  });
+
+  let spill = 0;
+  for (const [key, total] of phaseTotal) {
+    const carriers = phaseVisible.get(key);
+    if (!carriers || !carriers.length) {
+      /* Nobody in this phase can hold it; it goes to the section. */
+      spill = round2(spill + total);
+      continue;
+    }
+    const shares = allocate(carriers.map((i) => priced[i]), total);
+    carriers.forEach((i, n) => { out[i] = shares[n]; });
+  }
+
+  if (Math.abs(spill) >= 0.005) {
+    /*
+     * Spread over the section's visible rows in proportion to what they
+     * already carry, then re-allocated so the column lands on the exact
+     * section total rather than a cent either side of it.
+     */
+    const target = round2(visible.reduce((sum, i) => sum + out[i], 0) + spill);
+    const shares = allocate(visible.map((i) => out[i]), target);
+    visible.forEach((i, n) => { out[i] = shares[n]; });
+  }
+
+  return out;
+}

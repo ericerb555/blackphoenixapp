@@ -192,7 +192,23 @@ test('the charge-out rate is shown, never what the trade costs us', () => {
   assert.ok(!JSON.stringify(out).includes('"hourlyRate":70'));
 });
 
-test('a hidden line pays its own share of the markup, not the visible lines', () => {
+/**
+ * THE SECTION TOTAL IS THE INVARIANT. WHICH ROW CARRIES IT IS ERIC’S CALL.
+ *
+ * This test has asserted three different things about the hidden line, and
+ * the same thing about the section, every time. That is the useful shape:
+ * the sum is arithmetic and does not get a vote; the presentation moved
+ * twice because it was a question for the person sending the quote.
+ *
+ *   originally  the row was dropped and the column fell short of the total
+ *   2026-11-14  the row was kept, unnamed, paying its own 1500 x 1.25
+ *   2026-11-19  *"i just want it added into the total it should always be
+ *               hidden"* — no row, and its 1,875 rides on the visible line
+ *
+ * So the visible line is now 5,000 rather than 3,125: its own 2500 x 1.25
+ * plus the withheld 1500 x 1.25. The section is 5,000 in all three.
+ */
+test('the hidden line pays into the section, and draws no row of its own', () => {
   const withHidden = {
     ...pricedQuote,
     materials: [
@@ -201,23 +217,21 @@ test('a hidden line pays its own share of the markup, not the visible lines', ()
     ],
   };
   const out = customerQuoteView(withHidden);
-  // Each line is priced at its OWN cost x 1.25 — 2500 becomes 3125 — and
-  // emphatically not inflated to cover the other. That is the point of this
-  // test and it is unchanged.
-  assert.equal(out.materials[0].totalCost, 3125);
 
-  /*
-   * The withheld line now keeps its row and its share of the markup, rather
-   * than being dropped. Eric, 2026-11-14: "we can hide things but the totals
-   * stay as part of the quote." So the two drawn lines come to the section
-   * total instead of falling short of it.
-   */
-  assert.equal(out.materials.length, 2);
-  const withheld: any = out.materials.find((m: any) => m.detailWithheld);
-  assert.equal(withheld.totalCost, 1875, 'its own 1500 x 1.25, not the other line’s');
+  assert.equal(out.materials.length, 1, 'only the visible line is sent');
+  assert.equal(
+    out.materials[0].totalCost, 5000,
+    'carrying its own 2500 x 1.25 and the withheld 1500 x 1.25 with it',
+  );
+  assert.equal(
+    out.materials.filter((m: any) => m.detailWithheld).length, 0,
+    'and nothing is flagged withheld, because nothing was sent for it',
+  );
+
+  /* Unchanged in every version of this test, which is the point. */
   assert.equal(
     out.materials.reduce((s: number, m: any) => s + m.totalCost, 0), 5000,
-    'and the column reaches the section total',
+    'the column reaches the section total',
   );
   assert.equal(out.materialsSubtotal, 5000);
 });

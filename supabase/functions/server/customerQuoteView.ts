@@ -136,6 +136,7 @@ export interface CustomerQuote {
 
 import {
   customerPricingOf, preTaxTotalOf, allocate, atCustomerPrice, spreadCustomerPrices,
+  pricesAbsorbingWithheld,
 } from "./quoteCustomerPrice.ts";
 
 const str = (v: any) => (v === null || v === undefined ? '' : String(v));
@@ -373,33 +374,46 @@ export function customerQuoteView(quote: any): CustomerQuote {
    * discrepancy into a dozen wrong prices on the customer's copy. Scaling
    * carries each line's own share of the markup and nothing else.
    */
-  const materialPrices = spreadCustomerPrices(includedMaterials.map((m: any) => num(m?.totalCost)), pricing);
+  /*
+   * A HIDDEN LINE DRAWS NO ROW, AND ITS MONEY GOES TO ITS PHASE-MATES.
+   *
+   * Eric, 2026-11-19: *"i do not want additional work under the line item
+   * to show up on the quote i just want it added into the total it should
+   * always be hidden"*.
+   *
+   * The third reading of this instruction, and the comment that used to sit
+   * here recorded the second. It kept the row with its price and no name,
+   * which still told the customer how many things were being withheld and
+   * what each cost. It does not travel at all now.
+   *
+   * It matters most HERE, which the old comment was also right about: this
+   * is the projection behind the page a customer clicks Approve on. The PDF
+   * stopped drawing these rows and this did not, so the document they were
+   * sent and the page they approve from disagreed about the same job.
+   *
+   * `pricesAbsorbingWithheld` is shared with nothing else yet and exists so
+   * that it can be: two copies of this rule is what let the two renderers
+   * drift apart in the first place. It returns zero for a withheld row and
+   * moves its money onto the visible rows of the same phase, so
+   * `materialsSubtotal` below — apportioned from the stored total, and
+   * counting withheld work — still equals the rows printed under it.
+   */
+  const materialPrices = pricesAbsorbingWithheld(
+    includedMaterials.map((m: any) => ({ amount: num(m?.totalCost), phase: m?.phase, visible: isVisible(m) })),
+    pricing,
+  );
 
   const materials = includedMaterials
     .map((m: any, i: number) => ({ line: m, price: materialPrices[i] ?? 0 }))
+    .filter(({ line: m }: any) => isVisible(m))
     .map(({ line: m, price }: any): CustomerMaterial => {
-      /*
-       * A HIDDEN LINE KEEPS ITS ROW AND ITS PRICE.
-       *
-       * This used to `.filter(isVisible)` and the header above said the
-       * visible lines "will not sum to the total, and that is intended".
-       * Eric has since been explicit the other way: "we can hide things but
-       * the totals stay as part of the quote… the line item should stay
-       * with a total only."
-       *
-       * It matters most here. This is the projection behind the page a
-       * customer clicks Approve on, and if it drops a line that the PDF now
-       * keeps, the document they were sent and the page they approve from
-       * show different work for the same money.
-       */
-      const hidden = !isVisible(m);
-      const quantity = hidden || modes.materials !== 'full' ? 0 : num(m?.quantity);
+      const quantity = modes.materials !== 'full' ? 0 : num(m?.quantity);
       return {
         id: str(m?.id),
-        name: hidden ? WITHHELD_LABEL : str(m?.name),
-        description: hidden ? '' : str(m?.description),
+        name: str(m?.name),
+        description: str(m?.description),
         quantity,
-        unit: hidden || modes.materials !== 'full' ? '' : str(m?.unit),
+        unit: modes.materials !== 'full' ? '' : str(m?.unit),
         /**
          * Back out of the priced line rather than scaled on its own, so
          * quantity x unit price lands on the amount beside it. Scaling the
@@ -409,25 +423,28 @@ export function customerQuoteView(quote: any): CustomerQuote {
          */
         unitCost: quantity > 0 ? round2(price / quantity) : 0,
         totalCost: price,
-        category: hidden ? '' : str(m?.category),
-        ...(hidden ? { detailWithheld: true } : {}),
+        category: str(m?.category),
       };
     });
 
-  const laborPrices = spreadCustomerPrices(includedLaborLines.map((l: any) => num(l?.totalCost)), pricing);
+  /* Hidden labour travels no further than hidden materials — see above. */
+  const laborPrices = pricesAbsorbingWithheld(
+    includedLaborLines.map((l: any) => ({ amount: num(l?.totalCost), phase: l?.phase, visible: isVisible(l) })),
+    pricing,
+  );
 
   const labor = includedLaborLines
     .map((l: any, i: number) => ({ line: l, price: laborPrices[i] ?? 0 }))
+    .filter(({ line: l }: any) => isVisible(l))
     .map(({ line: l, price }: any): CustomerLabor => {
       // Hours and the rate are the two numbers that reveal pricing, and
-      // either one alone is enough with the total beside it. Both go.
-      // A withheld line gives up its role as well — see the materials note.
-      const hidden = !isVisible(l);
-      const hours = hidden || modes.labor !== 'full' ? 0 : num(l?.hours);
+      // either one alone is enough with the total beside it. Both go in
+      // the modes that withhold rates.
+      const hours = modes.labor !== 'full' ? 0 : num(l?.hours);
       return {
         id: str(l?.id),
-        role: hidden ? WITHHELD_LABEL : str(l?.role),
-        description: hidden ? '' : str(l?.description),
+        role: str(l?.role),
+        description: str(l?.description),
         hours,
         /**
          * The CHARGE-OUT rate, which is what an hour of this trade costs the
@@ -439,7 +456,6 @@ export function customerQuoteView(quote: any): CustomerQuote {
          */
         hourlyRate: hours > 0 ? round2(price / hours) : 0,
         totalCost: price,
-        ...(hidden ? { detailWithheld: true } : {}),
       };
     });
 

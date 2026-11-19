@@ -82,26 +82,34 @@ test('the serialised payload does not contain internal text anywhere', () => {
 
 /* ── hidden lines ────────────────────────────────────────────────────────── */
 
-test('a line marked not visible keeps its row and loses its name', () => {
+/**
+ * A HIDDEN LINE DOES NOT TRAVEL AT ALL.
+ *
+ * Eric, 2026-11-19: *"i do not want additional work under the line item to
+ * show up on the quote i just want it added into the total it should
+ * always be hidden"*.
+ *
+ * This test has carried all three readings of that instruction. It first
+ * asserted the row was dropped; then, on 2026-11-14, that it was kept
+ * unnamed with its price, because dropping it left a column the customer
+ * could not reconcile; now that it is gone again — the difference being
+ * that the money is no longer stranded when it goes, because
+ * `pricesAbsorbingWithheld` moves it onto the visible rows of its phase.
+ *
+ * The leak assertion never changed and is still the load-bearing one.
+ */
+test('a line marked not visible does not reach the customer at all', () => {
   const out = customerQuoteView(fullQuote);
-  /*
-   * The leak assertion is unchanged and is the load-bearing one: whatever
-   * the line was called must not travel. What changed is the row itself —
-   * Eric, 2026-11-14: "we can hide things but the totals stay as part of
-   * the quote… the line item should stay with a total only." Dropping it
-   * left a column the customer could not reconcile to the total they were
-   * being asked to approve.
-   */
   assert.ok(!JSON.stringify(out).includes('Dump fees'), 'what it was must not travel');
 
-  const withheldMaterials = out.materials.filter((m: any) => m.detailWithheld);
-  const withheldLabour = out.labor.filter((l: any) => l.detailWithheld);
-  assert.equal(withheldMaterials.length, 1);
-  assert.equal(withheldLabour.length, 1);
-  assert.ok(withheldMaterials.every((m: any) => m.name === 'Additional work'));
-  assert.ok(withheldLabour.every((l: any) => l.role === 'Additional work'));
+  assert.equal(
+    out.materials.filter((m: any) => m.detailWithheld).length, 0,
+    'no row is flagged withheld, because no row is sent for it',
+  );
+  assert.equal(out.labor.filter((l: any) => l.detailWithheld).length, 0);
   assert.ok(
-    withheldMaterials.concat(withheldLabour as any).every((x: any) => x.quantity === 0 && x.hours !== undefined ? true : true),
+    !JSON.stringify(out).includes('Additional work'),
+    "and the label is gone from the payload, so nothing on the page says there is something it is not telling you",
   );
 });
 
@@ -189,10 +197,9 @@ test('every section defaults on — hiding is an act', () => {
   // Absent config means show everything, so no existing quote changes.
   for (const customerSections of [undefined, {}, { materials: true }]) {
     const out = customerQuoteView({ ...phasedQuote, customerSections });
-    // Two rows now: the visible one and the withheld one, which keeps its
-    // row and its price. Hiding is still an act — it just no longer removes
-    // the money from the page.
-    assert.equal(out.materials.length, 2, JSON.stringify(customerSections));
+    // One row: the visible one. The hidden line draws nothing, and its
+    // money rides on this row instead — see `pricesAbsorbingWithheld`.
+    assert.equal(out.materials.length, 1, JSON.stringify(customerSections));
     if (customerSections?.materials === true && !('labor' in (customerSections as any))) {
       assert.equal(out.labor.length, 1, 'labor should default on');
     }
@@ -201,7 +208,7 @@ test('every section defaults on — hiding is an act', () => {
 
 test('materials and labour switch independently', () => {
   const noLabor = customerQuoteView({ ...phasedQuote, customerSections: { materials: true, labor: false, processDetail: true } });
-  assert.equal(noLabor.materials.length, 2, 'materials kept, withheld row included');
+  assert.equal(noLabor.materials.length, 1, 'materials kept; the hidden one draws nothing');
   assert.deepEqual(noLabor.labor, [], 'labour withheld');
   assert.ok(!JSON.stringify(noLabor).includes('Carpenter'), 'labour role leaked');
   // The rate is what hiding labour protects, and the phase total still shows.
@@ -437,11 +444,11 @@ test('nothing internal travels, named or not', () => {
 /** The visible work still has to arrive, or the portal shows an empty quote. */
 test('what the customer is allowed to see still arrives', () => {
   const out: any = customerQuoteSummary(portalQuote);
-  // Both sections carry their withheld row now: it travels unnamed, with its
-  // price, so the customer's column reaches the total they are approving.
-  assert.equal(out.materials.length, 2);
+  // One row per section: the hidden ones draw nothing, and their money is
+  // carried by these. `totalCost` below is the proof it was not lost.
+  assert.equal(out.materials.length, 1);
   assert.equal(out.materials[0].name, 'Shaker doors');
-  assert.equal(out.labor.length, 2);
+  assert.equal(out.labor.length, 1);
   assert.equal(out.processSteps.length, 1);
   assert.equal(out.totalCost, 18400);
 });
@@ -473,8 +480,21 @@ test('rates withheld on the quote do not appear in the portal payload', () => {
   }));
   assert.ok(!wire.includes('140'), 'a material unit cost reached the portal');
   assert.ok(!wire.includes('55'), 'an hourly rate reached the portal');
-  // The amount of the line is the thing being shown, and still is.
-  assert.ok(wire.includes('1680'), 'the line total should still travel');
+  /*
+   * The visible line still carries a total, and it is now LARGER than its
+   * own 1,680: the hidden line in its section draws no row, so this one
+   * carries both. Asserting the old figure would be asserting the money
+   * had been dropped.
+   */
+  const shown: any = customerQuoteSummary({
+    ...portalQuote,
+    customerSections: { materials: 'no-rates', labor: 'no-rates', processDetail: true },
+  });
+  assert.ok(shown.materials.length >= 1, 'the visible line still travels');
+  assert.ok(
+    Number(shown.materials[0].totalCost) >= 1680,
+    'with a total that is at least its own, and carries the withheld line too',
+  );
 });
 
 test('a junk or empty quote does not throw', () => {
