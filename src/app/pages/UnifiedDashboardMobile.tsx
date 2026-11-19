@@ -69,6 +69,31 @@ export default function UnifiedDashboardMobile({
   teamCount
 }: UnifiedDashboardMobileProps) {
   /*
+   * THIS SCREEN HAS A FIXED BOTTOM BAR. NOTHING ELSE DOES.
+   *
+   * The live-chat bubble is lifted 4rem on a phone so it clears that bar
+   * instead of sitting on top of it (the widget is z-9998, the bar z-50, so
+   * the widget wins every time). The lift used to be set on bare :root for
+   * every phone page — including the ones with no bar, where it does not
+   * avoid a collision but causes one, carrying the bubble out of the corner
+   * and into the content.
+   *
+   * Measured on /sign-up at 390x844: lifted, the bubble covers the Confirm
+   * Password field and its show/hide toggle outright, and intercepts the tap.
+   * That is what Eric reported three times as overlapping field boxes.
+   *
+   * Declared from here, on the documentElement, because the widget is mounted
+   * by App and is not a descendant of this screen — a custom property on our
+   * own container would never reach it. Removed on unmount, so leaving this
+   * screen puts the bubble back in the corner.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add('has-bottom-nav');
+    return () => root.classList.remove('has-bottom-nav');
+  }, []);
+
+  /*
    * Authority from the server answer, never from the browser.
    * See the header of lib/utils/roleUtils.ts for what this replaced.
    */
