@@ -97,6 +97,7 @@ import { quoteTotal } from '../../../supabase/functions/server/quoteTotal.ts';
 import { burdenFor, burdenOnSubtotal } from '../../../supabase/functions/server/laborBurden.ts';
 import { loadPricingConfigFromServer } from '../lib/pricingConfig';
 import QuoteMarginControl from './quotes/QuoteMarginControl';
+import { pricingRatesToPersist } from '../lib/quotePricingToPersist';
 import {
   customerPricingOf, preTaxTotalOf, allocate,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -3071,6 +3072,56 @@ export function QuoteToContractEditor({
         taxRate: editedQuote.taxRate,
         taxAmount: editedQuote.taxAmount,
         totalCost: editedQuote.totalCost,
+        /**
+         * THE PRICING, SO THE SAVED RECORD EXPLAINS ITS OWN TOTAL.
+         *
+         * Eric, 2026-11-19: *"when i save the edits i expect that the tax
+         * and profit and everything on the invoice locks unless i change
+         * and save it again"*.
+         *
+         * The server merges this body, so a field left off this list is not
+         * wiped — it is KEPT, at whatever it was before. For a figure that
+         * depends on the lines, that is worse than wiping it: it survives
+         * as a number that used to be true.
+         *
+         * `total` is the one that bit. It is the legacy twin of `totalCost`
+         * and was never on this list, so every save moved one and left the
+         * other behind. Measured on the two live quotes: Jason carried
+         * 13,345.11 against a `total` of 13,359.79, and Sarah 15,730.56
+         * against 12,666.13 — her `total` was still her bare direct cost,
+         * $3,064.43 below what the quote charges. `quoteTotalOf` reads
+         * `totalCost` first and is why the screens stayed right, but the
+         * wrong number was in the record the whole time.
+         *
+         * `preTaxTotal` is sent for the same reason: with tax at zero it
+         * equals the total and looks harmless, and the moment a rate is
+         * set the stale one is what the markup gets derived from.
+         */
+        total: editedQuote.totalCost,
+        preTaxTotal: (editedQuote as any).preTaxTotal,
+        directCost: (editedQuote as any).directCost,
+        laborBurdenAmount: (editedQuote as any).laborBurdenAmount,
+        overheadAmount: (editedQuote as any).overheadAmount,
+        profitAmount: (editedQuote as any).profitAmount,
+        contingencyAmount: (editedQuote as any).contingencyAmount,
+        /**
+         * The rates, written back ONLY where the quote already has them.
+         *
+         * This is the half that must not be done thoroughly. `asFraction`
+         * turns an absent rate into 0, and `customerPricingOf` now treats a
+         * recorded 0 as a decision — "no margin on this job" — which holds
+         * against the stored total instead of deriving from it. Writing
+         * zeros onto a quote that never had rates would therefore not be
+         * tidying up: it would be repricing. Jason carries 3,484.41 above
+         * his direct cost and no rate naming it, so stamping 0/0/0 on him
+         * would lock that margin out and drop his quote by exactly that.
+         *
+         * So presence decides, the same way `hasStoredPricing` decides on
+         * the read side. A quote that has been priced records what it was
+         * priced with and locks; one that never was keeps saying nothing,
+         * and the derivation goes on covering it.
+         */
+        ...pricingRatesToPersist(editedQuote),
       };
 
       let response = await fetch(`${base}/${encodeURIComponent(editedQuote.id)}`, {
