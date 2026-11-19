@@ -31,6 +31,27 @@ regexes = [
   # finding. If the anon key is ever rotated, this line changes with it.
   '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsenN2end3Y2RvcG5hd3Rpd3ptIiwicm9sZSI6ImFub24i[A-Za-z0-9_.-]*''',
 
+  # A TEST FIXTURE, AND IT SPELLS SOMETHING.
+  #
+  # `Zm9vYmFyYmF6cXV1eA==` is base64 for "foobarbazquux". It is the literal in
+  # tests/storeTickRules.test.ts that proves `secretMatches` compares exactly —
+  # the test asserts the same string matches itself and that a lowercased or
+  # suffixed copy does not.
+  #
+  # Allowlisted as THE STRING, not as the tests directory. "tests may contain
+  # secrets" is precisely the rot this file's header warns about, and a real
+  # credential pasted into a test would still be a finding.
+  '''Zm9vYmFyYmF6cXV1eA==''',
+  # STRIPE PUBLISHABLE KEYS ARE PUBLIC. THE SECRET ONES START sk_.
+  #
+  # `pk_test_…` and `pk_live_…` are designed to ship in the browser bundle —
+  # they identify the account and can do nothing on their own. Stripe's own
+  # dashboard calls them publishable. The dangerous siblings are `sk_` and
+  # `rk_`, and `whsec_` for webhooks; none of those is allowed by this line.
+  #
+  # Anchored on `pk_` specifically rather than on the file, so a secret key
+  # pasted into the same file is still a finding.
+  '''pk_(test|live)_[A-Za-z0-9]{20,}''',
   # Placeholder text in form fields and documentation — the strings that tell
   # somebody where to paste the real thing. "sk_live_..." is not a key.
   '''(sk_live|sk_test|whsec|rk_live)_(\.\.\.|x{3,}|•+|<[^>]*>|\$\{)''',
