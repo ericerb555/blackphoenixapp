@@ -146,3 +146,70 @@ test('the reset that causes this is still in place and still explained', () => {
     'the explanation for the reset has been removed; it is the only reason the next person will not undo it',
   );
 });
+
+/*
+ * The second half of the same fault, reported after the first fix shipped:
+ * "still overlapping on the mobile device."
+ *
+ * `space-y-*` is margin-top on siblings and `mb-*` is margin-bottom, so the
+ * unlayered `* { margin: 0 }` reset flattens both. A label sits on its own
+ * field and the field sits on the next label. It shows on a phone first
+ * because two mobile-only rules take up the last of the slack — 16px fields so
+ * Safari will not zoom, and a 44px touch-target minimum.
+ */
+
+/** Every `mb-*` a <label> asks for, and every `space-y-*` a <form> asks for. */
+function formSpacingInUse() {
+  const labels = new Map<string, string[]>();
+  const forms = new Map<string, string[]>();
+  for (const file of sourceFiles('src')) {
+    const text = fs.readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/<label\b[^>]{0,400}?className=\{?"([^"]*)"/g)) {
+      for (const c of m[1].match(/\bmb-\d+(\.\d+)?\b/g) || []) {
+        const where = labels.get(c) || [];
+        if (!where.includes(file)) where.push(file);
+        labels.set(c, where);
+      }
+    }
+    for (const m of text.matchAll(/<form\b[^>]{0,400}?className=\{?"([^"]*)"/g)) {
+      for (const c of m[1].match(/\bspace-y-\d+\b/g) || []) {
+        const where = forms.get(c) || [];
+        if (!where.includes(file)) where.push(file);
+        forms.set(c, where);
+      }
+    }
+  }
+  return { labels, forms };
+}
+
+test('a label gets the gap it asks for above its field', () => {
+  const { labels } = formSpacingInUse();
+  assert.ok(labels.size > 0, 'the scan found no labelled fields — it has broken');
+
+  const missing: string[] = [];
+  for (const [cls, files] of labels) {
+    /*
+     * `mb-1.5` is written `label.mb-1\.5` in CSS: a bare dot would start a new
+     * class selector, so it has to be escaped. The replacement needs a real
+     * backslash in the string, which is why it is doubled here — `'\.'` is
+     * just a dot to JavaScript, and this test passed against the wrong
+     * selector until that was spotted.
+     */
+    const selector = `label.${cls.replace('.', '\\.')}`;
+    if (!CSS.includes(selector)) {
+      missing.push(`${selector} — wanted by ${files.length} file(s), e.g. ${files[0]}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'These labels will render flush against their field:\n  ' + missing.join('\n  '));
+});
+
+test('a form gets the gap it asks for between its fields', () => {
+  const { forms } = formSpacingInUse();
+  const missing: string[] = [];
+  for (const [cls, files] of forms) {
+    if (!CSS.includes(`form.${cls} >`) && !CSS.includes(`form.${cls}>`)) {
+      missing.push(`form.${cls} — wanted by ${files.length} file(s), e.g. ${files[0]}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'These forms will stack their fields with no gap:\n  ' + missing.join('\n  '));
+});
