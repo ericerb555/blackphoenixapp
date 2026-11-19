@@ -298,6 +298,19 @@ function measure(root: HTMLElement): MobileFindings {
    * caught the defect described above. It catches overlaps WITHIN a page.
    * Catching a global overlay needs one page per document, which this
    * harness is deliberately not built for.
+   *
+   * AND IT MEASURES MID-ANIMATION, SO TREAT A HIT AS A CANDIDATE.
+   *
+   * The measurement runs two animation frames after mount, which is after
+   * layout and well before a framer-motion entrance has settled. A page
+   * whose sections animate in with a y offset will report controls sliding
+   * under each other that are nowhere near each other a moment later —
+   * `contractor-network-landing-page` does exactly this, and its "covered"
+   * button measures 30px tall where its own `py-4` would make it about
+   * 62px, which is the giveaway that nothing had finished moving.
+   *
+   * So confirm a hit before acting on it: re-run the page on its own with
+   * --only and --batch 1, and check the geometry is stable.
    */
   let covered = 0;
   let coveredWorst: string | undefined;
@@ -324,7 +337,12 @@ function measure(root: HTMLElement): MobileFindings {
       const by = (hit as HTMLElement).getAttribute?.('aria-label')
         || (hit.textContent || '').trim().slice(0, 24)
         || hit.tagName.toLowerCase();
-      coveredWorst = `${el.tagName.toLowerCase()}${name ? ` "${name}"` : ''} is under ${by}`;
+      /* Coordinates, so the finding can be acted on without a rerun — the
+         same reason `bleedWorst` names its element and its width. */
+      const hr = (hit as HTMLElement).getBoundingClientRect();
+      coveredWorst = `${el.tagName.toLowerCase()}${name ? ` "${name}"` : ''}`
+        + ` at ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`
+        + ` is under ${by} at ${Math.round(hr.left)},${Math.round(hr.top)} ${Math.round(hr.width)}x${Math.round(hr.height)}`;
     }
   }
 

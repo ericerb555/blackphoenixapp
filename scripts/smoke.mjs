@@ -415,7 +415,25 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
   const deadline = Date.now() + waitS * 1000;
   while (Date.now() < deadline) {
     await sleep(400);
-    if (latest && latest.results.every((r) => r.status !== 'hung')) break;
+    /*
+     * A verdict is not the whole report when --mobile is on.
+     *
+     * The page publishes its verdict on mount and its phone measurements two
+     * animation frames later, after layout. Breaking on the verdict alone
+     * kills the browser in between, and the run then prints "no control has
+     * anything painted on top of it" — which reads as a pass and means
+     * nothing was measured at all.
+     *
+     * Found at --batch 1, where one fast page reports and the loop exits
+     * before the frames run. Larger batches hid it: fifteen pages keep the
+     * browser busy long enough for the first one's measurement to land. An
+     * absence that looks like a pass is the failure this whole sweep exists
+     * to stop, so it must not be in the sweep itself.
+     */
+    const done = latest && latest.results.every(
+      (r) => r.status !== 'hung' && (!MOBILE || r.status !== 'ok' || r.mobile),
+    );
+    if (done) break;
   }
 
   try { browser.kill(); } catch {}
@@ -448,10 +466,26 @@ if (!(await waitForServer())) {
 const wantAll = process.argv.includes('--all');
 let targets = null;
 
+/*
+ * --only a,b,c — run exactly these, and nothing else.
+ *
+ * For checking one finding rather than re-sweeping 382 pages to see it again.
+ * Pair it with --batch 1 when the finding is about overlap: a batch stacks
+ * pages into one document, and the first version of the covered-control check
+ * reported eleven collisions between pages that never share a screen. One
+ * page per document is what makes a positional finding mean anything.
+ */
+const onlyArg = argFor('--only');
+if (onlyArg) {
+  targets = onlyArg.split(',').map((s) => s.trim()).filter(Boolean);
+  console.log(`Running ${targets.length} named target(s).`);
+  console.log('');
+}
+
 // By default only the pages a change could have reached. The full sweep takes
 // six minutes, which is too slow to run before every commit — and a check that
 // gets skipped is worse than none, because it gives false comfort.
-if (!wantAll) {
+if (!wantAll && !targets) {
   const changed = changedFiles();
   const routes = affectedRoutes(changed);
   if (routes === null) {
