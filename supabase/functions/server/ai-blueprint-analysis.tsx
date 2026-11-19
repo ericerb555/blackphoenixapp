@@ -10,9 +10,9 @@
  * - Project insights and recommendations
  */
 
-import { Hono } from 'npm:hono@4';
-import { cors } from 'npm:hono@4/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { Hono } from 'npm:hono@4.13.19';
+import { cors } from 'npm:hono@4.13.19/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import { reserve, refund } from './aiSpend.ts';
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 

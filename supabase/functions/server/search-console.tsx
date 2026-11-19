@@ -31,8 +31,8 @@
  * does: this function runs with verify_jwt on, and Google returns the user by
  * redirecting their browser, which carries no Supabase token.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { escapeHtml } from "./escapeHtml.ts";
 

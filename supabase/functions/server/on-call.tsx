@@ -29,8 +29,8 @@
  * actually being paid for, and it is reported here rather than stored — a
  * stored copy is a copy that goes stale the moment somebody cancels.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { runsOurOnCall } from "./addOnAccess.tsx";
 import {

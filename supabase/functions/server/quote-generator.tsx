@@ -15,8 +15,8 @@
  *   - A structured, deterministic fallback if the model or key is unavailable
  */
 
-import { Hono } from 'npm:hono@4';
-import { cors } from 'npm:hono@4/cors';
+import { Hono } from 'npm:hono@4.13.19';
+import { cors } from 'npm:hono@4.13.19/cors';
 import { applyMeasuredHours, type TradeFactor } from './measuredHours.ts';
 import { applyMargins } from './quoteMargins.ts';
 import { reconcilePhases } from './quotePhasePlan.ts';
@@ -50,7 +50,7 @@ quoteRouter.use('*', cors({
 let openaiClient: any = null;
 async function openai(): Promise<any> {
   if (!openaiClient) {
-    const { default: OpenAI } = await import('npm:openai@4');
+    const { default: OpenAI } = await import('npm:openai@4.104.0');
     openaiClient = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY') });
   }
   return openaiClient;

@@ -54,7 +54,7 @@
  * `tasks/ai-emergency-attendant.md` holds the options and what each costs.
  */
 
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { e164 } from "./onCallMessage.ts";
 import {

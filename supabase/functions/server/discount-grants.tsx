@@ -25,8 +25,8 @@
  * So: resolved on the server, from the entitlement the payment wrote, every
  * time. The client is told a number and never supplies one.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { resolveEntitlement, type PlanTier } from "./planTier.ts";
 import {

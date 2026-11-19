@@ -19,7 +19,7 @@
  * thing that runs is the thing that was reviewed. The database refuses to
  * let `params` change after insert, so even a bug here cannot swap them.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import {
   canApprove, canExecute, canTransition, approverIsIndependent, expiryFrom,
   type ActionRequest, type ActionRisk, type ActionStatus,

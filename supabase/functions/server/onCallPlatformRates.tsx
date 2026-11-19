@@ -27,8 +27,8 @@
  * second hourly rate stored here would be the copy that disagrees, and the one
  * that disagrees about money is the one that ends up on an invoice.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import type { CallExtras } from "./onCallConfig.ts";
 

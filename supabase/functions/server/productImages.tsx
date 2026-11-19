@@ -33,7 +33,7 @@
  * document that can carry script, and these are served from a PUBLIC bucket to
  * customers. That is stored cross-site scripting with extra steps.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { safeFetch } from "./outboundGuard.ts";
 import { sniffImage } from "./imageSniff.ts";
 

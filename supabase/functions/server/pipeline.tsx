@@ -1,5 +1,5 @@
-import { Hono } from "npm:hono@4";
-import { cors } from "npm:hono@4/cors";
+import { Hono } from "npm:hono@4.13.19";
+import { cors } from "npm:hono@4.13.19/cors";
 import * as kv from "./kv_store.tsx";
 import { financialActor } from "./identity.ts";
 import { isTrustedStaff, trustedRole } from "./trustedRole.ts";

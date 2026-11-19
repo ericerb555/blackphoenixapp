@@ -25,8 +25,8 @@
  * nothing against it may be work they have not priced. Both matter more than
  * the total, and both disappear if a reader only reports its successes.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { trustedRole } from "./trustedRole.ts";
 import { recordedAnthropic } from "./aiLedger.ts";
 import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
@@ -167,7 +167,7 @@ app.post("/read", async (c) => {
       ].filter(Boolean).join("\n"),
     });
 
-    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
     const message = await recordedAnthropic({ agent: "bid-intake", operation: theirQuote?.suspicion ? "read an incoming bid (content flagged)" : "read an incoming bid" }, client, {
       model: Deno.env.get("BID_INTAKE_MODEL") || "claude-opus-5",
       max_tokens: 8000,

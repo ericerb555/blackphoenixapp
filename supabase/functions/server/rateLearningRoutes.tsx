@@ -31,7 +31,7 @@
  * would quietly vanish. Keeping them apart also makes each correction
  * reversible: delete the measured record and the rate falls back.
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { readWorkRequests } from "./workRequestStore.ts";
 import { jobOutcome, varianceByTask } from "./jobOutcome.ts";

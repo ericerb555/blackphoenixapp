@@ -39,8 +39,8 @@
  * delivery are reported separately and the screen says which is which.
  */
 
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { storeClockSummary } from "./storeAutonomy.ts";

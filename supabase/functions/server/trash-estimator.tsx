@@ -39,8 +39,8 @@
  * the image is what costs money. Two passes over twelve images is twenty-four.
  */
 
-import { Hono } from "npm:hono";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { reserve, refund } from "./aiSpend.ts";
 import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
@@ -499,7 +499,7 @@ trashEstimatorRouter.post("/read", async (c: any) => {
   let tokensOut = 0;
 
   try {
-    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const client = new (await import("npm:@anthropic-ai/sdk@1.11.0")).default({ apiKey: key });
 
     const ask = async (system: string, content: any[]) => {
       const message = await client.messages.create({

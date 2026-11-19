@@ -16,9 +16,9 @@
  *   vendor_price:{materialKey}:{vendorKey} → { materialKey, vendorKey, price, inStock, leadTime, updatedAt, source }
  */
 
-import { Hono } from "npm:hono@4";
-import { cors } from "npm:hono@4/cors";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { cors } from "npm:hono@4.13.19/cors";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 

@@ -21,7 +21,7 @@
  * Seeing what you owe set against what you received is how somebody decides to
  * pay. A blank wall is how they decide to leave.
  */
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import * as kv from './kv_store.tsx';
 import { trustedRole } from './trustedRole.ts';
 import { accountStanding, mayDeactivate, type Standing } from './accountStanding.ts';

@@ -5,7 +5,7 @@
  * with labor and materials from the analyzed blueprints
  */
 
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import { rateForRole, rateForTrade, blueprintPricing } from './blueprintRates.ts';
 import { resolvePricing } from './pricingDefaults.ts';
 import { applyMargins } from './quoteMargins.ts';
@@ -13,7 +13,7 @@ import { blueprintTakeoff } from './blueprintTakeoff.ts';
 import { mergeServerCatalogue, findTask } from './serverCatalogue.ts';
 import { resolveCatalogue } from './rateLearning.ts';
 import { estimateTaskLabor } from './laborMath.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 
 const quoteFromBlueprintRouter = new Hono();

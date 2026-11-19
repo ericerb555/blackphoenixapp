@@ -17,7 +17,7 @@
  * The browser cannot call CJ directly (CORS + secret), so every CJ call happens
  * here, server-side, using the CJ_API_KEY secret (or a key passed in the body).
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import * as config from "./dropshipper-config.tsx";
 import { screenAndQuarantine } from "./content-filter.tsx";

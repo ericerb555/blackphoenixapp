@@ -32,7 +32,7 @@
  * from this route alone keeps whatever the first pass guessed.
  */
 
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 import { MAX_READING_TOKENS, readJsonReply, unreadableReply, floorArea } from "./floorPlanReply.ts";
 

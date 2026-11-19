@@ -3,9 +3,9 @@
  * Handles employee time entries, GPS tracking, and payroll integration
  */
 
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import { normaliseTrades, sanitiseTrades } from "./employeeTrades.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { shiftStatus, autoClosePunchOut, blockedFromPayroll, reviewReason, AUTO_CLOSE_AFTER_HOURS } from "./shiftLimits.ts";
 

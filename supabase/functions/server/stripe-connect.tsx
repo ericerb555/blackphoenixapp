@@ -20,10 +20,10 @@
  *   stripe_payment:{paymentId}   → PaymentRecord
  *   stripe_payment_index         → string[] of paymentIds (newest first)
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 // Type only — erased at compile time, so the SDK is not in the boot path.
-import type Stripe from "npm:stripe@17";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import type Stripe from "npm:stripe@17.7.0";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { trustedRole, STAFF_ROLE_SET } from "./trustedRole.ts";
 import { fulfilmentReadiness, WEBHOOK_SECRET_NAMES } from "./fulfilmentReadiness.ts";
@@ -87,7 +87,7 @@ const KNOWN_KEY_ENVS = ["STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY_2"];
  * never touch payments.
  */
 async function makeStripe(key: string): Promise<Stripe> {
-  const { default: StripeSdk } = await import("npm:stripe@17");
+  const { default: StripeSdk } = await import("npm:stripe@17.7.0");
   return new StripeSdk(key, {
     apiVersion: "2024-12-18.acacia",
     // Use fetch under Deno rather than Node http.

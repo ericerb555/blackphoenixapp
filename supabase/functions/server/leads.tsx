@@ -41,7 +41,7 @@
  * once took the entire API staff-only for a deploy. So the middleware below
  * checks the path itself and stands aside for anything that is not ours.
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { requireStaff } from "./requireStaff.ts";
 import { REPLY_TO_EMAIL, NOTIFICATION_FROM_EMAIL } from "./emailIdentity.ts";

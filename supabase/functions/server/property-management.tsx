@@ -32,7 +32,7 @@
  * rather than everybody's — and that is a behaviour change with a data model
  * behind it, not a guard. Recorded rather than quietly done.
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { intakeActor, intakeIsAdmin } from "./identity.ts";
 import { stripBase64 } from "./payloadLimits.ts";

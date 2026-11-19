@@ -25,7 +25,7 @@
  * touch the store. Those have their own switches, and a control that claims
  * a wider blast radius than it has is its own kind of lie.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import {
   GLOBAL_SCOPE, AiStopped, pickStop, sortStops, onReadFailure, CACHE_MS,
   type StopState,

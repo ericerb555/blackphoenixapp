@@ -4,7 +4,7 @@
  * WHY THIS IS SPLIT FROM `aiKillSwitch.ts`
  *
  * The same reason `aiCeiling.ts` is split from `aiSpend.ts`: that module
- * imports `npm:@supabase/supabase-js@2`, which `node --test` cannot resolve,
+ * imports `npm:@supabase/supabase-js@2.39.7 which `node --test` cannot resolve,
  * so anything defined beside it is unreachable from a test. This is a safety
  * control — the thing somebody reaches for when the AI is doing something
  * expensive or wrong — and "we read it carefully" is not the standard it

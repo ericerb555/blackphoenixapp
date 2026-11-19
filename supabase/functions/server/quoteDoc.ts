@@ -33,7 +33,7 @@
  *
  * WHY IT LIVES HERE NOW
  *
- * `quotes.tsx` imports `npm:hono@4`, so nothing in it can be loaded by the
+ * `quotes.tsx` imports `npm:hono@4.13.19 so nothing in it can be loaded by the
  * test runner — the function deciding which parts of a quote are allowed to
  * exist could not be asserted at all. Same move as `quoteMargins`,
  * `invoiceDraft`, `quoteCustomerPrice` and `quoteTotal` before it: pure,

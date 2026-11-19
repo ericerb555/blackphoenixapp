@@ -44,7 +44,7 @@
  * strength of a ledger write succeeding; `aiSpend` and the auth wall decide
  * that, and they fail closed. This only observes.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import { estimateCostCents } from "./modelPricing.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";

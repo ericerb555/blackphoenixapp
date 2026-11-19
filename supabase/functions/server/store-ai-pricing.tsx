@@ -18,8 +18,8 @@
  *             estimateShipping?: boolean }
  *     → { success, suggestions:[{ id, suggestedPrice, suggestedShipping, margin, confidence, rationale }] }
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { recordedOpenAIFetch } from "./aiLedger.ts";
 
 const storeAiPricingRouter = new Hono();

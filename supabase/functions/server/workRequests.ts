@@ -23,7 +23,7 @@
  * The bodies are unchanged from `index.tsx`.
  */
 import * as kv from "./kv_store.tsx";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { intakeActor, intakeIsAdmin } from "./identity.ts";
 import { readWorkRequests as readWorkRequestsShared } from "./workRequestStore.ts";
 import { ensureJobId } from "./jobs.tsx";

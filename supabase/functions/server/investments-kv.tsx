@@ -21,10 +21,10 @@
 //   GET    /investments/documents/opportunity/:id           -> { documents }
 //   POST   /investments/documents/:id/sign                  -> { success, document }
 //   GET    /investments/analytics/portfolio/:email          -> { summary, commitments, recentPayouts }
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 // Type only — erased at compile time, so the SDK is not in the boot path.
-import type Stripe from 'npm:stripe@17';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import type Stripe from 'npm:stripe@17.7.0';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 import { trustedRole } from './trustedRole.ts';
 import {
@@ -49,7 +49,7 @@ const investmentsRouter = new Hono();
 async function getStripe(): Promise<Stripe | null> {
   const key = Deno.env.get('STRIPE_SECRET_KEY');
   if (!key) return null;
-  const { default: StripeSdk } = await import('npm:stripe@17');
+  const { default: StripeSdk } = await import('npm:stripe@17.7.0');
   return new StripeSdk(key, {
     apiVersion: '2024-12-18.acacia',
     httpClient: StripeSdk.createFetchHttpClient(),
@@ -1484,7 +1484,7 @@ investmentsRouter.post(`${PREFIX}/investments/ai-property-analysis`, async (c) =
 
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) return c.json({ error: 'AI is not configured (missing OPENAI_API_KEY).' }, 500);
-    const openai = new (await import('npm:openai@4')).default({ apiKey });
+    const openai = new (await import('npm:openai@4.104.0')).default({ apiKey });
 
     // Ground the study in the real parcel record + valuation where available.
     // Parcel data is sourced free-first (MassGIS / NH GRANIT via Census

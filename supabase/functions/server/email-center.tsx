@@ -7,7 +7,7 @@
 // Storage (KV, no schema changes required):
 //   email_template:{key}   -> { key, name, subject, html, updatedAt }
 //   email_log:{timestamp}  -> { id, to, subject, html, templateKey, status, provider, error, sentAt }
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import * as kv from './kv_store.tsx';
 import { verifiedActor } from './requireStaff.ts';
 import { REPLY_TO_EMAIL } from './emailIdentity.ts';

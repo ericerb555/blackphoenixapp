@@ -13,14 +13,14 @@
 // It matters more now than it did: cohorts is becoming the system of record
 // for money, so these paths are about to run for real. If a value list ever
 // needs its keys, `kv.getKeysByPrefix` exists for that.
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import * as kv from './kv_store.tsx';
 import { requireStaffOn } from './requireStaff.ts';
 import { priceFor, spotsRemaining, monthlyRevenueOf, cohortFromTier, withoutMoneyFigures } from './cohortPricing.ts';
 import { membershipsFromGrants, unattachedTrials, type Membership } from './cohortMembership.ts';
 import { accountStanding, mayDeactivate } from './accountStanding.ts';
 import { trustedRole } from './trustedRole.ts';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 
 /**
  * The applications people actually submit. The same key the Application

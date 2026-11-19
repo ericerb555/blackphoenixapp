@@ -13,8 +13,8 @@
  * Checkout (Stripe) lives in index.tsx on the TBPCO e-commerce account; this
  * module owns the catalog and reads back the orders it records.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest, requireStaff } from "./requireStaff.ts";
 import { recordedOpenAIFetch } from "./aiLedger.ts";

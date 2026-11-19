@@ -35,7 +35,7 @@
  * here records `openstreetmap` as its source so the obligation can be met and
  * audited rather than remembered.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import {
   osmToRegistryRecord,
   osmCoordinates,

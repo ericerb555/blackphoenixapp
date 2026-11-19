@@ -24,7 +24,7 @@
  * to, so the catalogue is swept continuously rather than all at once.
  */
 import * as kv from "./kv_store.tsx";
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import { registerStoreJob, askForGuidance, withdrawAsk, type StoreJobContext, type StoreJobResult } from "./storeAutonomy.ts";
 import { fetchCJVariantSnapshot, storedOrSecretKey as cjKey, CJ_ACCESS_DISABLED } from "./cjdropshipping.tsx";
 import { isAuthFailure, authFailureKind } from "./cjErrors.ts";

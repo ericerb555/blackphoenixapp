@@ -32,7 +32,7 @@
  * the reason set out in that file. Nothing here reads a role the caller can
  * write.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { trustedRole } from "./trustedRole.ts";
 
 /**

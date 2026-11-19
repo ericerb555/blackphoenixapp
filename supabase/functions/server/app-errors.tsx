@@ -27,8 +27,8 @@
  * READING IT IS GATED, and gated hard. The list of what is failing is a map of
  * where this platform is weakest.
  */
-import { Hono } from 'npm:hono@4';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { Hono } from 'npm:hono@4.13.19';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import { requireStaffOn } from './requireStaff.ts';
 
 const appErrorsRouter = new Hono();

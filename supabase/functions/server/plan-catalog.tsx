@@ -29,8 +29,8 @@
  * the Stripe price id never leaves the server — a portal is told whether a tier
  * is purchasable, not what it bills against.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import {
   AUDIENCES, carryStripeLinkage, carryBandLinkage, isPurchasable, publicAddOn, publicTier, readInterval,
@@ -412,7 +412,7 @@ Return ONLY a JSON object, no prose, no code fence:
           + ` — features: ${(t.features || []).join("; ") || "none listed"}`).join("\n")
       : "They sell nothing for this portal yet.";
 
-    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const client = new (await import("npm:@anthropic-ai/sdk@1.11.0")).default({ apiKey: key });
     const message = await recordedAnthropic({ agent: "plan-catalog", operation: "draft a plan tier" }, client, {
       model: Deno.env.get("PLAN_DRAFT_MODEL") || "claude-opus-5",
       max_tokens: 4000,

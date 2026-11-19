@@ -1,7 +1,26 @@
 {
+  "_comment": [
+    "Exact versions, not ranges. DEP-1 in docs/audit-2026-11/.",
+    "",
+    "This file used to say npm:hono@^4.0.0, and deno.lock resolved that range",
+    "to 4.12.32 — which is inside the vulnerable range of all five open hono",
+    "advisories (patched in >= 4.13.16). The range made it look current while",
+    "the lock held it eight minor versions back, and nothing in the repo said",
+    "which version production ran.",
+    "",
+    "Every import in this function now names one exact version, so the question",
+    "'what is deployed' is answerable by reading, and an advisory about either",
+    "package can be answered yes or no.",
+    "",
+    "WHEN YOU CHANGE A VERSION HERE, change it in deno.lock too — both the",
+    "specifier mapping and the package entry with its registry integrity hash.",
+    "There is no deno binary on the usual dev machine here, so the lock is",
+    "maintained by hand and the hash comes from",
+    "registry.npmjs.org/<pkg>/<version> as dist.integrity."
+  ],
   "imports": {
-    "hono": "npm:hono@^4.0.0",
-    "hono/": "npm:hono@^4.0.0/"
+    "hono": "npm:hono@4.13.19",
+    "hono/": "npm:hono@4.13.19/"
   },
   "tasks": {
     "serve": "deno run --allow-net --allow-read --allow-env index.tsx"

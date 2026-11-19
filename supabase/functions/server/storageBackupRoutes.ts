@@ -20,7 +20,7 @@
  * It refuses when the secret is unset rather than falling open. An unset
  * secret is exactly the state a half-finished deploy leaves behind.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import {
   BACKUP_BUCKET, isBackupSource, planCopies, buildManifest, manifestKey,

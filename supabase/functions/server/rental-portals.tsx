@@ -33,8 +33,8 @@
  * asking, usually through `landlordActor` or `propertyManagerActor`, and what
  * they may see. A blanket guard would be wrong in both directions here.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { intakeActor, intakeIsAdmin } from "./identity.ts";
 import { stripBase64, isUrl } from "./payloadLimits.ts";

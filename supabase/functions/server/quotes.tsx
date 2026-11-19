@@ -8,9 +8,9 @@
  * KV keys: `quote:{id}`
  */
 
-import { Hono } from "npm:hono@4";
-import { cors } from "npm:hono@4/cors";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { cors } from "npm:hono@4.13.19/cors";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { ensureJobId } from "./jobs.tsx";
 import { customerQuoteSummary } from "./customerQuoteView.ts";
@@ -187,7 +187,7 @@ quotesRouter.use("*", cors({
 
 /**
  * The stored shape of a quote lives in `quoteDoc.ts` so it can be tested —
- * this file imports `npm:hono@4` and nothing in it is loadable by the test
+ * this file imports `npm:hono@4.13.19 and nothing in it is loadable by the test
  * runner. Aliased to the old name so the call sites below are untouched.
  */
 import { normalizeQuoteDoc as normalizeDoc } from "./quoteDoc.ts";

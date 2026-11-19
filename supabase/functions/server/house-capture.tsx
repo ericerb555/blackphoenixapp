@@ -21,8 +21,8 @@
  * required to surface both. Nothing from a photo is allowed to look like a
  * measurement, because someone will build off it.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { trustedRole } from "./trustedRole.ts";
 import { reserve, refund } from "./aiSpend.ts";
@@ -640,7 +640,7 @@ app.post("/analyze", async (c) => {
 
     let message: any;
     try {
-      const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+      const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
       message = await client.messages.create({
         model,
         max_tokens: 8000,
@@ -1672,7 +1672,7 @@ app.post("/read-sketch", async (c) => {
       ].filter(Boolean).join("\n\n"),
     });
 
-    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
     const message = await client.messages.create({
       model: Deno.env.get("HOUSE_CAPTURE_MODEL") || "claude-opus-5",
       max_tokens: 8000,

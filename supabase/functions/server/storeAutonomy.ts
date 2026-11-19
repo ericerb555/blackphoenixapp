@@ -48,8 +48,8 @@
  * second scheme, because two schemes means one of them is the one nobody
  * remembers to rotate.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";

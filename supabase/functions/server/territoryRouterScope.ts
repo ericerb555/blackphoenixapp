@@ -2,7 +2,7 @@
  * Which paths the territory router's staff gate owns.
  *
  * ITS OWN FILE SO IT CAN BE TESTED. `node --test` cannot import a `.tsx`, and
- * the route module pulls in `npm:hono` besides — so the pure decision lives
+ * the route module pulls in `npm:hono@4.13.19` besides — so the pure decision lives
  * here, beside `junkLinks.ts` and `anonPricer.ts`, and
  * `tests/territoryRouterScope.test.ts` holds it to its word.
  *

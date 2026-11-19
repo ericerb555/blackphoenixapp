@@ -24,7 +24,7 @@
  * screen. `/public/plan-tiers` already exists for what a customer may see.
  */
 
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { isStaffRequest } from "./requireStaff.ts";
 import { readinessOf, summarise, type PriceMode, type SellableRecord } from "./pricingReadiness.ts";

@@ -27,8 +27,8 @@
  * which has no Hono import and can therefore be unit-tested; see the note at
  * the top of that file for why that mattered enough to split them.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { readTrade, systemFor, describe, CHANGE_FIELDS } from "./assistantPrompt.ts";
 import { beginAiCall, ledgerContextFor, type AiCallHandle } from "./aiLedger.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";
@@ -90,7 +90,7 @@ app.post("/ask", async (c) => {
       return c.json({ error: "The assistant is not configured. Set the ANTHROPIC_API_KEY secret." }, 503);
     }
 
-    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
 
     const messages = [
       ...history

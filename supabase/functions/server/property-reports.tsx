@@ -23,8 +23,8 @@
  * difference between those two answers is a way of asking whether another
  * landlord's building exists.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { evidenceFor, propertyFor, detailFor, rentsFor, marketRentFor } from "./propertyReportData.ts";
 import { propertyHealthReport, capitalPlanReport, revenueReport } from "./propertyReportContent.ts";
 import { marketIsUsable } from "./revenueRules.ts";

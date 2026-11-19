@@ -5,10 +5,10 @@
  * Updated: 2026-06-16
  */
 
-import { Hono } from "npm:hono@4";
-import { cors } from "npm:hono@4/cors";
-import { logger } from "npm:hono@4/logger";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { cors } from "npm:hono@4.13.19/cors";
+import { logger } from "npm:hono@4.13.19/logger";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import {
   clientIp, decide, record as recordReputation, freshReputation, presentedCredential,
@@ -12904,7 +12904,7 @@ app.post('/make-server-3eae23a6/owner-provisioning/invites', async (c) => {
     // they can print or show it for in-person onboarding.
     if (wantQr && inviteLink) {
       try {
-        const QRCode = (await import('npm:qrcode')).default;
+        const QRCode = (await import('npm:qrcode@1.5.4')).default;
         qrDataUrl = await QRCode.toDataURL(inviteLink, { width: 512, margin: 2 });
       } catch (e: any) { console.log(`ℹ️ [PortalInvite] QR generation failed: ${e?.message || e}`); }
     }

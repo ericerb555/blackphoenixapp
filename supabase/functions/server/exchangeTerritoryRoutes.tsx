@@ -27,8 +27,8 @@
  * outright. This was found by running it, not by reading the documentation.
  */
 
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { isStaffRequest } from "./requireStaff.ts";
 import { demandGaps } from "./exchangeLedger.ts";
 import {

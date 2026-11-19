@@ -17,7 +17,7 @@
  * WHY IT IS ITS OWN FILE, for the same reason `imageSniff.ts` is
  *
  * So it can be tested without a Supabase client, a storage bucket or a network.
- * `quoteAttachments.ts` imports `npm:hono` and the Supabase client, so nothing
+ * `quoteAttachments.ts` imports `npm:hono@4.13.19` and the Supabase client, so nothing
  * inside it can be reached from the Node test runner. This check is the one
  * standing between a phone and a stored file, which makes it the piece most
  * worth testing and the piece least able to afford a dependency.

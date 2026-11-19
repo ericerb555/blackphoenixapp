@@ -27,8 +27,8 @@
  * Until he does, it stays with the side that recorded it, which is the
  * reversible choice.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { recordedAnthropic } from "./aiLedger.ts";
 
@@ -521,7 +521,7 @@ Return ONLY a JSON object, no prose, no code fence:
   }
 }`;
 
-    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const client = new (await import("npm:@anthropic-ai/sdk@1.11.0")).default({ apiKey: key });
     const message = await recordedAnthropic({ agent: "property-inspections", operation: "draft an inspection plan" }, client, {
       model: Deno.env.get("INSPECTION_PLAN_MODEL") || "claude-opus-5",
       max_tokens: 4000,

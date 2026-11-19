@@ -8,10 +8,8 @@
     "npm:@supabase/postgrest-js@1.19.4": "1.19.4",
     "npm:@supabase/realtime-js@2.11.2": "2.11.2",
     "npm:@supabase/storage-js@2.7.1": "2.7.1",
-    "npm:@supabase/supabase-js@2": "2.39.7",
     "npm:@supabase/supabase-js@2.39.7": "2.39.7",
-    "npm:hono@*": "4.12.32",
-    "npm:hono@4": "4.12.32",
+    "npm:hono@4.13.19": "4.13.19",
     "npm:openai@4": "4.104.0"
   },
   "jsr": {
@@ -259,8 +257,8 @@
         "function-bind"
       ]
     },
-    "hono@4.12.32": {
-      "integrity": "sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg=="
+    "hono@4.13.19": {
+      "integrity": "sha512-KmXvQAXwcAHV+muzbIwoJ23niEB5nMoDVr9WcRkU8mvjUECm/1+7v4Jgp7P7a+H6MLFrh+vXrGonGrGS+RQfkA=="
     },
     "humanize-ms@1.2.1": {
       "integrity": "sha512-Fl70vYtsAFb/C06PTS9dZBo7ihau+Tu/DNCk/OyHhea07S+aeMWpFFkUaXRa8fI+ScZbEI8dfSxwY7gxZ9SAVQ==",

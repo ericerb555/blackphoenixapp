@@ -26,8 +26,8 @@
  * asks carry a daily ceiling per visitor; the alias path has none.
  */
 
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { recordDemand } from "./exchangeLedger.ts";
 import {
   resolveFromAliases, fenceRows, holdingCategoryOf,
@@ -113,7 +113,7 @@ async function interpret(ask: string, categories: any[], townName: string | null
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key) return null;
 
-  const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+  const client = new (await import("npm:@anthropic-ai/sdk@1.11.0")).default({ apiKey: key });
   const menu = categories.map((c) => `${c.slug} — ${c.name}`).join("\n");
 
   const message = await recordedAnthropic({ agent: "exchangeAssistantRoutes", operation: "answer an Exchange question" }, client, {
@@ -174,7 +174,7 @@ async function phrase(ask: string, rows: any[], townName: string | null): Promis
   if (!key) return null;
 
   try {
-    const client = new (await import("npm:@anthropic-ai/sdk")).default({ apiKey: key });
+    const client = new (await import("npm:@anthropic-ai/sdk@1.11.0")).default({ apiKey: key });
     const message = await recordedAnthropic({ agent: "exchangeAssistantRoutes", operation: "answer an Exchange question" }, client, {
       model: Deno.env.get("EXCHANGE_ASSISTANT_MODEL") || "claude-opus-5",
       max_tokens: 300,

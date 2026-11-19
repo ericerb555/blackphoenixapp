@@ -36,8 +36,8 @@
  * far short of a runaway. `aiSpend` is also counted per turn, so a long
  * conversation draws down the same ceiling as everything else.
  */
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { requireStaffOn } from "./requireStaff.ts";
 import { beginAiCall, ledgerContextFor } from "./aiLedger.ts";
@@ -279,7 +279,7 @@ async function runTool(
       model: WEB_READER_MODEL, provider: 'anthropic', bucket: 'ai', input: q,
     });
     try {
-      const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+      const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
       const result = await webAnswer(client, q);
       await call.ok({
         tokensIn: result.usage?.tokensIn,
@@ -856,7 +856,7 @@ phoenixChatRouter.post(BASE, async (c) => {
       ...ledgerContextFor(c),
     });
 
-    const client = new (await import('npm:@anthropic-ai/sdk')).default({ apiKey: key });
+    const client = new (await import('npm:@anthropic-ai/sdk@1.11.0')).default({ apiKey: key });
     const messages: any[] = [...history, { role: 'user', content: asked.text }];
 
     let answer = '';

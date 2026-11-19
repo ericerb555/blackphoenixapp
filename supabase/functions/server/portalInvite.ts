@@ -28,7 +28,7 @@
  * The bodies are unchanged.
  */
 import * as kv from "./kv_store.tsx";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { APP_URL, resolveCompanyName, toE164 } from "./serverPrimitives.ts";
 import { REPLY_TO_EMAIL } from "./emailIdentity.ts";
 import { resolveBirdSms } from "./bird.ts";
@@ -207,7 +207,7 @@ export async function deliverPortalInvite(opts: { name: string; email: string; p
     }
   }
   if (wantQr && inviteLink) {
-    try { const QRCode = (await import('npm:qrcode')).default; qrDataUrl = await QRCode.toDataURL(inviteLink, { width: 512, margin: 2 }); }
+    try { const QRCode = (await import('npm:qrcode@1.5.4')).default; qrDataUrl = await QRCode.toDataURL(inviteLink, { width: 512, margin: 2 }); }
     catch (e: any) { console.log(`ℹ️ [PortalInvite:resend] QR generation failed: ${e?.message || e}`); }
   }
   return { invitationSent, inviteNotice, emailProvider, smsSent, smsNotice, qrDataUrl, inviteLink };

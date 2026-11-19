@@ -20,7 +20,7 @@
  * is genuinely resolved, and the log says how often it does not — which is the
  * number to look at before tightening it.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { resolveEntitlement, withinLimit, heldAddOnIds, type PlanTier } from "./planTier.ts";
 import { effectiveLimits } from "./effectiveLimits.ts";

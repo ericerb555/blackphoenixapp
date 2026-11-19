@@ -19,7 +19,7 @@
  *                      switched off by removing the secret once the cutover is
  *                      verified.
  */
-import { Hono } from 'npm:hono@4';
+import { Hono } from 'npm:hono@4.13.19';
 import { resolveBirdSms } from './bird.ts';
 import { sendTextMessage } from './sendSms.ts';
 

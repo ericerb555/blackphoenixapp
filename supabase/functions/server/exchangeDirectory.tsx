@@ -28,8 +28,8 @@
  * because this file decides the column list.
  */
 
-import { Hono } from "npm:hono@4";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { Hono } from "npm:hono@4.13.19";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import { recordLead, recordDemand } from "./exchangeLedger.ts";
 import {
   publicLogoUrl, LOGO_SELECT_COLUMNS, looksLikeMissingLogoColumn,

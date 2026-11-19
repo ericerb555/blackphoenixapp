@@ -33,7 +33,7 @@
  * Staff see the same list plus the grants, because grants are the company's
  * business and a customer does not need to know what they were nearly given.
  */
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 
 export const invoiceAttachablesRouter = new Hono();

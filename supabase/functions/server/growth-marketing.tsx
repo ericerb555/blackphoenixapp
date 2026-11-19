@@ -11,7 +11,7 @@
  * All data lives in the shared KV table via ./kv_store.tsx.
  */
 
-import { Hono } from "npm:hono@4";
+import { Hono } from "npm:hono@4.13.19";
 import * as kv from "./kv_store.tsx";
 import { verifiedActor } from "./requireStaff.ts";
 import { sendTextMessage } from "./sendSms.ts";
@@ -488,7 +488,7 @@ router.post("/make-server-3eae23a6/ranking/generate", async (c) => {
     let scores = { seoScore: 90, geoScore: 88, voiceScore: 86 };
 
     if (apiKey) {
-      const openai = new (await import('npm:openai@4')).default({ apiKey });
+      const openai = new (await import('npm:openai@4.104.0')).default({ apiKey });
       const prompt = `You are an expert local SEO + GEO (generative engine optimization) copywriter.
 Write a ${typeLabels[type]} for "${businessName}", a home-services contractor in ${businessCity}.
 Services: ${services}.

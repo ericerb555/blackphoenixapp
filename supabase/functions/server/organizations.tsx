@@ -36,7 +36,7 @@
  *
  * Returning null for these is the answer, not a failure.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") || "",

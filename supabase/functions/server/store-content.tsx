@@ -8,8 +8,8 @@
 // KV storage (no schema changes):
 //   reel:{id}        -> { id, title, videoUrl, posterUrl, productId, productName, ctaText, active, order, createdAt }
 //   store_post:{id}  -> { id, title, body, productIds, channels, status, createdAt }
-import { Hono } from 'npm:hono@4';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { Hono } from 'npm:hono@4.13.19';
+import { createClient } from 'npm:@supabase/supabase-js@2.39.7';
 import * as kv from './kv_store.tsx';
 import {
   platformsFor, shouldPublishNow, statusFromResults, describeResults,
