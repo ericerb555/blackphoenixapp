@@ -216,28 +216,72 @@ downloads, no writes. It also corrected this audit's claim that the job had
 The bytes are provably there; the procedure is not. ~2h for a restore script
 with a `--dry-run`.
 
-### Batch 4 — The eleven tables that never existed (P2, the largest single job)
+### Batch 4 — The eleven tables that never existed — 📋 CLASSIFIED 2026-11-19, awaiting decisions
 
 | | Finding | Decision needed | Effort |
 |---|---|---|---|
-| D-1 | 11 non-existent tables, 45 call sites | per feature: complete, disable, isolate, or remove | 1–3 days |
+| D-1 | 11 non-existent tables, 45 call sites — **1 closed, 4 dead, 6 live** | per group below: complete, disable, or remove | 1–3 days |
 
 Per the brief, **nothing here gets deleted automatically.** Each needs a
-classification, and they are not the same:
+classification. Below is the measured version, 2026-11-19 — reachability
+traced from the route table inward, not guessed.
 
-- `portals` (12 sites), `stakeholders` + `stakeholder_activity` +
-  `stakeholder_notifications` (14 sites) — substantial features that were
-  built front-first. **Complete or disable**; they are too large to leave
-  rendering empty.
-- `user_profiles` (7), `user_companies` (2), `company_settings` (2),
-  `company_documents` (3) — overlap with what the KV layer and
-  `app_metadata` already hold. Likely **remove**, after confirming nothing
-  depends on them.
-- `security_audit_log` (3) — **complete it.** This is `D-2` and `L-1`; it is
-  the one on the list that is a security control.
-- `user_activity_log` (1), `notification_templates` (1) — **remove**.
+**It corrects this document's own first pass**, which grouped
+`company_settings` and `company_documents` together as "likely remove". One of
+them is dead and the other is a live customer-facing control that has never
+run.
 
-The owner decides. My recommendation is above each group, not a decision.
+#### Group 1 — DEAD. No caller, nothing breaks. (4 tables, 13 calls)
+
+| Table | Calls | Why it is dead |
+|---|---:|---|
+| `user_profiles` | 7 | `lib/services/userService.ts` — **zero importers** |
+| `user_activity_log` | 1 | same file |
+| `user_companies` | 2 | `lib/companyScope.ts` — `validateCompanyAccess` and `getUserCompanies` are **never called**; `AuthContext` imports only its *types* |
+| `company_documents` | 3 | `CompanyDatabaseService.getDocuments` / `saveDocument` / `deleteDocument` — **all three uncalled** |
+
+**Recommend remove.** KV already holds `user_profile:<email>` rows, so
+`userService` duplicates a shape the server owns. Keep `companyScope`'s type
+exports; delete only its two unused functions.
+
+#### Group 2 — LIVE AND EMPTY. A routed screen renders nothing. (6 tables, 28 calls)
+
+| Feature | Route | Tables |
+|---|---|---|
+| Portal management | `/portal-management` | `portals` (12) |
+| Enterprise reporting — three dashboards | `/reports`, `/enterprise-reporting` | `stakeholders` (2), `stakeholder_activity` (6), `stakeholder_notifications` (6), `notification_templates` (1), `audit_logs` (1) |
+
+Both are reachable today and both render empty. **Recommend complete or
+disable** — the stakeholder five are one feature and should be decided as one.
+
+#### Group 3 — LIVE, AND THE ONE WITH A CUSTOMER CONSEQUENCE (1 table, 2 calls)
+
+`company_settings` (2 calls) in `components/forms/ClientWorkRequestForm.tsx`,
+which has 5 importers and is a **customer-facing work-request form**.
+
+**The service-area check on that form has never run.** The code reads
+`business_address / city / state / zip` from `company_settings`, geocodes it,
+measures the distance to the job site, and sets an error:
+
+> *"This location is 412.3 miles away. We currently serve within 50 miles of
+> our business location."*
+
+`company_settings` has never existed, so `settings` is null, the entire
+`if (settings)` block is skipped, the distance is never computed and that error
+is never set. **A customer four hundred miles away is told nothing.** The
+second call reads `service_area_radius` and silently keeps the default.
+
+**Recommend repoint, not remove** — because the data already exists. KV key
+`company_branding_profile_anonymous` holds the real business address (Salem,
+NH). What is genuinely missing is a `service_area_radius` value, which is a
+business decision and not mine: the territory module uses 50 miles
+(`CAPACITY_LIMITS.radius`), but that governs subcontractor territories, not
+how far this company will travel for a job.
+
+#### Closed already
+
+`security_audit_log` — **built and in service**, batch 2. It was the only
+security control on the list.
 
 ### Batch 5 — The mass categories
 

@@ -169,6 +169,29 @@ P3 rather than P2 because the data is safe and a manual restore is feasible —
 but a backup with no tested restore is a hypothesis about the part that
 matters. A restore script with a `--dry-run` is ~2h.
 
+## What this audit left behind
+
+A security probe that leaves residue is a probe that has to be cleaned up after,
+and `security-probe.mjs` was written with that rule in its header — the October
+audit created three anonymous auth rows and the lesson was taken. This audit's
+manual probing was less disciplined, so here is the full account:
+
+| Residue | State |
+|---|---|
+| `kv_store_57095a78` → `user_profile:authz-probe-1794947626875@…` | orphaned row, named *"Authz Probe (delete me)"* |
+| `kv_store_57095a78` → `user_profile:authz-smstest-1795034044436@…` | orphaned row, named *"SMS guard probe (delete me)"* |
+| The two matching `auth.users` accounts | **already gone** |
+| `security_audit_log` → one `deploy_verification_probe` row | kept deliberately: it is the evidence that `D-2` works, and its `detail` says so |
+| 31 of the 32 `[originlock] would-block` lines in the 24h window | this audit, probing the function directly. Worth knowing before anyone reads that figure as bypass traffic |
+
+The two KV rows are two rows and harmless, and they should still go — they are
+labelled "delete me" by the thing that made them. **Not deleted without
+asking**, because deleting production data on my own initiative is exactly what
+the brief forbids, even when the data is mine.
+
+Their auth accounts being gone is also why `L-1` could not be verified: the
+token that would have produced a credentialed refusal belonged to one of them.
+
 ## The honest bottom line
 
 **The deliberate security work in this platform is strong and it holds up to
