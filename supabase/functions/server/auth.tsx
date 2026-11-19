@@ -7,6 +7,7 @@ import { Hono } from "npm:hono@4";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as kv from "./kv_store.tsx";
 import { linkInvoicesByEmail } from "./invoice-linking.tsx";
+import { upsertCrmContact } from "./crmContacts.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 const authRouter = new Hono();
@@ -96,6 +97,39 @@ function afterResponse(work: Promise<unknown>, label: string): void {
   if (typeof runtime?.waitUntil === 'function') runtime.waitUntil(settled);
 }
 
+/**
+ * Put a signup into the CRM, and never let that failure lose the signup.
+ *
+ * The account and the customer record are the durable part and are already
+ * written by the time this runs. A CRM array that cannot be read or written
+ * must not turn a successful registration into a failed one — somebody would
+ * be told their signup failed with an account sitting there working.
+ *
+ * It logs what actually happened, which is the thing that was missing: the
+ * old line claimed the CRM write unconditionally and there was no CRM write.
+ */
+async function putIntoCrm(
+  email: string, fullName: string, params: any, customer: any,
+): Promise<void> {
+  try {
+    const { created } = await upsertCrmContact(kv, {
+      email,
+      name: fullName,
+      firstName: customer?.first_name,
+      lastName: customer?.last_name,
+      phone: params?.phone || customer?.phone || "",
+      type: "customer",
+      source: "signup",
+      tags: ["signup"],
+      userId: params?.userId || null,
+      extra: { customer_number: customer?.customer_number },
+    });
+    console.log(`✅ [CRM] ${created ? "added" : "updated"} contact for ${email}`);
+  } catch (err: any) {
+    console.error(`[CRM] could not write the contact for ${email}: ${err?.message || err}`);
+  }
+}
+
 async function ensureCrmCustomer(params: {
   email: string;
   fullName?: string;
@@ -130,6 +164,13 @@ async function ensureCrmCustomer(params: {
     await linkInvoicesByEmail(normalizedEmail, String(match.id || params.userId || "")).catch(
       (err) => console.log(`[CRM] invoice auto-link (existing) failed for ${normalizedEmail}: ${err}`),
     );
+    /*
+     * On file as a customer does NOT mean present in the CRM.
+     * Nine customers were in `customer:*` and none of them were in
+     * `crm_contacts:default`, so returning early here is what kept them
+     * out on every subsequent sign-in as well.
+     */
+    await putIntoCrm(normalizedEmail, fullName, params, match);
     return { created: false, customer: match };
   }
 
@@ -153,7 +194,16 @@ async function ensureCrmCustomer(params: {
     updated_at: new Date().toISOString(),
   };
   await kv.set(`customer:${id}`, customer);
-  console.log(`✅ [CRM] Added signup to CRM: ${normalizedEmail} (${id})`);
+  /*
+   * AND INTO THE CRM ITSELF, WHICH IS A DIFFERENT STORE.
+   *
+   * The line below used to read "Added signup to CRM" directly after the
+   * write above. It was not: `customer:{id}` is not the CRM. The CRM is the
+   * array at `crm_contacts:default`, and it is what `GET /customers`,
+   * `GET /customers/stats` and the CRM hub all read. So every signup
+   * reported success and appeared nowhere a human looks.
+   */
+  await putIntoCrm(normalizedEmail, fullName, params, customer);
   // Attach any invoices issued to this email before they signed up.
   await linkInvoicesByEmail(normalizedEmail, String(id)).catch(
     (err) => console.log(`[CRM] invoice auto-link (new) failed for ${normalizedEmail}: ${err}`),
