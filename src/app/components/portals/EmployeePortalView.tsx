@@ -412,7 +412,7 @@ export default function EmployeePortalView() {
       {/* Header */}
       <header className="bg-[#1a1a1a] border-b border-gray-800 sticky top-16 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-16 py-2">
             {/* Logo and Employee Name */}
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-[#ea580c] to-orange-600 rounded-lg flex items-center justify-center">

@@ -140,7 +140,7 @@ export default function WorkOrderCompletionReports({ onNavigate }: CompletionRep
       {/* Header */}
       <div className="sticky top-0 z-40 bg-[#1A1A1A] border-b border-[#2A2A2A]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-16 py-2">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => onNavigate('unified-dashboard')}
