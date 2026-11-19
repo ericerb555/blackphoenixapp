@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { BarChart3, Download, Calendar, TrendingUp, DollarSign, Users, Briefcase, FileText, Filter, Eye, UserPlus, Activity, Shield, Target, Bell, Layout, Brain, ArrowLeft, PieChart } from 'lucide-react';
 import ReferralSourceReport from '../components/reporting/ReferralSourceReport';
 import StakeholderActivityAnalytics from '../components/StakeholderActivityAnalytics';
-import StakeholderAuditLogViewer from '../components/StakeholderAuditLogViewer';
-import StakeholderEngagementDashboard from '../components/StakeholderEngagementDashboard';
-import NotificationAnalyticsDashboard from '../components/NotificationAnalyticsDashboard';
+import { FeatureNotBuilt } from '../components/FeatureNotBuilt';
 import CustomReportBuilder from '../components/CustomReportBuilder';
 import AIWorkRequestAnalytics from '../components/reporting/AIWorkRequestAnalytics';
 import { BarChart, Bar, LineChart, Line, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -202,11 +200,37 @@ export default function EnterpriseReporting() {
       ) : activeTab === 'stakeholders' ? (
         <StakeholderActivityAnalytics />
       ) : activeTab === 'audit' ? (
-        <StakeholderAuditLogViewer />
+        /*
+         * These three were <StakeholderAuditLogViewer />,
+         * <StakeholderEngagementDashboard /> and
+         * <NotificationAnalyticsDashboard />. Between them they query five
+         * tables — stakeholders, stakeholder_activity,
+         * stakeholder_notifications, notification_templates and audit_logs —
+         * and not one of those has ever existed.
+         *
+         * They rendered empty rather than broken, which on a reporting screen
+         * is the dangerous failure: a blank engagement report reads as a quiet
+         * week, not as an absent feature. The components are untouched in the
+         * tree; this is three lines away from being reverted once the tables
+         * are built. See docs/audit-2026-11/REMEDIATION_PLAN.md, batch 4.
+         */
+        <FeatureNotBuilt
+          title="Stakeholder audit log"
+          description="A record of who viewed, commented on and approved what, per stakeholder."
+          needs={['stakeholder_activity', 'audit_logs']}
+        />
       ) : activeTab === 'engagement' ? (
-        <StakeholderEngagementDashboard />
+        <FeatureNotBuilt
+          title="Stakeholder engagement"
+          description="How often each stakeholder opens, reads and responds to what you send them."
+          needs={['stakeholders', 'stakeholder_activity', 'stakeholder_notifications']}
+        />
       ) : activeTab === 'notifications' ? (
-        <NotificationAnalyticsDashboard />
+        <FeatureNotBuilt
+          title="Notification analytics"
+          description="Delivery, open and click rates for every notification template you send."
+          needs={['stakeholder_notifications', 'notification_templates']}
+        />
       ) : activeTab === 'builder' ? (
         <CustomReportBuilder />
       ) : (

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { FeatureNotBuilt } from '../components/FeatureNotBuilt';
 import {
   Grid, List, Search, Filter, Plus, Eye, Edit2, Trash2, Check, X,
   Clock, Smartphone, Users, Building2, Package, Sparkles, Send,
@@ -20,7 +21,38 @@ import {
 type ViewMode = 'grid' | 'list';
 type FilterType = 'all' | PortalStatus;
 
+/**
+ * NOT IN SERVICE. `portals` has never existed.
+ *
+ * Every one of this screen's twelve queries goes to a `portals` table that has
+ * never been created, so it listed nothing and its statistics were all zero —
+ * and it looked like a portal library nobody had added to yet.
+ *
+ * Returning the notice before the component's own body runs is deliberate, and
+ * not only to avoid a wasted fetch: this page had a delete button that called
+ * `deletePortal` and then announced **"Portal deleted successfully"**. On a
+ * table that does not exist. Taking the screen off takes that with it, which
+ * is the same class of defect as `W-3` in the audit and the reason an empty
+ * state would not have been enough on its own.
+ *
+ * The 600 lines below are intact. Delete these few lines to bring it back once
+ * `portals` exists. See docs/audit-2026-11/REMEDIATION_PLAN.md, batch 4.
+ */
 export default function PortalManagement() {
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] p-6">
+      <div className="mx-auto max-w-3xl pt-12">
+        <FeatureNotBuilt
+          title="Portal management"
+          description="Build and publish customer, vendor and subcontractor portals, and review the ones awaiting approval."
+          needs={['portals']}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PortalManagementScreen() {
   const [portals, setPortals] = useState<Portal[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');

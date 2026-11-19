@@ -2810,6 +2810,84 @@ app.get('/make-server-3eae23a6/public/branding', async (c) => {
 });
 
 // Refresh the KV cache from the best available source
+/**
+ * How far this company will travel, and from where.
+ *
+ * WHY THIS EXISTS AT ALL
+ *
+ * `ClientWorkRequestForm` — the customer-facing work-request form — measures
+ * the distance from the business to the job site and tells the customer when
+ * they are outside the service area. It read `business_address`, `city`,
+ * `state`, `zip` and `service_area_radius` from a table called
+ * `company_settings`.
+ *
+ * `company_settings` has never existed. `supabase-js` resolved with an error
+ * object, the `if (settings)` branch was skipped, the distance was never
+ * computed and the warning was never shown. **A customer four hundred miles
+ * away was told nothing**, for as long as that form has been live.
+ *
+ * WHY A SEPARATE ROUTE RATHER THAN A FIELD ON /public/branding
+ *
+ * That route answers from a cache keyed on whether the logo is a usable URL,
+ * and only falls through to the `companies` table when it is not. Address
+ * fields added to the fall-through path would have been present or absent
+ * depending on the state of the logo cache — a field that is there most of the
+ * time is worse than one that is never there, because the gap is the thing
+ * nobody tests.
+ *
+ * WHY THE `companies` TABLE
+ *
+ * It is the record `/public/branding` already serves and `PUT /company/contact`
+ * already writes, ordered the same way — most recent first. There is more than
+ * one company row and they disagree, so reading the same row the rest of the
+ * platform reads matters more than reading the prettiest one.
+ *
+ * PUBLIC, DELIBERATELY. The form is open to anyone, so this has to be. It
+ * returns a business address that is on the public website and a radius; no
+ * private field, no customer data.
+ */
+const SERVICE_AREA_RADIUS_MILES = 50;
+
+app.get('/make-server-3eae23a6/public/service-area', async (c) => {
+  try {
+    const { data } = await supabase
+      .from('companies')
+      .select('company_name, address_line1, address_line2, city, state, zip_code')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const co = (data && data[0]) || null;
+    if (!co) {
+      /*
+       * No company row is a real answer and it is NOT an error.
+       *
+       * `origin: null` is what the form checks, and it is the signal to skip
+       * the distance check rather than to show a scary message or to claim
+       * everywhere is in range. Answering 500 here would have the form's
+       * catch swallow it and behave exactly as it did before this route
+       * existed.
+       */
+      return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_MILES });
+    }
+
+    const parts = [co.address_line1, co.address_line2, co.city, co.state, co.zip_code]
+      .map((v: unknown) => String(v ?? '').trim())
+      .filter(Boolean);
+
+    return c.json({
+      success: true,
+      origin: parts.length ? parts.join(', ') : null,
+      city: String(co.city ?? '').trim() || null,
+      state: String(co.state ?? '').trim() || null,
+      radiusMiles: SERVICE_AREA_RADIUS_MILES,
+    });
+  } catch (error: any) {
+    console.error('[service-area] lookup failed:', error?.message || error);
+    // Same shape, origin null: the form skips the check rather than guessing.
+    return c.json({ success: true, origin: null, radiusMiles: SERVICE_AREA_RADIUS_MILES });
+  }
+});
+
 app.post('/make-server-3eae23a6/public/branding/refresh', async (c) => {
   try {
     const { data: kvRow } = await supabase

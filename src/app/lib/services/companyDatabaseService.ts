@@ -328,85 +328,19 @@ export class CompanyDatabaseService {
     }
   }
 
-  /**
-   * Get documents for a company
+  /*
+   * getDocuments, saveDocument and deleteDocument were removed on 2026-11-19.
+   *
+   * All three queried `company_documents`, a table that has never existed, and
+   * all three were uncalled — no screen offered company document upload,
+   * listing or deletion. Three phantom queries behind a feature that was never
+   * wired to a button.
+   *
+   * If company documents are built later, note that the `documents?: any[]`
+   * field on the `Company` interface in `CompanyContext` is the shape the rest
+   * of this app already assumes, and that storage buckets here are private by
+   * default — see `docs/audit-2026-11/DATABASE_RLS_AUDIT.md`.
    */
-  static async getDocuments(companyId: string): Promise<{ data: CompanyDocument[] | null; error: any }> {
-    try {
-      const { data, error } = await supabase
-        .from('company_documents')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('uploaded_at', { ascending: false });
-
-      if (error) {
-        console.error('Error loading documents:', error);
-        return { data: null, error };
-      }
-
-      return { data: data as CompanyDocument[], error: null };
-    } catch (error) {
-      console.error('Error loading documents:', error);
-      return { data: null, error };
-    }
-  }
-
-  /**
-   * Save a document
-   */
-  static async saveDocument(document: CompanyDocument): Promise<{ data: CompanyDocument | null; error: any }> {
-    try {
-      const documentData = {
-        ...document,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (!document.id) {
-        delete documentData.id;
-        documentData.created_at = new Date().toISOString();
-      }
-
-      const { data, error } = await supabase
-        .from('company_documents')
-        .upsert(documentData)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error saving document:', error);
-        return { data: null, error };
-      }
-
-      console.log('✅ Document saved to database');
-      return { data: data as CompanyDocument, error: null };
-    } catch (error) {
-      console.error('Error saving document:', error);
-      return { data: null, error };
-    }
-  }
-
-  /**
-   * Delete a document
-   */
-  static async deleteDocument(documentId: string): Promise<{ success: boolean; error: any }> {
-    try {
-      const { error } = await supabase
-        .from('company_documents')
-        .delete()
-        .eq('id', documentId);
-
-      if (error) {
-        console.error('Error deleting document:', error);
-        return { success: false, error };
-      }
-
-      console.log('✅ Document deleted from database');
-      return { success: true, error: null };
-    } catch (error) {
-      console.error('Error deleting document:', error);
-      return { success: false, error };
-    }
-  }
 
   /**
    * Update all localStorage caches with fresh data

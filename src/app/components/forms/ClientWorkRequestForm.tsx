@@ -767,24 +767,44 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
    * need.
    */
 
-  // Load service area settings
-  useEffect(() => {
-    const loadServiceAreaSettings = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('company_settings')
-          .select('service_area_radius')
-          .single();
-        
-        if (!error && data?.service_area_radius) {
-          setServiceAreaRadius(data.service_area_radius);
-        }
-      } catch (err) {
-        console.error('Error loading service area settings:', err);
-      }
-    };
+  /**
+   * Where we are, and how far we go.
+   *
+   * Both of these used to come from `.from('company_settings')`, a table that
+   * has never existed. The read resolved with an error object, the radius kept
+   * its default and — worse — the business address came back null, so the
+   * distance check below was skipped entirely and **no customer has ever been
+   * told they are outside the service area.**
+   *
+   * One fetch now, held in state, so the distance check has an origin to
+   * measure from. `GET /public/service-area` reads the same `companies` row
+   * the rest of the platform reads; see its note on the server for why it is
+   * not a field on `/public/branding`.
+   */
+  const [serviceOrigin, setServiceOrigin] = useState<string | null>(null);
 
-    loadServiceAreaSettings();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/public/service-area`,
+          { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data?.origin) setServiceOrigin(String(data.origin));
+        if (Number.isFinite(Number(data?.radiusMiles))) {
+          setServiceAreaRadius(Number(data.radiusMiles));
+        }
+      } catch {
+        // Leave the origin null. The check below then skips rather than
+        // guessing, which is the same behaviour as before — but now it is a
+        // deliberate fallback instead of the only path.
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Auto-save when form data or step changes
@@ -909,14 +929,10 @@ export default function ClientWorkRequestForm({ onClose, onProjectCreated }: Cli
         const siteLat = parseFloat(geocodeData[0].lat);
         const siteLon = parseFloat(geocodeData[0].lon);
 
-        // Get business address coordinates from settings
-        const { data: settings } = await supabase
-          .from('company_settings')
-          .select('business_address, business_city, business_state, business_zip')
-          .single();
-
-        if (settings) {
-          const businessAddress = `${settings.business_address}, ${settings.business_city}, ${settings.business_state} ${settings.business_zip}`;
+        // The business address, fetched once on mount. Null means we could not
+        // establish an origin, and the check is skipped rather than guessed at.
+        if (serviceOrigin) {
+          const businessAddress = serviceOrigin;
           const businessGeocodeResponse = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(businessAddress)}`
           );

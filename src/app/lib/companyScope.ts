@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 
 /**
  * Company Scope and Context Management
@@ -44,52 +43,24 @@ export function getCurrentScope(companyId: string | null, userId: string): Compa
   };
 }
 
-/**
- * Validate if user has access to a company
+/*
+ * `validateCompanyAccess`, `getUserCompanies` and the `companyScopeUtils`
+ * namespace were removed on 2026-11-19.
+ *
+ * Both functions queried `user_companies`, a table that has never existed, and
+ * neither was ever called — `AuthContext` imports only the TYPES from this
+ * file, and nothing imported the namespace at all. So they were two phantom
+ * queries that could not run and would have failed closed if they had
+ * (`false`, and `[]`).
+ *
+ * Worth being precise about why that is safe to delete rather than complete:
+ * the thing that *does* decide company access is
+ * `CompanyContext.validateCompanyAccess`, which calls the
+ * `validate_company_access_secure` RPC. That RPC does not exist either, so
+ * company switching is permanently denied — see `D-2` in
+ * `docs/audit-2026-11/DATABASE_RLS_AUDIT.md`. Building these two functions out
+ * would have given the illusion of a second, working path to the same
+ * decision while the real one stayed dead.
+ *
+ * The type exports above are genuinely used and stay.
  */
-export async function validateCompanyAccess(
-  userId: string,
-  companyId: string
-): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from('user_companies')
-      .select('role')
-      .eq('user_id', userId)
-      .eq('company_id', companyId)
-      .maybeSingle();
-
-    if (error) throw error;
-    return !!data;
-  } catch (err) {
-    console.error('Error validating company access:', err);
-    return false;
-  }
-}
-
-/**
- * Get user's companies
- */
-export async function getUserCompanies(userId: string) {
-  try {
-    const { data, error } = await supabase
-      .from('user_companies')
-      .select('*, companies(*)')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (err) {
-    console.error('Error getting user companies:', err);
-    return [];
-  }
-}
-
-// Also export everything as a namespace
-export const companyScopeUtils = {
-  applyCompanyScope,
-  getCurrentScope,
-  validateCompanyAccess,
-  getUserCompanies,
-};
