@@ -393,3 +393,78 @@ test('the discount a customer agreed reaches the invoices for the job', () => {
   assert.equal(billed, agreedTotal);
   assert.equal(round2(phasedMargins.totalCost - billed), 750);
 });
+
+/* ── saved pricing holds until it is saved again ─────────────────────────── */
+
+/**
+ * Eric, 2026-11-19: *"when i save the edits i expect that the tax and profit
+ * and everything on the invoice locks unless i change and save it again"*.
+ *
+ * `customerPricingOf` falls back to deriving the markup from the gap between
+ * direct cost and the stored total, for legacy quotes that carry margin in
+ * their totals and nowhere else. The fallback fired on a stated zero, which
+ * is also what a deliberate "no margin" save looks like.
+ */
+test('a quote that never recorded a percentage still derives its markup', () => {
+  // Jason as stored: 9,860.70 of cost under a total of 14,435.81, no percentages.
+  const pricing = customerPricingOf({
+    materialsSubtotal: 2943.2, laborSubtotal: 6917.5, preTaxTotal: 14435.81,
+  });
+  assert.ok(pricing.markup > 0.46, `markup came out ${pricing.markup}`);
+});
+
+test('a saved zero holds, and is not re-derived from a stale total', () => {
+  /*
+   * THE CASE THAT ACTUALLY BITES.
+   *
+   * Saving 0/0/0 writes preTaxTotal equal to directCost, so at that moment
+   * the derivation agrees and the bug is invisible. Then a line is edited:
+   * the subtotals move, the stored total does not, and a gap appears that
+   * nobody chose. The document used to price itself back up by it.
+   */
+  const saved = {
+    overheadPercent: 0, profitPercent: 0, contingencyPercent: 0,
+    materialsSubtotal: 2943.2, laborSubtotal: 6917.5,
+    directCost: 9860.7, preTaxTotal: 9860.7, totalCost: 9860.7,
+  };
+  assert.equal(customerPricingOf(saved).markup, 0, 'at the moment of saving');
+
+  // A line comes off the quote afterwards. The stored total is now stale.
+  const edited = { ...saved, materialsSubtotal: 2000, laborSubtotal: 5000, directCost: 7000 };
+  assert.equal(
+    customerPricingOf(edited).markup, 0,
+    'the margin he removed came back on its own after an edit',
+  );
+});
+
+test('a saved margin is used as saved, not re-derived', () => {
+  const pricing = customerPricingOf({
+    overheadPercent: 0.1, profitPercent: 0.1, contingencyPercent: 0.05,
+    directCost: 10000, preTaxTotal: 99999,   // a total that disagrees
+  });
+  assert.equal(round2(pricing.markup), 0.25, 'the percentages win over the total');
+  assert.equal(pricing.factor, 1.25);
+});
+
+test('an emptied box is not a saved zero', () => {
+  /*
+   * A cleared input posts '', which is an absence rather than a decision —
+   * so a legacy quote whose fields were blanked still derives.
+   */
+  const pricing = customerPricingOf({
+    overheadPercent: '', profitPercent: null, contingencyPercent: undefined,
+    materialsSubtotal: 2943.2, laborSubtotal: 6917.5, preTaxTotal: 14435.81,
+  });
+  assert.ok(pricing.markup > 0.46, `markup came out ${pricing.markup}`);
+});
+
+test('one recorded percentage locks the other two at zero', () => {
+  /*
+   * Profit alone at 12%, overhead and contingency never written. The quote
+   * has been priced, so the total is not asked for a second opinion.
+   */
+  const pricing = customerPricingOf({
+    profitPercent: 0.12, directCost: 10000, preTaxTotal: 14435.81,
+  });
+  assert.equal(round2(pricing.markup), 0.12);
+});

@@ -90,6 +90,25 @@ export function asFraction(value: unknown): number {
   return n > 1 ? n / 100 : n;
 }
 
+/**
+ * Has anybody actually chosen this quote’s pricing?
+ *
+ * Presence, deliberately — not whether the number is above zero. A stored
+ * 0 is a decision ("no margin on this one") and must read differently from
+ * a field that was never written, or saving zero cannot hold.
+ *
+ * An empty string is treated as absent because that is what an emptied
+ * input posts, and a cleared box is not a choice of nothing.
+ */
+export function hasStoredPricing(quote: any): boolean {
+  for (const key of ['overheadPercent', 'profitPercent', 'contingencyPercent']) {
+    const v = quote?.[key];
+    if (v === null || v === undefined || v === '') continue;
+    if (Number.isFinite(Number(v))) return true;
+  }
+  return false;
+}
+
 /** The markup this quote was priced with, ready to multiply by. */
 export function customerPricingOf(quote: any): CustomerPricing {
   const overhead = asFraction(quote?.overheadPercent);
@@ -141,6 +160,36 @@ export function customerPricingOf(quote: any): CustomerPricing {
    * same objection `markupRatesOf` makes about defaulting absent rates. The
    * customer's document needs the total markup and nothing else.
    */
+  /*
+   * A SAVED ZERO IS AN ANSWER, AND IT OUTRANKS THE DERIVATION.
+   *
+   * Eric, 2026-11-19: *"when i save the edits i expect that the tax and
+   * profit and everything on the invoice locks unless i change and save it
+   * again"*.
+   *
+   * The derivation below reads margin out of the gap between cost and the
+   * stored total. That is the right answer for a quote that never recorded
+   * a percentage — and the wrong one for a quote where somebody went into
+   * the editor and set the margin to nothing on purpose. `stated` is zero
+   * in both cases, so without this they are indistinguishable.
+   *
+   * The failure is not hypothetical and it is not symmetrical. Save 0/0/0
+   * and the save writes `preTaxTotal` equal to `directCost`, so the
+   * derivation finds no gap and agrees. Then edit a line: the subtotals
+   * move and the stored total does not, the gap reappears out of nothing,
+   * and the document prices itself back up by it. The margin he removed
+   * returns on its own, which is the opposite of locking.
+   *
+   * So presence decides, not value. Any of the three fields recorded on the
+   * quote means the pricing was chosen and is held until it is chosen
+   * again. The derivation is left for the legacy records it was written
+   * for: `applyMargins` priced them at 10/10/5 and wrote the percentages
+   * nowhere, so their margin exists in the totals and in no other place.
+   */
+  if (hasStoredPricing(quote)) {
+    return { overhead, profit, contingency, markup: stated, factor: 1 + stated };
+  }
+
   const direct = directCostOf(quote);
   const preTax = Number(quote?.preTaxTotal);
   if (direct > 0 && Number.isFinite(preTax) && preTax > direct) {
