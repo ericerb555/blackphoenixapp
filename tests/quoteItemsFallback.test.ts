@@ -139,21 +139,29 @@ test('an unticked item is off the quote however it is stored', () => {
 });
 
 /**
- * Hiding withholds the DETAIL, not the row — Eric: "we can hide things but
- * the totals stay as part of the quote." The row stays with its amount, so
- * the column a customer adds up still reaches the total.
+ * Hiding withholds the LINE, and keeps the money.
+ *
+ * Eric, 2026-11-19: *"i do not want additional work under the line item to
+ * show up on the quote i just want it added into the total it should always
+ * be hidden"*. A fallback line stored in `items` obeys the same rule as one
+ * in `materials` — which is the only reason this file exists.
+ *
+ * The row is gone and `phaseCost` is untouched, so the money rides on the
+ * phase and is apportioned onto the drawn rows by `quoteToPdfDocument`.
  */
-test('a hidden item keeps its row and its amount, and loses its name', () => {
+test('a hidden item draws no row, and is still charged for', () => {
   const quote = jason();
-  (quote.items[3] as any).visible = false;        // the 94 vanity
+  (quote.items[3] as any).visible = false;        // the $594 vanity
   const sel = selectQuoteLines(quote, true);
-  assert.equal(sel.lines.length, 17, 'nothing is dropped');
-  assert.equal(sum(sel.lines), TOTAL, 'and the column still totals');
-  const hidden = sel.lines.find((l: any) => l.detailWithheld);
-  assert.equal(hidden.amount, 594);
-  assert.ok(!/Vanity/.test(hidden.description), 'what it was is withheld');
+
+  assert.equal(sel.lines.length, 16, 'the vanity draws nothing');
+  assert.equal(sum(sel.lines), r2(TOTAL - 594), 'so the drawn column is short by exactly it');
+  assert.equal(
+    sel.lines.filter((l: any) => l.detailWithheld).length, 0,
+    'and no row is marked withheld, because none was drawn',
+  );
   assert.equal(
     r2([...sel.phaseCost.values()].reduce((s, v) => s + v, 0)), TOTAL,
-    'and it is still charged for',
+    'the money stays on the quote — hidden is not excluded',
   );
 });

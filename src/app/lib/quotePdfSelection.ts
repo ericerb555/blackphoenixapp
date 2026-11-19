@@ -386,57 +386,50 @@ export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelecti
   }
 
   /**
-   * ONE "Additional work" ROW PER PHASE, NOT ONE PER HIDDEN LINE.
+   * A HIDDEN LINE PRINTS NO ROW AT ALL. ITS MONEY STAYS IN THE TOTAL.
    *
-   * Eric, 2026-11-19: *"i am really getting aggrivated with the view quote in
-   * the quote builder not hidding the items i have hidden"*.
+   * Eric, 2026-11-19: *"i do not want additional work under the line item
+   * to show up on the quote i just want it added into the total it should
+   * always be hidden"*.
    *
-   * He had hidden every line on Q-2026-0006 — all eighteen — and the customer
-   * copy printed eighteen rows, every one of them reading "Additional work",
-   * each with a different number beside it. Two of them inside the same
-   * phase. That is not hiding anything: it discloses exactly how many pieces
-   * of work there are and what each costs, while refusing to say what they
-   * are. The worst of both.
+   * This replaces two earlier readings of the same instruction, and the
+   * history is worth keeping because each was a smaller version of the same
+   * mistake. First every hidden line kept its own row reading "Additional
+   * work" — eighteen of them on Q-2026-0006, each with its own price, which
+   * disclosed exactly how many pieces of work there were and what each cost
+   * while refusing to say what they were. Then they collapsed to one such
+   * row per phase, which was better and still answered a question the
+   * customer had not asked: there is something here I am not telling you,
+   * and it costs this much.
    *
-   * His instruction all along was *"the line item should stay with a total
-   * only"*, which reads correctly as ONE line carrying the withheld money,
-   * not one per thing withheld.
+   * Hidden now means hidden. No row, no label, no amount of its own.
    *
-   * So the withheld rows in a phase collapse into a single row with their
-   * combined amount. The money is untouched — `phaseCost` below counts every
-   * line regardless, and this only changes how many rows the same sum is
-   * drawn across.
+   * THE MONEY DOES NOT MOVE, AND THIS IS WHY THAT IS SAFE NOW.
    *
-   * Order is preserved by rebuilding in place: the collapsed row takes the
-   * position of the FIRST withheld line in its phase, so a phase that begins
-   * with hidden work still reads top to bottom.
+   * Dropping these rows is what the code did originally, and it was logged
+   * as a defect: the money sat in the phase subtotal with nothing on the
+   * page accounting for it, so the column did not add up. What has changed
+   * is the apportionment. `phaseCost` below counts every included line
+   * whether or not it is drawn, and `quoteToPdfDocument` now allocates each
+   * phase's subtotal across the rows it actually draws. So the withheld
+   * money lands inside the visible lines of its own phase, the phase still
+   * equals its rows, and the total is unchanged.
+   *
+   * It is the same treatment markup already gets, for the same stated
+   * reason: spread into the line prices rather than given a row, because *“a
+   * line reading ‘profit’ invites a negotiation about the wrong number”*.
+   *
+   * A phase whose every line is hidden draws no rows and prints as a single
+   * priced heading — which is how a process step with no lines already
+   * reads, and on Q-2026-0006, where all eighteen are hidden, it turns a
+   * page of eighteen "Additional work" rows into nine priced phases.
+   *
+   * The office copy is untouched: `forCustomer` guards this, and staff go on
+   * seeing every line marked "hidden from customer".
    */
   if (forCustomer) {
-    const mergedAmount = new Map<string, number>();
-    for (const l of lines) {
-      if (!l.detailWithheld) continue;
-      const key = String(l.phase || '');
-      mergedAmount.set(key, round2((mergedAmount.get(key) || 0) + (Number(l.amount) || 0)));
-    }
-    if (mergedAmount.size) {
-      const placed = new Set<string>();
-      const collapsed: typeof lines = [];
-      for (const l of lines) {
-        if (!l.detailWithheld) { collapsed.push(l); continue; }
-        const key = String(l.phase || '');
-        if (placed.has(key)) continue;
-        placed.add(key);
-        collapsed.push({
-          ...l,
-          description: WITHHELD_LABEL,
-          quantity: 0,
-          unit_price: 0,
-          amount: mergedAmount.get(key) || 0,
-          detailWithheld: true,
-        });
-      }
-      lines.length = 0;
-      lines.push(...collapsed);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].detailWithheld) lines.splice(i, 1);
     }
   }
 
