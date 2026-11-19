@@ -126,14 +126,17 @@ credential may still be live.
 | A03 | Injection | No string-built SQL on the server; the KV layer is parameterised. XSS surface reviewed in `BROKEN_BUTTONS_REPORT.md`; a hostile QR label is escaped, with a test. |
 | A04 | Insecure design | The `_anonymous` KV keys (`A-1`) and eleven non-existent tables (`D-1`) are design-level: features that fail quietly instead of loudly. |
 | A05 | Misconfiguration | `origin:"*"` tolerable (bearer-only auth). Two staged defences still report-only, and one of them **breaks the backups when enabled** (`A-2`). 9 `SECURITY DEFINER` functions anon-callable (`D-3`). |
-| A06 | Vulnerable components | Not audited this pass. `npm audit` in CI; no dependency review done here. **Gap.** |
+| A06 | Vulnerable components | Audited in Phase 10: 5 prod advisories (1 low, 4 moderate, 0 high/critical), all `hono`, all patched in ≥4.13.16. But **production's version is undeclared** — the edge function imports `npm:hono` unpinned (`DEP-1`), so whether those advisories are live cannot be determined from this repo. |
 | A07 | Identity failures | GoTrue. The `app_metadata` fix above closed the real one. No lockout policy of our own — delegated. |
 | A08 | Integrity failures | Storage objects are outside Supabase's daily backup; `storage-backup-nightly` covers it, has run once, and **restoration has never been exercised**. |
 | A09 | Logging failures | `AUDIT_LOGGING_REPORT.md`. A permission denial leaves no trace (`L-1`); the one instrumented security event logs to the denied user's own browser (`D-2`). |
 | A10 | SSRF | `outboundGuard.ts` exists and gates outbound fetches. Not probed this pass. **Gap.** |
 
-Two honest gaps in that table — A06 and A10 — are listed as gaps rather than
-passes. Per the brief: an untested item is not a passing item.
+A10 is listed as a gap rather than a pass: `outboundGuard.ts` exists and gates
+outbound fetches, and I did not probe it. Per the brief, an untested item is
+not a passing item. A06 was a gap when this document was written and was
+closed in Phase 10 — see `FINAL_VERIFICATION_REPORT.md`, including what the
+first, wrong dependency audit looked like.
 
 ## The pattern underneath most of this
 

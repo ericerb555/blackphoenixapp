@@ -118,6 +118,11 @@ fixing.
 - `A-1` the client fires ~1,300 unauthenticated requests a day — gate panel
   fetches on a session. Fixes the blank dashboard *and* stops poisoning the
   abuse signal. ~3h, and it is the highest-value P3 here.
+- `DEP-1` pin one Hono version and one `supabase-js` version in a single
+  import module for the edge function, and `pnpm update hono` for the npm
+  side. Today the server imports `npm:hono` unpinned in 90 places, so no
+  dependency advisory about it can be answered either way. ~2h, and it turns
+  A06 from unanswerable into answerable.
 - `D-3` `REVOKE EXECUTE … FROM anon` on nine `SECURITY DEFINER` functions. ~30m.
 - `L-2` a retention policy and a deletion job. ~2h.
 - `A-3` enable `IP_REPUTATION_ENFORCE` after confirming `IP_REPUTATION_ALLOW`
