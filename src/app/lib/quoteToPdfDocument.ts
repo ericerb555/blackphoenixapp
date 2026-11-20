@@ -496,14 +496,54 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * only case left is a section the user deliberately withheld entirely.
    */
   if (!phases.length && steps.length) {
+    const fromSteps = new Set<string>();
     for (const s of steps) {
       const t = String(s?.title || s?.step || '').trim();
       const amount = round2(trueCost.get(t) || 0);
+      fromSteps.add(t);
       phases.push({
         title: t || null,
         label: t || 'Scope of work',
         duration: s?.estimatedDuration ? String(s.estimatedDuration) : undefined,
         description: sections.processDetail && s?.description ? String(s.description) : undefined,
+        lines: [],
+
+        subtotal: amount,
+        markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
+      });
+    }
+
+    /*
+     * AND THE PHASES THE STEPS DO NOT KNOW ABOUT.
+     *
+     * Eric, 2026-11-20: "the view pdf totals match 13345.11 but when i add
+     * up the line items it only 11517.05".
+     *
+     * A phase can exist on a LINE without existing as a written step — an
+     * estimator tags a material with a phase nobody added to the process, and
+     * the editor's own phase picker exists to make exactly that visible. On
+     * Q-2026-0006 that phase was "Shower Finish": eight written steps, and a
+     * $1,350 shower pan tagged to a ninth that was not one of them.
+     *
+     * Enumerating only the steps therefore dropped $1,828.06 of priced work
+     * off the column while the footer went on charging for it — 11,518.07
+     * under a total of 13,345.11, which is the complaint to the cent.
+     *
+     * The top-up above this does the same job, and could not help: it is
+     * guarded on `phases.length`, so it is skipped in precisely the case
+     * where nothing was drawn. The branch below cannot help either, because
+     * this one has just filled `phases`. So the completeness has to be here,
+     * and "no money total are to be left hidden" is the rule it keeps.
+     */
+    for (const [name, cost] of trueCost) {
+      const title = String(name || '').trim();
+      if (!title || fromSteps.has(title)) continue;
+      if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
+      const amount = round2(Number(cost) || 0);
+      phases.push({
+        title,
+        label: title,
+        description: sections.processDetail ? describe.get(title) : undefined,
         lines: [],
 
         subtotal: amount,
