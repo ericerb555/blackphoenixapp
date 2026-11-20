@@ -327,7 +327,29 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
     try {
       const res = await fetch(`${SERVER}/trash-estimator/confirm-anonymous`, {
         method: 'POST',
-        headers: await authedHeaders({ 'Content-Type': 'application/json' }),
+        /*
+         * THE SAME BUG AS THE PRICING CALL, IN THE FUNCTION NAMED FOR IT.
+         *
+         * This is `askWithoutAccount`, and it asked `authedHeaders` for a
+         * session. That helper throws rather than falling back, so pressing
+         * "Ask us to confirm it" without an account produced "Your session
+         * has expired. Sign in again to continue." — to somebody who had
+         * never signed in and never could, on the one button that turns a
+         * stranger into a lead.
+         *
+         * The note above the pricing call describes this exact failure and
+         * the fix that was applied there. This call was missed, which is why
+         * the whole anonymous path priced a job perfectly and then refused to
+         * take the caller’s name. Found by using the site as a new customer:
+         * the estimate reached the server, came back priced at a range just
+         * over a thousand dollars, and the next button said the session had
+         * expired.
+         *
+         * The server route is built for exactly this caller — it refuses an
+         * estimate that already has a customerEmail and meters per IP per
+         * day. It never needed a session.
+         */
+        headers: await authedHeadersOrAnon(publicAnonKey, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           estimateId: estimate.id,
           name: anonName,
