@@ -157,7 +157,16 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
    */
   const [companyName, setCompanyName] = useState('The Black Phoenix Company');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
-  const [alertCount, setAlertCount] = useState(8);
+  /*
+   * Starts at zero and is replaced by the real count. It used to start at 8
+   * and `setAlertCount` was never called anywhere — so the badge read
+   * "8 pending" permanently, whether there were none or forty.
+   *
+   * That is why a new lead did not stand out: the number it would have changed
+   * was a constant. Eric: "make sure the unified dashboard self updates every
+   * five mins so we dont miss leads."
+   */
+  const [alertCount, setAlertCount] = useState(0);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
   const [showStartQuote, setShowStartQuote] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
@@ -282,6 +291,89 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       document.removeEventListener('visibilitychange', onFocus);
     };
   }, []);
+
+  /**
+   * NEW LEADS ANNOUNCE THEMSELVES, WITHOUT THE ALERTS DRAWER BEING OPEN.
+   *
+   * Eric: "make sure the unified dashboard self updates every five mins so we
+   * dont miss leads."
+   *
+   * WHAT WAS ALREADY FINE
+   *
+   * The dashboard does poll: the metrics above every 60 seconds and on tab
+   * focus, and `usePendingApprovals` every 30. Both are well inside five
+   * minutes.
+   *
+   * WHAT WAS ACTUALLY WRONG, AND IT WAS NOT THE INTERVAL
+   *
+   *  1. `AdminAlertsPanel` polls the server every 30 seconds — but it is
+   *     rendered only when `showAdminAlerts` is true. With the drawer closed,
+   *     which is how the dashboard sits most of the time, **nothing fetched
+   *     the lead list at all.**
+   *
+   *  2. The bell badge was `useState(8)` with no setter ever called. It read
+   *     "8 pending" forever. A counter that never moves cannot tell you a lead
+   *     arrived — and worse, it looked like information.
+   *
+   * So the poll is hoisted out here where it always runs, and the badge is
+   * wired to the real number. Five minutes as asked; the first run is silent
+   * (there is no "before" to compare against) and a rise in the open count
+   * raises a toast that survives long enough to be read.
+   *
+   * A NOTE ON WHAT THIS CANNOT DO. This only helps while the dashboard is
+   * open. The thing that catches a lead when nobody is looking at a screen is
+   * the notification, and texts are currently refused by the carrier —
+   * `Bird E12014 SenderNotRegistered`, pending A2P 10DLC registration. Email
+   * works. See docs/audit-2026-11/.
+   */
+  useEffect(() => {
+    if (!authIsAdmin) return;
+    let cancelled = false;
+    // -1 means "nothing to compare with yet", so the first poll never toasts.
+    let lastOpen = -1;
+
+    const pollLeads = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch(
+          `${API_BASE_URL}/make-server-3eae23a6/notifications/admin-alerts`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const open = (Array.isArray(data?.alerts) ? data.alerts : [])
+          .filter((a: any) => a?.status !== 'handled' && a?.status !== 'dismissed');
+        if (cancelled) return;
+
+        setAlertCount(open.length);
+        if (lastOpen >= 0 && open.length > lastOpen) {
+          const n = open.length - lastOpen;
+          toast.success(
+            `${n} new ${n === 1 ? 'lead' : 'leads'} — open Alerts to see ${n === 1 ? 'it' : 'them'}`,
+            { duration: 12000 },
+          );
+        }
+        lastOpen = open.length;
+      } catch {
+        // A failed poll leaves the last known count on screen rather than
+        // dropping it to zero, which would read as "no leads".
+      }
+    };
+
+    pollLeads();
+    const interval = setInterval(pollLeads, 5 * 60 * 1000);
+    // Coming back to the tab is when this is most likely to be stale.
+    const onFocus = () => { if (!document.hidden) pollLeads(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [authIsAdmin]);
 
   // Restore sidebar preference
   useEffect(() => {
