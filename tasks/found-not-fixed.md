@@ -935,3 +935,39 @@ them render. A bulk edit that is right thirty times looks exactly like one
 that is wrong twice. It wants doing in batches against a phone, or with the
 smoke harness extended to assert the row scrolls — which would be the durable
 answer and does not exist yet.
+
+---
+
+## `npm run precommit` smoke starves on its default batch — 2026-11-19
+
+**What happens.** The smoke step inside `npm run precommit` reports:
+
+```
+Nothing reported at all from the first batch.
+Either the route map failed to load, or the batch was starved — try
+  npm run smoke -- --all --batch 5 --wait 45
+```
+
+Running exactly that always succeeds: **382 rendered, 0 did not report, 0
+threw.** Seen five times on 2026-11-19 across unrelated commits — server-only
+changes, a comment-only change, and a two-line page edit — so it tracks the
+machine and not the diff. The message already names the right diagnosis; the
+default batch size or wait is simply too tight here.
+
+**Why it matters more than an annoyance.** It fails the whole precommit run,
+and the obvious response is to assume your change broke 382 pages. It also
+trains you to re-run with flags until it passes, which is the habit that gets
+a real smoke failure waved through.
+
+**Why it is not fixed here.** Changing the default batch/wait in
+`scripts/precommit.mjs` would make every other machine's run slower, and I
+have one machine's evidence. The durable fix is probably for the harness to
+retry a starved batch itself before declaring nothing came back — it already
+retries individual quiet pages, which is why `--wait 45` works, so the
+mechanism exists and is just not applied to the first-batch case.
+
+**Also worth knowing, from the same day.** A check chain ending in a pipe —
+`npm run smoke | tail -3` — exits 0 whatever smoke did, because a pipeline's
+status is the last element's. It is the same trap `CLAUDE.md` warns about for
+`push | tail`, and it caught me here: I nearly recorded smoke as passing on an
+exit code that only proved `tail` ran.
