@@ -1040,3 +1040,40 @@ by the live probe than by the static scan.
 `docs/audit-2026-11/` are quoted against the current behaviour. Changing the
 scanner and the documents in one pass would leave nothing to check the change
 against.
+
+---
+
+## The OFFICE copy of a quote is short by the burden and the soft costs (2026-11-20)
+
+Found while fixing the customer column on Q-2026-0006. The customer copy now
+foots exactly. The internal copy does not:
+
+    drawn lines (18 cost rows)        9,860.70
+    markup column                  +    394.45
+                                   ----------
+                                     10,255.15
+    printed total                    13,345.11
+    gap                               3,089.96
+
+The gap is made of three things the office copy never draws:
+
+    labour burden                     2,421.13   (in directCost, has no row)
+    additional costs                    550.00   (permit + disposal, no phase)
+    margin on both of those             118.83
+
+`9,860.70 + 2,421.13 + 550 = 12,831.83`, which is `directCost` exactly, and
+4% of that is 513.28 — so the true markup is 513.28 and the column shows
+394.45, because `markupOn` is handed the WAGE bill rather than direct cost.
+
+`tests/quotePdfAddsUp.test.ts` has an `assertAddsUp` that would catch this;
+it passes only because the `jason()` and `sarah()` fixtures predate the
+labour burden and carry no soft costs.
+
+**Why it is not fixed here:** it is a design question, not an arithmetic one.
+The internal copy is costed rather than priced on purpose, so the answer is
+either a burden row and a soft-cost row of its own, or a restated footer that
+stops claiming the customer total — and which of those Eric wants decides it.
+What is not in question is that the document currently under-reports what the
+job costs us by $2,971.13 and no row names the difference. The customer-facing
+copy, which is the one that was reported and the one that gets signed, is
+correct to the penny.

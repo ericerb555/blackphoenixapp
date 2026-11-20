@@ -460,6 +460,7 @@ import {
   notifyStaff, notifyStaffInBackground, loadStaffNotificationLog,
   type StaffRecipient, type StaffNotificationEvent,
 } from "./staff-notifications.tsx";
+import { verifyResendSignature, applyResendEvent, emailIdOf, recordMatches } from "./resendDelivery.ts";
 
 const app = new Hono();
 
@@ -971,6 +972,14 @@ const PUBLIC_PREFIXES = [
   '/ecommerce/order/',  // order tracking by opaque order code
   '/webhook',           // provider callbacks, which authenticate by signature
   '/stripe/webhook',
+  /*
+   * Resend telling us what became of an email after it was accepted.
+   *
+   * Public because a provider carries no session, and safe because the
+   * handler refuses anything it cannot verify against RESEND_WEBHOOK_SECRET
+   * — including, deliberately, every request when that secret is unset.
+   */
+  '/resend/webhook',
 
   /**
    * Finishing a guest checkout.
@@ -15545,6 +15554,73 @@ async function finalizeStoreOrder(checkout: any, verified: any) {
  * `paid`. So a forged body cannot manufacture a payment even if it reached
  * here unsigned, and `checkout.orderId` makes a replay idempotent.
  */
+/**
+ * Resend delivery events — what happened to an email after we handed it over.
+ *
+ * Eric, 2026-11-20: "I GOT THE EMAIL OF ACCOUNT CREATION BUT NOT THE PRICING
+ * APPROVAL" — and the log could not tell him which was true. It records one
+ * row per send, ending at `status: 'sent'`, which is the moment Resend
+ * accepts the message and nothing after it. The alert he was chasing is in
+ * there, accepted, with a message id, and looks identical to one that
+ * bounced. All 61 logged sends did.
+ *
+ * This closes the loop: Resend posts `email.delivered`, `email.bounced` and
+ * the rest, and the matching log row gains a `delivery` block and a truthful
+ * `status`. The deciding is in `resendDelivery.ts` and tested; this does the
+ * IO.
+ *
+ * REFUSES EVERYTHING WITHOUT A SECRET, ON PURPOSE. The endpoint mutates a
+ * delivery record chosen by message id, and those ids are not secret — they
+ * sit in provider dashboards and in any forwarded alert. Unsigned, anybody
+ * could mark a bounce delivered and the one question this exists to answer
+ * would answer wrongly. A webhook nobody has finished wiring should be
+ * visibly dead rather than quietly trusting.
+ */
+app.post('/make-server-3eae23a6/resend/webhook', async (c) => {
+  const raw = await c.req.text();
+  const verdict = await verifyResendSignature({
+    secret: Deno.env.get('RESEND_WEBHOOK_SECRET') || '',
+    id: c.req.header('svix-id') || '',
+    timestamp: c.req.header('svix-timestamp') || '',
+    signatureHeader: c.req.header('svix-signature') || '',
+    body: raw,
+  });
+  if (!verdict.ok) {
+    console.log(`[resend-webhook] refused: ${verdict.reason}`);
+    /* 401 and nothing else: a refusal must not say which part was wrong. */
+    return c.json({ received: false }, 401);
+  }
+
+  let event: any;
+  try { event = JSON.parse(raw); } catch { return c.json({ received: false }, 400); }
+
+  const emailId = emailIdOf(event);
+  if (!emailId) return c.json({ received: true, ignored: 'no email id' });
+
+  try {
+    /*
+     * Scanned rather than indexed. The log holds tens of rows, this fires
+     * a handful of times per send, and a scan also reaches the backlog —
+     * rows written before any of this existed, including the estimate alert
+     * that prompted it. An index would only help rows written from now on.
+     */
+    const rows = (await kv.getByPrefix('staff_notification_log:')) || [];
+    const match = (rows as any[]).find((r) => recordMatches(r, emailId));
+    if (!match) return c.json({ received: true, ignored: 'no matching send' });
+
+    const updated = applyResendEvent(match, event);
+    if (!updated) return c.json({ received: true, ignored: 'nothing to record' });
+
+    await kv.set(`staff_notification_log:${match.id}`, updated);
+    console.log(`[resend-webhook] ${match.id} -> ${updated.status}`);
+    return c.json({ received: true, state: updated.status });
+  } catch (err: any) {
+    console.log(`[resend-webhook] could not record: ${err?.message || err}`);
+    /* 200 so the provider stops retrying something our storage cannot take. */
+    return c.json({ received: true, error: 'not recorded' });
+  }
+});
+
 app.post('/make-server-3eae23a6/store/webhook', async (c) => {
   try {
     const raw = await c.req.text();

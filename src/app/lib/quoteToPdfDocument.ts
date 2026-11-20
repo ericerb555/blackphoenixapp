@@ -496,9 +496,11 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
    * only case left is a section the user deliberately withheld entirely.
    */
   if (!phases.length && steps.length) {
+    const fromSteps = new Set<string>();
     for (const s of steps) {
       const t = String(s?.title || s?.step || '').trim();
       const amount = round2(trueCost.get(t) || 0);
+      fromSteps.add(t);
       phases.push({
         title: t || null,
         label: t || 'Scope of work',
@@ -509,6 +511,73 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
         subtotal: amount,
         markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
       });
+    }
+
+    /*
+     * AND THE MONEY OF ANY PHASE THE STEPS DO NOT NAME, SPREAD OVER THEM.
+     *
+     * Eric, 2026-11-20: "i just want all the other items to be devided up
+     * and split between all the lines in the individual quotes".
+     *
+     * A phase can exist on a LINE without existing as a written step — an
+     * estimator tags a material with a phase nobody added to the process.
+     * On Q-2026-0006 that was "Shower Finish": eight written steps, and a
+     * $1,350 shower pan tagged to a ninth that was not one of them.
+     *
+     * Enumerating only the steps dropped that money off the column while
+     * the footer went on charging for it — 11,518.07 under a total of
+     * 13,345.11, which was the complaint to the cent. Giving it a row of
+     * its own fixed the arithmetic and produced a section with a price and
+     * no description, because a description can only come from a step:
+     * "you added a section called shower finish with no discription and i
+     * cant edit it why?"
+     *
+     * So it is apportioned instead, which is the treatment he already chose
+     * for overhead and contingency. `allocate` places the remainder, so the
+     * column comes to exactly what it came to before — no cent is created
+     * or lost, and no phase appears that nobody wrote.
+     */
+    let unhomed = 0;
+    for (const [name, cost] of trueCost) {
+      const title = String(name || '').trim();
+      if (title && fromSteps.has(title)) continue;
+      unhomed = round2(unhomed + (Number(cost) || 0));
+    }
+
+    if (Math.abs(unhomed) > 0.005) {
+      const drawn = phases.map((x) => Number(x.subtotal) || 0);
+      const base = round2(drawn.reduce((a, b) => a + b, 0));
+      if (base > 0.005) {
+        const shares = allocate(drawn, round2(base + unhomed));
+        phases.forEach((x, i) => {
+          x.subtotal = shares[i];
+          if (showMarkup) {
+            x.markup = { total: markupOn(shares[i], rates!).total, label: rateLabel };
+          }
+        });
+      } else {
+        /*
+         * NOTHING TO SPREAD IT ONTO — every written step is priced at zero
+         * and all the money is in phases nobody wrote. Apportioning would
+         * divide by nothing and silently drop the lot, so here it keeps a
+         * row. A section with no description beats a quote that undercharges
+         * by the only money on it.
+         */
+        for (const [name, cost] of trueCost) {
+          const title = String(name || '').trim();
+          if (title && fromSteps.has(title)) continue;
+          if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
+          const amount = round2(Number(cost) || 0);
+          phases.push({
+            title: title || null,
+            label: title || 'Additional work',
+            description: sections.processDetail ? describe.get(title) : undefined,
+            lines: [],
+            subtotal: amount,
+            markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
+          });
+        }
+      }
     }
   }
 

@@ -580,3 +580,83 @@ test('the office copy still draws the hidden lines', () => {
   assert.match(row.description, /hidden from customer/i, 'and we can see which it was');
   assert.equal(drawnSum(doc), 12666.13);
 });
+
+/* ── a phase that exists only on a line, with every line hidden ────────── */
+/**
+ * Eric, 2026-11-20: "the view pdf totals match 13345.11 but when i add up
+ * the line items it only 11517.05 why is this so hard to get right?"
+ *
+ * Q-2026-0006 as stored. Every one of its eighteen priced rows is
+ * `visible: false`, so no line is drawn and the phase subtotals ARE the
+ * column. It has eight written process steps — and a $1,350 shower pan
+ * tagged to a ninth phase, "Shower Finish", that is not one of them.
+ *
+ * The all-hidden path built its phases by enumerating `processSteps`, which
+ * cannot know about a phase that lives only on a line, so that phase was
+ * dropped with its money: 11,518.07 of column under a total of 13,345.11.
+ * The top-up that exists for exactly this is guarded on `phases.length` and
+ * is therefore skipped in the one case where nothing was drawn.
+ */
+const showerFinish = (over: Record<string, unknown> = {}) => ({
+  materials: [
+    { name: "Shower pan", quantity: 1, unitCost: 1350, totalCost: 1350, phase: "Shower Finish", visible: false },
+    { name: "Vanity", quantity: 1, unitCost: 540, totalCost: 594, phase: "Vanity installation", visible: false },
+    { name: "Debris haul", quantity: 1, unitCost: 420, totalCost: 420, phase: "Demolition and removal", visible: false },
+    { name: "Sundries", quantity: 1, unitCost: 526.55, totalCost: 579.2, phase: "Set-up and bathroom protection", visible: false },
+  ],
+  labor: [
+    { role: "Plumber", hours: 1, hourlyRate: 1625, totalCost: 1625, phase: "Plumbing rough-in", visible: false },
+    { role: "Waterproofing", hours: 24, hourlyRate: 80.5, totalCost: 1932, phase: "Shower preparation and waterproofing", visible: false },
+    { role: "Carpenter", hours: 65, hourlyRate: 51.69, totalCost: 3360.5, phase: "Final cleanup and handover", visible: false },
+  ],
+  additionalCosts: [
+    { name: "Building Permit", amount: 200 },
+    { name: "Disposal Fee", amount: 350 },
+  ],
+  // Eight steps. "Shower Finish" is deliberately NOT among them.
+  processSteps: [
+    "Set-up and bathroom protection", "Demolition and removal", "Plumbing rough-in",
+    "Shower preparation and waterproofing", "Exhaust fan installation",
+    "Vanity installation", "Floor tiling", "Final cleanup and handover",
+  ].map((title) => ({ title, description: "step detail" })),
+  materialsSubtotal: 2943.2,
+  laborSubtotal: 6917.5,
+  additionalCostsSubtotal: 550,
+  laborBurdenAmount: 2421.13,
+  directCost: 12831.83,
+  overheadAmount: 0,
+  profitAmount: 320.8,
+  contingencyAmount: 192.48,
+  preTaxTotal: 13345.11,
+  totalCost: 13345.11,
+  taxAmount: 0,
+  customerSections: { materials: true, labor: true, processDetail: true },
+  ...over,
+});
+
+test('a phase no step names has its money spread, not a section of its own', () => {
+  const doc: any = quoteToPdfDocument(showerFinish(), { forCustomer: true });
+  const titles = (doc.phases || []).map((x: any) => String(x.title));
+  // Eric: 'i just want all the other items to be devided up and split
+  // between all the lines'. So no orphan section with no description.
+  assert.ok(!titles.includes('Shower Finish'),
+    `"Shower Finish" should not get a row of its own: ${titles.join(', ')}`);
+  assert.equal(titles.length, 8);
+  // And not a cent of it is lost: the column still reaches the total.
+  assert.equal(phaseSum(doc), 13345.11);
+  assert.notEqual(phaseSum(doc), 11518.07);
+  assertAddsUp(doc, 'Q-2026-0006 customer');
+});
+
+test('and it is not drawn twice when it IS a written step', () => {
+  const steps = [
+    "Set-up and bathroom protection", "Demolition and removal", "Plumbing rough-in",
+    "Shower preparation and waterproofing", "Shower Finish", "Exhaust fan installation",
+    "Vanity installation", "Floor tiling", "Final cleanup and handover",
+  ].map((title) => ({ title, description: 'd' }));
+  const doc: any = quoteToPdfDocument(showerFinish({ processSteps: steps }), { forCustomer: true });
+  const titles = (doc.phases || []).map((x: any) => String(x.title));
+  const dupes = titles.filter((t: string, i: number) => titles.indexOf(t) !== i);
+  assert.deepEqual(dupes, [], `drawn twice: ${dupes.join(', ')}`);
+  assert.equal(phaseSum(doc), 13345.11);
+});
