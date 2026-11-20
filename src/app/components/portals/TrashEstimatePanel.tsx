@@ -592,11 +592,23 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
             * for want of a session and, past that, answers "No such
             * estimate" because the route scopes to customerEmail.
             *
-            * signupOffer is the server saying "this caller has no account",
-            * which is exactly the question being asked here. One rule covers
-            * the link visitor, the anonymous visitor and the customer.
+            * `anonymous` is the server saying "this caller had no account",
+            * which is the question being asked here.
+            *
+            * It used to read `signupOffer` for that, on the reasoning that
+            * the offer only exists for somebody without an account. True,
+            * and not the whole truth: `signupOfferFor` also returns null
+            * when the job needs a site visit, and when the band is not
+            * finite. So an anonymous visitor whose job needed a visit was
+            * indistinguishable from a customer, and got the button that
+            * throws for want of a session — the precise failure the note
+            * above this one was written about, arriving by a second route.
+            *
+            * `signupOffer` is kept in the test so an older stored estimate,
+            * saved before the server sent `anonymous`, still shows the
+            * right button.
             */}
-          {estimate.signupOffer || linkToken ? (
+          {estimate.anonymous || estimate.signupOffer || linkToken ? (
             /*
              * Only when the green offer block above is absent.
              *
