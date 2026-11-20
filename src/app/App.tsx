@@ -722,6 +722,28 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'trust',
   ];
 
+  /*
+   * IS THIS PATH PUBLIC? ASKED ONCE, BECAUSE THERE ARE TWO GATES.
+   *
+   * `currentPath` is the whole path — `junk-quote/abc123` — and
+   * `publicRoutes` holds page NAMES, so an exact match never matched a
+   * path carrying a token. Every prefix route therefore shut out visitors
+   * with no account: the pricing link Eric texts, an architect’s submittal,
+   * an indexed product page, the estimate portal.
+   *
+   * That was fixed in the redirect below and NOT in the render gate further
+   * down, which carried its own copy of the same comparison. The link then
+   * stopped redirecting to /login and started rendering "Please log in to
+   * continue..." in place — a different wrong answer, from the half of the
+   * bug that had not been looked for.
+   *
+   * So it is computed once, here, and both gates read it. A duplicated
+   * condition is how one of them gets fixed alone.
+   */
+  const firstSegment = currentPath.split('/')[0];
+  const isPublicPath = publicRoutes.includes(currentPath)
+    || (PREFIX_ROUTES.has(firstSegment) && publicRoutes.includes(firstSegment));
+
   const [redirecting, setRedirecting] = useState(false);
 
   console.log('🔒 [ProtectedRoutes] Rendering - loading:', loading, 'user:', !!user, 'currentPath:', currentPath);
@@ -761,7 +783,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Check if user is authenticated
     const isAuthenticated = !!user;
     console.log('🔐 [ProtectedRoutes] Auth check - User:', !!user, 'Authenticated:', isAuthenticated);
-    console.log('📍 [ProtectedRoutes] Current path:', currentPath, 'Is public:', publicRoutes.includes(currentPath));
+    console.log('📍 [ProtectedRoutes] Current path:', currentPath, 'Is public:', isPublicPath);
 
     // An authenticated Platform Owner must never remain on applicant onboarding,
     // including a stale URL left open from an earlier portal session.
@@ -790,10 +812,6 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * public or it is not; what rides after the slash is the credential, and
      * the page itself checks that.
      */
-    const firstSegment = currentPath.split('/')[0];
-    const isPublicPath = publicRoutes.includes(currentPath)
-      || (PREFIX_ROUTES.has(firstSegment) && publicRoutes.includes(firstSegment));
-
     if (!loading && !isAuthenticated && !isPublicPath) {
       console.log("🔒 [ProtectedRoutes] REDIRECTING TO LOGIN - user not authenticated");
       // Remember what they were actually trying to open. Without this, Login
@@ -1019,7 +1037,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     }
 
     // CRITICAL: Platform owner gets full access to admin routes
-    if (isPlatformOwner && !publicRoutes.includes(currentPath) && !portalPages.includes(currentPath)) {
+    if (isPlatformOwner && !isPublicPath && !portalPages.includes(currentPath)) {
       // Platform owner is trying to access a route - allow it (they have full access)
       console.log('👑 [ProtectedRoutes] Platform owner - full access to all routes');
       return;
@@ -1029,8 +1047,9 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     // Non-elevated users will see limited/demo version
     // Removed redirect to portal for unified-dashboard access
 
-    // Skip route checks for public routes
-    if (publicRoutes.includes(currentPath)) {
+    // Skip route checks for public routes. Uses the shared answer so a
+    // tokenised public link is not dragged through the role checks below.
+    if (isPublicPath) {
       console.log('🔒 [ProtectedRoutes] Public route, no restrictions');
       return;
     }
@@ -1114,7 +1133,7 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
   const isAuthenticated = !!user;
 
   // Don't render protected content if not authenticated
-  if (!isAuthenticated && !publicRoutes.includes(currentPath)) {
+  if (!isAuthenticated && !isPublicPath) {
     console.log('🔒 [ProtectedRoutes] Not authenticated, showing login prompt');
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
