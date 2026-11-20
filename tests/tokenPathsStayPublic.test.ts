@@ -146,6 +146,35 @@ test('a prefix route that is not listed public stays private', () => {
   }
 });
 
+/* ── and EVERY gate reads the same answer ───────────────────────────────── */
+
+/**
+ * THE FIX THAT WAS HALF A FIX.
+ *
+ *  had the same comparison in several places. The first
+ * pass corrected the redirect in the effect and left the RENDER gate alone,
+ * so the portal link stopped redirecting to /login and started rendering
+ * "Please log in to continue..." in place instead — a different wrong
+ * answer, from the half nobody had looked for. The test at the time asserted
+ * the redirect branch and passed.
+ *
+ * There were five uses in total: two gates, two early-returns and a log line
+ * that was printing the wrong value. A duplicated condition is how one of
+ * them gets fixed alone, so this asserts there is exactly one left — the
+ * definition.
+ */
+test('no gate carries its own copy of the comparison', () => {
+  const code = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const copies = [...code.matchAll(/publicRoutes\.includes\(currentPath\)/g)].length;
+
+  assert.equal(
+    copies, 1,
+    `publicRoutes.includes(currentPath) appears ${copies} times; it should appear `
+    + 'once, in the definition of isPublicPath. Every other reader must use that, '
+    + 'or one of them gets fixed on its own again.',
+  );
+});
+
 /* ── the source still computes it this way ──────────────────────────────── */
 
 test('the guard uses the first segment for a prefix route', () => {
