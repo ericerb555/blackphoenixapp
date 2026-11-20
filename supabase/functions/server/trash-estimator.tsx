@@ -600,6 +600,31 @@ trashEstimatorRouter.post("/read", async (c: any) => {
       siteVisitReasons: takeoff.siteVisitReasons,
       notes: takeoff.notes,
       /*
+       * WHETHER THE CALLER HAD AN ACCOUNT — SAID OUTRIGHT.
+       *
+       * The page used to infer this from `signupOffer` being present,
+       * on the reasoning that the offer only exists for somebody
+       * without one. That is true and it is not the whole truth:
+       * `signupOfferFor` also returns null when the job NEEDS A SITE
+       * VISIT, and again when the band is not finite — there is nothing
+       * to take 5% off in either case.
+       *
+       * So an anonymous visitor whose job needed a visit looked exactly
+       * like a signed-in customer, and the page showed them the
+       * signed-in button: one that demands a session they have never
+       * had, and past that scopes to `customerEmail` and answers "No
+       * such estimate".
+       *
+       * That is the worst audience to lose. A job uncertain enough to
+       * need a visit is the one most worth a phone call, and the
+       * visitor could not leave a name. Reproduced twice on a garage
+       * clear-out priced at $636-$1,642 with suspected asbestos.
+       *
+       * One fact, one field. `signupOffer` goes back to meaning "there
+       * is a discount on offer", which is all it ever reliably meant.
+       */
+      anonymous: !actor,
+      /*
        * The 5% for opening a free account — priced here, and only for somebody
        * who has not got one.
        *
