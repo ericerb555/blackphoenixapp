@@ -264,6 +264,21 @@ async function productMeta(id) {
       description,
       image: image ? [image] : undefined,
       sku: String(item.sku || item.id),
+      /*
+       * BRAND, because Google treats a product without one as a weaker
+       * result: it is recommended for product snippets and wanted for the
+       * free merchant listings, which is the traffic this store needs.
+       *
+       * The supplier catalogue almost never carries a brand — these are
+       * unbranded goods — so the seller is the brand, which is what an
+       * unbranded or private-label item is supposed to declare. A real
+       * manufacturer name is used when the feed has one, so a branded item
+       * is never relabelled as ours.
+       */
+      brand: {
+        '@type': 'Brand',
+        name: String(item.brand || item.vendor || BUSINESS.name).trim() || BUSINESS.name,
+      },
       url,
       /*
        * Only when there is a real price. An Offer with a zero or missing

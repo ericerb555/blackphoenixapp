@@ -974,6 +974,36 @@ exit code that only proved `tail` ran.
 
 ---
 
+## The `quote:` record and the `pipeline_` record disagree (2026-11-19)
+
+Found while tracing Q-2026-0006's PDF total. The same quote is stored twice
+and the two copies are not the same quote:
+
+    quote:qt-1794354942724        pipeline_wr-1794354679347 -> .quote
+    ----------------------        ---------------------------------
+    additionalCosts   absent      2 rows, $550
+    additionalCostsSubtotal       550
+      absent
+    directCost        absent      12831.83
+    laborBurdenAmount absent      2421.13
+    overheadAmount    absent      0
+    profitAmount      absent      320.80
+    contingencyAmount absent      192.48
+    totalCost         13345.11    13345.11   (agree)
+
+So the `quote:` record carries the total but not the figures that justify it,
+and $550 of permit and disposal cost exists on one copy only. The editor
+reads the pipeline copy (`QuoteToContractEditor` takes `workRequest.quote`),
+which is the fuller one — so the screen is right and the canonical record is
+the thin one. Anything reading `quote:` directly gets a quote whose total
+cannot be reconciled from its own contents.
+
+**Why it is not fixed here:** the fix is a decision, not an edit — either the
+pipeline copy stops being authoritative, or the `quote:` write stops dropping
+fields. Picking one needs to know which writer is losing them, and that is a
+separate trace through the save path. Eric's reported bug (the PDF printing
+$10,827.13 instead of $13,345.11) is fixed and is not caused by this.
+
 ## `dead-ui-scan.mjs` — three things its buckets cannot see — 2026-11-19
 
 All three found by working through its output rather than by reading the

@@ -25,7 +25,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  excludedCostOf, includedShareOf, directCostOf,
+  excludedCostOf, includedShareOf, directCostOf, includedCostOf, rowBaselineOf,
 } from '../supabase/functions/server/quoteCustomerPrice.ts';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -167,4 +167,89 @@ test('soft costs are excludable as well', () => {
     additionalCostsSubtotal: 600,
   });
   assert.equal(excludedCostOf(q), 600);
+});
+
+/* ── a labour burden is cost with no line of its own ─────────────────────── */
+/**
+ * Eric, 2026-11-19: "the view pdf in the quote editor is $10,827.13 not the
+ * 13,345.11 its suppose to be why this is getting out of control how
+ * manytimes its taken to fix this"
+ *
+ * Q-2026-0006, exactly as the editor reads it. Nothing on it is unticked and
+ * nothing is hidden from the total, so the share must be 1 — but
+ * `includedShareOf` divided the line rows ($10,410.70) by stored `directCost`
+ * ($12,831.83), which carries a $2,421.13 labour burden that has no row and
+ * never will. 81.13% of the quote, and $2,517.98 off the bottom of the page.
+ *
+ * The figures are his, from `pipeline_wr-1794354679347` on 2026-11-19.
+ */
+const jason = (over: Record<string, unknown> = {}) => ({
+  materials: [
+    { name: "Shower pan", quantity: 1, unitCost: 1350, totalCost: 1350 },
+    { name: "Vanity", quantity: 1, unitCost: 540, totalCost: 594 },
+    { name: "Debris haul", quantity: 1, unitCost: 420, totalCost: 420 },
+    { name: "Sundries", quantity: 1, unitCost: 526.55, totalCost: 579.2 },
+  ],
+  labor: [
+    { role: "Plumber", hours: 1, hourlyRate: 1625, totalCost: 1625 },
+    { role: "Waterproofing", hours: 24, hourlyRate: 80.5, totalCost: 1932 },
+    { role: "Carpenter", hours: 65, hourlyRate: 51.69, totalCost: 3360.5 },
+  ],
+  additionalCosts: [
+    { name: "Building Permit", amount: 200 },
+    { name: "Disposal Fee", amount: 350 },
+  ],
+  materialsSubtotal: 2943.2,
+  laborSubtotal: 6917.5,
+  additionalCostsSubtotal: 550,
+  // materials + (labour + burden) + soft costs, per `quoteMargins.ts`.
+  laborBurdenAmount: 2421.13,
+  directCost: 12831.83,
+  overheadAmount: 0,
+  profitAmount: 320.8,
+  contingencyAmount: 192.48,
+  preTaxTotal: 13345.11,
+  totalCost: 13345.11,
+  taxAmount: 0,
+  ...over,
+});
+
+test("a labour burden is not work that was removed", () => {
+  // The rows come to the subtotals exactly — nothing has moved.
+  assert.equal(includedCostOf(jason()), 10410.7);
+  assert.equal(rowBaselineOf(jason()), 10410.7);
+  assert.equal(excludedCostOf(jason()), 0);
+  assert.equal(includedShareOf(jason()), 1);
+  // The number on Eric's screen, and the one that belongs there.
+  assert.equal(round2(13345.11 * includedShareOf(jason())), 13345.11);
+  assert.notEqual(round2(13345.11 * includedShareOf(jason())), 10827.13);
+});
+
+test("direct cost still carries the burden, because the markup sits on it", () => {
+  // `directCostOf` must NOT change: `customerPricingOf` derives the markup
+  // from the gap between it and the stored total, and the burden is cost.
+  assert.equal(directCostOf(jason()), 12831.83);
+});
+
+test("unticking a line still removes it, burden and all", () => {
+  // The $1,625 plumber comes off. The burden rides down with it, which is
+  // the point of a share: less labour is less payroll tax, not the same.
+  const q = jason();
+  (q.labor[0] as any).included = false;
+  assert.equal(excludedCostOf(q), 1625);
+  assert.equal(includedCostOf(q), 8785.7);
+  const share = includedShareOf(q);
+  assert.equal(round2(share), 0.84);
+  assert.ok(round2(13345.11 * share) < 13345.11);
+});
+
+test("a burden with no subtotals stored is still not an exclusion", () => {
+  // The subtotals are the preferred reference; this is the fallback path,
+  // where `directCost` is all there is and the burden has to come back off.
+  const q = jason({
+    materialsSubtotal: undefined, laborSubtotal: undefined,
+    additionalCostsSubtotal: undefined,
+  });
+  assert.equal(rowBaselineOf(q), 10410.7);
+  assert.equal(includedShareOf(q), 1);
 });
