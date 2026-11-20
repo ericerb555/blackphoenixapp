@@ -514,41 +514,70 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     }
 
     /*
-     * AND THE PHASES THE STEPS DO NOT KNOW ABOUT.
+     * AND THE MONEY OF ANY PHASE THE STEPS DO NOT NAME, SPREAD OVER THEM.
      *
-     * Eric, 2026-11-20: "the view pdf totals match 13345.11 but when i add
-     * up the line items it only 11517.05".
+     * Eric, 2026-11-20: "i just want all the other items to be devided up
+     * and split between all the lines in the individual quotes".
      *
      * A phase can exist on a LINE without existing as a written step — an
-     * estimator tags a material with a phase nobody added to the process, and
-     * the editor's own phase picker exists to make exactly that visible. On
-     * Q-2026-0006 that phase was "Shower Finish": eight written steps, and a
+     * estimator tags a material with a phase nobody added to the process.
+     * On Q-2026-0006 that was "Shower Finish": eight written steps, and a
      * $1,350 shower pan tagged to a ninth that was not one of them.
      *
-     * Enumerating only the steps therefore dropped $1,828.06 of priced work
-     * off the column while the footer went on charging for it — 11,518.07
-     * under a total of 13,345.11, which is the complaint to the cent.
+     * Enumerating only the steps dropped that money off the column while
+     * the footer went on charging for it — 11,518.07 under a total of
+     * 13,345.11, which was the complaint to the cent. Giving it a row of
+     * its own fixed the arithmetic and produced a section with a price and
+     * no description, because a description can only come from a step:
+     * "you added a section called shower finish with no discription and i
+     * cant edit it why?"
      *
-     * The top-up above this does the same job, and could not help: it is
-     * guarded on `phases.length`, so it is skipped in precisely the case
-     * where nothing was drawn. The branch below cannot help either, because
-     * this one has just filled `phases`. So the completeness has to be here,
-     * and "no money total are to be left hidden" is the rule it keeps.
+     * So it is apportioned instead, which is the treatment he already chose
+     * for overhead and contingency. `allocate` places the remainder, so the
+     * column comes to exactly what it came to before — no cent is created
+     * or lost, and no phase appears that nobody wrote.
      */
+    let unhomed = 0;
     for (const [name, cost] of trueCost) {
       const title = String(name || '').trim();
-      if (!title || fromSteps.has(title)) continue;
-      if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
-      const amount = round2(Number(cost) || 0);
-      phases.push({
-        title,
-        label: title,
-        description: sections.processDetail ? describe.get(title) : undefined,
-        lines: [],
+      if (title && fromSteps.has(title)) continue;
+      unhomed = round2(unhomed + (Number(cost) || 0));
+    }
 
-        subtotal: amount,
-        markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
-      });
+    if (Math.abs(unhomed) > 0.005) {
+      const drawn = phases.map((x) => Number(x.subtotal) || 0);
+      const base = round2(drawn.reduce((a, b) => a + b, 0));
+      if (base > 0.005) {
+        const shares = allocate(drawn, round2(base + unhomed));
+        phases.forEach((x, i) => {
+          x.subtotal = shares[i];
+          if (showMarkup) {
+            x.markup = { total: markupOn(shares[i], rates!).total, label: rateLabel };
+          }
+        });
+      } else {
+        /*
+         * NOTHING TO SPREAD IT ONTO — every written step is priced at zero
+         * and all the money is in phases nobody wrote. Apportioning would
+         * divide by nothing and silently drop the lot, so here it keeps a
+         * row. A section with no description beats a quote that undercharges
+         * by the only money on it.
+         */
+        for (const [name, cost] of trueCost) {
+          const title = String(name || '').trim();
+          if (title && fromSteps.has(title)) continue;
+          if (!(Math.abs(Number(cost) || 0) > 0.005)) continue;
+          const amount = round2(Number(cost) || 0);
+          phases.push({
+            title: title || null,
+            label: title || 'Additional work',
+            description: sections.processDetail ? describe.get(title) : undefined,
+            lines: [],
+            subtotal: amount,
+            markup: showMarkup ? { total: markupOn(amount, rates!).total, label: rateLabel } : undefined,
+          });
+        }
+      }
     }
   }
 

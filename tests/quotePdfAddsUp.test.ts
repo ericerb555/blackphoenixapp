@@ -634,11 +634,15 @@ const showerFinish = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-test('a phase that only a line names still gets a row, and its money', () => {
+test('a phase no step names has its money spread, not a section of its own', () => {
   const doc: any = quoteToPdfDocument(showerFinish(), { forCustomer: true });
   const titles = (doc.phases || []).map((x: any) => String(x.title));
-  assert.ok(titles.includes('Shower Finish'),
-    `"Shower Finish" is missing from the column: ${titles.join(', ')}`);
+  // Eric: 'i just want all the other items to be devided up and split
+  // between all the lines'. So no orphan section with no description.
+  assert.ok(!titles.includes('Shower Finish'),
+    `"Shower Finish" should not get a row of its own: ${titles.join(', ')}`);
+  assert.equal(titles.length, 8);
+  // And not a cent of it is lost: the column still reaches the total.
   assert.equal(phaseSum(doc), 13345.11);
   assert.notEqual(phaseSum(doc), 11518.07);
   assertAddsUp(doc, 'Q-2026-0006 customer');
