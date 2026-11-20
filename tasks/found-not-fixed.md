@@ -971,3 +971,42 @@ mechanism exists and is just not applied to the first-batch case.
 status is the last element's. It is the same trap `CLAUDE.md` warns about for
 `push | tail`, and it caught me here: I nearly recorded smoke as passing on an
 exit code that only proved `tail` ran.
+
+---
+
+## `dead-ui-scan.mjs` — three things its buckets cannot see — 2026-11-19
+
+All three found by working through its output rather than by reading the
+script, and all three mean a count from it is a starting point and not a
+score.
+
+**1. Bucket A counts a deliberately disabled control as a missing handler.**
+A `<button disabled title="...">` has no `onClick`, which is exactly right and
+exactly what bucket A looks for. After disabling four placeholder controls in
+`SubscriptionHub` and `RevenueMonetizationHub` on purpose, both files are
+still listed in A — now for the honest version of the thing they were listed
+for. The scan cannot distinguish "forgotten" from "switched off on purpose",
+so A's 188 is an upper bound containing some number of correct answers.
+
+**2. `authz:scan` bucket A only inspects WRITES.** `GET /chat/leads` returned
+every captured visitor name, email and phone to any signed-in account, and
+`GET /crm/leads` returned the whole CRM. Neither appeared in bucket A, because
+neither is a write. They were the two worst findings of that triage and both
+came out of reading the files the scanner pointed at.
+
+**3. `authz:scan` cannot see a check inside a named helper.** Two of its 25
+leads were false positives: `/schedule/confirm` calls `staffActor` and
+`/landlord/conditions-reports/:id` resolves through `reportFor`, which serves
+own-or-403 with staff by exception. Both are correctly guarded.
+
+**What would fix them.** (1) is a one-line exclusion — skip `<button>`
+elements carrying `disabled`. (2) is a real extension: inspect reads whose
+handler returns a collection, which is a different and noisier heuristic, and
+worth it given what it missed. (3) wants a list of known guard helpers, which
+is the same maintenance problem as the gate lists and probably better solved
+by the live probe than by the static scan.
+
+**Why not fixed here.** Each changes what the tool reports, and the numbers in
+`docs/audit-2026-11/` are quoted against the current behaviour. Changing the
+scanner and the documents in one pass would leave nothing to check the change
+against.

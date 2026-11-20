@@ -42,6 +42,7 @@ import {
 } from '../lib/services/revenueService';
 import { authedHeaders } from '../utils/authHeaders';
 import { API_BASE_URL } from '../lib/apiConfig';
+import { FeatureNotBuilt } from '../components/FeatureNotBuilt';
 
 type TabType = 'payments' | 'subscriptions' | 'advertising' | 'vendor-ops' | 'subcontractor-ops' | 'promotions' | 'referrals' | 'marketing' | 'cohorts';
 
@@ -154,20 +155,60 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
     setShowEditModal(true);
   };
 
-  const handleSavePromotion = () => {
-    if (editingPromotion) {
-      setPromotions(promotions.map(p =>
-        p.id === editingPromotion.id ? editingPromotion : p
-      ));
-      setShowEditModal(false);
-      setEditingPromotion(null);
-      toast.success('Promotion updated successfully!');
+  /*
+   * These two used to change React state and announce success. The edit
+   * survived until the next reload and the delete survived until the next
+   * reload, at which point the promotion came back — so "Promotion deleted"
+   * was true for about as long as you kept looking at it.
+   *
+   * Wired for real, because the routes exist and are the same entity:
+   * `PUT /promotions/:id` and `DELETE /promotions/:id`, both already behind
+   * ADMIN_PREFIXES. Unlike the deal-approval buttons lower down this file,
+   * there is a genuine id here and a genuine endpoint for it — which is the
+   * difference between wiring something up and guessing it is connected.
+   *
+   * The local state still updates first so the screen stays responsive, and is
+   * rolled back if the server refuses. The toast now waits for the answer.
+   */
+  const handleSavePromotion = async () => {
+    if (!editingPromotion) return;
+    const previous = promotions;
+    const edited = editingPromotion;
+
+    setPromotions(promotions.map(p => (p.id === edited.id ? edited : p)));
+    setShowEditModal(false);
+    setEditingPromotion(null);
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/promotions/${encodeURIComponent(edited.id)}`,
+        { method: 'PUT', headers: await authedHeaders(), body: JSON.stringify(edited) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.success === false) throw new Error(json?.error || `Save failed (${res.status})`);
+      toast.success('Promotion updated');
+    } catch (err: any) {
+      setPromotions(previous);
+      toast.error(err?.message || 'Could not save the promotion — nothing was changed.');
     }
   };
 
-  const handleDeletePromotion = (id: string) => {
+  const handleDeletePromotion = async (id: string) => {
+    const previous = promotions;
     setPromotions(promotions.filter(p => p.id !== id));
-    toast.success('Promotion deleted');
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/promotions/${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: await authedHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.success === false) throw new Error(json?.error || `Delete failed (${res.status})`);
+      toast.success('Promotion deleted');
+    } catch (err: any) {
+      setPromotions(previous);
+      toast.error(err?.message || 'Could not delete the promotion — it is still there.');
+    }
   };
 
   const handleEditPlan = (plan: SubscriptionPlan) => {
@@ -1072,7 +1113,9 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
                                 Edit
                               </button>
                               <button
-                                onClick={() => toast.success('Promotion approved and added to admin alerts!')}
+                                disabled
+                                title="Approving a promotion has not been built yet."
+                                /* Claimed two things at once: approved, and added to admin alerts. Neither happened, and the alerts panel it named was itself fabricating its contents until I-1. */
                                 className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-semibold transition flex items-center gap-1"
                               >
                                 <Check className="w-3 h-3" />
@@ -1545,7 +1588,9 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
                   <h3 className="text-xl font-bold">Deals & Offers Management</h3>
                 </div>
                 <button
-                  onClick={() => toast.success('Deal creator modal will open here')}
+                  disabled
+                  title="Creating a deal has not been built yet."
+                  /* Said "Deal creator modal will open here". There is no modal. */
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 rounded-lg text-white font-semibold transition"
                 >
                   <Plus className="w-5 h-5" />
@@ -1559,198 +1604,50 @@ export default function RevenueMonetizationHub({ onNavigate }: RevenueMonetizati
                   <Trophy className="w-8 h-8 text-yellow-400 mb-3" />
                   <h4 className="font-bold text-lg mb-2">Giveaways</h4>
                   <p className="text-sm text-zinc-400 mb-4">Manage active giveaways and prize campaigns</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-zinc-500">Active: <span className="text-yellow-400 font-bold">3</span></span>
-                    <span className="text-zinc-500">Pending: <span className="text-orange-400 font-bold">2</span></span>
-                  </div>
                 </div>
 
                 <div className="bg-gradient-to-br from-blue-600/10 to-cyan-600/10 border border-blue-500/30 rounded-lg p-6">
                   <Package className="w-8 h-8 text-blue-400 mb-3" />
                   <h4 className="font-bold text-lg mb-2">Product Deals</h4>
                   <p className="text-sm text-zinc-400 mb-4">Featured product discounts and promotions</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-zinc-500">Active: <span className="text-blue-400 font-bold">4</span></span>
-                    <span className="text-zinc-500">Pending: <span className="text-cyan-400 font-bold">1</span></span>
-                  </div>
                 </div>
 
                 <div className="bg-gradient-to-br from-orange-600/10 to-red-600/10 border border-orange-500/30 rounded-lg p-6">
                   <Users className="w-8 h-8 text-orange-400 mb-3" />
                   <h4 className="font-bold text-lg mb-2">Partner Deals</h4>
                   <p className="text-sm text-zinc-400 mb-4">Vendor, subcontractor, and service provider offers</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-zinc-500">Active: <span className="text-orange-400 font-bold">3</span></span>
-                    <span className="text-zinc-500">Pending: <span className="text-red-400 font-bold">1</span></span>
-                  </div>
                 </div>
               </div>
 
-              {/* Pending Approvals Table */}
-              <div className="bg-[#0A0A0A] border border-zinc-800 rounded-lg overflow-hidden">
-                <div className="p-4 border-b border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold">Pending Deal Approvals</h4>
-                    <div className="flex items-center gap-2">
-                      <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition flex items-center gap-2">
-                        <Filter className="w-4 h-4" />
-                        Filter
-                      </button>
-                      <button className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition flex items-center gap-2">
-                        <Search className="w-4 h-4" />
-                        Search
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-zinc-900/50 border-b border-zinc-800">
-                      <tr>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Deal Name</th>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Type</th>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Placement</th>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Value</th>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Submitted By</th>
-                        <th className="text-left p-4 text-sm font-semibold text-zinc-400">Date</th>
-                        <th className="text-right p-4 text-sm font-semibold text-zinc-400">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {/* Deal 1 */}
-                      <tr className="hover:bg-zinc-900/30 transition">
-                        <td className="p-4">
-                          <div className="font-semibold">Summer Tool Giveaway</div>
-                          <div className="text-sm text-zinc-500">DeWalt Power Tool Set</div>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2 py-1 bg-yellow-600/20 text-yellow-400 text-sm font-semibold rounded-full">
-                            Giveaway
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="text-sm">Landing Page</div>
-                          <div className="text-sm text-zinc-500">Customer Portal</div>
-                        </td>
-                        <td className="p-4">
-                          <div className="font-semibold text-green-400">$2,500</div>
-                        </td>
-                        <td className="p-4 text-sm text-zinc-400">Marketing Team</td>
-                        <td className="p-4 text-sm text-zinc-400">2026-05-08</td>
-                        <td className="p-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => toast.success('Deal approved!')}
-                              className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" />
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => toast.error('Deal rejected')}
-                              className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <XCircle className="w-3 h-3" />
-                              Reject
-                            </button>
-                            <button className="p-1 hover:bg-zinc-800 rounded transition">
-                              <Eye className="w-4 h-4 text-zinc-400" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Deal 2 */}
-                      <tr className="hover:bg-zinc-900/30 transition">
-                        <td className="p-4">
-                          <div className="font-semibold">Lumber Bundle Promotion</div>
-                          <div className="text-sm text-zinc-500">40% off Premium Lumber</div>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-sm font-semibold rounded-full">
-                            Product Deal
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="text-sm">Landing Page</div>
-                          <div className="text-sm text-zinc-500">Marketplace Banner</div>
-                        </td>
-                        <td className="p-4">
-                          <div className="font-semibold text-green-400">$599</div>
-                          <div className="text-sm text-zinc-500 line-through">$999</div>
-                        </td>
-                        <td className="p-4 text-sm text-zinc-400">Vendor: HD Supply</td>
-                        <td className="p-4 text-sm text-zinc-400">2026-05-09</td>
-                        <td className="p-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => toast.success('Deal approved!')}
-                              className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" />
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => toast.error('Deal rejected')}
-                              className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <XCircle className="w-3 h-3" />
-                              Reject
-                            </button>
-                            <button className="p-1 hover:bg-zinc-800 rounded transition">
-                              <Eye className="w-4 h-4 text-zinc-400" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* Deal 3 */}
-                      <tr className="hover:bg-zinc-900/30 transition">
-                        <td className="p-4">
-                          <div className="font-semibold">Contractor Launch Special</div>
-                          <div className="text-sm text-zinc-500">50% off first 3 months</div>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2 py-1 bg-orange-600/20 text-orange-400 text-sm font-semibold rounded-full">
-                            Partner Deal
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <div className="text-sm">Landing Page</div>
-                          <div className="text-sm text-zinc-500">Marketing Hub</div>
-                        </td>
-                        <td className="p-4">
-                          <div className="font-semibold text-green-400">3 months</div>
-                        </td>
-                        <td className="p-4 text-sm text-zinc-400">Marketing Team</td>
-                        <td className="p-4 text-sm text-zinc-400">2026-05-10</td>
-                        <td className="p-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => toast.success('Deal approved!')}
-                              className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <Check className="w-3 h-3" />
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => toast.error('Deal rejected')}
-                              className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-sm font-semibold transition flex items-center gap-1"
-                            >
-                              <XCircle className="w-3 h-3" />
-                              Reject
-                            </button>
-                            <button className="p-1 hover:bg-zinc-800 rounded transition">
-                              <Eye className="w-4 h-4 text-zinc-400" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/*
+                * WAS: a "Pending Deal Approvals" table with three hardcoded
+                * rows — "Summer Tool Giveaway / DeWalt Power Tool Set /
+                * $2,500 / Marketing Team / 2026-05-08" and two more — each
+                * with an Approve button that answered "Deal approved!" and
+                * did nothing.
+                *
+                * Both halves were untrue at once, which is why the whole
+                * section goes rather than just the buttons. The rows are
+                * invented records presented as live work (`I-2`), and the
+                * counters above still read "Pending: 2" — so an owner was
+                * told there were deals waiting for a decision, shown who
+                * raised them and for how much, and allowed to approve them.
+                *
+                * NOT wired to `POST /portal-deals/:id/decision`, which does
+                * exist. There is no id to send: these rows are markup, not
+                * records, and a deal in this hub is not demonstrably the same
+                * entity as a portal deal. Guessing that it is would be the
+                * `W-3` mistake — giving a form an endpoint and calling it
+                * fixed.
+                *
+                * Restoring this means listing real deals from a real route.
+                * See docs/audit-2026-11/REMEDIATION_PLAN.md, batch 5.
+                */}
+              <FeatureNotBuilt
+                title="Pending deal approvals"
+                description="Review and approve giveaways, sponsorships and partner deals raised by the team."
+                needs={['a deals route this hub can list from']}
+              />
 
               {/* Quick Actions */}
               <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">

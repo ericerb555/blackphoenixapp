@@ -691,11 +691,30 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
                   >
                     <Edit className="w-4 h-4 text-gray-400" />
                   </button>
+                  {/*
+                    * Disabled, not removed. It used to answer "Subscription
+                    * paused" and pause nothing — so billing carried on while
+                    * the operator believed it had stopped, which is the one
+                    * mistake on this screen that costs a customer money.
+                    *
+                    * There is no pause route to wire it to: the server has no
+                    * subscription pause, resume or cancel endpoint at all (the
+                    * only `/pause` in the codebase belongs to autopilot
+                    * campaigns). Building one is a billing decision — whether
+                    * a pause stops the next charge, prorates, or holds the
+                    * period — and not one to infer from a button.
+                    *
+                    * Left visible and explicitly unavailable so the task is
+                    * still discoverable, rather than deleted and forgotten.
+                    */}
                   <button
-                    onClick={() => toast.success('Subscription paused')}
-                    className="p-2 hover:bg-[#2a2a2a] rounded-lg transition"
+                    type="button"
+                    disabled
+                    title="Pausing is not wired up yet — change the subscription with the provider directly."
+                    aria-label="Pause subscription (not available yet)"
+                    className="p-2 rounded-lg cursor-not-allowed opacity-40"
                   >
-                    <PauseCircle className="w-4 h-4 text-yellow-400" />
+                    <PauseCircle className="w-4 h-4 text-gray-500" />
                   </button>
                 </div>
               </div>
@@ -814,14 +833,28 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
               </div>
             </div>
             <div className="flex items-center gap-2 pt-4 border-t border-[#2A2A2A]">
+              {/*
+                * `W-4`. This said "Reward payment processed" and moved no
+                * money — so a referrer who had earned a payout was marked paid
+                * in somebody's head and never paid in fact. The worst kind of
+                * silent failure: the person owed the money is the only one who
+                * would notice, and they have no way to.
+                *
+                * Nothing to wire it to. There is no reward or referral payout
+                * route on the server, and there should not be a quick one —
+                * paying somebody is not a button you add on the way past.
+                *
+                * So it now says what is true: the payout is manual. The amount
+                * stays on screen above, which is what whoever pays it needs.
+                */}
               {ref.status === 'completed' && (
-                <button
-                  onClick={() => toast.success('Reward payment processed')}
-                  className="px-4 py-2 bg-[#ea580c]/10 hover:bg-[#ea580c]/20 text-[#ea580c] border border-[#ea580c]/20 rounded-lg flex items-center gap-2 transition"
+                <span
+                  title="Referral payouts are not automated. Pay this out through your normal payment method and keep your own record."
+                  className="px-4 py-2 bg-[#1f1f1f] text-gray-400 border border-[#2A2A2A] rounded-lg flex items-center gap-2 text-sm"
                 >
                   <DollarSign className="w-4 h-4" />
-                  Process Payment
-                </button>
+                  Pay manually — not automated
+                </span>
               )}
               <button className="px-4 py-2 bg-[#0A0A0A] hover:bg-[#1A1A1A] border border-[#2A2A2A] text-gray-300 rounded-lg flex items-center gap-2 transition">
                 <Eye className="w-4 h-4" />
@@ -1039,7 +1072,9 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
             </button>
 
             <button
-              onClick={() => toast.success('Promotional hours modal opened')}
+              disabled
+              title="The promotional-hours screen has not been built yet."
+              /* Said a modal had opened. No modal exists. */
               className="flex items-center gap-3 p-4 bg-[#0A0A0A] hover:bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg transition"
             >
               <div className="p-2 bg-[#ea580c]/10 rounded-lg border border-[#ea580c]/20">
@@ -1173,7 +1208,9 @@ export default function SubscriptionHub({ onNavigate }: SubscriptionHubProps = {
                     Gift Hours
                   </button>
                   <button
-                    onClick={() => toast.success('Adjust rollover for ' + sub.stakeholderName)}
+                    disabled
+                    title="Adjusting rollover hours has not been built yet."
+                    /* Named the stakeholder and did nothing, which read as a confirmation. */
                     className="flex-1 px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg text-sm transition"
                   >
                     <RefreshCw className="w-4 h-4 inline mr-1" />
