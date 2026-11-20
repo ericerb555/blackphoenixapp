@@ -419,6 +419,7 @@ import {
 import { areasFromQuote, pricingRefusal } from './reportPricing.ts';
 import { workRequestActor, ownsWorkRequest, readWorkRequests, persistWorkRequest } from "./workRequests.ts";
 import { pipelineItemFrom } from "./pipelineHandoff.ts";
+import { afterResponse } from "./afterResponse.ts";
 import {
   type StripeAccount, STRIPE_KEY_ENVS, stripeAccountLabel, STRIPE_TEST_KEY_ENV,
   stripeTestKey, stripeKeyMode, stripeTestAccountEmail, isStripeTestAccount,
@@ -5143,6 +5144,76 @@ async function quoteDraftFor(
  * metering every work-request read and write with it, and adding a second
  * prefix for the same spend is how a call gets charged twice.
  */
+/**
+ * DRAFT THE QUOTE FOR A REQUEST THAT HAS JUST ARRIVED.
+ *
+ * Eric, 2026-11-20: "it should auto matically generate a quote".
+ *
+ * Nothing did. The only thing that produced a quote was a person opening an
+ * admin alert, so a request that arrived overnight sat untouched — and the
+ * dashboard badge that was supposed to say so was the constant 8.
+ *
+ * WHY IT IS NOT AWAITED BY THE SUBMIT. A takeoff runs for tens of seconds;
+ * `AdminAlertsPanel` records that a fifteen-second timeout on this exact
+ * call "was abandoned most times it ran: the model was paid for, the answer
+ * was thrown away". Making a customer's submit wait on it would be worse
+ * still — the request itself is the thing that must never fail.
+ *
+ * So the reply goes out first and this runs behind it through
+ * `afterResponse`, which keeps the isolate alive rather than hoping a bare
+ * promise survives the handler returning.
+ *
+ * WHAT IT COSTS, AND WHAT BOUNDS IT. This spends a real takeoff on every
+ * new request. `runEstimator` meters itself — `assertAiAllowed`
+ * ('quote-generator') then `beginAiCall` — so the kill switch stops it and
+ * the spend ceiling bounds it, and a refusal lands here as a logged failure
+ * rather than a half-written record.
+ *
+ * IT NEVER OVERWRITES A QUOTE SOMEBODY HAS. A cached draft or an existing
+ * pipeline quote means the work is done, and redoing it would both spend
+ * again and risk standing on an edit. The Generate button is the way to ask
+ * for a fresh one deliberately.
+ */
+async function autoDraftQuote(record: any, ledger: any): Promise<void> {
+  const wrId = String(record?.id || '').trim();
+  if (!wrId) return;
+
+  const existing = (await kv.get(`pipeline_${wrId}`).catch(() => null)) as any;
+  if (existing?.quote) {
+    console.log(`[auto-draft] ${wrId} already has a quote — leaving it alone`);
+    return;
+  }
+
+  const stamp = async (status: string, extra: Record<string, unknown> = {}) => {
+    /*
+     * Recorded ON THE REQUEST so a failure is visible in the UI rather than
+     * only in a log nobody opens. "It silently did not happen" is the state
+     * this whole feature exists to end.
+     */
+    try {
+      const current = (await kv.get(`wr:${wrId}`)) as any;
+      if (!current) return;
+      await kv.set(`wr:${wrId}`, {
+        ...current,
+        autoQuote: { status, at: new Date().toISOString(), ...extra },
+      });
+    } catch { /* the draft matters more than the breadcrumb */ }
+  };
+
+  try {
+    const { draft } = await quoteDraftFor(record, ledger, 'auto', false);
+    const now = new Date().toISOString();
+    const item = pipelineItemFrom(record, draft, existing, now);
+    await kv.set(`pipeline_${wrId}`, item);
+    await stamp('drafted', { total: Number(item?.quote?.totalCost) || 0 });
+    console.log(`[auto-draft] ${wrId} drafted at ${item?.quote?.totalCost}`);
+  } catch (error: any) {
+    const why = String(error?.message || error);
+    await stamp('failed', { error: why.slice(0, 300) });
+    console.log(`[auto-draft] ${wrId} failed: ${why}`);
+  }
+}
+
 app.post('/make-server-3eae23a6/quote-draft/:workRequestId/pipeline', async (c) => {
   try {
     const { user, admin } = await workRequestActor(c);
@@ -8950,6 +9021,13 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
       ctaPath: '/work-requests',
       dedupeKey: `work_request:${record.id}`,
     });
+
+    /*
+     * The quote drafts itself, behind the reply. See `autoDraftQuote`: the
+     * submit must not wait on a takeoff, and a takeoff must not be lost
+     * because the isolate was torn down.
+     */
+    afterResponse(autoDraftQuote(record, ledgerContextFor(c)), `auto-draft:${record.id}`);
 
     return c.json({ success: true, workRequest: stripBase64(record) }, 201);
   } catch (error: any) { console.error('[Work Requests] Create error:', error); return c.json({ error: error.message || 'Unable to create work request.' }, 500); }

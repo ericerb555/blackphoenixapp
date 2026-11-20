@@ -4,6 +4,7 @@
  */
 
 import { Hono } from "npm:hono@4.13.19";
+import { afterResponse } from "./afterResponse.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 import * as kv from "./kv_store.tsx";
 import { linkInvoicesByEmail } from "./invoice-linking.tsx";
@@ -79,23 +80,7 @@ async function setPermissions(userId: string, patch: Record<string, any>): Promi
  * Idempotent: deduplicates by email so repeated calls never create duplicates.
  * Returns the customer record.
  */
-/**
- * Finish a piece of work after the reply has gone out.
- *
- * Supabase's edge runtime can tear an isolate down once a handler returns, so a
- * bare fire-and-forget promise is not guaranteed to complete. `waitUntil` keeps
- * the isolate alive until it settles — the same contract as a service worker.
- * Where it is unavailable the promise is still started, which is no worse than
- * what the code did before.
- *
- * Use this only for work whose failure does not change the answer already sent.
- */
-function afterResponse(work: Promise<unknown>, label: string): void {
-  const settled = work.catch((err) =>
-    console.log(`[after-response:${label}] ${err?.message || err}`));
-  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
-  if (typeof runtime?.waitUntil === 'function') runtime.waitUntil(settled);
-}
+/* `afterResponse` now lives in its own file, so it has one copy. */
 
 /**
  * Put a signup into the CRM, and never let that failure lose the signup.
