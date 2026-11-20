@@ -364,6 +364,22 @@ export function normalizeQuoteDoc(input: any) {
      * hand-built quote that never had any, every time it was saved.
      */
     directCost: Number(input.directCost) || 0,
+    /*
+     * HOW MUCH OF `directCost` IS BURDEN.
+     *
+     * `directCost` is materials + (labour + burden) + soft costs, and
+     * `laborSubtotal` deliberately stays the WAGE bill. Without this
+     * figure the two cannot be reconciled: the rows are short of
+     * `directCost` by an amount the record does not name.
+     *
+     * That is not theoretical. It printed Q-2026-0006 at $10,827.13 under
+     * a total of $13,345.11, because the burden had to be INFERRED and
+     * the inference was that the missing money was work removed from the
+     * quote. `laborBurdenPercent` below is the override and has to treat
+     * absent and zero differently; this is a computed amount, so it reads
+     * `|| 0` like every other money field here.
+     */
+    laborBurdenAmount: Number(input.laborBurdenAmount) || 0,
     overheadPercent: Number(input.overheadPercent) || 0,
     overheadAmount: Number(input.overheadAmount) || 0,
     profitPercent: Number(input.profitPercent) || 0,

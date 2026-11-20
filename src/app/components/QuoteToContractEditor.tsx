@@ -3157,6 +3157,25 @@ export function QuoteToContractEditor({
         creditsSubtotal: editedQuote.creditsSubtotal || 0,
         materialsSubtotal: editedQuote.materialsSubtotal,
         laborSubtotal: editedQuote.laborSubtotal,
+        /**
+         * THE SOFT COSTS, WHICH HAVE NEVER BEEN SAVED.
+         *
+         * Permits, disposal, dump fees. They are real money, they are in
+         * `directCost`, and they were on no save payload this file has
+         * ever had — checked with `git log -S`, not assumed.
+         *
+         * Because the server MERGES the body, the omission did not wipe
+         * them; it meant they never arrived in the first place. So the
+         * canonical `quote:` record carried a total that its own contents
+         * could not account for, while the pipeline copy the editor reads
+         * had the rows. Measured on Q-2026-0006 on 2026-11-19: $550 of
+         * Building Permit and Disposal Fee on one copy and not the other,
+         * and no `additionalCostsSubtotal` on the canonical one at all —
+         * which makes `directCostOf` fall back to materials plus labour
+         * and understate what the job costs us by exactly that.
+         */
+        additionalCosts: (editedQuote as any).additionalCosts || [],
+        additionalCostsSubtotal: (editedQuote as any).additionalCostsSubtotal || 0,
         taxRate: editedQuote.taxRate,
         taxAmount: editedQuote.taxAmount,
         totalCost: editedQuote.totalCost,

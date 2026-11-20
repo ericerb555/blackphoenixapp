@@ -226,3 +226,37 @@ test('a photo takeoff keeps its own basis and is not folded into the estimator',
   assert.equal(normalizeQuoteDoc({ pricingBasis: 'invented' } as any).pricingBasis, '',
     'an unknown basis is still absent rather than trusted');
 });
+
+/**
+ * The burden is the part of `directCost` that has no line.
+ *
+ * `directCost` is materials + (labour + burden) + soft costs, and
+ * `laborSubtotal` stays the wage bill on purpose. A saved quote that drops
+ * `laborBurdenAmount` therefore cannot be reconciled from its own contents:
+ * the rows are short of `directCost` and nothing names the gap.
+ *
+ * That gap printed Q-2026-0006 at $10,827.13 under a total of $13,345.11 on
+ * 2026-11-19, because the only way to read it was as work removed.
+ */
+test('the labour burden survives being saved', () => {
+  const doc: any = normalizeQuoteDoc({
+    materialsSubtotal: 2943.2,
+    laborSubtotal: 6917.5,
+    additionalCostsSubtotal: 550,
+    laborBurdenAmount: 2421.13,
+    directCost: 12831.83,
+    totalCost: 13345.11,
+  });
+  assert.equal(doc.laborBurdenAmount, 2421.13);
+  // And the record now reconciles: rows + burden === directCost.
+  const rows = doc.materialsSubtotal + doc.laborSubtotal + doc.additionalCostsSubtotal;
+  assert.equal(Math.round((rows + doc.laborBurdenAmount) * 100) / 100, doc.directCost);
+});
+
+test('no burden saves as zero, not as a missing field', () => {
+  const doc: any = normalizeQuoteDoc({ materialsSubtotal: 100, laborSubtotal: 200 });
+  assert.equal(doc.laborBurdenAmount, 0);
+  // The PERCENT is the override and must stay absent — only the amount is
+  // a computed figure that collapses to zero.
+  assert.equal(doc.laborBurdenPercent, null);
+});
