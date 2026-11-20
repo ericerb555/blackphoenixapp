@@ -386,7 +386,7 @@ function CompanySelector() {
  * engine sent us would land on a blank screen — which is a worse outcome
  * than not being indexed at all.
  */
-const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote', 'shop-item']);
+const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote', 'shop-item', 'my-estimate']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
@@ -497,6 +497,13 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * session to sign-up instead.
      */
     'junk-pricer',
+
+    /*
+     * The junk estimate portal. The token in the path is the whole
+     * credential, so this has to be reachable with no session at all —
+     * the people it is for have never had one.
+     */
+    'my-estimate',
 
     // Pricing page (so visitors can see plans before signing up)
     'pricing',

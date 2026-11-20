@@ -66,6 +66,11 @@ import { trustedRole } from "./trustedRole.ts";
 import { availabilityOn } from "./availability.ts";
 import { readAnonContact, anonConfirmKey, ANON_CONFIRM_PER_IP_DAILY } from "./anonContact.ts";
 import { putIntoCrmSafely } from "./crmContacts.ts";
+import { mintShareToken, hashToken } from "./shareToken.ts";
+import {
+  estimateTokenKey, estimatePortalRecord, estimatePortalUsable,
+  estimatePortalUrl, customerEstimateView,
+} from "./estimatePortal.ts";
 import { notifyStaffInBackground } from "./staff-notifications.tsx";
 
 /** Whole dollars, for a subject line somebody reads on a phone. */
@@ -153,6 +158,22 @@ trashEstimatorRouter.use("*", async (c: any, next: any) => {
    * reads. One flat path is the only shape that stays explicit.
    */
   if (c.req.method === "POST" && path.endsWith("/trash-estimator/confirm-anonymous")) {
+    return await next();
+  }
+
+  /*
+   * The customer portal for somebody with no account.
+   *
+   * Same shape as the two above: one method, one path, granting nothing. The
+   * handler takes a token, looks it up by HASH, and answers the same 404 for
+   * a link that was never real, was revoked, or has expired.
+   *
+   * A prefix rather than an exact path because the token is in it, and a
+   * parameterised path cannot be stated in the exact-match list in
+   * `index.tsx`. The prefix is one read-only route deep, so it opens nothing
+   * else: `/portal/` has no siblings.
+   */
+  if (c.req.method === "GET" && path.includes("/trash-estimator/portal/")) {
     return await next();
   }
 
@@ -1190,6 +1211,38 @@ trashEstimatorRouter.post("/confirm-anonymous", async (c: any) => {
   await kv.set(dayKey, used + 1);
 
   /*
+   * A PLACE FOR THEM TO WATCH THIS, WITHOUT AN ACCOUNT.
+   *
+   * Eric, 2026-11-20: *"give them a portal on confirmation a customer
+   * portal"*.
+   *
+   * Possession of the link is the authorisation. An account keyed on the
+   * contact details would be keyed on UNVERIFIED ones — the same details
+   * this handler deliberately refuses to write to `customerEmail`, because
+   * an unverified address would let anybody claim somebody else’s
+   * estimate. Issuing a login on them would hand over exactly what that
+   * refusal protects.
+   *
+   * Filed by hash and expiring, via `shareToken`, so a leak of the store is
+   * not a leak of the links.
+   *
+   * The URL goes back in the response because today it is the only way to
+   * deliver it: most callers leave a phone and no email, and texting is
+   * still waiting on carrier approval. Showing it on the page at the
+   * moment they ask means they can keep it without us sending anything.
+   */
+  let portalUrl: string | null = null;
+  try {
+    const { token, hash } = await mintShareToken();
+    await kv.set(estimateTokenKey(hash), estimatePortalRecord(id, nowIso));
+    portalUrl = estimatePortalUrl(Deno.env.get("APP_URL") || "", token);
+  } catch (err) {
+    /* The request is the durable part and is already saved. A portal we
+       could not mint must not fail the thing they actually asked for. */
+    console.log(`[trash-estimator] could not mint the portal link: ${err}`);
+  }
+
+  /*
    * INTO THE CRM AS A LEAD — WHICH IS WHAT THIS FLOW PRODUCES.
    *
    * Somebody priced a job without signing up and asked us to ring them
@@ -1257,7 +1310,40 @@ trashEstimatorRouter.post("/confirm-anonymous", async (c: any) => {
     console.log(`[trash-estimator] could not notify staff: ${err}`);
   }
 
-  return c.json({ success: true, estimate: updated });
+  return c.json({ success: true, estimate: updated, portalUrl });
+});
+
+/**
+ * GET /trash-estimator/portal/:token
+ *
+ * The customer portal for somebody with no account. Possession of the token
+ * is the authorisation; see `estimatePortal.ts` for why it is not a login.
+ *
+ * A window and nothing more — no signing, approving or scheduling. A link
+ * that arrives by text gets forwarded, screenshotted and pasted into group
+ * chats, which a read-only view survives and a commitment button does not.
+ *
+ * Every dead link answers the same way, whether it was never real, revoked
+ * or expired. Telling a stranger "expired" confirms it was once real.
+ */
+trashEstimatorRouter.get("/portal/:token", async (c: any) => {
+  const token = String(c.req.param("token") || "");
+  const gone = () => c.json({ success: false, error: "This link is not available." }, 404);
+  if (!token) return gone();
+
+  try {
+    const record = (await kv.get(estimateTokenKey(await hashToken(token)))) as any;
+    if (!estimatePortalUsable(record, Date.now())) return gone();
+
+    const estimate = (await kv.get(`estimate:${record.quoteId}`)) as any;
+    const view = customerEstimateView(estimate);
+    if (!view) return gone();
+
+    return c.json({ success: true, estimate: view });
+  } catch (err: any) {
+    console.log(`[trash-estimator] portal read failed: ${err?.message || err}`);
+    return gone();
+  }
 });
 
 /**
