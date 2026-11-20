@@ -935,3 +935,53 @@ them render. A bulk edit that is right thirty times looks exactly like one
 that is wrong twice. It wants doing in batches against a phone, or with the
 smoke harness extended to assert the row scrolls — which would be the durable
 answer and does not exist yet.
+
+---
+
+## The `quote:` record and the `pipeline_` record disagree (2026-11-19)
+
+Found while tracing Q-2026-0006's PDF total. The same quote is stored twice
+and the two copies are not the same quote:
+
+    quote:qt-1794354942724        pipeline_wr-1794354679347 -> .quote
+    ----------------------        ---------------------------------
+    additionalCosts   absent      2 rows, $550
+    additionalCostsSubtotal       550
+      absent
+    directCost        absent      12831.83
+    laborBurdenAmount absent      2421.13
+    overheadAmount    absent      0
+    profitAmount      absent      320.80
+    contingencyAmount absent      192.48
+    totalCost         13345.11    13345.11   (agree)
+
+So the `quote:` record carries the total but not the figures that justify it,
+and $550 of permit and disposal cost exists on one copy only. The editor
+reads the pipeline copy (`QuoteToContractEditor` takes `workRequest.quote`),
+which is the fuller one — so the screen is right and the canonical record is
+the thin one. Anything reading `quote:` directly gets a quote whose total
+cannot be reconciled from its own contents.
+
+**Why it is not fixed here:** the fix is a decision, not an edit — either the
+pipeline copy stops being authoritative, or the `quote:` write stops dropping
+fields. Picking one needs to know which writer is losing them, and that is a
+separate trace through the save path. Eric's reported bug (the PDF printing
+$10,827.13 instead of $13,345.11) is fixed and is not caused by this.
+
+---
+
+## `prune_security_audit_log` ships without a pinned `search_path` (2026-11-19)
+
+`tests/migrationSearchPath.test.ts` fails on `main`:
+
+    20261119220000_log_retention_policy_and_nightly_prune.sql:
+      public.prune_security_audit_log
+
+The suite is otherwise green — 4138 of 4139. The test states the remedy:
+add `set search_path = ''` to the declaration if every object reference in
+the body is schema-qualified, `= public` if not.
+
+**Why it is not fixed here:** the migration landed today and is not mine; the
+session that wrote it may still have it open, and editing another session's
+in-flight migration is how two people write the same file. It is a security
+pin on a function that runs nightly, so it should not sit long.
