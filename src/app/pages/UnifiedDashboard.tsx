@@ -42,6 +42,7 @@ import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
 import { usePendingApprovals } from '../lib/hooks/usePendingApprovals';
 import { publicAnonKey } from '../utils/supabase/info';
+import { getAdminAlerts } from '../utils/adminAlerts';
 import { authedHeaders } from '../utils/authHeaders';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
@@ -157,7 +158,73 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
    */
   const [companyName, setCompanyName] = useState('The Black Phoenix Company');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
-  const [alertCount, setAlertCount] = useState(8);
+  /**
+   * HOW MANY ALERTS THERE ACTUALLY ARE.
+   *
+   * Eric, 2026-11-20, about a real customer who had just signed up and filed
+   * a deck rebuild: "i didnt get notified in my unified dash".
+   *
+   * He was not. This was `useState(8)` and `setAlertCount` was never called
+   * anywhere in the file — so the badge read "8 pending" before Michael
+   * Saverse arrived and "8 pending" afterwards. A number that cannot change
+   * is not a notification; it is a drawing of one, and it had been sat on
+   * the dashboard long enough to be trusted.
+   *
+   * COUNTED FROM THE SERVER AS WELL AS THIS BROWSER. The alert for a work
+   * request is written server-side, and `admin_alerts` in localStorage only
+   * has it if this device has already opened the panel. Eric reads this on
+   * his phone, so a count from localStorage alone would stay silent on the
+   * device he is actually holding. Merged by id, unread only, and the local
+   * count still stands if the request fails.
+   */
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+
+    const recount = async () => {
+      const status = new Map<string, string>();
+      try {
+        for (const a of getAdminAlerts()) {
+          if (a?.id) status.set(String(a.id), String(a.status || 'unread'));
+        }
+      } catch { /* a bad localStorage payload must not blank the badge */ }
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || publicAnonKey;
+        const res = await fetch(
+          `${API_BASE_URL}/make-server-3eae23a6/notifications/admin-alerts`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          for (const a of (data?.alerts || [])) {
+            // An id this browser already knows keeps ITS status: a thing read
+            // here is read, whatever the server still calls it.
+            if (a?.id && !status.has(String(a.id))) status.set(String(a.id), String(a.status || 'unread'));
+          }
+        }
+      } catch { /* offline, or the host is down — keep the local count */ }
+
+      if (alive) setAlertCount([...status.values()].filter((x) => x === 'unread').length);
+    };
+
+    void recount();
+    // Long enough not to be chatty, short enough that a request filed while
+    // the dashboard is open is noticed without a reload.
+    const timer = setInterval(() => { void recount(); }, 60000);
+    const onChanged = () => { void recount(); };
+    window.addEventListener('admin-alert-added', onChanged);
+    window.addEventListener('admin-alerts-updated', onChanged);
+
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener('admin-alert-added', onChanged);
+      window.removeEventListener('admin-alerts-updated', onChanged);
+    };
+  }, []);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
   const [showStartQuote, setShowStartQuote] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
