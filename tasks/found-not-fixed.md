@@ -1077,3 +1077,44 @@ What is not in question is that the document currently under-reports what the
 job costs us by $2,971.13 and no row names the difference. The customer-facing
 copy, which is the one that was reported and the one that gets signed, is
 correct to the penny.
+
+---
+
+## QR codes: the whole list is re-posted on every save — 2026-11-20
+
+Found while fixing "make sure when i create a Qr code it stays in there and
+saves". The disappearing-codes bug itself is fixed (the save now checks the
+response, and the load merges instead of replacing). This is the thing left
+underneath it.
+
+**The shape.** `persistCodes(codes)` POSTs the *entire* array every time a code
+is added or deleted. Each entry carries a 1024px PNG as a data URI — about
+80 KB, confirmed against the live store, which held one code at 81 KB. So:
+
+| Codes | Payload per save |
+|---:|---:|
+| 1 | ~80 KB |
+| 10 | ~800 KB |
+| 60 (`MAX_SAVED_CODES`) | **~4.8 MB** |
+
+And it is one KV row, rewritten whole, each time.
+
+**Why it is not urgent.** There is one code saved today, the per-code cap
+(`MAX_DATA_URL_BYTES`, 256 KB) has comfortable headroom over 80 KB, and the
+failure is now *loud* — a refused save says so instead of pretending.
+
+**Why it should not be left forever.** At a few dozen codes this is a
+multi-megabyte request on every add and delete, from a browser, on a route
+that rewrites a single row. The first symptom will be saves that start being
+refused, which the new error message will surface but not prevent.
+
+**The durable fix** is to stop storing images in the record: keep the PNG in
+Storage (there is already a private bucket and a nightly backup covering it)
+and hold a path on the entry, or regenerate the image from `url` + colours on
+demand, which is cheap and what the generator already does. Either makes an
+entry a few hundred bytes. Also worth a per-code route — `PUT /qr-codes/:id`
+and `DELETE /qr-codes/:id` — so one new code is not a full-list rewrite.
+
+**Not done here** because it changes the stored shape and needs a migration for
+the existing entry, which is a larger, deliberate change than the bug that was
+reported.

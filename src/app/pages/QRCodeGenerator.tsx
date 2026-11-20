@@ -91,17 +91,41 @@ function loadSaved(): QREntry[] {
 }
 
 function persistCodes(codes: QREntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
   /*
-   * Mirrored to the server, which until now was a comment rather than a fact:
-   * this route did not exist, so the `.catch` swallowed a 404 on every save
-   * and the codes only ever lived in this browser. Revenue Analytics reads the
-   * same route and has been charting nothing.
+   * The local write is wrapped. Each of these is a 1024px PNG as a data URI —
+   * roughly 80 KB — and `localStorage` gives us about 5 MB, so somewhere
+   * around sixty codes `setItem` starts throwing `QuotaExceededError`. It was
+   * unwrapped, and `deleteSaved` calls this outside any try, so a full store
+   * turned deleting a code into an unhandled exception.
+   */
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
+  } catch (err) {
+    console.error('[QRCodeGenerator] local cache write failed:', err);
+    toast.error('This browser is out of storage for QR codes. Delete a few old ones.');
+  }
+
+  /*
+   * Mirrored to the server — AND THE ANSWER IS CHECKED, which is the fix.
    *
-   * The headers are resolved in a `then` because this function is not async
-   * and must not become so — it is called from render paths that do not await
-   * it, and the local write above has to stay synchronous so a failed network
-   * call cannot lose the code somebody just made.
+   * This used to be `.then(fetch).catch(...)`. `fetch` does not reject on a
+   * 403, a 413 or a 500 — it resolves with `ok: false` — so `.catch` only ever
+   * saw a dropped connection. Every other kind of refusal was invisible.
+   *
+   * That is what "my QR codes do not stay" was. The whole list is posted on
+   * every save, so once the payload was refused the server kept whatever it
+   * had, the browser kept the new code, and the two disagreed silently. On the
+   * next page load the `GET` below replaced the local list with the server's
+   * shorter one and the new code was gone.
+   *
+   * The server also answers `{ success: true, saved: n }` after dropping any
+   * entry that fails `sanitizeCodes` — an oversized image, a destination that
+   * is not http(s). A 200 therefore does NOT mean everything was kept, so the
+   * count is compared too.
+   *
+   * Still not `async`: it is called from handlers that do not await it, and the
+   * local write above must stay synchronous so a slow network cannot lose the
+   * code somebody just made.
    */
   qrAuthHeaders()
     .then((headers) => fetch(`${QR_SERVER}/qr-codes`, {
@@ -109,7 +133,30 @@ function persistCodes(codes: QREntry[]) {
       headers,
       body: JSON.stringify({ codes }),
     }))
-    .catch((err) => console.error('[QRCodeGenerator] server save failed:', err));
+    .then(async (res) => {
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok || json?.success === false) {
+        console.error('[QRCodeGenerator] server save refused:', res.status, json?.error);
+        toast.error(
+          res.status === 403
+            ? 'Saved on this device only — your account cannot save QR codes for the company.'
+            : `Saved on this device only — the server refused it (${res.status}). It will not appear on your other devices.`,
+          { duration: 10000 },
+        );
+        return;
+      }
+      const kept = Number(json?.saved);
+      if (Number.isFinite(kept) && kept < codes.length) {
+        toast.error(
+          `The server kept ${kept} of ${codes.length} codes. One or more were too large or had a destination it would not store.`,
+          { duration: 12000 },
+        );
+      }
+    })
+    .catch((err) => {
+      console.error('[QRCodeGenerator] server save failed:', err);
+      toast.error('Saved on this device only — the server could not be reached.', { duration: 8000 });
+    });
 }
 
 export default function QRCodeGenerator() {
@@ -164,15 +211,51 @@ export default function QRCodeGenerator() {
     }
   }
 
-  // Load saved QR codes from the server (falls back to the localStorage cache).
+  /**
+   * Load from the server and MERGE — never replace.
+   *
+   * This used to do `setSaved(json.codes)` and overwrite the local cache with
+   * it. That is the line that actually lost people's codes: a save refused by
+   * the server (see `persistCodes`) left the new code in this browser and not
+   * on the server, and then the next page load replaced the browser's list
+   * with the server's shorter one. The code was visible until you reloaded,
+   * which is exactly the shape of "it does not stay".
+   *
+   * Replacing is only correct if the server is guaranteed to be ahead, and it
+   * is not. So anything held locally that the server has not got is kept and
+   * pushed back up, which also repairs a browser whose earlier save failed.
+   *
+   * Server order wins for the codes it does have, because that is the shared
+   * view; local-only entries go after it, newest first.
+   */
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(`${QR_SERVER}/qr-codes`, { headers: await qrAuthHeaders() });
+        if (!res.ok) {
+          console.error('[QRCodeGenerator] server load refused:', res.status);
+          return; // keep whatever this browser already has
+        }
         const json = await res.json();
-        if (json.success && Array.isArray(json.codes)) {
-          setSaved(json.codes);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(json.codes));
+        if (!json?.success || !Array.isArray(json.codes)) return;
+
+        const serverCodes: QREntry[] = json.codes;
+        const serverIds = new Set(serverCodes.map((c) => c?.id));
+        const localOnly = loadSaved().filter((c) => c?.id && !serverIds.has(c.id));
+        const merged = [...serverCodes, ...localOnly];
+
+        setSaved(merged);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        } catch (err) {
+          console.error('[QRCodeGenerator] local cache write failed on load:', err);
+        }
+
+        // Anything the server was missing goes back up, so a failed earlier
+        // save heals itself rather than waiting to be noticed.
+        if (localOnly.length > 0) {
+          console.warn(`[QRCodeGenerator] ${localOnly.length} code(s) were only on this device — re-saving.`);
+          persistCodes(merged);
         }
       } catch (err) {
         console.error('[QRCodeGenerator] Error loading QR codes from server:', err);

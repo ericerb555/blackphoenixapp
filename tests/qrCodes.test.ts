@@ -124,3 +124,36 @@ test('the subject names the code, and the attachment is findable', () => {
   assert.equal(attachmentNameFor(code()), 'BP-QR-Truck-door.png');
   assert.equal(attachmentNameFor(code({ label: '!!!' })), 'BP-QR-code.png');
 });
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE SIZE OF A REAL ONE
+ *
+ * Added 2026-11-20, after Eric: "make sure when i create a Qr code it stays in
+ * there and saves".
+ *
+ * The generator renders at 1024px — deliberately, so a code printed on a yard
+ * sign or re-compressed by a messaging app still scans. That produces a data
+ * URI of roughly 80 KB, which is the figure to keep in mind when reading
+ * `MAX_DATA_URL_BYTES`: the live store held one code at 81 KB.
+ *
+ * These two tests exist so that nobody tightens the cap toward "a QR code is
+ * only a few kilobytes" without a failure telling them what it would throw
+ * away. A dropped entry here is SILENT — `sanitizeCodes` keeps the good ones
+ * and the route still answers 200 — so the cap is exactly the kind of number
+ * that can start deleting people's work without anyone noticing.
+ */
+test('a realistic 1024px code — about 80KB — is kept, not dropped', () => {
+  const eightyKb = 'data:image/png;base64,' + 'A'.repeat(80 * 1024);
+  const out = sanitizeCodes([code({ dataUrl: eightyKb })]);
+  assert.equal(out.length, 1, 'an ordinary generated code must survive the size cap');
+});
+
+test('the cap leaves real headroom above that, so it is not a near miss', () => {
+  // If this ever fails, the cap has been lowered to within a whisker of what
+  // the generator actually produces, and codes will start vanishing quietly.
+  assert.ok(
+    MAX_DATA_URL_BYTES >= 80 * 1024 * 2,
+    `MAX_DATA_URL_BYTES is ${MAX_DATA_URL_BYTES}; a generated code is ~80KB`,
+  );
+});
