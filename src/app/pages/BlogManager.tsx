@@ -2,10 +2,31 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { BookOpen, Plus, Edit3, Trash2, Eye, Search, Tag, Calendar, User, Globe, Save, X, Image, Copy, CheckCircle, ArrowLeft, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+/**
+ * Two sets of headers, because the four endpoints this screen uses are not all
+ * the same kind of thing — and the split mirrors the server exactly.
+ *
+ * `GET /blog/posts` and `POST /blog/posts/:id/view` are public: published
+ * articles exist to be read, and the view counter is incremented by whoever is
+ * reading one. `/blog` is on `PUBLIC_GET_PREFIXES` for that reason.
+ *
+ * `POST /blog/posts` and `DELETE /blog/posts/:id` create, overwrite and delete
+ * articles on the public site. They were reachable by ANY signed-in account
+ * until 2026-11-19 — a portal customer could have rewritten the blog — and are
+ * now staff-only.
+ *
+ * This file used one module-level constant carrying the publishable key for all
+ * four, so the moment those two were gated, saving and deleting a post started
+ * answering 403 from this screen. Caught by sweeping every caller of the routes
+ * gated that day rather than waiting for somebody to try to publish something;
+ * `ReviewsDashboard` had the identical fault and the identical cause.
+ */
+const publicHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -482,7 +503,7 @@ export default function BlogManager() {
 
   async function loadPosts() {
     try {
-      const res = await fetch(`${SERVER}/blog/posts`, { headers: authHeaders });
+      const res = await fetch(`${SERVER}/blog/posts`, { headers: publicHeaders });
       const json = await res.json();
       if (json.success) {
         /*
@@ -515,7 +536,7 @@ export default function BlogManager() {
     setPosts(prev => prev.find(x => x.id === p.id) ? prev.map(x => x.id === p.id ? p : x) : [p, ...prev]);
     setEditing(null);
     try {
-      const res = await fetch(`${SERVER}/blog/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) });
+      const res = await fetch(`${SERVER}/blog/posts`, { method: 'POST', headers: await authedHeaders(), body: JSON.stringify(p) });
       const json = await res.json();
       if (json.success) toast.success(`Post "${p.title}" ${p.status === 'published' ? 'published!' : 'saved.'}`);
       else toast.error(json.error || 'Save failed');
@@ -525,7 +546,7 @@ export default function BlogManager() {
   async function del(id: string) {
     setPosts(prev => prev.filter(p => p.id !== id));
     try {
-      await fetch(`${SERVER}/blog/posts/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(`${SERVER}/blog/posts/${id}`, { method: 'DELETE', headers: await authedHeaders() });
       toast.success('Post deleted.');
     } catch (err) { console.error('Failed to delete post:', err); toast.error('Network error deleting post'); }
   }
@@ -539,7 +560,7 @@ export default function BlogManager() {
 
   async function registerView(id: string) {
     try {
-      const res = await fetch(`${SERVER}/blog/posts/${id}/view`, { method: 'POST', headers: authHeaders });
+      const res = await fetch(`${SERVER}/blog/posts/${id}/view`, { method: 'POST', headers: publicHeaders });
       const json = await res.json();
       if (json.success) setPosts(prev => prev.map(x => x.id === id ? { ...x, views: json.views } : x));
       else console.error('Failed to register view:', json.error);

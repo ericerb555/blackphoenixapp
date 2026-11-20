@@ -2,11 +2,32 @@ import { useState, useEffect } from 'react';
 import { Star, ThumbsUp, Trash2, Eye, CheckCircle, XCircle, Search, Filter, TrendingUp, MessageSquare, Award, BarChart2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getStoreReviews, type StoreReview } from '../components/StoreReviews';
-import { publicAnonKey } from '../utils/supabase/info';
+import { authedHeaders } from '../utils/authHeaders';
 import { API_BASE_URL } from '../lib/apiConfig';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
-const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${publicAnonKey}` };
+
+/*
+ * THE SIGNED-IN USER'S TOKEN, not the publishable key.
+ *
+ * This was `Authorization: Bearer ${publicAnonKey}` in a module-level
+ * constant. `/reviews/moderation` sits under the `/reviews` public GET prefix,
+ * so the wall let that through — which meant **the moderation state was
+ * readable, and writable, by anyone holding the key that ships in the browser
+ * bundle.** Which reviews a company has chosen to hide is not public
+ * information, and neither is the ability to hide one.
+ *
+ * A staff guard was added to both methods on 2026-11-19. That closed the hole
+ * and broke this screen, because the anon key is not staff: nine
+ * `GET /reviews/moderation 403`s between 00:18 and 01:29 on 2026-11-20 are
+ * the owner trying to use it. Found by reading the denial logger's output and
+ * noticing those 403s carried NO `[authz] DENIED` line — which is itself the
+ * tell, since that line only prints when a real credential was presented.
+ *
+ * `authedHeaders()` throws rather than falling back to the anon key, so a
+ * missing session now says "sign in again" instead of silently asking the
+ * server with a credential that identifies nobody.
+ */
 
 const ALL_PRODUCT_IDS = ['p1','p2','p3','p4','p5','p6','p7','p8','p9','p10'];
 
@@ -35,7 +56,7 @@ export default function ReviewsDashboard() {
     setAllReviews(deduped);
     (async () => {
       try {
-        const res = await fetch(`${SERVER}/reviews/moderation`, { headers: authHeaders });
+        const res = await fetch(`${SERVER}/reviews/moderation`, { headers: await authedHeaders() });
         const json = await res.json();
         if (json.success) { setApproved(json.approved || []); setHidden(json.hidden || []); }
         else console.error('Failed to load review moderation:', json.error);
@@ -47,7 +68,7 @@ export default function ReviewsDashboard() {
   async function persistModeration(nextApproved: string[], nextHidden: string[]) {
     try {
       await fetch(`${SERVER}/reviews/moderation`, {
-        method: 'POST', headers: authHeaders,
+        method: 'POST', headers: await authedHeaders(),
         body: JSON.stringify({ approved: nextApproved, hidden: nextHidden }),
       });
     } catch (err) { console.error('Failed to persist review moderation:', err); }
