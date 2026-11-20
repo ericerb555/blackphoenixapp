@@ -38,6 +38,7 @@ import ResetPassword from "./pages/ResetPassword";
 const UnifiedDashboard = lazy(() => import("./pages/UnifiedDashboard"));
 const ArchitectReview = lazy(() => import("./pages/ArchitectReview"));
 const JunkQuoteLink = lazy(() => import("./pages/JunkQuoteLink"));
+const JunkPricer = lazy(() => import("./pages/JunkPricer"));
 const AutopilotCampaigns = lazy(() => import("./pages/AutopilotCampaigns"));
 const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
@@ -739,6 +740,11 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // checked on the server against a stored hash.
   "architect-review":        ArchitectReview,
   "junk-quote":              JunkQuoteLink,
+  // Public, and deliberately so: the server has allowed anonymous
+  // estimates since `anonPricer.ts` was written ("anyone can try the
+  // pricer"), and until this route there was no way in without an
+  // account. See the header of JunkPricer.tsx.
+  "junk-pricer":             JunkPricer,
   // Public: shoppers check out as guests, so the portal must be reachable
   // without a login. The order number alone proves nothing — the server also
   // requires the email on the order to match.
