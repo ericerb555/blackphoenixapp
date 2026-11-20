@@ -374,6 +374,54 @@ export function excludedCostOf(quote: any): number {
 }
 
 /**
+ * What the LINE ROWS are supposed to come to.
+ *
+ * This is not `directCostOf`, and the difference is a bug that cost
+ * Q-2026-0006 $2,517.98 of its own total.
+ *
+ * `directCost` is `materials + (labour + BURDEN) + soft costs`
+ * (`quoteMargins.ts:118`, given a burdened labour subtotal by
+ * `QuoteToContractEditor`). The burden is real cost — payroll tax,
+ * insurance, workers' comp — but it is deliberately NOT written back into
+ * `laborSubtotal` and it has no line of its own, because "laborSubtotal
+ * goes on meaning wages". So on any quote carrying a burden the rows can
+ * never sum to `directCost`: they are short by exactly the burden.
+ *
+ * `includedShareOf` read that shortfall as work removed from the quote and
+ * scaled the total down by it. Q-2026-0006 carried a $2,421.13 burden on
+ * $12,831.83 of direct cost, so its rows came to 81.13% of `directCost`
+ * with nothing excluded at all — and the PDF printed $10,827.13 under a
+ * stored total of $13,345.11. Reproduced exactly from the stored record on
+ * 2026-11-19 before this was changed.
+ *
+ * The stored subtotals are the right reference and not merely a safer one:
+ * they are the figures the rows were summed INTO when the quote was
+ * priced, so comparing rows against them asks the question this is for —
+ * have the lines moved since the total was written — without the burden,
+ * which never had a row to move.
+ */
+export function rowBaselineOf(quote: any): number {
+  const subtotals = round2(
+    (Number(quote?.materialsSubtotal) || 0)
+    + (Number(quote?.laborSubtotal) || 0)
+    + (Number(quote?.additionalCostsSubtotal) || 0),
+  );
+  if (subtotals > 0) return subtotals;
+  /*
+   * No subtotals stored. `directCostOf` then adds the rows up itself, so
+   * it is already row-comparable — except for a stored `directCost`, which
+   * it returns ahead of everything and which carries the burden. Take the
+   * burden back off that one case rather than returning a baseline the
+   * rows cannot reach.
+   */
+  const direct = directCostOf(quote);
+  const burden = Number(quote?.laborBurdenAmount);
+  if (!(Number.isFinite(burden) && burden > 0)) return direct;
+  const net = round2(direct - burden);
+  return net > 0 ? net : direct;
+}
+
+/**
  * How much of this quote's stored total still applies.
  *
  * THE BUG THIS EXISTS FOR
@@ -402,7 +450,12 @@ export function excludedCostOf(quote: any): number {
  * untouched by this and prices exactly as it did.
  */
 export function includedShareOf(quote: any): number {
-  const direct = directCostOf(quote);
+  /*
+   * Measured against what the ROWS should come to, not against direct
+   * cost — see `rowBaselineOf`. A burden has no row, so dividing by a
+   * figure that includes it reports work as removed that is still there.
+   */
+  const direct = rowBaselineOf(quote);
   if (!(direct > 0)) return 1;
 
   /*
