@@ -386,7 +386,7 @@ function CompanySelector() {
  * engine sent us would land on a blank screen — which is a worse outcome
  * than not being indexed at all.
  */
-const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote', 'shop-item']);
+const PREFIX_ROUTES = new Set<string>(['work', 'blog', 'architect-review', 'junk-quote', 'shop-item', 'my-estimate']);
 
 // Helper function to extract page name from path
 const getPageFromPath = (pathname: string): string => {
@@ -497,6 +497,13 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
      * session to sign-up instead.
      */
     'junk-pricer',
+
+    /*
+     * The junk estimate portal. The token in the path is the whole
+     * credential, so this has to be reachable with no session at all —
+     * the people it is for have never had one.
+     */
+    'my-estimate',
 
     // Pricing page (so visitors can see plans before signing up)
     'pricing',
@@ -765,7 +772,29 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     }
 
     // Redirect to login if not authenticated and trying to access protected route
-    if (!loading && !isAuthenticated && !publicRoutes.includes(currentPath)) {
+    /*
+     * A TOKEN IN THE PATH DOES NOT MAKE A PUBLIC PAGE PRIVATE.
+     *
+     * `currentPath` is the whole path — `junk-quote/abc123` — and this list
+     * holds page names. An exact match therefore never matched any of the
+     * prefix routes, so every one of them bounced a signed-out visitor to
+     * the login screen.
+     *
+     * That is the link Eric texts to somebody standing in front of a pile.
+     * It landed on "Welcome Back — Sign in to your account", which is the
+     * precise outcome `junkLinks.ts` was written to avoid and the one the
+     * note beside PREFIX_ROUTES says is handled. Measured on production:
+     * /junk-quote/<token> signed out redirected to /login.
+     *
+     * So the first segment decides for a prefix route. The page is listed
+     * public or it is not; what rides after the slash is the credential, and
+     * the page itself checks that.
+     */
+    const firstSegment = currentPath.split('/')[0];
+    const isPublicPath = publicRoutes.includes(currentPath)
+      || (PREFIX_ROUTES.has(firstSegment) && publicRoutes.includes(firstSegment));
+
+    if (!loading && !isAuthenticated && !isPublicPath) {
       console.log("🔒 [ProtectedRoutes] REDIRECTING TO LOGIN - user not authenticated");
       // Remember what they were actually trying to open. Without this, Login
       // sends everyone to their role's home page and the requested page is

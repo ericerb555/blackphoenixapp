@@ -42,6 +42,7 @@ import OfflineModeBanner from '../components/OfflineModeBanner';
 import { useCompany } from '../contexts/CompanyContext';
 import { usePendingApprovals } from '../lib/hooks/usePendingApprovals';
 import { publicAnonKey } from '../utils/supabase/info';
+import { getAdminAlerts } from '../utils/adminAlerts';
 import { authedHeaders } from '../utils/authHeaders';
 import { useUser } from '../lib/user-context';
 import { UserRole } from '../lib/rbac';
@@ -157,16 +158,110 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
    */
   const [companyName, setCompanyName] = useState('The Black Phoenix Company');
   const [showAdminAlerts, setShowAdminAlerts] = useState(false);
-  /*
-   * Starts at zero and is replaced by the real count. It used to start at 8
-   * and `setAlertCount` was never called anywhere — so the badge read
-   * "8 pending" permanently, whether there were none or forty.
+  /**
+   * HOW MANY ALERTS THERE ACTUALLY ARE.
    *
-   * That is why a new lead did not stand out: the number it would have changed
-   * was a constant. Eric: "make sure the unified dashboard self updates every
-   * five mins so we dont miss leads."
+   * Eric, 2026-11-20, about a real customer who had just signed up and filed
+   * a deck rebuild: "i didnt get notified in my unified dash".
+   *
+   * He was not. This was `useState(8)` and `setAlertCount` was never called
+   * anywhere in the file — so the badge read "8 pending" before Michael
+   * Saverse arrived and "8 pending" afterwards. A number that cannot change
+   * is not a notification; it is a drawing of one, and it had been sat on
+   * the dashboard long enough to be trusted.
+   *
+   * COUNTED FROM THE SERVER AS WELL AS THIS BROWSER. The alert for a work
+   * request is written server-side, and `admin_alerts` in localStorage only
+   * has it if this device has already opened the panel. Eric reads this on
+   * his phone, so a count from localStorage alone would stay silent on the
+   * device he is actually holding. Merged by id, unread only, and the local
+   * count still stands if the request fails.
    */
   const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    // -1 until the first count lands; see the toast below.
+    let lastUnread = -1;
+
+    const recount = async () => {
+      const status = new Map<string, string>();
+      try {
+        for (const a of getAdminAlerts()) {
+          if (a?.id) status.set(String(a.id), String(a.status || 'unread'));
+        }
+      } catch { /* a bad localStorage payload must not blank the badge */ }
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || publicAnonKey;
+        const res = await fetch(
+          `${API_BASE_URL}/make-server-3eae23a6/notifications/admin-alerts`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          for (const a of (data?.alerts || [])) {
+            // An id this browser already knows keeps ITS status: a thing read
+            // here is read, whatever the server still calls it.
+            if (a?.id && !status.has(String(a.id))) status.set(String(a.id), String(a.status || 'unread'));
+          }
+        }
+      } catch { /* offline, or the host is down — keep the local count */ }
+
+      if (!alive) return;
+      const unread = [...status.values()].filter((x) => x === 'unread').length;
+
+      /*
+       * SAY IT OUT LOUD WHEN THE NUMBER GOES UP.
+       *
+       * A badge going from 2 to 3 is only a notification if somebody happens
+       * to be looking at the badge. Eric: "so we done miss leads." So a rise
+       * also raises a toast that stays up long enough to read.
+       *
+       * `lastUnread` starts at -1 so the first count is silent — there is no
+       * "before" to compare with on load, and toasting every refresh would
+       * cry wolf until it was ignored, which is how the hardcoded 8 came to be
+       * trusted in the first place.
+       */
+      if (lastUnread >= 0 && unread > lastUnread) {
+        const n = unread - lastUnread;
+        toast.success(
+          `${n} new ${n === 1 ? 'lead' : 'leads'} — open Alerts to see ${n === 1 ? 'it' : 'them'}`,
+          { duration: 12000 },
+        );
+      }
+      lastUnread = unread;
+      setAlertCount(unread);
+    };
+
+    void recount();
+    // Long enough not to be chatty, short enough that a request filed while
+    // the dashboard is open is noticed without a reload. Eric asked for five
+    // minutes; a minute is well inside that and this is already the cheap
+    // call, so it stays at a minute.
+    const timer = setInterval(() => { void recount(); }, 60000);
+    const onChanged = () => { void recount(); };
+    /*
+     * Coming back to the tab is exactly when this is most likely to be stale —
+     * the phone has been in a pocket while a request came in. The metrics
+     * effect above does the same for the same reason.
+     */
+    const onFocus = () => { if (!document.hidden) void recount(); };
+    window.addEventListener('admin-alert-added', onChanged);
+    window.addEventListener('admin-alerts-updated', onChanged);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener('admin-alert-added', onChanged);
+      window.removeEventListener('admin-alerts-updated', onChanged);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, []);
   const [showMasterSchedule, setShowMasterSchedule] = useState(false);
   const [showStartQuote, setShowStartQuote] = useState(false);
   const [serverDeployed, setServerDeployed] = useState<boolean | null>(null);
@@ -291,89 +386,6 @@ export default function UnifiedDashboard({ onNavigate }: { onNavigate?: (page: s
       document.removeEventListener('visibilitychange', onFocus);
     };
   }, []);
-
-  /**
-   * NEW LEADS ANNOUNCE THEMSELVES, WITHOUT THE ALERTS DRAWER BEING OPEN.
-   *
-   * Eric: "make sure the unified dashboard self updates every five mins so we
-   * dont miss leads."
-   *
-   * WHAT WAS ALREADY FINE
-   *
-   * The dashboard does poll: the metrics above every 60 seconds and on tab
-   * focus, and `usePendingApprovals` every 30. Both are well inside five
-   * minutes.
-   *
-   * WHAT WAS ACTUALLY WRONG, AND IT WAS NOT THE INTERVAL
-   *
-   *  1. `AdminAlertsPanel` polls the server every 30 seconds — but it is
-   *     rendered only when `showAdminAlerts` is true. With the drawer closed,
-   *     which is how the dashboard sits most of the time, **nothing fetched
-   *     the lead list at all.**
-   *
-   *  2. The bell badge was `useState(8)` with no setter ever called. It read
-   *     "8 pending" forever. A counter that never moves cannot tell you a lead
-   *     arrived — and worse, it looked like information.
-   *
-   * So the poll is hoisted out here where it always runs, and the badge is
-   * wired to the real number. Five minutes as asked; the first run is silent
-   * (there is no "before" to compare against) and a rise in the open count
-   * raises a toast that survives long enough to be read.
-   *
-   * A NOTE ON WHAT THIS CANNOT DO. This only helps while the dashboard is
-   * open. The thing that catches a lead when nobody is looking at a screen is
-   * the notification, and texts are currently refused by the carrier —
-   * `Bird E12014 SenderNotRegistered`, pending A2P 10DLC registration. Email
-   * works. See docs/audit-2026-11/.
-   */
-  useEffect(() => {
-    if (!authIsAdmin) return;
-    let cancelled = false;
-    // -1 means "nothing to compare with yet", so the first poll never toasts.
-    let lastOpen = -1;
-
-    const pollLeads = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const res = await fetch(
-          `${API_BASE_URL}/make-server-3eae23a6/notifications/admin-alerts`,
-          { headers: { Authorization: `Bearer ${session.access_token}` } },
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const open = (Array.isArray(data?.alerts) ? data.alerts : [])
-          .filter((a: any) => a?.status !== 'handled' && a?.status !== 'dismissed');
-        if (cancelled) return;
-
-        setAlertCount(open.length);
-        if (lastOpen >= 0 && open.length > lastOpen) {
-          const n = open.length - lastOpen;
-          toast.success(
-            `${n} new ${n === 1 ? 'lead' : 'leads'} — open Alerts to see ${n === 1 ? 'it' : 'them'}`,
-            { duration: 12000 },
-          );
-        }
-        lastOpen = open.length;
-      } catch {
-        // A failed poll leaves the last known count on screen rather than
-        // dropping it to zero, which would read as "no leads".
-      }
-    };
-
-    pollLeads();
-    const interval = setInterval(pollLeads, 5 * 60 * 1000);
-    // Coming back to the tab is when this is most likely to be stale.
-    const onFocus = () => { if (!document.hidden) pollLeads(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
-    };
-  }, [authIsAdmin]);
 
   // Restore sidebar preference
   useEffect(() => {

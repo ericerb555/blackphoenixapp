@@ -418,6 +418,7 @@ import {
 } from './conditionsReport.ts';
 import { areasFromQuote, pricingRefusal } from './reportPricing.ts';
 import { workRequestActor, ownsWorkRequest, readWorkRequests, persistWorkRequest } from "./workRequests.ts";
+import { pipelineItemFrom } from "./pipelineHandoff.ts";
 import {
   type StripeAccount, STRIPE_KEY_ENVS, stripeAccountLabel, STRIPE_TEST_KEY_ENV,
   stripeTestKey, stripeKeyMode, stripeTestAccountEmail, isStripeTestAccount,
@@ -1108,6 +1109,20 @@ const PUBLIC_GET_PREFIXES = [
   // is unset), so passing it the session check here leaks nothing — it reveals
   // the sender number and region only to a caller holding SMS_TEST_SECRET.
   '/sms/status',
+  /*
+   * The junk estimate portal, opened by a token in the path.
+   *
+   * A PREFIX, because the token is part of the path and the exact-match
+   * list cannot state a parameterised one. It is one read-only route deep
+   * and has no siblings, so this opens nothing else.
+   *
+   * The router allows this too, and that allowance alone was not enough:
+   * this outer gate refuses first, so the portal answered 401 to every
+   * caller including the ones holding a good link. Caught by asking for a
+   * made-up token and reading the status code rather than the fact of a
+   * refusal — 401 and 404 both look like "no" from a distance.
+   */
+  '/trash-estimator/portal/',
   // Ads are shown to every visitor including signed-out ones, and a marquee that
   // renders nothing on the public site is an advertiser paying for a blank. The
   // shadow log caught both of these as would-block, which is exactly what shadow
@@ -5048,6 +5063,120 @@ async function estimateForWorkRequest(
  *
  * Staff only. It answers with the company's cost basis, and it spends money.
  */
+/**
+ * The draft for a work request: the cached one, or a fresh takeoff.
+ *
+ * Extracted because a second caller now needs exactly this and the file
+ * already says why that must not be a copy — "Two copies would mean two
+ * places loading the catalogue and two ideas about which rates apply, and
+ * the one that drifted would be the one nobody was watching."
+ */
+async function quoteDraftFor(
+  workRequest: any,
+  ledger: any,
+  generatedBy: string,
+  force: boolean,
+): Promise<{ draft: any; spent: boolean }> {
+  const wrId = String(workRequest?.id || '');
+  const cacheKey = `quote_draft:${wrId}`;
+  if (!force) {
+    const cached = (await kv.get(cacheKey).catch(() => null)) as any;
+    if (cached?.quote) return { draft: cached, spent: false };
+  }
+
+  const { estimate, usedAI } = await estimateForWorkRequest(workRequest, ledger);
+  const now = new Date().toISOString();
+  const draft = {
+    workRequestId: wrId,
+    generatedAt: now,
+    generatedBy,
+    usedAI,
+    quote: {
+      laborItems: estimate.labor,
+      materialItems: estimate.materials,
+      processSteps: estimate.processSteps,
+      subtotals: {
+        materials: estimate.materialsSubtotal,
+        labor: estimate.laborSubtotal,
+        tax: estimate.taxAmount,
+      },
+      /*
+       * Carried only when the estimator actually has one. An absent rate
+       * must stay absent: `customerPricingOf` treats a recorded rate as a
+       * decision, so a defaulted one silently reprices the job.
+       */
+      ...((estimate as any).taxRate === undefined || (estimate as any).taxRate === null
+        ? {}
+        : { taxRate: (estimate as any).taxRate }),
+      total: estimate.totalCost,
+      status: 'draft',
+    },
+    priceSummary: (estimate as any).priceSummary || null,
+    confidence: estimate.confidence,
+    assumptions: estimate.assumptions,
+  };
+  await kv.set(cacheKey, draft);
+  return { draft, spent: true };
+}
+
+/**
+ * DRAFT A QUOTE AND PUT THE JOB ON THE PIPELINE, IN ONE CALL.
+ *
+ * Eric, 2026-11-20, about a real customer: "the work request did not
+ * automativally generate a quote and when i go into the project details i
+ * donthave an option to generate it myself this needs to be fixed".
+ *
+ * Both halves of that were the same missing thing. The handoff lived in
+ * `AdminAlertsPanel.openInPipeline`: the browser fetched the request, called
+ * the draft route, assembled the pipeline item and wrote `pipeline_{id}`
+ * itself. So it happened only if somebody clicked an alert, only on that
+ * device, and the record the business works from was built by a page.
+ * `index.tsx` already carries the note that a server-side `pipeline_`
+ * handoff used to exist and was removed.
+ *
+ * One route instead, so a button can call it, the alert panel can call it,
+ * and intake can call it automatically — with one idea of what an item is.
+ *
+ * WHY IT IS FILED UNDER `/quote-draft/`. That prefix is in
+ * `AI_METERED_PREFIXES`, and this spends the same takeoff. A
+ * `/work-requests/:id/generate` path could not be metered by prefix without
+ * metering every work-request read and write with it, and adding a second
+ * prefix for the same spend is how a call gets charged twice.
+ */
+app.post('/make-server-3eae23a6/quote-draft/:workRequestId/pipeline', async (c) => {
+  try {
+    const { user, admin } = await workRequestActor(c);
+    if (!user) return c.json({ success: false, error: 'Sign in required.' }, 401);
+    if (!admin) return c.json({ success: false, error: 'Administrator access is required.' }, 403);
+
+    const wrId = String(c.req.param('workRequestId') || '').trim();
+    if (!wrId) return c.json({ success: false, error: 'Which work request?' }, 400);
+
+    const all = await readWorkRequests();
+    const workRequest = (all || []).find((r: any) => String(r?.id || '') === wrId);
+    if (!workRequest) return c.json({ success: false, error: 'No such work request.' }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const { draft, spent } = await quoteDraftFor(
+      workRequest, ledgerContextFor(c), user.email || '', (body as any)?.force === true,
+    );
+
+    /*
+     * The item somebody may already have moved is read first and merged
+     * under the new figures, so regenerating a quote cannot drag a job back
+     * to `quote-draft` or lose an assignment.
+     */
+    const now = new Date().toISOString();
+    const existing = (await kv.get(`pipeline_${wrId}`).catch(() => null)) as any;
+    const item = pipelineItemFrom(workRequest, draft, existing, now);
+    await kv.set(`pipeline_${wrId}`, item);
+
+    return c.json({ success: true, spent, item, quote: item.quote ?? null });
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message || 'Could not generate this quote.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/quote-draft/:workRequestId', async (c) => {
   try {
     const { user, admin } = await workRequestActor(c);
@@ -5060,45 +5189,14 @@ app.post('/make-server-3eae23a6/quote-draft/:workRequestId', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const force = (body as any)?.force === true;
 
-    const cacheKey = `quote_draft:${wrId}`;
-    if (!force) {
-      const cached = (await kv.get(cacheKey).catch(() => null)) as any;
-      if (cached?.quote) {
-        return c.json({ success: true, spent: false, cached: true, ...cached });
-      }
-    }
-
     const all = await readWorkRequests();
     const workRequest = (all || []).find((r: any) => String(r?.id || '') === wrId);
     if (!workRequest) return c.json({ success: false, error: 'No such work request.' }, 404);
 
-    const { estimate, usedAI } = await estimateForWorkRequest(workRequest, ledgerContextFor(c));
-    const now = new Date().toISOString();
-
-    const draft = {
-      workRequestId: wrId,
-      generatedAt: now,
-      generatedBy: user.email || '',
-      usedAI,
-      quote: {
-        laborItems: estimate.labor,
-        materialItems: estimate.materials,
-        processSteps: estimate.processSteps,
-        subtotals: {
-          materials: estimate.materialsSubtotal,
-          labor: estimate.laborSubtotal,
-          tax: estimate.taxAmount,
-        },
-        total: estimate.totalCost,
-        status: 'draft',
-      },
-      priceSummary: (estimate as any).priceSummary || null,
-      confidence: estimate.confidence,
-      assumptions: estimate.assumptions,
-    };
-
-    await kv.set(cacheKey, draft);
-    return c.json({ success: true, spent: true, cached: false, ...draft });
+    const { draft, spent } = await quoteDraftFor(
+      workRequest, ledgerContextFor(c), user.email || '', force,
+    );
+    return c.json({ success: true, spent, cached: !spent, ...draft });
   } catch (error: any) {
     return c.json({ success: false, error: error?.message || 'Could not draft a quote.' }, 500);
   }

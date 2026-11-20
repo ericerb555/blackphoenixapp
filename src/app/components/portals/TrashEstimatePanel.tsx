@@ -138,6 +138,8 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
   /** Who to ask for and what to dial, when there is no account to take it from. */
   const [anonName, setAnonName] = useState('');
   const [anonPhone, setAnonPhone] = useState('');
+  /** Their own read-only link, handed over the moment they ask. */
+  const [portalUrl, setPortalUrl] = useState<string | null>(null);
 
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const libraryRef = useRef<HTMLInputElement | null>(null);
@@ -360,6 +362,16 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.success) throw new Error(data?.error || `That did not send (${res.status}).`);
       setEstimate(data.estimate);
+      /*
+       * THEIR OWN LINK, SHOWN NOW, BECAUSE TODAY WE CANNOT SEND IT.
+       *
+       * Most callers on this path leave a phone and no email, and texting is
+       * still waiting on carrier approval — so the moment they press this is
+       * the only chance to hand them the portal. On screen they can bookmark
+       * it or copy it to themselves. Once texts are live this becomes a
+       * convenience rather than the delivery mechanism.
+       */
+      if (data.portalUrl) setPortalUrl(String(data.portalUrl));
       toast.success('Sent to the office', {
         description: 'We have your estimate and the pictures. Somebody will call you.',
       });
@@ -636,10 +648,23 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
              * in front of booking a job.
              */
             estimate.confirmationRequestedAt ? (
-              <p className="flex-1 rounded-xl text-center text-sm font-bold text-emerald-300"
-                 style={{ background: 'rgba(16,185,129,0.1)', padding: '12px 16px' }}>
-                We have it — we will call you
-              </p>
+              <div className="flex-1 space-y-2">
+                <p className="rounded-xl text-center text-sm font-bold text-emerald-300"
+                   style={{ background: 'rgba(16,185,129,0.1)', padding: '12px 16px' }}>
+                  We have it — we will call you
+                </p>
+                {portalUrl && (
+                  <div className="rounded-xl p-3" style={{ border: '1px solid rgba(255,255,255,0.15)' }}>
+                    <p className="text-xs text-gray-400">
+                      Keep this link to check on it — no account needed.
+                    </p>
+                    <a href={portalUrl}
+                       className="mt-1 block break-all text-sm font-semibold text-[#ea580c] underline underline-offset-4">
+                      {portalUrl}
+                    </a>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex-1 space-y-2">
                 <p className="text-xs text-gray-400">

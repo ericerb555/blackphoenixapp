@@ -8,7 +8,7 @@ import {
   X, User, MapPin, Calendar, DollarSign, Clock, Wrench,
   Camera, Video, FileText, ChevronDown, ChevronUp, Play,
   Home, Palette, UtensilsCrossed, Phone, Mail, ZoomIn,
-  Upload, Plus, RefreshCw
+  Upload, Plus, RefreshCw, Receipt, Loader2
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { publicAnonKey } from '../utils/supabase/info';
@@ -25,6 +25,65 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
   const [expandedSection, setExpandedSection] = useState<string | null>('photos');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  /**
+   * GENERATE THE QUOTE FOR THIS REQUEST, BY HAND.
+   *
+   * Eric, 2026-11-20: "when i go into the project details i donthave an
+   * option to generate it myself this needs to be fixed".
+   *
+   * He did not. The only thing that produced a quote was opening an admin
+   * alert and letting `AdminAlertsPanel` do the whole handoff in the
+   * browser — so a request whose alert was dismissed, or arrived on another
+   * device, had no route back. This is the recovery path, and it exists
+   * BEFORE the automation on purpose: an auto-run that fails must not be a
+   * dead end.
+   *
+   * The server does the work. It drafts (or reuses) the takeoff, builds the
+   * pipeline item and saves it, so the figures never pass through here.
+   */
+  const [generating, setGenerating] = useState(false);
+
+  const generateQuote = async () => {
+    const wrId = String(wr?.id || '').trim();
+    if (!wrId) { toast.error('This request has no id to quote against.'); return; }
+    setGenerating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || publicAnonKey;
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/quote-draft/${encodeURIComponent(wrId)}/pipeline`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+          /*
+           * A full takeoff does not finish in fifteen seconds. That exact
+           * timeout is why the old path paid for model answers and threw
+           * them away, so this waits long enough for one to land.
+           */
+          signal: AbortSignal.timeout(120000),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || `Could not generate the quote (${res.status}).`);
+        return;
+      }
+      const total = Number(data?.quote?.totalCost);
+      toast.success(
+        Number.isFinite(total) && total > 0
+          ? `Quote drafted — $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. It is on the pipeline.`
+          : 'On the pipeline. The draft has no priced lines yet — open it to price them.',
+      );
+    } catch (e: any) {
+      toast.error(e?.name === 'TimeoutError'
+        ? 'The takeoff is taking longer than two minutes. It may still finish — check the pipeline shortly.'
+        : 'Could not reach the server to generate this quote.');
+    } finally {
+      setGenerating(false);
+    }
+  };
   // Two lists per kind, because a private bucket means the thing shown and the
   // thing stored are no longer the same string. `local*` holds blob URLs for
   // what was just uploaded so it appears immediately; `local*Refs` holds the
@@ -288,7 +347,20 @@ export default function WorkRequestFullView({ workRequest: wr, onClose, embedded
           <h2 className="text-xl font-bold text-white">{wr.project_name || wr.title || `Work Request — ${clientName}`}</h2>
           <p className="text-sm text-gray-400">{wr.serviceType || wr.project_type} · Submitted {wr.created_at ? new Date(wr.created_at).toLocaleDateString() : 'recently'}</p>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition"><X className="w-6 h-6 text-gray-400" /></button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={generateQuote}
+            disabled={generating}
+            title="Draft a quote from this request and put it on the pipeline"
+            className="flex items-center gap-2 px-3 py-2 bg-black border border-orange-500/50 hover:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-orange-300 rounded-lg text-sm font-semibold transition-all"
+          >
+            {generating
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Receipt className="w-4 h-4" />}
+            {generating ? 'Drafting…' : wr?.quote ? 'Regenerate quote' : 'Generate quote'}
+          </button>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition"><X className="w-6 h-6 text-gray-400" /></button>
+        </div>
       </div>
 
       {/* Scrollable content */}

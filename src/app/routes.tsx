@@ -39,6 +39,7 @@ const UnifiedDashboard = lazy(() => import("./pages/UnifiedDashboard"));
 const ArchitectReview = lazy(() => import("./pages/ArchitectReview"));
 const JunkQuoteLink = lazy(() => import("./pages/JunkQuoteLink"));
 const JunkPricer = lazy(() => import("./pages/JunkPricer"));
+const MyEstimate = lazy(() => import("./pages/MyEstimate"));
 const AutopilotCampaigns = lazy(() => import("./pages/AutopilotCampaigns"));
 const VideoStudio = lazy(() => import("./pages/VideoStudio"));
 const CustomerPortalApp = lazy(() => import("./components/portals/CustomerPortalView"));
@@ -745,6 +746,10 @@ export const pageMap: Record<string, React.ComponentType<any> | React.LazyExotic
   // pricer"), and until this route there was no way in without an
   // account. See the header of JunkPricer.tsx.
   "junk-pricer":             JunkPricer,
+  // Public: the customer portal for a junk estimate, opened by a token in
+  // the path. Possession of the link is the authorisation — see
+  // estimatePortal.ts for why it is not a login.
+  "my-estimate":             MyEstimate,
   // Public: shoppers check out as guests, so the portal must be reachable
   // without a login. The order number alone proves nothing — the server also
   // requires the email on the order to match.

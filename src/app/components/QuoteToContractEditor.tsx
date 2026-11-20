@@ -65,7 +65,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, type Draw } from '../lib/paymentSchedule';
+import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, amountForPercent, percentOfTotal, balanceDraws, type Draw } from '../lib/paymentSchedule';
 import { drawReadiness, isPhaseComplete, withPhaseCompletion, dueCount } from '../lib/phaseCompletion';
 import { renamePhase, wouldMerge } from '../lib/phaseRename';
 import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
@@ -1535,9 +1535,57 @@ export function QuoteToContractEditor({
       if (field === 'amount') {
         return { ...d, amount: Math.max(0, Math.round((Number(value) || 0) * 100) / 100) };
       }
+      /*
+       * A SHARE OF THE CONTRACT, TYPED AS ONE.
+       *
+       * Eric, 2026-11-20: "can we please fix the payement scheduler to allo me
+       * create the payment schedule to percentages".
+       *
+       * The share was already on the row and was READ-ONLY — the figure you
+       * had to work backwards from if you wanted a third up front. A payment
+       * plan is negotiated in percentages out loud, so it should be typed in
+       * them, and the dollars follow.
+       *
+       * The stored figure stays the AMOUNT. A percentage of a total that later
+       * changes is a payment that silently changes with it, and the draws are
+       * what invoices are raised against. So this converts once, here, and
+       * what is kept is the money.
+       */
+      if (field === 'percent') {
+        return { ...d, amount: amountForPercent(contractTotal, Number(value)) };
+      }
       return { ...d, [field]: value };
     });
     void commitSchedule(draws);
+  };
+
+  /**
+   * Put the difference on the last unbilled payment.
+   *
+   * Percentages do not divide into a contract. A third each is 33.33% three
+   * times, which is 99.99% of the job and leaves a cent — and the one rule
+   * this schedule cannot bend is that the draws sum to the contract
+   * EXACTLY, because a schedule a cent out is one the customer finds.
+   *
+   * `buildPaymentSchedule` solves this with largest-remainder when it
+   * generates a schedule. A hand-typed one has no such pass, so this is it:
+   * one click, onto the last payment that has not been invoiced, which is
+   * where a builder would put it anyway.
+   */
+  const balanceSchedule = () => {
+    if (!paymentSchedule.some((d) => !drawLocked(d))) {
+      toast.error('Every payment here has already been billed. Rebuild the schedule instead.');
+      return;
+    }
+    const balanced = balanceDraws(paymentSchedule, contractTotal);
+    if (!balanced) {
+      toast.error('That cannot be balanced onto the last payment — lower the other percentages first.');
+      return;
+    }
+    void commitSchedule(
+      balanced.draws,
+      `Balanced to the contract total — ${balanced.by < 0 ? 'took' : 'added'} $${Math.abs(balanced.by).toFixed(2)} on ${balanced.movedOnto.label || 'the last payment'}.`,
+    );
   };
 
   const removeDraw = (id: string) => {
@@ -5637,9 +5685,19 @@ export function QuoteToContractEditor({
                                     they nudge an amount.
                                   */}
                                   {contractTotal > 0 && (
-                                    <span className="w-10 text-right text-[11px] text-gray-500">
-                                      {Math.round((draw.amount / contractTotal) * 100)}%
-                                    </span>
+                                    <div className="flex items-center gap-0.5">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step="0.01"
+                                        value={percentOfTotal(draw.amount, contractTotal)}
+                                        onChange={(e) => updateDraw(draw.id, 'percent', e.target.value)}
+                                        className="w-16 rounded border border-gray-700 bg-black px-1.5 py-1 text-right text-[11px] text-gray-300 focus:border-emerald-500/50 focus:outline-none"
+                                        title="Type this payment as a share of the contract — the dollars follow"
+                                      />
+                                      <span className="text-[11px] text-gray-500">%</span>
+                                    </div>
                                   )}
                                 </div>
                               ) : (
@@ -5776,8 +5834,21 @@ export function QuoteToContractEditor({
                             <span>
                               This schedule bills ${fmt(drawn)} against a contract of
                               {' '}${fmt(contractTotal)} — a difference of ${fmt(Math.abs(gap))}.
-                              The quote has changed since the schedule was built. Rebuild it
-                              before raising any more invoices.
+                              {' '}
+                              {/*
+                                Offered rather than done. A gap is sometimes a
+                                typo in a percentage and sometimes a quote that
+                                moved under a schedule somebody negotiated, and
+                                those want different answers — so this says what
+                                it would do and waits to be asked.
+                              */}
+                              <button
+                                onClick={balanceSchedule}
+                                className="underline decoration-dotted hover:text-amber-300"
+                              >
+                                Put the difference on the last payment
+                              </button>
+                              , or rebuild the schedule from the phases.
                             </span>
                           </p>
                         );

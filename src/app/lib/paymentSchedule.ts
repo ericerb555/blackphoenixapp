@@ -221,6 +221,86 @@ export const scheduleOutstanding = (draws: Draw[]): number =>
   );
 
 /**
+ * A PAYMENT PLAN IS NEGOTIATED IN PERCENTAGES, SO IT IS TYPED IN THEM.
+ *
+ * Eric, 2026-11-20: "can we please fix the payement scheduler to allo me
+ * create the payment schedule to percentages and then let me add when they
+ * are do like deposit second payment and final."
+ *
+ * The share was already shown on each row and was read-only, so getting "a
+ * third up front" meant working the dollars out by hand.
+ *
+ * WHAT IS STORED IS STILL THE AMOUNT. A draw that held a percentage would
+ * change silently when the quote changed, and the draws are what invoices
+ * are raised against — so the percentage is an input, converted once, and
+ * the money is what persists. The banner already says when a stored
+ * schedule has stopped matching a moved total, which is the honest way for
+ * that to surface.
+ *
+ * The note at the top of this file argues against percentage schedules,
+ * because "a percentage schedule bills 25% on a date, which is the thing
+ * customers dispute". That objection is about the TRIGGER, not the split —
+ * and `Draw.trigger` is free text, so "35% after frame inspection" is both
+ * a percentage and defensible. What was never acceptable was 25% on a date
+ * with nothing about the job attached, and that is still not what this is.
+ */
+export function amountForPercent(total: number, percent: number): number {
+  const pct = Math.min(100, Math.max(0, Number(percent) || 0));
+  const cents = Math.round(toCents(total) * pct / 100);
+  return toMoney(cents);
+}
+
+/** A draw as a share of the contract, to two places. 0 when there is no total. */
+export function percentOfTotal(amount: number, total: number): number {
+  const t = toCents(total);
+  if (t <= 0) return 0;
+  return Math.round((toCents(amount) / t) * 10000) / 100;
+}
+
+/**
+ * Put the rounding difference onto the last unbilled draw.
+ *
+ * Percentages do not divide into a contract. A third each is 33.33% three
+ * times, which bills 99.99% of the job and leaves a cent behind — and the
+ * one rule at the top of this file that cannot bend is that the draws sum
+ * to the contract EXACTLY, because a schedule a cent out is one the
+ * customer finds.
+ *
+ * `buildPaymentSchedule` handles this with largest-remainder when it
+ * generates a schedule. A hand-typed one has no such pass, so this is it.
+ *
+ * The LAST unbilled draw, because that is where a builder would put it: an
+ * invoiced or paid draw is a document already sent and must not move, and
+ * loading the difference onto the final payment is the convention anyway.
+ *
+ * Returns null when there is nothing to do or nothing safe to do, so the
+ * caller can say why rather than silently writing a worse schedule.
+ */
+export function balanceDraws(
+  draws: Draw[],
+  total: number,
+): { draws: Draw[]; movedOnto: Draw; by: number } | null {
+  const list = Array.isArray(draws) ? draws : [];
+  const open = list.filter((d) => d?.status === 'pending');
+  if (!open.length) return null;
+
+  const gapCents = toCents(total) - list.reduce((sum, d) => sum + toCents(d?.amount), 0);
+  if (gapCents === 0) return null;
+
+  const last = open[open.length - 1];
+  const nextCents = toCents(last.amount) + gapCents;
+  // A negative payment is not a payment. The percentages are wrong, and
+  // saying so beats writing a draw that bills minus forty dollars.
+  if (nextCents < 0) return null;
+
+  return {
+    draws: list.map((d) => (d.id === last.id ? { ...d, amount: toMoney(nextCents) } : d)),
+    movedOnto: last,
+    by: toMoney(gapCents),
+  };
+}
+
+/**
  * The least deposit this company takes.
  *
  * Eric: "lets make the deposit a minimum of 30%." A floor, not a default —
