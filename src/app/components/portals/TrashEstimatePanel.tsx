@@ -140,6 +140,20 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
   const [anonPhone, setAnonPhone] = useState('');
   /** Their own read-only link, handed over the moment they ask. */
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
+  /**
+   * Why the last attempt did not price, kept on the page.
+   *
+   * The refusals this route gives are not errors in the usual sense — the
+   * daily one reads "That is 3 free prices today. Create a free account to
+   * keep pricing jobs — and take 5% off the one you book." That is an
+   * OFFER, and it was being shown in a toast with no duration set, so it
+   * appeared for a few seconds and left somebody looking at a form that
+   * had apparently done nothing.
+   *
+   * A toast is right for "try again in a moment". It is wrong for the one
+   * message on this page that asks for the sale.
+   */
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const libraryRef = useRef<HTMLInputElement | null>(null);
@@ -174,6 +188,7 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
     }
 
     setBusy(true);
+    setRefusal(null);
     setEstimate(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -296,7 +311,9 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
       toast.success('Here is your estimate.');
     } catch (err: any) {
       console.error('[TrashEstimate]', err);
-      toast.error(err?.message || 'Could not price that. Try again, or send fewer pictures.');
+      const why = err?.message || 'Could not price that. Try again, or send fewer pictures.';
+      setRefusal(why);
+      toast.error(why);
     } finally {
       setBusy(false);
       setStage('');
@@ -864,6 +881,22 @@ export default function TrashEstimatePanel({ customerName, onNavigate, linkToken
           style={{ border: '1px solid rgba(255,255,255,0.15)' }}
         />
       </div>
+
+      {refusal && (
+        <div className="rounded-xl p-4"
+             style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.35)' }}>
+          <p className="text-sm text-white">{refusal}</p>
+          {onNavigate && /account/i.test(refusal) && (
+            <button
+              onClick={() => onNavigate('signup')}
+              className="mt-3 rounded-lg px-4 py-2 text-sm font-black text-black"
+              style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)' }}
+            >
+              Create a free account
+            </button>
+          )}
+        </div>
+      )}
 
       <button
         onClick={submit}
