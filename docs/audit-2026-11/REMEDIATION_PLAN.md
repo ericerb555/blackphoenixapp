@@ -326,14 +326,82 @@ how far this company will travel for a job.
 `security_audit_log` — **built and in service**, batch 2. It was the only
 security control on the list.
 
-### Batch 5 — The mass categories
+### Batch 5 — ✅ `authz:scan` bucket A triaged 2026-11-19, and it found far more than 25
+
+**19 routes gated, and the scanner found almost none of them.** Worst first:
+
+| Route | Was reachable by | Consequence |
+|---|---|---|
+| `POST /sms/send` | **any signed-in account** | A marketing SMS blast to **every opted-in contact, from the company's own number.** The price of a carrier complaint is the number itself, which every transactional message also depends on |
+| `GET /chat/leads` | any signed-in account | Every captured visitor name, email and phone |
+| `GET /crm/leads`, `/crm/notes` | any signed-in account | The whole CRM — name, email, phone, city, service, value, plus staff notes |
+| `POST /ranking/generate` | any signed-in account | **Called OpenAI directly, unmetered.** A customer could spend the AI budget in a loop, going around `aiSpend` entirely |
+| `DELETE /media/:mediaId` | any signed-in account | Removed the **Storage object and** the KV record for any id, no owner check. Permanent — the nightly backup mirrors latest state, so a deletion reaches it on the next run |
+| `POST`/`DELETE /blog/posts` | any signed-in account | Create, overwrite or delete any article on the public site |
+
+Also gated: `/sms/contacts` (read and write), `/sms/campaigns`,
+`POST /chat/config`, `/reviews/moderation` (both), `/ranking/content`,
+`/ranking/auto`, `/ranking/publish/:id`, `POST /crm/leads`, `POST /crm/notes`.
+
+**Guards are per-handler, not per-path, and that mattered.** Three paths carry
+a public method *and* a staff method — `POST /chat/leads` and
+`POST /exit-intent/capture` are a visitor handing over their details,
+`GET /chat/config` is the widget rendering itself, `GET /blog/posts` is the
+published articles. `requireStaffOn` matches on path alone, so a path-level fix
+would have closed lead capture and the public blog while claiming to secure
+them. Each public endpoint was re-probed after the change.
+
+#### Two things about my own scanner
+
+**Bucket A only inspects writes.** `GET /chat/leads` and `GET /crm/leads` — the
+two customer-data exposures, and the worst findings in the batch — never
+appeared in it. They came out of reading the files the scanner pointed at.
+
+**Two of its 25 were false positives.** `/schedule/confirm` calls `staffActor`
+and `/landlord/conditions-reports/:id` resolves through `reportFor`, which
+serves own-or-403 with staff by exception. A check inside a named helper is
+invisible to it.
+
+Of the 25: 7 already admin-gated at the wall, 7 behind router middleware, 3
+public by design, 2 token-addressed, 2 false positives, **4 genuinely open** —
+which then led to 15 more in the same files.
+
+#### A-4 (P2, new) — the blog manager has never listed a post
+
+Found while verifying the gates: `GET /blog/posts` answered 404 and I had not
+touched it. `blog.tsx` registers `GET /blog/:id` and is mounted at
+`index.tsx:1911`; `crm-content.tsx` registers `GET /blog/posts` at 2152. Hono
+matches in registration order, so the wildcard won. Measured:
+
+```
+/blog                 200
+/blog/posts           404
+/blog/anything-at-all 404   ← identical, which is the proof
+```
+
+`BlogManager.loadPosts()` checked `json.success`, found it falsy, and rendered
+nothing. **241 lines of mount order decided it.**
+
+Note the asymmetry: `blog.tsx` registers only GETs, so `POST` and `DELETE
+/blog/posts` fell through and worked — which is why the table above found them
+open. The manager could not show you the posts anybody with a login could
+delete. Fixed by falling through on the one reserved word, marked at the point
+of collision.
+
+**And the consequence that came with fixing it.** `loadPosts`' success path
+POSTed every `DEFAULT_POSTS` entry when the list came back empty, and one
+carries `status: 'published'`. It had never fired because `json.success` was
+never true. Fixing the shadowing made it reachable, so the seeding was removed
+in the same breath rather than left as a surprise on the next staff visit.
+
+### Batch 5 (remaining) — The mass categories
 
 | | Scope | Approach | Effort |
 |---|---|---|---|
 | C1a | ~12 handlers that announce a completed action and do nothing | fix or disable, one at a time | ~1 day |
 | C2 | 83 handlers claiming success without reaching the server (was 85; batch 1 took two) | triage: many are legitimately local state | ~2 days |
 | — | 188 controls with no handler at all | triage; most are layout elements the scanner cannot distinguish | ~1 day |
-| — | `authz:scan` bucket A, 25 leads | read each; most are legitimately public | ~0.5 day |
+| ✅ | `authz:scan` bucket A, 25 leads | **done** — see above; 19 routes gated | — |
 
 C2 and the 188 are **scanner output, not findings.** Treating them as a
 defect list would be the error the brief warns about in the other direction:
