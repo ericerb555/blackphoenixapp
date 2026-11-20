@@ -17,8 +17,8 @@
  * design, and it reports when a deck falls outside what prescriptive tables
  * cover instead of extending them.
  */
-import type { DeckModel } from './deckModel';
-import { takeoff } from './deckModel';
+import type { DeckModel } from './deckModel.ts';
+import { takeoff } from './deckModel.ts';
 
 /** IRC Table R401.4.1 — presumptive load-bearing values, pounds per square foot. */
 export const SOIL_CLASSES = [

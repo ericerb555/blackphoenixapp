@@ -11,9 +11,9 @@
  * for the specific deck, at code spacing, so an inspector can check the drawing
  * against what was built.
  */
-import type { DeckModel } from './deckModel';
-import { takeoff, LUMBER_ACTUAL, IN } from './deckModel';
-import { buildSpec } from './deckBuildSpec';
+import type { DeckModel } from './deckModel.ts';
+import { takeoff, LUMBER_ACTUAL, IN } from './deckModel.ts';
+import { buildSpec } from './deckBuildSpec.ts';
 
 export interface DimLine {
   /** Both points at deck level; the renderer flattens them for plan view. */

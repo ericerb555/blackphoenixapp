@@ -21,8 +21,8 @@
  * schedules must be checked against the locally adopted code before anyone
  * builds or submits.
  */
-import type { DeckModel } from './deckModel';
-import { takeoff } from './deckModel';
+import type { DeckModel } from './deckModel.ts';
+import { takeoff } from './deckModel.ts';
 
 export interface SpecSection {
   title: string;
