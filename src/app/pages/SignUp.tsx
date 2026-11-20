@@ -270,6 +270,16 @@ export default function SignUp({ onNavigate }: SignUpProps) {
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="text"
+                  /*
+                   * NAMED FOR THE PASSWORD MANAGER, NOT FOR THE BROWSER.
+                   *
+                   * Not one field on this form declared `autoComplete`, so
+                   * managers guessed — and guessed badly. On production the
+                   * phone box came prefilled with `ericerb555@proton.me`: an
+                   * email address in a `type="tel"` input, because with no hint
+                   * the manager fell back to the saved username.
+                   */
+                  autoComplete="name"
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   className="w-full pl-11 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
@@ -288,6 +298,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="email"
+                  autoComplete="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full pl-11 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
@@ -306,6 +317,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type="tel"
+                  autoComplete="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   className="w-full pl-11 pr-4 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
@@ -323,6 +335,20 @@ export default function SignUp({ onNavigate }: SignUpProps) {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  /*
+                   * `new-password`, and this one matters more than the rest.
+                   *
+                   * Without it a manager treats a SIGN-UP box as a sign-in box
+                   * and fills the password already saved for this site. Both
+                   * password fields on this form arrived prefilled that way
+                   * while a new account was being created — one keystroke from
+                   * giving a throwaway test account the owner’s real password,
+                   * and from storing that password under a second identity.
+                   *
+                   * `new-password` tells the manager this is a new credential:
+                   * offer to generate one, do not fill the existing one.
+                   */
+                  autoComplete="new-password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full pl-11 pr-12 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
@@ -350,6 +376,7 @@ export default function SignUp({ onNavigate }: SignUpProps) {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                   className="w-full pl-11 pr-12 py-3 bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#ea580c] transition"
