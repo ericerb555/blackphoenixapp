@@ -42,6 +42,20 @@ function readTime(body: string) {
 
 // ─── Default Content ──────────────────────────────────────────────────────────
 
+/**
+ * Starter articles. DELIBERATELY UNREFERENCED — do not wire this to a page load.
+ *
+ * `loadPosts` used to POST all of these the first time the list came back
+ * empty, and one of them carries `status: 'published'`, so opening this screen
+ * would have put articles on the public site that nobody wrote or chose to
+ * publish. See the note in `loadPosts` for why that never actually fired and
+ * what made it reachable.
+ *
+ * Kept because the copy is usable and throwing it away would be the other kind
+ * of mistake. If starter content is wanted, give it a button that says so and
+ * create the posts as drafts.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const DEFAULT_POSTS: BlogPost[] = [
   {
     id: 'post-1',
@@ -471,15 +485,26 @@ export default function BlogManager() {
       const res = await fetch(`${SERVER}/blog/posts`, { headers: authHeaders });
       const json = await res.json();
       if (json.success) {
-        if (json.posts.length === 0) {
-          // First run: seed the starter posts then reload.
-          await Promise.all(DEFAULT_POSTS.map(p => fetch(`${SERVER}/blog/posts`, { method: 'POST', headers: authHeaders, body: JSON.stringify(p) })));
-          const rr = await fetch(`${SERVER}/blog/posts`, { headers: authHeaders });
-          const rj = await rr.json();
-          if (rj.success) setPosts(rj.posts);
-        } else {
-          setPosts(json.posts);
-        }
+        /*
+         * NO AUTO-SEEDING. An empty blog stays an empty blog.
+         *
+         * This used to POST all of `DEFAULT_POSTS` whenever the list came back
+         * empty, and at least one of them carries `status: 'published'` — so
+         * simply opening this screen would have put articles on the public
+         * site that nobody had written or chosen to publish.
+         *
+         * It never fired, because `GET /blog/posts` was shadowed by
+         * `/blog/:id` in `blog.tsx` and `json.success` was never true (see
+         * `A-4`). Fixing that shadowing is what made this reachable, so it is
+         * removed in the same breath rather than left as a surprise on the
+         * next staff visit.
+         *
+         * `DEFAULT_POSTS` is kept below. If starter content is wanted it
+         * belongs behind a control somebody presses, labelled, and not behind
+         * a page load — the same rule applied to the invented financial data
+         * in `JobFinancialTracker` and the fabricated alerts panel.
+         */
+        setPosts(json.posts);
       } else console.error('Failed to load blog posts:', json.error);
     } catch (err) { console.error('Network error loading blog posts:', err); toast.error('Could not load posts'); }
   }
