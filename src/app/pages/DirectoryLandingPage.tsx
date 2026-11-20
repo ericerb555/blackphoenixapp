@@ -1075,7 +1075,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
             onClick={() => handleNavigate('public-store')}
-            className="group relative overflow-hidden text-left"
+            className="group relative cursor-pointer overflow-hidden text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
             style={{
               borderRadius: '16px',
               background: 'linear-gradient(135deg, #0a0a0a 0%, #1a0800 50%, #0a0a0a 100%)',
@@ -1165,8 +1165,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
               {/* Stat chips */}
               <div className="flex gap-3 mb-6 flex-wrap">
                 {['Fast Shipping', 'Top Brands', 'New Arrivals Daily'].map(t => (
-                  <span key={t} className="text-[11px] font-semibold text-orange-300 px-2.5 py-1 rounded-md"
-                    style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)' }}>
+                  <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-orange-300/90">
+                    <CheckCircle2 className="w-3 h-3 shrink-0 opacity-70" />
                     {t}
                   </span>
                 ))}
@@ -1191,7 +1191,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
             onClick={() => handleNavigate('request-service')}
-            className="group relative overflow-hidden text-left"
+            className="group relative cursor-pointer overflow-hidden text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
             style={{
               borderRadius: '16px',
               background: 'linear-gradient(135deg, #0a0a0a 0%, #00081a 50%, #0a0a0a 100%)',
@@ -1282,8 +1282,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
               {/* Stat chips */}
               <div className="flex gap-3 mb-6 flex-wrap">
                 {['Free Quote', 'Licensed & Insured', 'Same-Day Response'].map(t => (
-                  <span key={t} className="text-[11px] font-semibold text-blue-300 px-2.5 py-1 rounded-md"
-                    style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)' }}>
+                  <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-300/90">
+                    <CheckCircle2 className="w-3 h-3 shrink-0 opacity-70" />
                     {t}
                   </span>
                 ))}
@@ -1308,7 +1308,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
             onClick={() => setShowSignUpModal(true)}
-            className="group relative overflow-hidden text-left"
+            className="group relative cursor-pointer overflow-hidden text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
             style={{
               borderRadius: '16px',
               background: 'linear-gradient(135deg, #0a0a0a 0%, #021206 50%, #0a0a0a 100%)',
@@ -1399,8 +1399,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
               {/* Stat chips */}
               <div className="flex gap-3 mb-6 flex-wrap">
                 {['Free to Join', 'Fast Onboarding', 'Grow With Us'].map(t => (
-                  <span key={t} className="text-[11px] font-semibold text-green-300 px-2.5 py-1 rounded-md"
-                    style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                  <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-green-300/90">
+                    <CheckCircle2 className="w-3 h-3 shrink-0 opacity-70" />
                     {t}
                   </span>
                 ))}
@@ -2112,8 +2112,8 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
 
                 <div className="flex flex-wrap gap-3 mt-5 justify-center sm:justify-start">
                   {['Free to Join', 'No Credit Card', 'Instant Access'].map(t => (
-                    <span key={t} className="text-[11px] font-semibold text-red-300 px-2.5 py-1 rounded-md"
-                      style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-red-300/90">
+                      <CheckCircle2 className="w-3 h-3 shrink-0 opacity-70" />
                       {t}
                     </span>
                   ))}
@@ -2160,7 +2160,7 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
         >
           <button
             onClick={() => handleNavigate('security')}
-            className="flex items-center gap-1.5 text-[11px] font-semibold text-red-300 px-2.5 py-1 rounded-md hover:text-red-200 transition-colors"
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-red-300 px-2.5 py-1 rounded-md cursor-pointer hover:text-red-100 hover:border-red-400/60 hover:bg-red-500/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
             style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
