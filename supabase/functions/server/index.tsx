@@ -1108,6 +1108,20 @@ const PUBLIC_GET_PREFIXES = [
   // is unset), so passing it the session check here leaks nothing — it reveals
   // the sender number and region only to a caller holding SMS_TEST_SECRET.
   '/sms/status',
+  /*
+   * The junk estimate portal, opened by a token in the path.
+   *
+   * A PREFIX, because the token is part of the path and the exact-match
+   * list cannot state a parameterised one. It is one read-only route deep
+   * and has no siblings, so this opens nothing else.
+   *
+   * The router allows this too, and that allowance alone was not enough:
+   * this outer gate refuses first, so the portal answered 401 to every
+   * caller including the ones holding a good link. Caught by asking for a
+   * made-up token and reading the status code rather than the fact of a
+   * refusal — 401 and 404 both look like "no" from a distance.
+   */
+  '/trash-estimator/portal/',
   // Ads are shown to every visitor including signed-out ones, and a marquee that
   // renders nothing on the public site is an advertiser paying for a blank. The
   // shadow log caught both of these as would-block, which is exactly what shadow

@@ -179,6 +179,19 @@ test('the portal read is public, and the page is routed', () => {
     'the portal read demands a session again',
   );
 
+  /*
+   * BOTH GATES, because the router allowance alone was not enough. The outer
+   * tier check in index.tsx refuses first, so the portal answered 401 to
+   * every caller including the ones holding a good link. Found by asking for
+   * a made-up token and reading the status code: 401 and 404 both look like
+   * "no" until you check which.
+   */
+  const index = strip(read('supabase/functions/server/index.tsx'));
+  assert.match(
+    index, /'\/trash-estimator\/portal\/'/,
+    'the outer auth tier refuses the portal again, so every link 401s',
+  );
+
   const app = strip(read('src/app/App.tsx'));
   assert.match(app, /'my-estimate'/, 'the page is not public');
   assert.match(app, /PREFIX_ROUTES[^\n]*my-estimate/, 'the token in the path will not route');
