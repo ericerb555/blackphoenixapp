@@ -116,13 +116,85 @@ async function putIntoCrm(
     name: fullName,
     firstName: customer?.first_name,
     lastName: customer?.last_name,
-    phone: params?.phone || customer?.phone || "",
+    phone: params?.phone || params?.profile?.phone || customer?.phone || "",
     type: "customer",
-    source: "signup",
+    source: params?.profile?.source || "signup",
     tags: ["signup"],
     userId: params?.userId || null,
-    extra: { customer_number: customer?.customer_number },
+    // The CRM hub is where staff actually look, so the address goes here too
+    // rather than only onto the `customer:` record.
+    extra: {
+      customer_number: customer?.customer_number,
+      address_line1: customer?.address_line1 ?? null,
+      city: customer?.city ?? null,
+      state: customer?.state ?? null,
+      zip_code: customer?.zip_code ?? null,
+      property_type: customer?.property_type ?? null,
+      plan: customer?.plan ?? null,
+    },
   });
+}
+
+/**
+ * The rest of what somebody typed on the signup form.
+ *
+ * WHY THIS IS HERE AND NOT POSTED BY THE BROWSER
+ *
+ * `CustomerRegistrationForm` collects an address, a property type, a plan
+ * choice, a phone number and a marketing preference. It used to send them in a
+ * second request: `POST /customers`, straight after signing in.
+ *
+ * `POST /customers` requires `customerAdmin`. A customer is not an
+ * administrator, so it answered 403 every single time, and the form logged
+ * "Customer profile creation failed (account was still created)" to the
+ * console and carried on to the portal. **Everything after email and password
+ * was silently thrown away**, and the portal then had no customer record to
+ * show, which is what read as being kicked out.
+ *
+ * Measured on a real signup, 2026-11-20 17:18:33:
+ *
+ *   [authz] DENIED 403 POST /customers claimed=msaverse@yahoo.com role=authenticated
+ *   GET /kv/get/customer_portal_clients_ab502b3f-… 404
+ *
+ * The guard was right and the caller was wrong. So the fields now travel with
+ * the signup request and are written here, by the service role, in the same
+ * place the CRM contact is already written — no second request, no staff route
+ * touched from a browser, and nothing to discard.
+ */
+export interface SignupProfile {
+  phone?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  propertyType?: string;
+  source?: string;
+  plan?: string;
+  planPreference?: string | null;
+  marketingEmails?: boolean;
+}
+
+/** Only the fields this route owns, trimmed and capped. */
+function cleanSignupProfile(raw: unknown): SignupProfile {
+  const body = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const text = (v: unknown, max = 200) => {
+    const s = String(v ?? '').trim().slice(0, max);
+    return s || undefined;
+  };
+  return {
+    phone: text(body.phone, 40),
+    address_line1: text(body.address_line1),
+    address_line2: text(body.address_line2),
+    city: text(body.city, 120),
+    state: text(body.state, 60),
+    zip_code: text(body.zip_code, 20),
+    propertyType: text(body.propertyType, 60),
+    source: text(body.source, 120),
+    plan: text(body.plan, 60),
+    planPreference: text(body.planPreference, 60) ?? null,
+    marketingEmails: body.marketingEmails === true,
+  };
 }
 
 async function ensureCrmCustomer(params: {
@@ -131,20 +203,36 @@ async function ensureCrmCustomer(params: {
   phone?: string;
   userId?: string;
   accountType?: string;
+  profile?: SignupProfile;
 }) {
   const normalizedEmail = (params.email || "").toLowerCase().trim();
   if (!normalizedEmail) throw new Error("email is required");
 
   const fullName = (params.fullName || "").trim() || normalizedEmail.split("@")[0];
 
+  // The signup form's own fields, if this came from one. `phone` can arrive
+  // either as a top-level param (older callers) or inside the profile.
+  const extra = params.profile || {};
+  const phone = params.phone || extra.phone || null;
+
   // Persist a durable profile regardless of CRM state.
   const profile = {
     email: normalizedEmail,
     full_name: fullName,
-    phone: params.phone || null,
+    phone,
     user_id: params.userId || null,
     account_type: params.accountType || "customer",
     created_at: new Date().toISOString(),
+    address_line1: extra.address_line1 ?? null,
+    address_line2: extra.address_line2 ?? null,
+    city: extra.city ?? null,
+    state: extra.state ?? null,
+    zip_code: extra.zip_code ?? null,
+    property_type: extra.propertyType ?? null,
+    plan: extra.plan ?? null,
+    plan_preference: extra.planPreference ?? null,
+    marketing_emails: extra.marketingEmails === true,
+    how_heard: extra.source ?? null,
   };
   await kv.set(`user_profile:${normalizedEmail}`, profile);
 
@@ -177,9 +265,20 @@ async function ensureCrmCustomer(params: {
     first_name: firstName || fullName,
     last_name: rest.join(" "),
     email: normalizedEmail,
-    phone: params.phone || "",
+    phone: phone || "",
     status: "lead",
-    source: "signup",
+    source: extra.source || "signup",
+    // The address and property details the customer actually typed. These were
+    // being thrown away with the 403 on `POST /customers` — see SignupProfile.
+    address_line1: extra.address_line1 ?? null,
+    address_line2: extra.address_line2 ?? null,
+    city: extra.city ?? null,
+    state: extra.state ?? null,
+    zip_code: extra.zip_code ?? null,
+    property_type: extra.propertyType ?? null,
+    plan: extra.plan ?? null,
+    plan_preference: extra.planPreference ?? null,
+    marketing_emails: extra.marketingEmails === true,
     total_spent: 0,
     project_count: 0,
     rating: 0,
@@ -302,7 +401,14 @@ const getSupabaseClient = () => {
 // Sign up endpoint
 authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
   try {
-    const { email, password, full_name } = await c.req.json();
+    const signupBody = await c.req.json();
+    const { email, password, full_name } = signupBody;
+    /*
+     * The rest of the form. Optional, so every existing caller that sends only
+     * email/password/full_name is unaffected — see SignupProfile for what used
+     * to happen to these fields.
+     */
+    const signupProfile = cleanSignupProfile(signupBody.profile ?? signupBody);
 
     /**
      * The role is NOT taken from the request. It never was safe to.
@@ -411,6 +517,7 @@ authRouter.post("/make-server-3eae23a6/auth/signup", async (c) => {
         fullName: full_name,
         userId,
         accountType: role === "client" ? "customer" : role,
+        profile: signupProfile,
       }),
       `crm:${email}`,
     );

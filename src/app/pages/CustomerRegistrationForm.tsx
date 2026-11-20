@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import ApplicationPlanBuilderSection from '../components/ApplicationPlanBuilderSection';
 import { publicAnonKey } from '../utils/supabase/info';
-import { authedHeaders, authedHeadersOrAnon } from '../utils/authHeaders';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
 import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
 
@@ -165,6 +165,37 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
           password: formData.password,
           full_name: fullName,
           role: 'client',
+          /*
+           * The rest of the form travels WITH the signup now.
+           *
+           * It used to go in a second request to `POST /customers`, after
+           * signing in — and that route requires administrator access, so it
+           * answered 403 to every customer who ever completed this form. The
+           * failure was logged to the console and swallowed, so the address,
+           * property type, plan, phone and marketing preference were thrown
+           * away on every single signup, and the portal then had no customer
+           * record to show.
+           *
+           * Caught on a real signup on 2026-11-20 by the denial logger added
+           * for `L-1`:
+           *   [authz] DENIED 403 POST /customers claimed=… role=authenticated
+           *
+           * The server writes these with the service role, next to the CRM
+           * contact it already creates. See `SignupProfile` in auth.tsx.
+           */
+          profile: {
+            phone: formData.phone,
+            address_line1: formData.streetAddress,
+            address_line2: formData.aptUnit,
+            city: formData.city,
+            state: formData.state,
+            zip_code: formData.zipCode,
+            propertyType: formData.propertyType,
+            source: formData.howHeard,
+            plan,
+            planPreference: (formData as any).planPreference || null,
+            marketingEmails: formData.marketingEmails,
+          },
         }),
       });
 
@@ -209,33 +240,18 @@ export default function CustomerRegistrationForm({ onNavigate }: CustomerRegistr
         return;
       }
 
-      // 3) Persist the customer profile (address, property type, plan, etc.).
-      const customerRes = await fetch(`${base}/customers`, {
-        method: 'POST',
-        headers: await authedHeaders(),
-        body: JSON.stringify({
-          userId: signupData.user?.id,
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          email: formData.email,
-          phone: formData.phone,
-          status: 'active',
-          address_line1: formData.streetAddress,
-          address_line2: formData.aptUnit,
-          city: formData.city,
-          state: formData.state,
-          zip_code: formData.zipCode,
-          propertyType: formData.propertyType,
-          source: formData.howHeard,
-          plan,
-          marketingEmails: formData.marketingEmails,
-          planPreference: (formData as any).planPreference || null,
-        }),
-      });
-      if (!customerRes.ok) {
-        const errText = await customerRes.text();
-        console.error('Customer profile creation failed (account was still created):', errText);
-      }
+      /*
+       * 3) There is no step 3 any more.
+       *
+       * This was `POST /customers` with the whole profile. That route is
+       * `customerAdmin`-only, so it returned 403 for every customer who used
+       * this form, and the branch below logged it and moved on — which is why
+       * the profile was lost and the portal came up empty. The fields now ride
+       * along with `/auth/signup` above and are written server-side.
+       *
+       * If profile saving ever needs its own request again, it needs a route a
+       * customer is allowed to call — not this one.
+       */
 
       // Redirect to the customer portal on success.
       if (onNavigate) {
