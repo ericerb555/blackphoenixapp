@@ -276,7 +276,24 @@ export default function DirectoryLandingPage({ onNavigate }: DirectoryLandingPag
     } catch {
       // Can't tell? Send them to sign-up; it offers a way to sign in instead.
     }
-    handleNavigate(signedIn ? 'customer-portal-app?tab=trash-estimate' : 'sign-up?next=trash-estimate');
+    /*
+     * A VISITOR PRICES FIRST AND MAKES AN ACCOUNT AFTERWARDS.
+     *
+     * This sent anybody without a session to `sign-up?next=trash-estimate`,
+     * which is the opposite of what the anonymous path was built for. Eric,
+     * in `anonPricer.ts`: "Some Should not have to login to use the junk
+     * remaval picer until they decied to create an account and get 5 percent
+     * off.. anyone can try the pricer."
+     *
+     * The server has allowed anonymous estimates since that was written, and
+     * nothing on the site reached it: this line was the only way in, and it
+     * required an account first. Found by trying to use the site as a new
+     * customer rather than by reading it.
+     *
+     * The panel offers the account, and the discount, at the point somebody
+     * wants to book.
+     */
+    handleNavigate(signedIn ? 'customer-portal-app?tab=trash-estimate' : 'junk-pricer');
   };
 
   // Route to the correct quote form based on cohort type

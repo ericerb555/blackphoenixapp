@@ -487,6 +487,17 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
     'create-account',
     'get-started',
 
+    /*
+     * The junk pricer, without an account.
+     *
+     * `anonPricer.ts` exists to make anonymous estimates affordable, and says
+     * why: "anyone can try the pricer". The server has allowed it all along.
+     * This list was one of the two things keeping a visitor out of it — the
+     * other being the Junk Removal button, which sent anybody without a
+     * session to sign-up instead.
+     */
+    'junk-pricer',
+
     // Pricing page (so visitors can see plans before signing up)
     'pricing',
     'plans',

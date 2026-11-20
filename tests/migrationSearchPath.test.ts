@@ -113,7 +113,18 @@ test('every function a migration creates pins its search_path', () => {
     for (const { name, head } of functionDeclarations(sql)) {
       const qualified = name.includes('.') ? name : `public.${name}`;
       if (PINNED_ELSEWHERE.has(qualified)) continue;
-      if (/\bset\s+search_path\s*=/i.test(head)) continue;
+      /*
+       * `=` OR `TO`. Postgres accepts both, and this only read the first.
+       *
+       * `20261119220000_log_retention_policy_and_nightly_prune.sql` pins
+       * `prune_security_audit_log` with `set search_path to 'public',
+       * 'pg_temp'` — correctly — and was reported as unpinned. A false
+       * positive here is worse than a miss: the message tells you to add a
+       * pin that is already there, and the only other way to quiet it is
+       * PINNED_ELSEWHERE, which would genuinely exempt the function from the
+       * check for good.
+       */
+      if (/\bset\s+search_path\s*(=|\bto\b)/i.test(head)) continue;
       offenders.push(`${file}: ${qualified}`);
     }
   }
