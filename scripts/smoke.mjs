@@ -155,6 +155,8 @@ writeFileSync(htmlPath, `<!doctype html>
 /* ── the listener the page reports to ─────────────────────────────────── */
 
 let latest = null;
+/** The page count, from whichever batch reported one. See `runBatch`. */
+let learnedTotal = 0;
 const listener = createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*' }).end();
@@ -440,6 +442,17 @@ async function runBatch(from, to, only, waitS = WAIT_S) {
   try { spawnSync('taskkill', ['/F', '/T', '/PID', String(browser.pid)], { stdio: 'ignore' }); } catch {}
   browser = null;
 
+  /*
+   * How many pages there are, remembered from whichever batch says so first.
+   *
+   * The count only exists in the browser's route map, so Node learns it from a
+   * batch report. It used to be read off the FIRST batch alone, which is why a
+   * starved first batch ended the whole sweep: no count, nothing to iterate.
+   * Any reporting batch carries the same number, so keeping it here lets the
+   * first range be split like every other one.
+   */
+  if (latest?.total) learnedTotal = latest.total;
+
   return latest;
 }
 
@@ -641,20 +654,44 @@ if (targets) {
     else all.push(...chunk.map((name) => ({ name, status: 'hung', error: 'never reported, twice' })));
   }
 } else {
-  const first = await runBatch(0, BATCH);
-  if (!first) {
-    // Not split, because the total page count comes from the first batch and
-    // there is nothing to iterate without it. The message names both causes
-    // rather than asserting the likelier one: it reads as a diagnosis, and
-    // "the route map failed" sent somebody a long way in the wrong direction
-    // when the real cause was a shared browser profile.
-    console.error('Nothing reported at all from the first batch.');
-    console.error('Either the route map failed to load, or the batch was starved — try');
-    console.error(`  npm run smoke -- --all --batch 5 --wait 45`);
+  /**
+   * THE FIRST BATCH GETS WHAT EVERY OTHER BATCH GETS.
+   *
+   * It did not. Every later range goes through `runRangeSplitting` — two
+   * attempts, then halved, then a lone page with the generous deadline — and
+   * the first was a bare `runBatch`: one attempt, fifteen pages, twenty
+   * seconds. Silent meant `exit 2` and no sweep at all, with a message telling
+   * the reader to run the whole thing again by hand with `--batch 5 --wait 45`.
+   *
+   * That is the same starvation every comment in this file is about, and it
+   * was the one place the harness had no answer for it. It failed `npm run
+   * precommit` on 2026-11-21 with 4,298 tests green: the suggested command is
+   * a workaround for a recovery the script can perform itself.
+   *
+   * The reason given for not splitting was real but not binding — the page
+   * count comes from a batch report, and there is nothing to iterate without
+   * it. Any batch that reports carries it, so halving 0..BATCH finds it as
+   * soon as one half speaks, which is exactly the condition that was being
+   * given up on. `learnedTotal` holds it.
+   */
+  const firstResults = await runRangeSplitting(0, BATCH);
+  const total = learnedTotal;
+  if (!total) {
+    /*
+     * Nothing at all, even one page with a browser to itself. That is no
+     * longer "probably starved" — it is the route map or the server, and the
+     * message names both causes rather than asserting the likelier one:
+     * "the route map failed" sent somebody a long way in the wrong direction
+     * when the real cause was a shared browser profile.
+     */
+    console.error('Nothing reported from any page, including pages tried one at a time.');
+    console.error('This is not starvation — the harness has already split and retried.');
+    console.error('Either the route map failed to load, or the dev server is serving');
+    console.error('something other than this worktree. Check the browser console with:');
+    console.error(`  npm run smoke -- --only unified-dashboard`);
     process.exit(2);
   }
-  const total = first.total;
-  all.push(...first.results);
+  all.push(...firstResults);
   console.log(`${total} pages, ${BATCH} at a time`);
   process.stdout.write(`  1..${Math.min(BATCH, total)}`);
   for (let from = BATCH; from < total; from += BATCH) {
