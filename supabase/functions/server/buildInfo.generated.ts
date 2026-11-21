@@ -6,9 +6,9 @@
  * with an answer, rather than one inferred from whether a route replies.
  */
 export const BUILD_INFO = {
-  "commit": "e86f5f7b2",
-  "branch": "session/fnf",
-  "committedAt": "2026-11-19T17:12:31-05:00",
+  "commit": "2be5d5425",
+  "branch": "session/pdftotal",
+  "committedAt": "2026-11-21T15:49:30-05:00",
   "dirty": false,
-  "builtAt": "2026-11-19T22:12:39.154Z"
+  "builtAt": "2026-11-21T21:04:18.953Z"
 } as const;
