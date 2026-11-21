@@ -398,7 +398,7 @@ in the same breath rather than left as a surprise on the next staff visit.
 
 | | Scope | Approach | Effort |
 |---|---|---|---|
-| C1a | ~12 handlers that announce a completed action and do nothing | fix or disable, one at a time | ~1 day |
+| C1 | 35 handlers that announce a completed action and do nothing — 9 closed 2026-11-19, 11 closed 2026-11-21, **24 left** | fix or disable, one at a time, worst consequence first | ~1 day |
 | C2 | 83 handlers claiming success without reaching the server (was 85; batch 1 took two) | triage: many are legitimately local state | ~2 days |
 | — | 188 controls with no handler at all | triage; most are layout elements the scanner cannot distinguish | ~1 day |
 | ✅ | `authz:scan` bucket A, 25 leads | **done** — see above; 19 routes gated | — |
@@ -407,6 +407,58 @@ C2 and the 188 are **scanner output, not findings.** Treating them as a
 defect list would be the error the brief warns about in the other direction:
 counting unverified items as failures. They need reading before they need
 fixing.
+
+#### C1: eleven more closed 2026-11-21 — 35 → 24
+
+Chosen by consequence again, and the first one is the worst thing in the
+bucket.
+
+**Wired, because something real was behind them (4).**
+
+`MasterScheduling` — **"Assign" rostered nobody.** The button was
+`toast.success(`${emp.name} assigned to job`)` and the page's own
+`handleAssignEmployee` was a toast above the comment `// Logic to assign
+employee`. A dispatcher could staff the week, watch every name land under
+"Assigned Employees", and have written nothing: the crew is never told and the
+shift board the next morning is empty. Of all 35 this is the one that decides
+whether somebody turns up at a customer's house.
+
+The appointment record already carried `employeeId` — the diary reads it to
+build both the crew list and the shift board — so the fix was to let
+`PATCH /schedule/appointments/:id` set it. It reads `employeeId` by presence,
+so `null` unassigns and the status-only PATCH every existing caller sends
+keeps working; the id is checked against `time_employee:` first, because an
+unknown id rosters nobody while reading on screen as assigned, which is the
+original bug wearing a server round-trip. The X beside an assigned employee
+now unassigns — it had no handler at all, so it was in bucket A too. Nine
+tests.
+
+Three portal **Export** buttons — advertiser campaign performance, vendor
+revenue trends, investor portfolio performance — each said
+"Downloading report..." and downloaded nothing. All three charts hold real
+server data, so the only missing piece was the file: `src/app/lib/downloadCsv.ts`,
+ten tests, quoting and formula-injection included because these files go into
+somebody else's books. An empty dataset now says so rather than handing over an
+empty file called a report.
+
+**Disabled with the reason on screen, because nothing exists to wire to (7).**
+Three "Save Settings" buttons over forms of local state (`AbandonedCart`,
+`AIRankingEngine`, `AutoProductPilot`); a supplier **markup** and a pricing
+rule on `MultiDropshipperManager`, both of which are money; an investor
+deal-room document that was never uploaded; and a print view that does not
+exist. Said in visible text, not only in a `title`, because this app gets used
+on a phone and a hover tooltip does not exist there.
+
+**Also removed:** the advertiser chart's `Conversions` line. The data stopped
+carrying conversions deliberately — nothing attributes a sale back to an ad —
+but the `<Line>` stayed, so the legend advertised a series that drew nothing,
+which reads as zero conversions rather than as no data.
+
+**The counts moved the wrong way in two buckets, and that is correct.** A went
+188 → 194 (a disabled button has no handler, blind spot 1) and C2 went 83 → 86
+(a CSV built from data already on the page reaches no server, blind spot 4 —
+new, written up in `tasks/found-not-fixed.md`). Both are the scanner, not a
+regression.
 
 ### Batch 6 — Hardening (P3/P4) — 8 of 10 done, 2 left and both are the owner's
 

@@ -820,10 +820,12 @@ export default function AutoProductPilot() {
               </div>
             </div>
 
-            <button onClick={() => toast.success('Settings saved')}
-              className="w-full py-3 bg-gradient-to-r from-orange-600 to-pink-600 hover:from-orange-500 hover:to-pink-500 text-white rounded-xl font-bold text-sm transition">
+            {/* Said 'Settings saved' over a form of local state. */}
+            <button disabled title="Saving pilot settings has not been built yet."
+              className="w-full py-3 bg-gradient-to-r from-orange-600 to-pink-600 text-white rounded-xl font-bold text-sm transition opacity-50 cursor-not-allowed">
               Save Settings
             </button>
+            <p className="mt-2 text-xs text-gray-500">Nothing is saved yet — these settings have no store behind them.</p>
           </div>
 
           <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl p-5">

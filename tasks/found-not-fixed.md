@@ -1004,10 +1004,10 @@ fields. Picking one needs to know which writer is losing them, and that is a
 separate trace through the save path. Eric's reported bug (the PDF printing
 $10,827.13 instead of $13,345.11) is fixed and is not caused by this.
 
-## `dead-ui-scan.mjs` — three things its buckets cannot see — 2026-11-19
+## `dead-ui-scan.mjs` — four things its buckets cannot see — 2026-11-19, a fourth added 2026-11-21
 
-All three found by working through its output rather than by reading the
-script, and all three mean a count from it is a starting point and not a
+All four found by working through its output rather than by reading the
+script, and all of them mean a count from it is a starting point and not a
 score.
 
 **1. Bucket A counts a deliberately disabled control as a missing handler.**
@@ -1016,7 +1016,9 @@ exactly what bucket A looks for. After disabling four placeholder controls in
 `SubscriptionHub` and `RevenueMonetizationHub` on purpose, both files are
 still listed in A — now for the honest version of the thing they were listed
 for. The scan cannot distinguish "forgotten" from "switched off on purpose",
-so A's 188 is an upper bound containing some number of correct answers.
+so A's count is an upper bound containing some number of correct answers — and
+it goes UP as C1 is worked through: 188 → 194 across 2026-11-21's eleven, every
+one of the six new entries a control that was switched off deliberately.
 
 **2. `authz:scan` bucket A only inspects WRITES.** `GET /chat/leads` returned
 every captured visitor name, email and phone to any signed-in account, and
@@ -1028,6 +1030,16 @@ came out of reading the files the scanner pointed at.
 leads were false positives: `/schedule/confirm` calls `staffActor` and
 `/landlord/conditions-reports/:id` resolves through `reportFor`, which serves
 own-or-403 with staff by exception. Both are correctly guarded.
+
+**4. Bucket C2 counts a correct local action as a false success.** Added
+2026-11-21. The three portal Export buttons now build a CSV from data the page
+already holds and hand it to the browser — `downloadCsv`, no request, which is
+the right implementation: the numbers were fetched when the chart was drawn and
+re-fetching them to export them would be slower and could disagree with what
+is on screen. C2 is "claims success without reaching the server", so all three
+moved from C1 into C2 and the count rose 83 → 86 by fixing them. A file
+download, a clipboard copy and a print view are all legitimate successes that
+never touch the network.
 
 **What would fix them.** (1) is a one-line exclusion — skip `<button>`
 elements carrying `disabled`. (2) is a real extension: inspect reads whose

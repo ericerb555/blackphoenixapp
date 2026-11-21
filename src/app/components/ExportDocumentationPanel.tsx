@@ -164,9 +164,12 @@ export function ExportDocumentationPanel({ elements, projectName }: ExportDocume
           <Download className="w-4 h-4" />
           Export Now
         </button>
+        {/* Said "Print preview opening..." and opened nothing. */}
         <button
-          onClick={() => toast.info('Print preview opening...')}
-          className="px-4 py-2 bg-[#0A0A0A] hover:bg-[#2A2A2A] border border-[#2A2A2A] rounded-lg text-white transition-colors"
+          disabled
+          title="A print view has not been built yet — use Export Now and print the file."
+          aria-label="Print — not available yet"
+          className="px-4 py-2 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg text-white transition-colors opacity-50 cursor-not-allowed"
         >
           <Printer className="w-4 h-4" />
         </button>

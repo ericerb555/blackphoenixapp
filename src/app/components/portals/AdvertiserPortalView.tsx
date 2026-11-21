@@ -36,6 +36,7 @@ import InvestmentTab from './InvestmentTab';
 import { PortalDocumentVault } from './PortalDocumentVault';
 import PortalSettings from './PortalSettings';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import { downloadCsv, datedFilename } from '../../lib/downloadCsv';
 import { useAuth } from '../../contexts/AuthContext';
 
 const AD_API = `${API_BASE_URL}/make-server-3eae23a6`;
@@ -427,7 +428,16 @@ export default function AdvertiserPortalView() {
                   <p className="text-sm text-gray-400">Impressions, clicks, and conversions over time</p>
                 </div>
                 <PrimaryButton
-                  onClick={() => toast.success('Downloading report...')}
+                  onClick={() => {
+                    // Said "Downloading report..." and downloaded nothing. The
+                    // chart beside it is real ad data, so there was never
+                    // anything to build but the file.
+                    if (!downloadCsv(datedFilename('campaign-performance'), performanceData, ['month', 'impressions', 'clicks'])) {
+                      toast.error('There is nothing to export yet — this chart fills in as your ads run.');
+                      return;
+                    }
+                    toast.success('Campaign performance downloaded.');
+                  }}
                   className="flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />
@@ -446,7 +456,12 @@ export default function AdvertiserPortalView() {
                   <Legend key="lg" />
                   <Line key="impressions" type="monotone" dataKey="impressions" stroke="#ea580c" strokeWidth={2} name="Impressions" isAnimationActive={false} />
                   <Line key="clicks" type="monotone" dataKey="clicks" stroke="#3b82f6" strokeWidth={2} name="Clicks" isAnimationActive={false} />
-                  <Line key="conversions" type="monotone" dataKey="conversions" stroke="#22c55e" strokeWidth={2} name="Conversions" isAnimationActive={false} />
+                  {/* No conversions series. The comment on performanceData
+                      above says why the figure is not computed — nothing
+                      attributes a sale back to an ad — but this line stayed
+                      behind it, so the legend advertised "Conversions" and
+                      drew nothing. A legend entry for a series that does not
+                      exist reads as zero conversions rather than as no data. */}
                 </LineChart>
               </ChartContainer>
             </div>

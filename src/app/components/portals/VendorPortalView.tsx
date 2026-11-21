@@ -39,6 +39,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import NotificationBell from './NotificationBell';
 import PortalSettings from './PortalSettings';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import { downloadCsv, datedFilename } from '../../lib/downloadCsv';
 
 const VENDOR_API = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -578,7 +579,15 @@ export default function VendorPortalView() {
                   <p className="text-sm text-gray-400">Monthly revenue and order volume</p>
                 </div>
                 <PrimaryButton
-                  onClick={() => toast.success('Downloading report...')}
+                  onClick={() => {
+                    // `sort` is left out deliberately: it orders the months and
+                    // is nobody's business outside this component.
+                    if (!downloadCsv(datedFilename('revenue-trends'), revenueData, ['month', 'revenue', 'orders'])) {
+                      toast.error('There is nothing to export yet — this fills in from your first order.');
+                      return;
+                    }
+                    toast.success('Revenue trends downloaded.');
+                  }}
                   className="flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />

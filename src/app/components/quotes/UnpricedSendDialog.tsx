@@ -33,6 +33,17 @@ interface Props {
   customerEmail?: string;
   /** True while the acknowledged send is in flight. */
   sending?: boolean;
+  /**
+   * The estimate has ALREADY been emailed, and this is about the record.
+   *
+   * The same refusal reaches here from two places. Sending for approval has
+   * sent nothing yet, so "it will go to them" is true. Emailing the PDF has
+   * already put it in their inbox, and saying it is about to be sent would
+   * leave somebody unsure what the customer actually has — which is the whole
+   * complaint this came from: "i emailed jason quote but it still sayd not
+   * send".
+   */
+  alreadyEmailed?: boolean;
   onCancel: () => void;
   onSendAnyway: () => void;
 }
@@ -42,6 +53,7 @@ export function UnpricedSendDialog({
   customerName,
   customerEmail,
   sending = false,
+  alreadyEmailed = false,
   onCancel,
   onSendAnyway,
 }: Props) {
@@ -61,15 +73,29 @@ export function UnpricedSendDialog({
           <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" style={{ marginTop: '2px' }} />
           <div className="flex-1" style={{ minWidth: 0 }}>
             <h3 id="unpriced-send-heading" className="text-lg font-bold text-white">
-              Send this without real prices?
+              {alreadyEmailed
+                ? 'Record this as sent, without real prices?'
+                : 'Send this without real prices?'}
             </h3>
             <p className="text-sm text-gray-300" style={{ marginTop: '8px' }}>
               {reason}
             </p>
             <p className="text-xs text-gray-500" style={{ marginTop: '8px' }}>
-              {customerName ? `It will go to ${customerName}` : 'It will go to the customer'}
-              {customerEmail ? ` at ${customerEmail}` : ''} as a quote they can approve. Who sent it
-              and that it was unpriced will be recorded on the quote.
+              {alreadyEmailed ? (
+                <>
+                  The estimate has already been emailed
+                  {customerName ? ` to ${customerName}` : ''}
+                  {customerEmail ? ` at ${customerEmail}` : ''} — this only decides whether the
+                  quote is marked as sent. Leaving it a draft means nothing records that they have
+                  it. Who sent it and that it was unpriced will be recorded either way.
+                </>
+              ) : (
+                <>
+                  {customerName ? `It will go to ${customerName}` : 'It will go to the customer'}
+                  {customerEmail ? ` at ${customerEmail}` : ''} as a quote they can approve. Who
+                  sent it and that it was unpriced will be recorded on the quote.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -80,7 +106,7 @@ export function UnpricedSendDialog({
             className="rounded-lg border border-[#2A2A2A] text-sm font-bold text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
             style={{ padding: '10px 16px' }}
           >
-            Don&apos;t send — let me price it
+            {alreadyEmailed ? 'Leave it as a draft' : <>Don&apos;t send &mdash; let me price it</>}
           </button>
           <button
             onClick={onSendAnyway}
@@ -88,7 +114,9 @@ export function UnpricedSendDialog({
             className="rounded-lg bg-amber-600 hover:bg-amber-500 text-sm font-bold text-white transition-colors disabled:opacity-50"
             style={{ padding: '10px 16px' }}
           >
-            {sending ? 'Sending…' : 'Send anyway'}
+            {sending
+              ? (alreadyEmailed ? 'Recording…' : 'Sending…')
+              : (alreadyEmailed ? 'Mark it as sent' : 'Send anyway')}
           </button>
         </div>
       </div>

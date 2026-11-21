@@ -898,8 +898,13 @@ export default function MultiDropshipperManager() {
                                 onChange={e => setConnected(prev => prev.map(s => s.id === supplier.id ? { ...s, markupValue: Number(e.target.value) } : s))}
                                 className="w-24 bg-[#0A0A0A] border border-[#2A2A2A] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                               />
-                              <button onClick={() => toast.success('Markup saved!')}
-                                className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-semibold transition">
+                              {/* 'Markup saved!' and saved nothing. This one
+                                  is a PRICE: the markup decides what a customer
+                                  is charged, and an operator who believes it is
+                                  stored will price against a number that goes
+                                  away with the page. */}
+                              <button disabled title="Saving a supplier markup has not been built yet — the number here is not stored."
+                                className="px-3 py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold transition opacity-50 cursor-not-allowed">
                                 <Save className="w-4 h-4" />
                               </button>
                             </div>
@@ -1267,7 +1272,10 @@ export default function MultiDropshipperManager() {
                 <p className="text-sm text-gray-300">{s.label}</p>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-orange-400 font-semibold">{s.value}</span>
-                  <button onClick={() => toast.success('Setting updated')} className="p-1 hover:bg-[#2A2A2A] rounded text-gray-500 hover:text-white transition">
+                  {/* 'Setting updated' against hardcoded rows — price
+                      rounding and the shipping estimate shown beside it are
+                      markup, not records, so there was nothing to update. */}
+                  <button disabled title="Editing this pricing rule has not been built yet." className="p-1 rounded text-gray-600 opacity-50 cursor-not-allowed">
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

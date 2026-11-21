@@ -85,6 +85,8 @@ export async function logSentEmail(entry: {
   status?: 'sent' | 'failed';
   provider?: string;
   error?: string;
+  /** The staff account that asked for it. Null for mail the platform sends itself. */
+  sentBy?: string;
 }) {
   const sentAt = new Date().toISOString();
   const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -97,6 +99,13 @@ export async function logSentEmail(entry: {
     status: entry.status || 'sent',
     provider: entry.provider || 'resend',
     error: entry.error || null,
+    /*
+     * WHO ASKED. The log recorded the recipient and nothing about the sender,
+     * so a message sent through the open /send route left no trace of who
+     * sent it. Now that the route is staff-only this is the audit half of the
+     * same fix: a company email can be traced to a person.
+     */
+    sentBy: entry.sentBy || null,
     sentAt,
   };
   // Key sorts chronologically; newest read/sorted client-side.
@@ -203,9 +212,11 @@ export async function sendCompanyEmail(input: {
   html: string;
   templateKey?: string;
   attachments?: { filename: string; content: string }[];
+  /** The staff account that asked. Absent for mail the platform sends itself. */
+  sentBy?: string;
 }): Promise<{ ok: boolean; logEntry?: any; error?: string }> {
   const recipients = Array.isArray(input.to) ? input.to : [input.to];
-  const { subject, html, templateKey } = input;
+  const { subject, html, templateKey, sentBy } = input;
 
   /*
    * Resend requires PURE base64 for attachment content. Any
@@ -267,22 +278,54 @@ export async function sendCompanyEmail(input: {
   }
 
   const logEntry = await logSentEmail({
-    to: recipients, subject, html, templateKey, status, error: errorMsg,
+    to: recipients, subject, html, templateKey, status, error: errorMsg, sentBy,
   });
 
   return status === 'sent' ? { ok: true, logEntry } : { ok: false, logEntry, error: errorMsg };
 }
 
 // ── Send + record ────────────────────────────────────────────────────────
+/**
+ * STAFF ONLY, AND THIS IS THE ONE THAT ACTUALLY SENDS.
+ *
+ * The template route above already says why a write here matters: "an open
+ * write here is a way to make us send whatever somebody wants, to our own
+ * list, with our reputation behind it." That is about STORING subject and
+ * HTML. This route stores nothing and sends immediately.
+ *
+ * It had no authorisation of any kind. The auth wall defaults an unlisted
+ * route to "signed in", which every portal customer, vendor, subcontractor and
+ * advertiser is — so any of them could post a recipient, a subject, arbitrary
+ * HTML and a base64 ATTACHMENT, and this would send it from
+ * `Black Phoenix <FROM_EMAIL>` with the company reply-to on it. That is an
+ * open relay wearing a verified sending domain: phishing that passes SPF and
+ * DKIM because it genuinely is us, and a sending reputation that is gone the
+ * first time somebody uses it.
+ *
+ * Found while fixing why an emailed quote still read as a draft, so it is
+ * worth being plain that this is a real hole and not a tidy-up: nothing
+ * stopped it, and nothing recorded who sent what beyond the recipient.
+ *
+ * Every caller is already staff — the quote editor, the invoice preview and
+ * the store content studio — so nothing legitimate loses access. A customer
+ * who needs mail gets it through a route that decides the recipient itself,
+ * which is the rule the rest of this codebase follows: the browser names WHAT
+ * to send, never WHO to send it to and never from whom.
+ */
 emailCenterRouter.post('/send', async (c) => {
   try {
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required for this.' }, 403);
+    }
+
     const body = await c.req.json();
     const { to, subject, html, templateKey, attachments } = body || {};
     if (!to || !subject || !html) {
       return c.json({ error: 'to, subject, and html are required' }, 400);
     }
 
-    const result = await sendCompanyEmail({ to, subject, html, templateKey, attachments });
+    const result = await sendCompanyEmail({ to, subject, html, templateKey, attachments, sentBy: who.email });
     if (!result.ok) return c.json({ error: result.error, logEntry: result.logEntry }, 502);
     return c.json({ success: true, logEntry: result.logEntry });
   } catch (error) {

@@ -56,6 +56,7 @@ import { sendCompanyEmail } from "./email-center.tsx";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
+import { estimatorInputFor, briefInputFor } from "./workRequestToBrief.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
   SCREENING_CONSENT_TEXT,
@@ -5017,7 +5018,13 @@ async function estimateForWorkRequest(
    * of it, keeps the prior-analysis block in the shape this already emitted,
    * and passes any written brief through verbatim.
    */
-  const extra = composeEstimatorContext(workRequest);
+  /*
+   * Also translated. composeEstimatorContext wants squareFootage, storeys and
+   * roomCount; the form sends total_square_feet and total_floors. Passing the
+   * raw record meant THE SIZE and THE PLACE sections of the brief were empty
+   * on every request a customer ever filed.
+   */
+  const extra = composeEstimatorContext(briefInputFor(workRequest));
 
   /**
    * The catalogue, the rates, the margins and the measured hours.
@@ -5030,12 +5037,17 @@ async function estimateForWorkRequest(
    */
   const ctx = await loadQuotePricingContext();
 
+  /*
+   * Translated, not read straight off the record. `estimatorInputFor` accepts
+   * the names the customer form actually sends — `project_name`,
+   * `service_type`, `site_address` + city/state/zip — as well as the ones that
+   * were asked for here. Before it, `title`, `location` and `estimatedValue`
+   * were always undefined for a real work request, so the estimator priced off
+   * the service type and the free-text description alone. See
+   * `workRequestToBrief.ts`.
+   */
   return await runEstimator({
-    title: workRequest?.title,
-    serviceType: workRequest?.serviceType,
-    description: workRequest?.description,
-    location: workRequest?.location || workRequest?.address,
-    estimatedValue: workRequest?.estimatedValue,
+    ...estimatorInputFor(workRequest),
     extra,
   },
   (raw) => repriceEstimate(raw, repricerDeps(ctx)),
@@ -9001,10 +9013,31 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
     await persistWorkRequest(record);
+    const leadBrief = estimatorInputFor(record);
+    const leadSize = briefInputFor(record);
     const alerts = (await kv.get('admin_alerts') as any[]) || [];
     alerts.unshift({ id: `wr_alert_${record.id}`, type: 'urgent', category: 'Work Requests', title: `New Work Request: ${clientName || 'Customer'}`,
-      description: `${clientName || 'Customer'} submitted a ${record.serviceType || record.project_type || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
+      description: `${clientName || 'Customer'} submitted a ${leadBrief.serviceType || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
     await kv.set('admin_alerts', alerts.slice(0, 200));
+
+    /*
+     * THE LEAD NOTIFICATION, with the two things it needs to be acted on.
+     *
+     * It had no JOB ADDRESS. For a builder that is the field which decides
+     * whether a lead is worth the drive at all — the service-area check on the
+     * form exists for exactly that reason — and it was in the record the whole
+     * time under `site_address` plus city, state and postcode, which is why it
+     * is assembled by `locationOf` rather than read from one key.
+     *
+     * `Service` went through `record.serviceType` only, so a client posting
+     * `service_type` showed a dash. `estimatorInputFor` takes either, along
+     * with `service` and `project_type`. Same translation the estimator now
+     * uses, so the email and the quote cannot disagree about what the job is.
+     */
+    const sizeLine = [
+      leadSize.squareFootage ? `${leadSize.squareFootage} sq ft` : '',
+      leadSize.storeys ? `${leadSize.storeys} floor${Number(leadSize.storeys) === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' · ');
 
     notifyStaffInBackground('work_request', {
       subject: `New work request from ${clientName || clientEmail}`,
@@ -9013,11 +9046,23 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
         ['Client', clientName || '—'],
         ['Email', clientEmail],
         ['Phone', record.client_phone || '—'],
-        ['Service', record.serviceType || record.project_type || record.title || '—'],
+        ['Service', leadBrief.serviceType || leadBrief.title || '—'],
+        ['Job address', leadBrief.location || '—'],
+        ['Size', sizeLine || '—'],
         ['Budget', record.budgetRange || record.budget || '—'],
         ['Description', String(record.description || record.details || '').slice(0, 400) || '—'],
         ['Request ID', record.id],
       ],
+      /*
+       * What a phone gets. Work requests only started texting on 2026-11-20 —
+       * they were not in the owner's `smsEvents` before that — and with no
+       * `keep` list a text is the subject line and nothing else.
+       *
+       * What and where, which is what triage needs: everything else is in the
+       * email, and `smsBody` drops any of these that is blank rather than
+       * sending "Job address: —".
+       */
+      smsRows: ['Service', 'Job address'],
       ctaLabel: 'Review the request',
       ctaPath: '/work-requests',
       dedupeKey: `work_request:${record.id}`,
@@ -16170,20 +16215,77 @@ app.get('/make-server-3eae23a6/schedule/appointments', async (c) => {
     return c.json({ success: true, appointments: records.sort((a: any, b: any) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)) });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to load appointments.' }, 500); }
 });
+/**
+ * The status of an appointment, and WHO IS ON IT.
+ *
+ * `employeeId` is new, 2026-11-21, and it is the reason this route exists in
+ * more than one shape. Master Scheduling's "Assign" button was a toast naming
+ * the employee and returning, and the page's own `handleAssignEmployee` was a
+ * toast sitting above the comment `// Logic to assign employee`. So a
+ * dispatcher could staff a week of appointments, watch every name appear
+ * under "Assigned Employees", and have nothing written down anywhere: the
+ * crew is never told, and the shift board the next morning is empty. Of the
+ * 35 handlers in the audit's C1 bucket that announce a completed action and
+ * do nothing, this is the one that decides whether somebody turns up to a
+ * customer's house.
+ *
+ * The appointment already carried `employeeId` — the diary reads it to build
+ * both the job's crew list and the shift board — so this is the field the
+ * screen was displaying all along. It simply had no way to set it.
+ *
+ * The id is checked against the roster before it is stored. An unknown id
+ * would roster nobody while reading on screen as assigned, which is the exact
+ * failure this change exists to remove. `null` or an empty string unassigns.
+ *
+ * One appointment carries one crew member, which is the shape the record has
+ * always had; the caller is told so rather than being allowed to believe a
+ * second assignment was added alongside the first.
+ */
 app.patch('/make-server-3eae23a6/schedule/appointments/:id', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
     if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
-    if (!admin) return c.json({ error: 'Administrator access is required to change schedule status.' }, 403);
+    if (!admin) return c.json({ error: 'Administrator access is required to change the schedule.' }, 403);
     const existing = await kv.get(appointmentKey(c.req.param('id'))) as any;
     if (!existing) return c.json({ error: 'Appointment not found.' }, 404);
     const body = await c.req.json();
-    const status = String(body.status || '').trim().toLowerCase();
-    if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
-    const record = { ...existing, status, updated_at: new Date().toISOString(), status_updated_by: String(user.email).toLowerCase() };
+
+    /*
+     * Presence, not truthiness. `employeeId: null` is "take them off this
+     * job" and must be told apart from a body that does not mention the crew
+     * at all — a status-only PATCH, which is every caller written before
+     * today and must keep working unchanged.
+     */
+    const wantsStatus = body.status !== undefined && body.status !== null && String(body.status).trim() !== '';
+    const wantsCrew = Object.prototype.hasOwnProperty.call(body, 'employeeId');
+    if (!wantsStatus && !wantsCrew) return c.json({ error: 'Send a status, an employeeId, or both.' }, 400);
+
+    const record = { ...existing, updated_at: new Date().toISOString() };
+
+    if (wantsStatus) {
+      const status = String(body.status).trim().toLowerCase();
+      if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
+      record.status = status;
+      record.status_updated_by = String(user.email).toLowerCase();
+    }
+
+    if (wantsCrew) {
+      const id = body.employeeId === null ? '' : String(body.employeeId).trim();
+      if (!id) {
+        record.employeeId = null;
+        record.employeeName = null;
+      } else {
+        const employee = await kv.get(`time_employee:${id}`) as any;
+        if (!employee) return c.json({ error: 'That employee is not on the roster.' }, 404);
+        record.employeeId = id;
+        record.employeeName = String(employee.name || employee.email || '').trim() || null;
+      }
+      record.crew_updated_by = String(user.email).toLowerCase();
+    }
+
     await kv.set(appointmentKey(record.id), record);
     return c.json({ success: true, appointment: record });
-  } catch (error: any) { return c.json({ error: error.message || 'Unable to update appointment status.' }, 500); }
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to update this appointment.' }, 500); }
 });
 
 // ── MAINTENANCE PLAN COMPATIBILITY ────────────────────────────────────────────
