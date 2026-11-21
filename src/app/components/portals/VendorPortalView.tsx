@@ -812,7 +812,10 @@ export default function VendorPortalView() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <button
-                      onClick={() => toast.info('View subscription plans to upgrade')}
+                      /* Said "View subscription plans to upgrade" — advice, from a
+                         button, with the plans tab one click away and no way to tell
+                         which one it meant. It opens it now. */
+                      onClick={() => setActiveTab('plan-builder')}
                       className="bg-purple-600/10 hover:bg-purple-600/20 border border-purple-500/30 text-purple-300 font-semibold py-3 px-6 rounded-lg transition flex items-center justify-center gap-2"
                     >
                       <Crown className="w-5 h-5" />

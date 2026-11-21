@@ -753,8 +753,11 @@ export function AdvertiserPerformanceTab({ adStats, adByCreative, creatives, cam
 // ─────────────────────────────────────────────────────────────────────────────
 // Billing
 // ─────────────────────────────────────────────────────────────────────────────
-export function AdvertiserBillingTab({ adStats, campaigns, loading, subscriptionTier = 'starter' }: AdvertiserTabProps) {
+export function AdvertiserBillingTab({ session, adStats, campaigns, loading, subscriptionTier = 'starter' }: AdvertiserTabProps) {
   const [interval, setInterval] = useState<'month' | 'week'>('month');
+  /** The tier a request is in flight for, and the ones already asked about. */
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [asked, setAsked] = useState<Record<string, boolean>>({});
 
   const plans = interval === 'week' ? ADVERTISER_WEEKLY_PLANS : ADVERTISER_PLANS;
   const current: SubscriptionPlan | undefined =
@@ -768,6 +771,52 @@ export function AdvertiserBillingTab({ adStats, campaigns, loading, subscription
 
   const used = Number(adStats?.impressions || 0);
   const liveCampaigns = (campaigns || []).filter((c) => String(c.status) === 'active').length;
+
+  /**
+   * Ask to be moved to a plan, where somebody will actually see the ask.
+   *
+   * "Switch to this" was `toast.info(\`Your account manager will move you to
+   * ${p.name}. Nothing has been charged.\`)` — a sentence about a person who
+   * was never told. An advertiser ready to spend more clicked it, read that it
+   * was in hand, and nothing happened: no record, no alert, no email. That is
+   * revenue walking out, and the only one who could notice is the customer
+   * waiting to be upgraded.
+   *
+   * `POST /plan-quote-request` already does exactly this job for add-ons: it
+   * stores the request, works out the account's size server-side so whoever
+   * prices it sees the same number billing would, and notifies staff. So this
+   * is a wiring job, not a feature.
+   */
+  const requestPlanSwitch = async (plan: SubscriptionPlan) => {
+    if (!session?.access_token) {
+      toast.error('Please sign in again to ask about a plan change.');
+      return;
+    }
+    setSwitching(plan.tier);
+    try {
+      const res = await fetch(`${API}/plan-quote-request`, {
+        method: 'POST',
+        headers: headersOf(session),
+        body: JSON.stringify({
+          audience: 'advertiser',
+          addOnId: `advertiser-plan:${plan.tier}`,
+          note: `Wants to move to ${plan.name} (${interval === 'week' ? 'weekly' : 'monthly'}, `
+            + `$${num(plan.regularPrice)}) from ${current?.name || subscriptionTier}.`,
+        }),
+      });
+      // fetch does not reject on 4xx, and this route answers { success: false }
+      // on a handled error, so both have to be read.
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok || json?.success === false) throw new Error(json?.error || 'Could not send that request.');
+      setAsked((current) => ({ ...current, [plan.tier]: true }));
+      toast.success(json?.message
+        || 'Asked — we have your details and nothing has been charged. We will come back to you.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not send that request. Please try again.');
+    } finally {
+      setSwitching(null);
+    }
+  };
   const impressionPct = unlimited(impressionCap) || !impressionCap ? 0 : Math.min(100, (used / impressionCap) * 100);
   const campaignPct = unlimited(campaignCap) || !campaignCap ? 0 : Math.min(100, (liveCampaigns / campaignCap) * 100);
 
@@ -891,15 +940,21 @@ export function AdvertiserBillingTab({ adStats, campaigns, loading, subscription
                 </p>
                 <button
                   type="button"
-                  disabled={isCurrent}
-                  onClick={() => toast.info(`Your account manager will move you to ${p.name}. Nothing has been charged.`)}
+                  disabled={isCurrent || switching === p.tier || asked[p.tier]}
+                  onClick={() => requestPlanSwitch(p)}
                   className={`mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition ${
-                    isCurrent
+                    isCurrent || asked[p.tier]
                       ? 'cursor-default border border-orange-500/40 text-orange-300'
                       : 'bg-orange-600 text-white hover:bg-orange-500'
                   }`}
                 >
-                  {isCurrent ? 'Current plan' : <><CreditCard className="h-4 w-4" /> Switch to this</>}
+                  {isCurrent
+                    ? 'Current plan'
+                    : asked[p.tier]
+                      ? 'Asked — we will be in touch'
+                      : switching === p.tier
+                        ? 'Sending…'
+                        : <><CreditCard className="h-4 w-4" /> Switch to this</>}
                 </button>
               </div>
             );

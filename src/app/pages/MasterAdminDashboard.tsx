@@ -25,6 +25,8 @@ import { useUser } from '../lib/user-context';
 import { UserRole, hasPermission, getRoleDisplayName, getRoleColor } from '../lib/rbac';
 import { PageHeader } from '../components/PageHeader';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { authedHeadersOrAnon } from '../utils/authHeaders';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 type DashboardView = 'overview' | 'territories' | 'tenants' | 'revenue' | 'cohorts' | 'system';
 
@@ -74,10 +76,65 @@ interface MasterAdminDashboardProps {
 export default function MasterAdminDashboard({ onNavigate }: MasterAdminDashboardProps) {
   const { user } = useUser();
   const [activeView, setActiveView] = useState<DashboardView>('overview');
+  /**
+   * What the server last said about itself, and when.
+   *
+   * The button beside this was green, labelled "System Healthy", and answered
+   * `toast.success('All systems operational')` without asking anything. On the
+   * platform owner's dashboard that is the worst place in the app to assert
+   * something untrue: it is the screen somebody opens BECAUSE they suspect
+   * trouble, and it told them there was none while the API could have been
+   * down for a day.
+   *
+   * It now reports what /health actually answered, including the commit the
+   * live server was built from — "still broken" is usually "not deployed", and
+   * that is the number which settles it.
+   */
+  const [serverHealth, setServerHealth] = useState<{
+    state: 'unknown' | 'checking' | 'ok' | 'down';
+    detail?: string;
+  }>({ state: 'unknown' });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   
   // Modal states
+  /**
+   * Ask the server whether it is there, and say what it answered.
+   *
+   * Deliberately NOT called on mount: a check that runs by itself and paints
+   * the button green is how the old lie would come back. The owner presses it,
+   * and what they read is the answer to that press.
+   *
+   * It only speaks for the API. "All systems operational" was a claim about
+   * everything — mail, texts, Stripe, the database — from a button wired to
+   * nothing, so the label now says what is actually being asked.
+   */
+  const checkServerHealth = async () => {
+    setServerHealth({ state: 'checking' });
+    try {
+      const headers = await authedHeadersOrAnon(publicAnonKey);
+      const res = await fetch(
+        // The functions root comes from apiConfig: 504 call sites used to
+        // rebuild this URL for themselves, six with the project ref typed out.
+        `${API_BASE_URL}/make-server-3eae23a6/health`,
+        { headers },
+      );
+      // fetch does not reject on 4xx, and a retired function answers 200 with
+      // its own shape — so the body has to be read, not just the status.
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (json?.status !== 'ok') throw new Error(String(json?.message || json?.error || 'unexpected answer'));
+      const commit = json?.build?.commit ? String(json.build.commit) : '';
+      const detail = commit ? `build ${commit}` : 'no build info reported';
+      setServerHealth({ state: 'ok', detail });
+      toast.success(`Server answering — ${detail}.`);
+    } catch (error: any) {
+      const why = error?.message || 'no answer';
+      setServerHealth({ state: 'down', detail: why });
+      toast.error(`Server did not answer: ${why}`);
+    }
+  };
+
   const [showNewTerritoryModal, setShowNewTerritoryModal] = useState(false);
   const [showSystemSettingsModal, setShowSystemSettingsModal] = useState(false);
   const [newTerritoryData, setNewTerritoryData] = useState({
@@ -358,11 +415,25 @@ export default function MasterAdminDashboard({ onNavigate }: MasterAdminDashboar
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => toast.success('All systems operational')}
-                className="px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg font-medium hover:bg-green-500/30 transition-colors flex items-center gap-2"
+                onClick={checkServerHealth}
+                disabled={serverHealth.state === 'checking'}
+                title={serverHealth.detail || 'Ask the server whether it is answering'}
+                className={`px-4 py-2 border rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                  serverHealth.state === 'ok'
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30'
+                    : serverHealth.state === 'down'
+                      ? 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30'
+                      : 'bg-zinc-500/10 text-zinc-300 border-zinc-600/40 hover:bg-zinc-500/20'
+                }`}
               >
                 <Activity className="w-4 h-4" />
-                System Healthy
+                {serverHealth.state === 'checking'
+                  ? 'Checking…'
+                  : serverHealth.state === 'ok'
+                    ? 'Server answering'
+                    : serverHealth.state === 'down'
+                      ? 'Server not answering'
+                      : 'Check the server'}
               </button>
             </div>
           </div>
