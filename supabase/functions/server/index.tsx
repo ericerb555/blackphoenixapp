@@ -127,6 +127,7 @@ import hourTransfersRouter from "./hour-transfers.tsx";
  */
 import { CRM_CONTACTS_KEY, upsertCrmContact, putIntoCrmSafely } from './crmContacts.ts';
 import timeTrackingRouter from "./time-tracking.tsx";
+import { decideAppointmentPatch } from "./appointmentPatch.ts";
 import { registerAccountAccessRoutes, standingFor, frozenMayReach } from "./accountAccess.tsx";
 import { registerTeamRoutes } from "./teamDirectory.ts";
 import { BUILD_INFO } from "./buildInfo.generated.ts";
@@ -16261,38 +16262,21 @@ app.patch('/make-server-3eae23a6/schedule/appointments/:id', async (c) => {
     const body = await c.req.json();
 
     /*
-     * Presence, not truthiness. `employeeId: null` is "take them off this
-     * job" and must be told apart from a body that does not mention the crew
-     * at all — a status-only PATCH, which is every caller written before
-     * today and must keep working unchanged.
+     * The decision — which fields may change, and what refuses — lives in
+     * `appointmentPatch.ts` so that it can be executed by the test suite
+     * rather than only asserted against this file's source text. A guard that
+     * is present and wrong is the failure that matters here: `if
+     * (body.employeeId)` reads perfectly well and silently makes unassigning
+     * impossible.
      */
-    const wantsStatus = body.status !== undefined && body.status !== null && String(body.status).trim() !== '';
-    const wantsCrew = Object.prototype.hasOwnProperty.call(body, 'employeeId');
-    if (!wantsStatus && !wantsCrew) return c.json({ error: 'Send a status, an employeeId, or both.' }, 400);
+    const decision = await decideAppointmentPatch(
+      body,
+      String(user.email),
+      (id) => kv.get(`time_employee:${id}`) as Promise<any>,
+    );
+    if (decision.ok === false) return c.json({ error: decision.error }, decision.status);
 
-    const record = { ...existing, updated_at: new Date().toISOString() };
-
-    if (wantsStatus) {
-      const status = String(body.status).trim().toLowerCase();
-      if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
-      record.status = status;
-      record.status_updated_by = String(user.email).toLowerCase();
-    }
-
-    if (wantsCrew) {
-      const id = body.employeeId === null ? '' : String(body.employeeId).trim();
-      if (!id) {
-        record.employeeId = null;
-        record.employeeName = null;
-      } else {
-        const employee = await kv.get(`time_employee:${id}`) as any;
-        if (!employee) return c.json({ error: 'That employee is not on the roster.' }, 404);
-        record.employeeId = id;
-        record.employeeName = String(employee.name || employee.email || '').trim() || null;
-      }
-      record.crew_updated_by = String(user.email).toLowerCase();
-    }
-
+    const record = { ...existing, ...decision.changes, updated_at: new Date().toISOString() };
     await kv.set(appointmentKey(record.id), record);
     return c.json({ success: true, appointment: record });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to update this appointment.' }, 500); }
