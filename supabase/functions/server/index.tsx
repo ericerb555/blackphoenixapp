@@ -384,6 +384,7 @@ import {
   intakeActor, intakeIsAdmin, financialActor,
   INTAKE_ADMIN_ROLES, PLATFORM_OWNER_EMAILS, STAFF_VIEW_ROLES,
 } from "./identity.ts";
+import { effectivePortalGrants } from "./portalGrants.ts";
 import { isUrl, stripBase64 } from "./payloadLimits.ts";
 import { fence, UNTRUSTED_PREAMBLE } from "./untrustedContent.ts";
 import {
@@ -13665,8 +13666,8 @@ app.get('/make-server-3eae23a6/intake/my-access', async (c) => {
     // rejects anything else. Return the full set so callers can honour all of
     // them. `access` is unchanged for existing callers.
     const emailLc = String(user.email).toLowerCase();
-    const portals = ((await kv.getByPrefix(`portal_access:${emailLc}:`)) as any[] || [])
-      .filter(Boolean)
+    const accessRows = ((await kv.getByPrefix(`portal_access:${emailLc}:`)) as any[] || []).filter(Boolean);
+    const portals = accessRows
       .map((a: any) => ({
         portalType: a.portalType,
         status: a.status,
@@ -13683,7 +13684,28 @@ app.get('/make-server-3eae23a6/intake/my-access', async (c) => {
      * request would mean two round trips before anything renders.
      */
     const standing = await standingFor(user);
-    return c.json({ success: true, standing, canEnterPortal: access?.status === 'active' || portals.some((p: any) => p.active), access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null, portals });
+    /**
+     * WHICH portals, not just whether any.
+     *
+     * `canEnterPortal` is true when any row is active, and the render gate
+     * opened whichever portal page the browser asked for on the strength of
+     * it — so a vendor-only account that typed /landlord-portal walked in.
+     * `grants` is the set it may actually open, decided here because a check
+     * the browser computes is a check the browser can be told to skip.
+     *
+     * Staff open everything, as they do everywhere else, and that is returned
+     * as its own flag rather than folded into `grants` — there is no honest
+     * way to enumerate "all of them" into a list, and a sentinel value in
+     * there would be read as a portal type by the next person. `intakeIsAdmin`
+     * is an allowlist and a token-metadata check with no query behind it, so
+     * asking costs nothing on a route that runs on every portal page.
+     */
+    const portalAdmin = await intakeIsAdmin(user);
+    const grants = effectivePortalGrants({
+      access: accessRows,
+      metadataRole: (user as any)?.app_metadata?.role || (user as any)?.app_metadata?.accountType,
+    });
+    return c.json({ success: true, standing, canEnterPortal: access?.status === 'active' || portals.some((p: any) => p.active), grants, admin: portalAdmin, access: access ? { applicationId: access.applicationId, portalType: access.portalType, status: access.status, onboardingStatus: access.onboardingStatus, active: access.status === 'active' } : null, portals });
   } catch (error: any) { return c.json({ success: false, error: error.message || 'Unable to load portal access.' }, 500); }
 });
 
