@@ -435,9 +435,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           {/* Close button overlay */}
           <button
             onClick={() => setShowEmployeeApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Close"
+            className="fixed top-4 right-4 z-[10001] inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-white text-black hover:bg-gray-200 rounded-xl text-sm font-bold shadow-xl ring-2 ring-black/30 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
           >
-            <X className="w-6 h-6 text-white" />
+            <X className="w-5 h-5" />
+            Close
           </button>
         </div>
       )}
@@ -541,9 +543,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           {/* Close button overlay */}
           <button
             onClick={() => setShowEmploymentApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Close"
+            className="fixed top-4 right-4 z-[10001] inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-white text-black hover:bg-gray-200 rounded-xl text-sm font-bold shadow-xl ring-2 ring-black/30 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
           >
-            <X className="w-6 h-6 text-white" />
+            <X className="w-5 h-5" />
+            Close
           </button>
         </div>
       )}
@@ -672,9 +676,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           {/* Close button overlay */}
           <button
             onClick={() => setShowFieldTechApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Close"
+            className="fixed top-4 right-4 z-[10001] inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-white text-black hover:bg-gray-200 rounded-xl text-sm font-bold shadow-xl ring-2 ring-black/30 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
           >
-            <X className="w-6 h-6 text-white" />
+            <X className="w-5 h-5" />
+            Close
           </button>
         </div>
       )}
@@ -773,9 +779,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           />
           <button
             onClick={() => setShowLandlordApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Close"
+            className="fixed top-4 right-4 z-[10001] inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-white text-black hover:bg-gray-200 rounded-xl text-sm font-bold shadow-xl ring-2 ring-black/30 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
           >
-            <X className="w-6 h-6 text-white" />
+            <X className="w-5 h-5" />
+            Close
           </button>
         </div>
       )}
@@ -904,9 +912,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
           />
           <button
             onClick={() => setShowCondoAssociationApplication(false)}
-            className="fixed top-6 right-6 z-[10001] p-3 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+            aria-label="Close"
+            className="fixed top-4 right-4 z-[10001] inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-white text-black hover:bg-gray-200 rounded-xl text-sm font-bold shadow-xl ring-2 ring-black/30 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
           >
-            <X className="w-6 h-6 text-white" />
+            <X className="w-5 h-5" />
+            Close
           </button>
         </div>
       )}
@@ -981,9 +991,11 @@ export default function SignUpOptionsModal({ isOpen, onClose }: SignUpOptionsMod
                   </div>
                   <button
                     onClick={onClose}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                    aria-label="Close"
+                    className="inline-flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-xl bg-white/90 text-black hover:bg-white text-sm font-bold ring-1 ring-black/20 transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-orange-400"
                   >
-                    <X className="w-6 h-6 text-gray-400" />
+                    <X className="w-5 h-5" />
+                    Close
                   </button>
                 </div>
               </div>

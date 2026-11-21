@@ -17,8 +17,8 @@
  * enough to lose money on. An unpriced line comes back as unpriced and is
  * counted, so nobody sends a quote that silently omitted the concrete.
  */
-import { buildMembers, LUMBER_ACTUAL, type DeckModel } from './deckModel';
-import { deckingFinish, railFinish } from './deckFinishes';
+import { buildMembers, LUMBER_ACTUAL, type DeckModel } from './deckModel.ts';
+import { deckingFinish, railFinish } from './deckFinishes.ts';
 
 /** Lengths lumber is actually sold in, feet. */
 const STOCK_LENGTHS = [8, 10, 12, 14, 16, 20];

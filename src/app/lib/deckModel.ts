@@ -12,7 +12,7 @@
  * are handled in inches, since 2x8 is a name rather than a measurement.
  */
 
-import { railFinish } from './deckFinishes';
+import { railFinish } from './deckFinishes.ts';
 
 export type LumberSize = '2x6' | '2x8' | '2x10' | '2x12';
 export type PostSize = '4x4' | '6x6';

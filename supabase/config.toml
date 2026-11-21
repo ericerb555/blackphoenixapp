@@ -34,6 +34,24 @@ verify_jwt = true
 # the maintenance-plan and store events that work today. The function verifies
 # Stripe's own signature itself and refuses outright when no signing secret is
 # configured, so the JWT gate adds nothing it does not already do better.
+
+# Resend's delivery events. verify_jwt MUST stay false, for exactly the reason
+# the Stripe entry above gives: a webhook carries no Supabase token, so the
+# gateway refuses every event with UNAUTHORIZED_NO_AUTH_HEADER before the
+# function sees it.
+#
+# That is not hypothetical here. The route this forwards to was written,
+# deployed and unreachable: tested by hand WITH an anon key, which made its
+# 401 for an unsigned request look like the handler refusing correctly. It was
+# the gateway. Caught before anybody wired the webhook up in Resend.
+#
+# The function checks Resend's own Svix signature and refuses outright when no
+# signing secret is configured, so the JWT gate adds nothing it does not
+# already do better. make-server-3eae23a6 keeps its gate ON.
+[functions.resend-webhooks]
+entrypoint = "./functions/resend-webhooks/index.ts"
+verify_jwt = false
+
 [functions.stripe-webhooks]
 entrypoint = "./functions/stripe-webhooks/index.ts"
 verify_jwt = false
