@@ -63,6 +63,13 @@ export interface DeckSurvey {
   needsMeasurement: boolean;
   unknowns: string[];
   framesCited: number[];
+  /** The deck they asked for, or null when the request said nothing usable. */
+  proposedDeck: (Record<string, unknown> & { widthFt: number; depthFt: number; heightFt: number }) | null;
+  proposedChanges: { field: string; from: string; to: string; why: 'requested' | 'kept' | 'code' }[];
+  proposalQuestions: string[];
+  proposalSizeUnchanged: boolean | null;
+  proposalUnsure: string | null;
+  requestRead: boolean;
 }
 
 interface Props {
@@ -316,6 +323,9 @@ export default function DeckSurveyPanel({ workRequestId, onOpenInDesigner }: Pro
 
       {survey && (
         <div className="mt-4 space-y-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            As built — what is there now
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <Dimension label="Width" m={survey.width} />
             <Dimension label="Depth" m={survey.depth} />
@@ -373,13 +383,101 @@ export default function DeckSurveyPanel({ workRequestId, onOpenInDesigner }: Pro
             </div>
           )}
 
+          {/*
+            * WHAT THEY ASKED FOR, beside what is there — never over it. The
+            * as-built stays the record of the existing deck, which is what
+            * demolition and disposal are priced from.
+            */}
+          {survey.proposedDeck && (
+            <div className="rounded-lg border border-violet-500/40 bg-violet-500/5 px-3 py-2">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-violet-300">
+                Proposed — what they asked for
+              </p>
+              <p className="mt-1 text-sm font-black text-white">
+                {String(survey.proposedDeck.widthFt)} × {String(survey.proposedDeck.depthFt)} ft,
+                {' '}{String(survey.proposedDeck.heightFt)} ft up
+              </p>
+              {survey.proposedChanges.length > 0 ? (
+                <ul className="mt-1.5 space-y-0.5">
+                  {survey.proposedChanges.map((c, i) => (
+                    <li key={i} className="text-xs text-gray-300">
+                      <span className="text-gray-500">{c.field}:</span> {c.from} → {c.to}
+                      {/*
+                        A change the CODE forced is labelled, because crediting
+                        the customer with a decision they never made is how a
+                        railing nobody asked for becomes a railing nobody
+                        questions.
+                      */}
+                      {c.why === 'code' && (
+                        <span className="ml-1 rounded bg-sky-500/15 px-1 text-[10px] font-bold uppercase text-sky-300">
+                          required by code
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-xs text-gray-400">
+                  Nothing in their description changes the deck&apos;s size or railings — this is the
+                  existing deck, rebuilt.
+                </p>
+              )}
+
+              {survey.proposalQuestions.length > 0 && (
+                <div className="mt-2 border-t border-violet-500/20 pt-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-violet-300/80">
+                    Ask them
+                  </p>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {survey.proposalQuestions.map((q, i) => (
+                      <li key={i} className="text-xs text-violet-200/90">· {q}</li>
+                    ))}
+                  </ul>
+                  {/*
+                    Said out loud, because the obvious thing to do with a vague
+                    wish is to pick a number — and a number picked here is
+                    framed, drawn, permitted and priced as though they chose it.
+                  */}
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    These had no figure attached, so nothing was assumed for them.
+                  </p>
+                </div>
+              )}
+
+              {onOpenInDesigner && (
+                <button
+                  onClick={() => onOpenInDesigner(survey.proposedDeck as Record<string, unknown>)}
+                  className="mt-2 inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-violet-500/50 bg-black px-3 py-2 text-sm font-bold text-violet-300 hover:border-violet-400"
+                >
+                  <Ruler className="h-4 w-4" />
+                  Open the proposal in the designer
+                </button>
+              )}
+            </div>
+          )}
+
+          {survey.proposalUnsure && (
+            <div className="flex items-start gap-2 rounded-lg border border-[#2A2A2A] bg-black/40 px-3 py-2">
+              <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />
+              <p className="text-xs text-gray-400">
+                Could not tell what they are asking for: {survey.proposalUnsure}
+              </p>
+            </div>
+          )}
+
+          {!survey.proposedDeck && !survey.proposalUnsure && !survey.requestRead && (
+            <p className="text-[11px] text-gray-500">
+              No written request on this job, so nothing was proposed — only the deck that is there.
+            </p>
+          )}
+
           {onOpenInDesigner && (
             <button
               onClick={() => onOpenInDesigner(survey.deck)}
               className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-sky-500/50 bg-black px-3 py-2 text-sm font-bold text-sky-300 hover:border-sky-400"
             >
               <Ruler className="h-4 w-4" />
-              Open this in the designer
+              Open the as-built in the designer
             </button>
           )}
         </div>
