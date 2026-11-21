@@ -84,6 +84,22 @@ export function locationOf(wr: Record<string, unknown>): string | undefined {
   const city = pick(wr, 'city');
   const state = pick(wr, 'state');
   const zip = pick(wr, 'zip_code', 'zipCode', 'postal_code');
+
+  /*
+   * A STREET OR A CITY IS REQUIRED. A bare state or postcode is not a place.
+   *
+   * Michael Saverse's real request carries `site_address: ""` and
+   * `state: "CA"` — a form default he never touched, on an enquiry to a New
+   * Hampshire builder. Without this guard that record yields a location of
+   * `"CA"`, and the estimator would price a Salem job against California.
+   *
+   * Which is worse than knowing nothing: an estimator told "no location" can
+   * leave travel and local rates alone, while one told "CA" will confidently
+   * apply the wrong ones. The whole point of this file is that absent data
+   * must stay visibly absent.
+   */
+  if (!direct && !city) return undefined;
+
   const parts = [direct, city, state, zip].filter(Boolean);
   return parts.length ? parts.join(', ') : undefined;
 }

@@ -201,3 +201,25 @@ test('a blank field is left out of the text rather than sent as a dash', () => {
   });
   assert.ok(!text.includes('—'), `a text must not carry an em dash placeholder:\n${text}`);
 });
+
+test('A BARE STATE IS NOT AN ADDRESS — the real record that proved it', () => {
+  /*
+   * Michael Saverse's actual request: `site_address: ""` and `state: "CA"`,
+   * a form default he never touched, sent to a New Hampshire builder.
+   *
+   * Without the street-or-city guard this yields "CA" and the estimator
+   * prices a Salem job against California. An estimator told nothing leaves
+   * travel and local rates alone; one told "CA" applies the wrong ones with
+   * confidence.
+   */
+  assert.equal(locationOf({ site_address: '', state: 'CA' }), undefined);
+  assert.equal(locationOf({ state: 'NH', zip_code: '03079' }), undefined);
+});
+
+test('a city alone is enough, because a town is a place', () => {
+  assert.equal(locationOf({ city: 'Salem', state: 'NH' }), 'Salem, NH');
+});
+
+test('a street alone is enough too', () => {
+  assert.equal(locationOf({ site_address: '12 Probe Lane' }), '12 Probe Lane');
+});
