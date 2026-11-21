@@ -162,6 +162,19 @@ export interface QuotePdfData {
   tax: number;
   taxRate?: number;
   total: number;
+  /**
+   * How the total gets paid: the deposit and the draws.
+   *
+   * Drawn BELOW the totals, because it is an answer to the figure above it,
+   * and above the notes, because it is a term of the deal rather than an
+   * aside. Absent on a quote with no schedule, which is most of them.
+   */
+  paymentSchedule?: {
+    draws: Array<{ label: string; trigger: string; amount: number; status: 'pending' | 'invoiced' | 'paid' }>;
+    total: number;
+    /** Office copy only: the schedule exists and the customer is not shown it. */
+    withheld: boolean;
+  };
   notes?: string;
   terms?: string;
 }
@@ -560,6 +573,101 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
   }
   doc.setTextColor(17, 17, 17);
   y += 2;
+
+  /* ── Payment schedule ───────────────────────────────────────────────── */
+  /**
+   * Eric: "can we add the payment schedule to the quote please maybe give me
+   * the option to add or hide".
+   *
+   * The editor has built a real schedule for a while — a deposit and a draw
+   * per phase, summing to the contract total to the cent — and no document
+   * ever printed it. A customer's only written payment terms were whatever
+   * the approval page worked out for itself.
+   *
+   * THE SUM IS CHECKED AND STATED. The draws must come to the total above;
+   * `buildPaymentSchedule` guarantees it with integer-cent arithmetic, but a
+   * draw can be edited by hand afterwards and a line can be unticked from the
+   * quote underneath it. A schedule that silently misses the contract total
+   * by a cent is exactly the thing a customer finds, so when the two disagree
+   * the document says so instead of printing two numbers and hoping.
+   */
+  const schedule = data.paymentSchedule;
+  if (schedule && (schedule.draws.length || schedule.withheld)) {
+    y = pageBreak(doc, y, 30) + 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(130, 130, 130);
+    doc.text('PAYMENT SCHEDULE', MARGIN, y);
+    y += 5;
+
+    if (schedule.withheld) {
+      // Office copy only — `selectPaymentSchedule` never sets this on the
+      // customer's. Says which of "no schedule" and "switched off" it is.
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.5);
+      doc.setTextColor(150, 90, 20);
+      doc.text('Not shown on the customer copy of this quote.', MARGIN, y);
+      doc.setTextColor(17, 17, 17);
+      y += 5;
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      for (const draw of schedule.draws) {
+        y = pageBreak(doc, y);
+        doc.setTextColor(60, 60, 60);
+        /*
+         * The trigger is what makes a draw defensible — "Structural, on
+         * completion" is a thing the customer can check against work they
+         * can see, where "25% on the 14th" is the one they dispute. It is
+         * wrapped under the label rather than truncated beside it.
+         */
+        doc.text(draw.label, MARGIN, y);
+        doc.setTextColor(17, 17, 17);
+        doc.text(money(draw.amount), right, y, { align: 'right' });
+        y += 4.4;
+        if (draw.trigger) {
+          doc.setFontSize(7.5);
+          doc.setTextColor(130, 130, 130);
+          for (const wrapped of doc.splitTextToSize(draw.trigger, right - MARGIN - 34) as string[]) {
+            y = pageBreak(doc, y);
+            doc.text(wrapped, MARGIN + 3, y);
+            y += 3.4;
+          }
+          doc.setFontSize(9);
+          doc.setTextColor(17, 17, 17);
+        }
+        y += 1.2;
+      }
+
+      y = pageBreak(doc, y) + 1;
+      doc.setDrawColor(210, 210, 210);
+      doc.line(MARGIN, y, right, y);
+      y += 4.5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('Scheduled', MARGIN, y);
+      doc.text(money(schedule.total), right, y, { align: 'right' });
+      y += 5;
+
+      const off = Math.round((schedule.total - data.total) * 100) / 100;
+      if (off !== 0) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7.5);
+        doc.setTextColor(150, 90, 20);
+        for (const wrapped of doc.splitTextToSize(
+          `The scheduled payments differ from the quote total by ${money(Math.abs(off))}. `
+          + 'Rebalance the schedule in the editor before this goes out.',
+          right - MARGIN,
+        ) as string[]) {
+          y = pageBreak(doc, y);
+          doc.text(wrapped, MARGIN, y);
+          y += 3.4;
+        }
+        doc.setTextColor(17, 17, 17);
+        y += 1.5;
+      }
+    }
+  }
 
   /* ── Notes and terms ────────────────────────────────────────────────── */
   for (const [label, body] of [['Notes', data.notes], ['Terms', data.terms]] as Array<[string, string | undefined]>) {

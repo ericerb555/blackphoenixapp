@@ -18,8 +18,8 @@
  *                               money is out of every total
  *   per-line `visible: false`   the line is charged for, but not itemised
  *                               to the customer; its cost stays in the phase
- *   customerSections            materials, labour and process detail, each
- *                               switchable
+ *   customerSections            materials, labour, process detail and the
+ *                               payment schedule, each switchable
  *
  * INCLUDED AND VISIBLE ANSWER DIFFERENT QUESTIONS, and conflating them is
  * the mistake worth guarding against. "Not included" is a decision about
@@ -41,6 +41,97 @@ export interface CustomerSections {
   materials: boolean;
   labor: boolean;
   processDetail: boolean;
+  /**
+   * Whether the payment schedule goes on the customer's copy.
+   *
+   * Eric, 2026-11-21: "can we add the payment schedule to the quote please
+   * maybe give me the option to add or hide".
+   *
+   * The schedule already existed and the customer already could not see it.
+   * The editor builds a real one — a deposit and a draw per phase, summing
+   * to the contract total to the cent — and stores it on the quote, but
+   * `customerQuoteView` never passed it through and the PDF never drew it,
+   * so the only payment terms a customer ever saw were a deposit and a
+   * balance that the approval page worked out for itself.
+   *
+   * Hiding it is a real need rather than a preference: a schedule is a
+   * commitment about WHEN money is due, and a quote sent early — before the
+   * phases are settled — should be allowed to say what the job costs without
+   * also fixing the draw dates.
+   */
+  paymentSchedule: boolean;
+}
+
+/**
+ * One line of the payment schedule, as the customer sees it.
+ *
+ * Narrower than the stored `Draw` on purpose. `phaseValue` and
+ * `depositCredit` are the arithmetic of how the deposit is worked off; they
+ * belong in the editor, where somebody is reasoning about the split. On the
+ * document they are three more numbers that do not add up to anything the
+ * customer is being asked to pay, and every extra number on a quote is
+ * something to query.
+ */
+export interface SelectedDraw {
+  label: string;
+  /** What has to have happened before it is raised. */
+  trigger: string;
+  amount: number;
+  status: 'pending' | 'invoiced' | 'paid';
+}
+
+export interface SelectedSchedule {
+  draws: SelectedDraw[];
+  /** What the draws come to. Must equal the contract total. */
+  total: number;
+  /**
+   * The quote HAS a schedule and this copy is not showing it.
+   *
+   * Only ever true on the office copy, which says so rather than printing
+   * nothing: "no schedule on this quote" and "the schedule is switched off
+   * for the customer" are different facts, and the person checking the
+   * document before it goes out is the one who needs to tell them apart.
+   */
+  withheld: boolean;
+}
+
+/**
+ * The schedule for one copy of the document.
+ *
+ * The customer's copy gets nothing when the switch is off. Not a redacted
+ * row, not a count — nothing, because unlike a hidden line item there is no
+ * money to account for: the draws sum to the total that is already printed.
+ *
+ * THE RULE IS DUPLICATED ON THE SERVER, in `customerQuoteView.ts`, which
+ * cannot import this file (Deno function, outside the app build). They are
+ * asserted to agree in `tests/quotePaymentSchedule.test.ts`. Filtering here
+ * alone would be the mistake that file's own header warns about: the figure
+ * has already been sent, and a hidden field is not a check.
+ */
+export function selectPaymentSchedule(quote: any, forCustomer: boolean): SelectedSchedule {
+  const raw = Array.isArray(quote?.paymentSchedule) ? quote.paymentSchedule : [];
+  const draws: SelectedDraw[] = raw
+    /*
+     * An amount that is absent, empty or not a number is a malformed draw,
+     * and the document is not the place to find out: `Number(null)` is 0, so
+     * a looser test would have printed a $0.00 row rather than dropping it.
+     * An explicit zero is kept — somebody stored that on purpose.
+     */
+    .filter((d: any) => d
+      && d.amount !== null && d.amount !== undefined && d.amount !== ''
+      && Number.isFinite(Number(d.amount)))
+    .map((d: any) => ({
+      label: String(d.label || '').trim() || String(d.phase || 'Payment'),
+      trigger: String(d.trigger || '').trim(),
+      amount: round2(Number(d.amount) || 0),
+      status: d?.status === 'paid' ? 'paid' : d?.status === 'invoiced' ? 'invoiced' : 'pending',
+    }));
+  const total = round2(draws.reduce((sum, d) => sum + d.amount, 0));
+
+  if (forCustomer && !sectionsOf(quote).paymentSchedule) {
+    return { draws: [], total: 0, withheld: draws.length > 0 };
+  }
+  return { draws, total, withheld: false };
 }
 
 /**
@@ -194,6 +285,14 @@ export function sectionsOf(quote: any): CustomerSections {
     materials: m.materials !== 'off',
     labor: m.labor !== 'off',
     processDetail: m.processDetail,
+    /*
+     * Absent means SHOWN, like every other section here. A quote with a
+     * schedule on it got one because somebody built it, and the whole point
+     * of building it is that the customer reads it; defaulting to hidden
+     * would mean the switch had to be found before the feature did anything.
+     * A quote with no schedule prints nothing either way.
+     */
+    paymentSchedule: quote?.customerSections?.paymentSchedule !== false,
   };
 }
 
@@ -244,7 +343,7 @@ export function describeLine(description: string, line: any, quantity: number, r
 export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelection {
   const sections = forCustomer
     ? sectionsOf(quote)
-    : { materials: true, labor: true, processDetail: true };
+    : { materials: true, labor: true, processDetail: true, paymentSchedule: true };
   // The office copy always shows rates — the controls exist to manage what
   // the CUSTOMER sees, not to blind the person who priced the job.
   const rates = forCustomer

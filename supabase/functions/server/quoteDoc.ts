@@ -226,6 +226,16 @@ export function normalizeQuoteDoc(input: any) {
       materials: input?.customerSections?.materials !== false,
       labor: input?.customerSections?.labor !== false,
       processDetail: input?.customerSections?.processDetail !== false,
+      /*
+       * Whether the payment schedule goes on the customer's copy.
+       *
+       * Absent means shown, like every switch beside it: a schedule exists
+       * only because somebody built one, and the point of building it is
+       * that the customer reads it. Only an explicit `false` takes it off —
+       * which is what the editor writes when the schedule is still being
+       * worked out and the quote needs to go out without fixing the draws.
+       */
+      paymentSchedule: input?.customerSections?.paymentSchedule !== false,
     },
     aiSummary: String(input.aiSummary || ""),
     aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],

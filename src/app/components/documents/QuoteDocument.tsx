@@ -24,6 +24,7 @@
  * negative rate, so it reads as a credit a year later instead of looking like
  * a typo. The document keeps that distinction visible.
  */
+import { selectPaymentSchedule } from '../../lib/quotePdfSelection';
 import { companyInfo } from '../../lib/config/companyInfo';
 import {
   type QuoteDoc,
@@ -172,6 +173,65 @@ export default function QuoteDocument({ quote }: { quote: QuoteDoc }) {
           </div>
         </div>
       </div>
+
+      {/*
+        HOW THE TOTAL GETS PAID.
+
+        Eric, 2026-11-21: "can we add the payment schedule to the quote please
+        maybe give me the option to add or hide".
+
+        This component is what a customer reads in their portal, so the
+        schedule belongs here as much as on the PDF — and under the same
+        switch, through the same `selectPaymentSchedule`, so the screen and
+        the printed copy cannot disagree about what was sent.
+
+        Drawn after the totals because it answers them, and before the notes
+        because it is a term rather than an aside.
+      */}
+      {(() => {
+        const schedule = selectPaymentSchedule(quote, true);
+        if (!schedule.draws.length) return null;
+        const off = Math.round((schedule.total - total) * 100) / 100;
+        return (
+          <div className="mb-8">
+            <h3 className="mb-2 text-xs font-bold uppercase text-gray-500">Payment schedule</h3>
+            <div className="overflow-hidden rounded-lg border border-[#2A2A2A] print:border-gray-200">
+              {schedule.draws.map((draw, i) => (
+                <div
+                  key={`${draw.label}-${i}`}
+                  className="flex items-start justify-between gap-4 border-b border-[#2A2A2A] px-3 py-2 last:border-0 print:border-gray-200"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-white print:text-black">{draw.label}</p>
+                    {/* The trigger is what makes a draw checkable against work
+                        the customer can see, which is the whole argument for
+                        billing per phase instead of per date. */}
+                    {draw.trigger && (
+                      <p className="mt-0.5 text-xs text-gray-500 print:text-gray-600">{draw.trigger}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 tabular-nums text-sm text-white print:text-black">
+                    {money(draw.amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex justify-between text-sm font-semibold">
+              <span className="text-gray-400 print:text-gray-600">Scheduled</span>
+              <span className="tabular-nums text-white print:text-black">{money(schedule.total)}</span>
+            </div>
+            {off !== 0 && (
+              /* Stored draws are not rescaled when a line is unticked, so they
+                 can drift from the total above. Saying so beats printing two
+                 numbers and leaving the customer to find the gap. */
+              <p className="mt-1 text-xs text-amber-400">
+                These payments differ from the quote total by {money(Math.abs(off))}. Rebalance the
+                schedule before this is sent.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {quote.notes && (
         <div className="mb-8">

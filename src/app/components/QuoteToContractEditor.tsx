@@ -1457,7 +1457,7 @@ export function QuoteToContractEditor({
 
   const [savingSections, setSavingSections] = useState(false);
 
-  const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail') => {
+  const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail' | 'paymentSchedule') => {
     /**
      * Built on `currentQuote` — WHAT IS ON THE SCREEN — not on `editedQuote`.
      *
@@ -1474,7 +1474,7 @@ export function QuoteToContractEditor({
     if (!base) { toast.error('The quote is still loading — try that again in a moment.'); return; }
 
     const current = base.customerSections
-      || { materials: true, labor: true, processDetail: true };
+      || { materials: true, labor: true, processDetail: true, paymentSchedule: true };
 
     /**
      * Materials and labour cycle THREE states; process detail stays on/off.
@@ -1489,8 +1489,10 @@ export function QuoteToContractEditor({
      */
     const cycle: Record<string, string> = { full: 'no-rates', 'no-rates': 'off', off: 'full' };
     const readMode = (v: any) => (v === false || v === 'off' ? 'off' : v === 'no-rates' ? 'no-rates' : 'full');
-    const next = key === 'processDetail'
-      ? { ...current, processDetail: current.processDetail === false }
+    /* Process detail and the payment schedule are on or off — there is no
+       half a paragraph and no half a draw. Only the two line sections cycle. */
+    const next = key === 'processDetail' || key === 'paymentSchedule'
+      ? { ...current, [key]: current[key] === false }
       : { ...current, [key]: cycle[readMode(current[key])] };
     const updated = { ...base, customerSections: next } as any;
     setEditedQuote(updated);
@@ -1507,7 +1509,9 @@ export function QuoteToContractEditor({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       syncQuote({ ...workRequest, quote: updated } as any);
-      const label = key === 'processDetail' ? 'Process detail' : key === 'labor' ? 'Labour' : 'Materials';
+      const label = key === 'processDetail' ? 'Process detail'
+        : key === 'paymentSchedule' ? 'Payment schedule'
+          : key === 'labor' ? 'Labour' : 'Materials';
       const landed = (next as any)[key];
       toast.success(
         landed === false || landed === 'off' ? `${label} hidden from the customer.`
@@ -5519,21 +5523,23 @@ export function QuoteToContractEditor({
                     the customer is agreeing to. Hidden either way: anything you have unticked
                     line by line, and your internal notes.
                   </p>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {([
                       ['materials', 'Materials', 'Each material and what it costs.'],
                       ['labor', 'Labour', 'Each role and what it costs.'],
                       ['processDetail', 'Process detail', 'The written account of each phase. The phase name and price stay either way.'],
+                      ['paymentSchedule', 'Payment schedule', 'The deposit and the draws, with what triggers each one. Nothing is drawn when the quote has no schedule.'],
                     ] as Array<[string, string, string]>).map(([key, label, blurb]) => {
                       const current = (editedQuote as any)?.customerSections
-                        || { materials: true, labor: true, processDetail: true };
+                        || { materials: true, labor: true, processDetail: true, paymentSchedule: true };
                       const rawMode = current[key];
                       const mode = rawMode === false || rawMode === 'off' ? 'off'
                         : rawMode === 'no-rates' ? 'no-rates' : 'full';
                       const on = mode !== 'off';
-                      /* Process detail has no middle state — there is no half
-                         a paragraph. Only the two line sections cycle. */
-                      const threeWay = key !== 'processDetail';
+                      /* Process detail and the payment schedule have no
+                         middle state — there is no half a paragraph and no
+                         half a draw. Only the two line sections cycle. */
+                      const threeWay = key !== 'processDetail' && key !== 'paymentSchedule';
                       const state = !threeWay
                         ? (on ? { text: 'Shown to the customer', tone: 'text-blue-300' }
                               : { text: 'Not sent at all', tone: 'text-amber-400' })
@@ -5546,7 +5552,7 @@ export function QuoteToContractEditor({
                         <button
                           key={key}
                           type="button"
-                          onClick={() => toggleCustomerSection(key as 'materials' | 'labor' | 'processDetail')}
+                          onClick={() => toggleCustomerSection(key as 'materials' | 'labor' | 'processDetail' | 'paymentSchedule')}
                           disabled={savingSections}
                           className={`rounded-lg border p-3 text-left transition disabled:opacity-60 ${
                             mode === 'full'

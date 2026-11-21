@@ -25,7 +25,7 @@
  * not to blind the person who priced the job.
  */
 import { groupLinesByPhase } from './invoicePhases.ts';
-import { selectQuoteLines } from './quotePdfSelection.ts';
+import { selectQuoteLines, selectPaymentSchedule } from './quotePdfSelection.ts';
 import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup.ts';
 import {
   customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate, includedShareOf,
@@ -722,6 +722,19 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
     tax: round2(share * (Number(quote?.taxAmount) || 0)),
     taxRate: Number(quote?.taxRate) || undefined,
     total: round2(share * (Number(quote?.totalCost || quote?.total) || 0)) || drawnTotal,
+    /**
+     * How the total gets paid, when the quote says.
+     *
+     * NOT SCALED BY `share`, and that is deliberate. Every figure above is
+     * multiplied down when a line has been unticked since the quote was
+     * priced; the schedule is not, because it is a STORED commitment — the
+     * draws were written when somebody agreed them and must not quietly
+     * move because a line was removed afterwards. If they no longer sum to
+     * the total the document says so rather than hiding the gap, which is
+     * what `scheduleMismatch` below is for: the editor has a Rebalance
+     * button, and this is how somebody knows to press it.
+     */
+    paymentSchedule: selectPaymentSchedule(quote, forCustomer),
     notes: quote?.notes || undefined,
   };
 }

@@ -355,24 +355,59 @@ export default function CustomerQuoteApproval() {
    * trigger nobody wrote down are the two fields that made the old schedule
    * read as a commitment.
    */
-  const paymentSchedule: PaymentScheduleItem[] = [
-    {
-      id: 'deposit',
-      type: 'deposit',
-      description: 'Deposit — secures your materials and your place in the schedule',
-      percentage: Math.round(DEPOSIT_RATE * 100),
-      amount: depositAmount,
-      status: 'pending',
-    },
-    {
-      id: 'balance',
-      type: 'completion',
-      description: 'Balance — due as the work completes',
-      percentage: 100 - Math.round(DEPOSIT_RATE * 100),
-      amount: balanceAmount,
-      status: 'pending',
-    },
-  ];
+  /**
+   * THE QUOTE'S OWN SCHEDULE WHEN IT HAS ONE — 2026-11-21.
+   *
+   * The note above ends "when a quote record carries a real schedule, this
+   * is where it goes", and this is that. The editor builds a deposit and a
+   * draw per phase that sum to the contract total to the cent, and
+   * `customerQuoteView` now passes them down when the quote says the
+   * customer may see them.
+   *
+   * The two-stage deposit and balance below is still the fallback, because
+   * most quotes have no schedule and a customer has to be told something
+   * about when money is due. What it must never do is BOTH: a page showing
+   * the real draws and a synthetic deposit underneath would be two different
+   * answers to the same question.
+   *
+   * The percentage is computed from the amount rather than stored, because
+   * the schedule is built in money — the percentage is a reading aid, and
+   * deriving it keeps it honest when a draw is edited by hand.
+   */
+  const storedDraws: Array<{ label?: string; trigger?: string; amount?: number; status?: string }> =
+    Array.isArray((quote as any)?.paymentSchedule) ? (quote as any).paymentSchedule : [];
+
+  const paymentSchedule: PaymentScheduleItem[] = storedDraws.length
+    ? storedDraws.map((draw, i) => ({
+        id: `draw-${i + 1}`,
+        type: i === 0 && /deposit/i.test(String(draw.label || '')) ? 'deposit'
+          : i === storedDraws.length - 1 ? 'completion' : 'progress',
+        description: String(draw.label || 'Payment'),
+        percentage: discountedTotal > 0
+          ? Math.round(((Number(draw.amount) || 0) / discountedTotal) * 100)
+          : 0,
+        amount: Number(draw.amount) || 0,
+        milestone: String(draw.trigger || '') || undefined,
+        status: draw.status === 'paid' ? 'paid' : 'pending',
+      }))
+    : [
+        {
+          id: 'deposit',
+          type: 'deposit',
+          description: 'Deposit — secures your materials and your place in the schedule',
+          percentage: Math.round(DEPOSIT_RATE * 100),
+          amount: depositAmount,
+          status: 'pending',
+        },
+        {
+          id: 'balance',
+          type: 'completion',
+          description: 'Balance — due as the work completes',
+          percentage: 100 - Math.round(DEPOSIT_RATE * 100),
+          amount: balanceAmount,
+          status: 'pending',
+        },
+      ];
 
   const handleApprove = () => {
     if (!quote) return;

@@ -104,6 +104,14 @@ export interface CustomerCredit {
   note: string;
 }
 
+/** One payment the customer is being asked to make, and what triggers it. */
+export interface CustomerDraw {
+  label: string;
+  trigger: string;
+  amount: number;
+  status: string;
+}
+
 export interface CustomerQuote {
   id: string;
   quoteNumber: string;
@@ -119,6 +127,8 @@ export interface CustomerQuote {
   /** What the home owner is supplying. Deducted from the materials figure. */
   credits: CustomerCredit[];
   creditsSubtotal: number;
+  /** The deposit and the draws, when the quote carries a schedule and shows it. */
+  paymentSchedule: CustomerDraw[];
   /** Materials at the customer's price — markup spread in, tax not. */
   materialsSubtotal: number;
   /** Labour at the customer's price. */
@@ -197,6 +207,8 @@ export interface CustomerSections {
   labor: boolean;
   /** The written account of each phase, as opposed to just its name. */
   processDetail: boolean;
+  /** The deposit and the per-phase draws. */
+  paymentSchedule: boolean;
 }
 
 /**
@@ -235,7 +247,7 @@ const sectionsOf = (quote: any): CustomerSections => {
    * line switches off with the phase text left alone.
    */
   if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
-    return { materials: false, labor: false, processDetail: true };
+    return { materials: false, labor: false, processDetail: true, paymentSchedule: true };
   }
   const m = sectionModes(quote);
   return {
@@ -244,6 +256,17 @@ const sectionsOf = (quote: any): CustomerSections => {
     materials: m.materials !== 'off',
     labor: m.labor !== 'off',
     processDetail: s?.processDetail !== false,
+    /*
+     * The payment schedule. Absent means shown, like the three above.
+     *
+     * THE SAME PREDICATE RUNS IN THE BROWSER, in
+     * `src/app/lib/quotePdfSelection.ts`, which cannot be imported here —
+     * this is a Deno function outside the app build. The two are asserted to
+     * agree in `tests/quotePaymentSchedule.test.ts`, because a switch that
+     * hides the schedule on the PDF and sends it down the share link would
+     * be precisely the failure the header of this file exists to prevent.
+     */
+    paymentSchedule: s?.paymentSchedule !== false,
   };
 };
 
@@ -525,6 +548,35 @@ export function customerQuoteView(quote: any): CustomerQuote {
       note: str(credit?.reason),
     })),
     creditsSubtotal: Math.abs(num(quote?.creditsSubtotal)),
+    /**
+     * HOW THE TOTAL GETS PAID — the deposit and the draws.
+     *
+     * Eric, 2026-11-21: "can we add the payment schedule to the quote please
+     * maybe give me the option to add or hide".
+     *
+     * The schedule has existed on the record for a while and never reached
+     * the customer: this allowlist did not name it, so the approval page
+     * computed a deposit and a balance of its own and the quote's real draws
+     * stayed in the office. That is the allowlist working as designed — a
+     * forgotten field is a missing section rather than a leak — and this is
+     * the field being added on purpose.
+     *
+     * Only four values travel. `phaseValue` and `depositCredit` are the
+     * arithmetic of working the deposit off; they are for whoever built the
+     * split, and on a customer's document they are two more numbers that do
+     * not sum to anything being asked for. `invoiceId` is an internal
+     * identifier and stays here.
+     */
+    paymentSchedule: sections.paymentSchedule
+      ? (Array.isArray(quote?.paymentSchedule) ? quote.paymentSchedule : []).map((draw: any) => ({
+          label: str(draw?.label) || str(draw?.phase) || 'Payment',
+          trigger: str(draw?.trigger),
+          amount: num(draw?.amount),
+          status: ['pending', 'invoiced', 'paid'].includes(String(draw?.status))
+            ? String(draw.status)
+            : 'pending',
+        }))
+      : [],
     /**
      * The sections at the customer's price, summing to `preTaxTotal`.
      *
