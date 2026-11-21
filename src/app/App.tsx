@@ -1146,17 +1146,51 @@ function ProtectedRoutes({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-const APPROVED_PORTAL_ROUTES = new Set([
-  "employee-portal", "vendor-portal", "advertiser-portal", "subcontractor-portal",
-  "investor-portal", "territory-portal", "property-manager-portal", "condo-manager-portal", "condo-association-portal", "landlord-portal",
-]);
+/**
+ * The portal each gated page requires, by route.
+ *
+ * WHY THIS IS A MAP AND NOT A LIST
+ *
+ * It was a list, and the guard below asked the server "does this account hold
+ * a portal?" — `canEnterPortal`, true when ANY access row is active — and
+ * then rendered whichever of these pages the browser had asked for. So a
+ * vendor-only account that typed `/landlord-portal` was let in. The sign-in
+ * screen had the matching half right all along: it compares the chosen portal
+ * against the granted set and refuses the rest. The render gate is the half
+ * that runs when somebody navigates straight to a URL, and it did not.
+ *
+ * The server decides what each account holds (`effectivePortalGrants`,
+ * including the landlord/property-manager compatibility path documented in
+ * `rentalAccess.ts`). This map only says which grant a page needs, because
+ * route names are a front-end concept and the server should not learn them.
+ */
+const PORTAL_ROUTE_GRANT: Record<string, string> = {
+  "employee-portal": "employee",
+  "vendor-portal": "vendor",
+  "advertiser-portal": "advertiser",
+  "subcontractor-portal": "subcontractor",
+  "investor-portal": "investor",
+  "territory-portal": "territory_owner",
+  "property-manager-portal": "property_manager",
+  "condo-manager-portal": "condo_manager",
+  "condo-association-portal": "condo_association",
+  "landlord-portal": "landlord",
+};
+
+/* Derived, so a route can never be gated without naming what it requires —
+   nor named here and left ungated. `tests/portalRouteGrants.test.ts` holds
+   both halves. */
+const APPROVED_PORTAL_ROUTES = new Set(Object.keys(PORTAL_ROUTE_GRANT));
 
 /** Keeps an invited or unapproved applicant out of role portals while leaving
  * owner/admin access intact. The server is the source of truth; this is only
  * the user-facing gate before portal components load their data. */
 function PortalAccessGuard({ page, children }: { page: string; children: React.ReactNode }) {
   const { session, isAdmin, isOwner, loading } = useAuth();
-  const [state, setState] = useState<"checking" | "allowed" | "blocked" | "held">("checking");
+  const [state, setState] = useState<"checking" | "allowed" | "blocked" | "held" | "not-granted">("checking");
+  /* What they DO hold, so the refusal can name it instead of sending an
+     approved vendor to an onboarding checklist they finished months ago. */
+  const [heldGrants, setHeldGrants] = useState<string[]>([]);
   /**
    * Why the portal is held, when it is.
    *
@@ -1178,7 +1212,7 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
     // already on screen) throws "A component suspended while responding to
     // synchronous input". Marking these state flips as transitions lets React
     // keep the current UI and stream in the lazy chunk instead of erroring.
-    const setStateSafe = (next: "checking" | "allowed" | "blocked" | "held") =>
+    const setStateSafe = (next: "checking" | "allowed" | "blocked" | "held" | "not-granted") =>
       startTransition(() => setState(next));
     if (!needsGate || isAdmin || isOwner || isOwnerRolePreview) { setStateSafe("allowed"); return; }
     if (!session?.access_token) { setStateSafe("blocked"); return; }
@@ -1189,8 +1223,34 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
       .then(({ data }) => {
         if (!active) return;
         setStanding(data?.standing || null);
-        const mayEnter = data?.success && (data?.canEnterPortal || data?.access?.active);
-        if (!mayEnter) { setStateSafe("blocked"); return; }
+        /*
+         * THIS portal, not any portal.
+         *
+         * `canEnterPortal` answers "do you hold one", which is the right
+         * question for the sign-in screen and the wrong one here: it let a
+         * vendor-only account open /landlord-portal by typing the URL. The
+         * server now returns `grants` — the portal types this account may
+         * open, compatibility paths included — and the page is allowed only
+         * when its required grant is among them.
+         *
+         * `grants` absent means a server build that predates this. Falling
+         * back to the old any-portal answer would reopen the hole on exactly
+         * the deploy where the front end shipped first, so a missing field is
+         * treated as "not granted" and the page stays shut. The two deploy in
+         * the same push; if this ever blocks a real portal, the server half is
+         * what is missing.
+         */
+        const required = PORTAL_ROUTE_GRANT[page];
+        const grants: string[] = Array.isArray(data?.grants) ? data.grants.map(String) : [];
+        setHeldGrants(grants);
+        const anyPortal = data?.success && (data?.canEnterPortal || data?.access?.active);
+        if (!anyPortal) { setStateSafe("blocked"); return; }
+        /* Holds a portal, just not this one. A different refusal: the
+           onboarding checklist is the wrong answer for an approved vendor
+           standing at the landlord door. */
+        if (data?.admin !== true && !(required && grants.includes(required))) {
+          setStateSafe("not-granted"); return;
+        }
         // Owed money, or switched off. Either way the portal does not open.
         setStateSafe(data?.standing?.blocked ? "held" : "allowed");
       })
@@ -1227,6 +1287,50 @@ function PortalAccessGuard({ page, children }: { page: string; children: React.R
       )}
       <p className="mt-5 text-xs leading-5 text-gray-500">
         Emergencies are never held. If you have one, call it in as usual.
+      </p>
+    </section>;
+  }
+  /**
+   * Approved, but not for this door.
+   *
+   * Separate from "blocked" because the cause is different and so is the way
+   * out: there is nothing to finish and nothing to pay, the portal simply is
+   * not on the account. Only Eric or an admin can add one, so that is what it
+   * says — and it lists the portals they do hold, which is both the useful
+   * information and a link straight back to work.
+   */
+  if (state === "not-granted") {
+    const readable = (type: string) => type.replace(/_/g, " ");
+    const home: Record<string, string> = {
+      employee: "/employee-portal", vendor: "/vendor-portal", advertiser: "/advertiser-portal",
+      subcontractor: "/subcontractor-portal", investor: "/investor-portal",
+      territory_owner: "/territory-portal", property_manager: "/property-manager-portal",
+      condo_manager: "/condo-manager-portal", condo_association: "/condo-association-portal",
+      landlord: "/landlord-portal", customer: "/customer-portal-app", tenant: "/tenant-portal",
+    };
+    const mine = heldGrants.filter((g) => home[g]);
+    return <section className="mx-auto my-12 max-w-xl border border-orange-400/20 bg-[#151515] p-7 text-center text-white shadow-2xl">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">Not on this account</p>
+      <h1 className="mt-3 text-2xl font-semibold">This portal has not been granted to you.</h1>
+      <p className="mt-3 text-sm leading-6 text-gray-400">
+        Your account is approved and in good standing — it just does not include this portal.
+        Black Phoenix adds portals on request; nobody can switch into one on their own.
+      </p>
+      {mine.length > 0 && (
+        <div className="mt-6">
+          <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Your portals</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {mine.map((g) => (
+              <button key={g} type="button" onClick={() => { window.location.href = home[g]; }}
+                className="border border-orange-400/60 px-4 py-2 text-sm font-semibold capitalize text-orange-200 transition hover:bg-orange-500 hover:text-black">
+                {readable(g)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="mt-6 text-xs leading-5 text-gray-500">
+        Need this one as well? Ask Black Phoenix to add it to your account.
       </p>
     </section>;
   }

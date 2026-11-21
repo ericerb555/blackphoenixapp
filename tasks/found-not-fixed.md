@@ -1118,3 +1118,34 @@ and `DELETE /qr-codes/:id` — so one new code is not a full-list rewrite.
 **Not done here** because it changes the stored shape and needs a migration for
 the existing entry, which is a larger, deliberate change than the bug that was
 reported.
+
+## A `condo_manager` access row satisfies nothing on the server
+
+Found 2026-11-21 while closing the portal gate (`portalGrants.ts`).
+
+`propertyManagerActor` in `rental-portals.tsx` serves both the property-manager
+and condo-manager routes, and it reads one key:
+
+    portal_access:<email>:property_manager
+
+A `condo_manager` row is never read. The metadata roles it accepts
+(`MANAGER_ROLES`) include `condo_manager`, so an account whose
+`app_metadata.role` says condo manager passes — but an account holding a
+granted `condo_manager` **portal-access row** and nothing else does not. The
+page would open and every data route behind it would answer 403.
+
+**Who this affects today: nobody.** One account holds such a row
+(`ericerb555@proton.me`), and it is the platform owner, who short-circuits
+every one of these checks on the `admin` branch.
+
+**Why it was not fixed here.** Making the actor read the `condo_manager` key
+widens authorisation — the condo-manager routes read other people's buildings,
+which is the reason `rentalAccess.ts` warns against making the
+landlord/manager pair symmetrical. That is a deliberate authorisation change
+with its own tests, not a side effect of a gate fix.
+
+**What to do when a real condo manager is granted one.** Either grant the
+`property_manager` row as well (what the live data does today), or extend
+`isPropertyManager` to accept an active `condo_manager` row for the condo
+routes only — not the property-manager ones — and pin both directions in
+`tests/rentalAccess.test.ts`.
