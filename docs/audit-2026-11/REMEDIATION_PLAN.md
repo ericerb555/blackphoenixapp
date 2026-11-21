@@ -398,7 +398,7 @@ in the same breath rather than left as a surprise on the next staff visit.
 
 | | Scope | Approach | Effort |
 |---|---|---|---|
-| C1 | 35 handlers that announce a completed action and do nothing — 9 closed 2026-11-19, 11 closed 2026-11-21, **24 left** | fix or disable, one at a time, worst consequence first | ~1 day |
+| ✅ C1 | 35 handlers that announce a completed action and do nothing — **all 35 closed**: 9 on 2026-11-19, 26 on 2026-11-21 | done — wired where real data existed, disabled with the reason on screen where it did not | — |
 | C2 | 83 handlers claiming success without reaching the server (was 85; batch 1 took two) | triage: many are legitimately local state | ~2 days |
 | — | 188 controls with no handler at all | triage; most are layout elements the scanner cannot distinguish | ~1 day |
 | ✅ | `authz:scan` bucket A, 25 leads | **done** — see above; 19 routes gated | — |

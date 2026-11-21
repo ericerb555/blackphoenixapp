@@ -516,8 +516,22 @@ export default function MobileHubControlPanel({
     }
   };
 
+  /**
+   * Said "Portal configuration saved successfully!" and saved nothing.
+   *
+   * There is no portal store behind this screen: `portals` is a hardcoded
+   * array in this file, down to "1,245 users", and nothing here reads or
+   * writes the server. Closing the editor on a success message meant the
+   * change was gone before the next render and the operator had been told the
+   * opposite.
+   *
+   * The editor still closes, because the controls still work locally and
+   * leaving someone stuck in it would be worse — but it says what happened.
+   * The screen also carries a banner now; both are temporary until there is
+   * somewhere to save to. Written up in tasks/found-not-fixed.md.
+   */
   const handleSavePortal = () => {
-    toast.success('Portal configuration saved successfully!');
+    toast.info('Not saved — the portal builder has no store behind it yet, so this change will not survive a reload.');
     setViewMode('dashboard');
   };
 
@@ -552,6 +566,34 @@ export default function MobileHubControlPanel({
   if (viewMode === 'dashboard') {
     return (
       <div className="space-y-6">
+        {/*
+          THE PORTALS BELOW ARE EXAMPLES, and the figures with them are too.
+
+          `portals` is a hardcoded array in this file — "Customer Portal, Main
+          Company, 1,245 users", dated January and March 2026 — and nothing on
+          this screen reads or writes the server. Until it does, an operator
+          reading "1,245 users" has no way to know it is not their number, and
+          the Save button used to tell them their edits were stored.
+
+          Same treatment as the Shop Intelligence screen: say so on the screen
+          rather than let the numbers speak for themselves. Written up in
+          tasks/found-not-fixed.md with what it would take to make real.
+        */}
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-amber-200">
+              Example data — the portal builder has no store behind it yet
+            </p>
+            <p className="text-xs text-amber-200/80 mt-1 leading-relaxed">
+              The portals listed here, their user counts and their dates are a worked
+              example showing how the builder lays out. Changes made in the editor are
+              not saved anywhere and will not survive a reload, and no customer-facing
+              portal is affected by anything on this screen.
+            </p>
+          </div>
+        </div>
+
         {/* Header */}
         <div className="bg-gradient-to-r from-[#1A1A1A] to-[#2A2A2A] rounded-2xl border border-[#3A3A3A] p-8">
           <div className="flex items-center justify-between">
@@ -808,9 +850,14 @@ export default function MobileHubControlPanel({
                 </button>
               </div>
 
+              {/* Said "Preview opened in new window" and opened none. There is
+                  nothing to preview: the edits on this screen are not stored
+                  anywhere, so a preview could only ever show the live portal
+                  rather than the configuration being edited. */}
               <button
-                onClick={() => toast.info('Preview opened in new window')}
-                className="px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 rounded-xl transition flex items-center gap-2"
+                disabled
+                title="Previewing a portal configuration needs somewhere to save it first — see tasks/found-not-fixed.md."
+                className="px-4 py-2 bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded-xl transition flex items-center gap-2 opacity-50 cursor-not-allowed"
               >
                 <Eye className="w-4 h-4" />
                 Preview
@@ -1470,9 +1517,14 @@ export default function MobileHubControlPanel({
               that integrates directly with customer portals.
             </p>
             <div className="flex items-center justify-center gap-4">
-              <button 
-                onClick={() => toast.info('You\'ll be notified when AI Studio launches!')}
-                className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold rounded-xl transition flex items-center gap-3 shadow-lg shadow-purple-500/20"
+              {/* "You'll be notified when AI Studio launches!" — nobody was
+                  recorded, so nobody can be notified. There is no waitlist to
+                  write to, and a promise of future contact is the one kind of
+                  claim the person it is made to cannot check. */}
+              <button
+                disabled
+                title="There is no waitlist to join yet — nothing would record the request."
+                className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-xl transition flex items-center gap-3 shadow-lg shadow-purple-500/20 opacity-50 cursor-not-allowed"
               >
                 <Bell className="w-5 h-5" />
                 Notify Me When Ready

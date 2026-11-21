@@ -4,8 +4,10 @@
  * MAX SIZE: 200 lines | Modular Architecture
  */
 
+import { useRef, useState } from 'react';
 import { Upload, Folder, Image, Eye, Copy, LayoutGrid, Camera, Users, Sparkles, Video, FileText } from 'lucide-react';
 import { toast } from 'sonner';
+import { uploadImageFile } from '../../utils/imageStorage';
 import type { AssetLibrarySettings } from './types';
 
 interface AssetLibraryProps {
@@ -17,6 +19,50 @@ interface AssetLibraryProps {
 
 export function AssetLibrary({ settings, onUpdate, selectedCategory, onCategoryChange }: AssetLibraryProps) {
   const selectedCat = settings.categories.find((c) => c.id === selectedCategory);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  /**
+   * Put a file in the library, for real.
+   *
+   * "Upload Asset" was `toast.info('Upload asset to ' + selectedCat.name)` —
+   * no picker, no request — directly above an empty state reading 'Click
+   * "Upload Asset" to add your first file'. The screen gave an instruction
+   * that could not be followed, and following it looked like it had worked.
+   *
+   * `uploadImageFile` is the helper the rest of the app uses and it sends the
+   * signed-in staff token. The asset model already carries `url`,
+   * `uploadedAt` and `usageCount`, so nothing had to be invented to store the
+   * result.
+   */
+  const uploadAsset = async (file: File | undefined) => {
+    if (!file || !selectedCat) return;
+    setUploading(true);
+    try {
+      const url = await uploadImageFile(file, `branding/${selectedCat.id}`);
+      const asset = {
+        id: `asset_${Date.now().toString(36)}`,
+        name: file.name.replace(/\.[^.]+$/, ''),
+        url,
+        categoryId: selectedCat.id,
+        usageCount: 0,
+        uploadedAt: new Date().toISOString(),
+      };
+      onUpdate({
+        categories: settings.categories.map((category) =>
+          category.id === selectedCat.id
+            ? { ...category, assets: [...category.assets, asset] }
+            : category),
+      });
+      toast.success(`${asset.name} added to ${selectedCat.name}.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not upload that file.');
+    } finally {
+      setUploading(false);
+      // So picking the same file twice in a row still fires a change event.
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
 
   // Icon mapping for categories
   const getIconComponent = (iconName: string) => {
@@ -67,13 +113,23 @@ export function AssetLibrary({ settings, onUpdate, selectedCategory, onCategoryC
               <h4 className="text-lg font-bold text-white">{selectedCat.name}</h4>
               <p className="text-sm text-gray-400">{selectedCat.description}</p>
             </div>
-            <button
-              onClick={() => toast.info('Upload asset to ' + selectedCat.name)}
-              className="px-4 py-2 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg transition text-sm font-semibold flex items-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Upload Asset
-            </button>
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => void uploadAsset(event.target.files?.[0])}
+              />
+              <button
+                onClick={() => fileInput.current?.click()}
+                disabled={uploading}
+                className="px-4 py-2 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg transition text-sm font-semibold flex items-center gap-2 disabled:opacity-60"
+              >
+                <Upload className="w-4 h-4" />
+                {uploading ? 'Uploading…' : 'Upload Asset'}
+              </button>
+            </>
           </div>
 
           {selectedCat.assets.length === 0 ? (
@@ -98,7 +154,19 @@ export function AssetLibrary({ settings, onUpdate, selectedCategory, onCategoryC
                   
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition flex gap-1">
                     <button 
-                      onClick={() => toast.info(`Preview ${asset.name}`)}
+                      /* Said "Preview <name>" and showed nothing. There is no
+                         lightbox on this screen, and the asset's own URL is the
+                         preview — opened in a tab, which works on a phone too.
+                         An asset with no file behind it says so rather than
+                         opening a blank tab. */
+                      onClick={() => {
+                        if (!asset.url) {
+                          toast.error('That asset has no file behind it yet.');
+                          return;
+                        }
+                        window.open(asset.url, '_blank', 'noopener,noreferrer');
+                      }}
+                      title={asset.url ? `Open ${asset.name}` : 'No file uploaded yet'}
                       className="p-1.5 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg transition"
                     >
                       <Eye className="w-3 h-3" />

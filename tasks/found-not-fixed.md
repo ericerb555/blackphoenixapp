@@ -1187,3 +1187,44 @@ in those files. Check first whether the copies actually agree — if one of them
 accepts something the others reject, that difference is the real finding and
 the deduplication would silently change what a route accepts.
 
+
+---
+
+## Two screens whose data is hardcoded in the component (2026-11-21)
+
+Found while closing the last of C1. Both are reachable and both now say so on
+the screen, which is a caveat and not a fix.
+
+**1. `MobileHubControlPanel` — the portal builder.** `portals` is an array in
+the component: "Customer Portal / Main Company / active / 1,245 users", dated
+January and March 2026. Nothing on the screen reads or writes the server.
+Reached through the `mobile-hub` page, and the panel carries 20 of bucket A's
+missing handlers — the most of any file.
+
+`handleSavePortal` said "Portal configuration saved successfully!" and closed
+the editor. It now says the change is not stored. Preview is disabled (there
+is nothing to preview an unsaved configuration against) and so is "Notify Me
+When Ready", which promised a notification with no waitlist to record it.
+
+**What it needs:** a `portal_config:` record per portal — sections, order,
+visibility, theme — plus the routes to read and write it, and the customer
+portal actually reading it. Until then the builder is a layout demonstration,
+and the banner says that.
+
+**2. `CalendarScheduleView` — FIXED, but worth recording what it was.** It
+held five invented events ("Team Stand-up", a site visit at 456 Elm Drive, all
+dated January 2026) and is routed as `unified-calendar` AND embedded inside
+Master Scheduling beside the real diary. Clicking an empty slot offered to
+create an event; clicking an event offered to edit it; the delete button
+filtered the local array and said "Event deleted".
+
+Now: Master Scheduling passes its own jobs, the standalone route reads
+`GET /schedule/appointments` itself, and a failed load is shown rather than
+rendering as an empty week. The three write controls say where appointments
+are actually changed. **Still to do:** editing an appointment from the
+calendar — the server takes a status and a crew member on
+`PATCH /schedule/appointments/:id`, so a time change has no route yet, and
+that is the missing piece rather than the UI.
+
+**Why the two differ.** The calendar had a real ledger one prop away. The
+portal builder has no store at all, so there was nothing to point it at.

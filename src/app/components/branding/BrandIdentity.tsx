@@ -4,8 +4,10 @@
  * MAX SIZE: 200 lines | Modular Architecture
  */
 
+import { useRef, useState } from 'react';
 import { Sparkles, Image, Palette, Upload, Plus, Trash2, XCircle, Edit, Check, Info } from 'lucide-react';
 import { toast } from 'sonner';
+import { uploadImageFile } from '../../utils/imageStorage';
 import type { BrandingSettings } from './types';
 
 interface BrandIdentityProps {
@@ -14,8 +16,55 @@ interface BrandIdentityProps {
 }
 
 export function BrandIdentity({ settings, onUpdate }: BrandIdentityProps) {
+  /**
+   * Put a logo file behind a logo slot.
+   *
+   * "Upload" was `toast.info(`Upload ${logo.name}`)` — the name of the slot
+   * and nothing else. Every other control in this row already works: the
+   * remove-image button clears `logo.url`, the delete button drops the slot.
+   * Only the one that puts a file there did nothing, so the whole screen could
+   * be operated except for its purpose.
+   *
+   * One input element, re-pointed at whichever slot was pressed, rather than
+   * one per logo — this list is rendered per logo and a hidden input each
+   * would be a file picker per row for no reason.
+   */
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const pendingSlot = useRef<string | null>(null);
+
+  const uploadLogo = async (file: File | undefined) => {
+    const slotId = pendingSlot.current;
+    if (!file || !slotId) return;
+    const slot = settings.logos.find((l) => l.id === slotId);
+    setUploadingFor(slotId);
+    try {
+      const url = await uploadImageFile(file, 'branding/logos');
+      onUpdate({
+        logos: settings.logos.map((l) => (l.id === slotId ? { ...l, url } : l)),
+      });
+      toast.success(`${slot?.name || 'Logo'} uploaded.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not upload that logo.');
+    } finally {
+      setUploadingFor(null);
+      pendingSlot.current = null;
+      // So the same file can be picked again after a failure.
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* One picker for every logo slot; `pendingSlot` says which one asked. */}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => void uploadLogo(event.target.files?.[0])}
+      />
+
       {/* Company Information */}
       <div className="bg-[#1A1A1A] rounded-2xl border border-[#2A2A2A] p-6 space-y-4">
         <h4 className="text-lg font-bold text-white flex items-center gap-2">
@@ -111,11 +160,15 @@ export function BrandIdentity({ settings, onUpdate }: BrandIdentityProps) {
               </div>
               <div className="flex gap-2">
                 <button 
-                  onClick={() => toast.info(`Upload ${logo.name}`)}
-                  className="flex-1 px-3 py-2 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg transition text-xs font-semibold flex items-center justify-center gap-1"
+                  onClick={() => {
+                    pendingSlot.current = logo.id;
+                    fileInput.current?.click();
+                  }}
+                  disabled={uploadingFor === logo.id}
+                  className="flex-1 px-3 py-2 bg-[#ea580c]/20 hover:bg-[#ea580c]/30 border border-[#ea580c]/30 text-[#ea580c] rounded-lg transition text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-60"
                 >
                   <Upload className="w-3 h-3" />
-                  Upload
+                  {uploadingFor === logo.id ? 'Uploading…' : 'Upload'}
                 </button>
                 {logo.url && (
                   <button 

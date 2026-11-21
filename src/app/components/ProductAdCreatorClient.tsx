@@ -460,7 +460,17 @@ export default function ProductAdCreatorClient({ onClose }: ProductAdCreatorClie
                       Upload and edit videos in the Enterprise Content Center first
                     </p>
                     <Button
-                      onClick={() => toast.info('Navigate to Enterprise Content Center → AI Generator → AI Video Editor')}
+                      /* Printed the directions instead of following them. The
+                         app exposes `__navigateApp`, which the portal views
+                         already use for exactly this; the toast is the
+                         fallback for when it is not there. */
+                      onClick={() => {
+                        try {
+                          (window as any).__navigateApp('enterprise-content-center');
+                        } catch {
+                          toast.info('Open Enterprise Content Center → AI Generator → AI Video Editor to add videos.');
+                        }
+                      }}
                       variant="outline"
                       className="text-sm"
                     >

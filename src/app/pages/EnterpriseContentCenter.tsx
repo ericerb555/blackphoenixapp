@@ -4033,12 +4033,15 @@ export default function EnterpriseContentCenter() {
                       <Edit className="w-4 h-4" />
                       Edit
                     </button>
+                    {/* Was a TODO behind "Distribution functionality coming
+                        soon" — honest about the future and silent about the
+                        present, on a primary-styled button that looked like
+                        the way to publish. Scheduling a post is what exists
+                        today; this is switched off until distribution does. */}
                     <button
-                      onClick={() => {
-                        // TODO: Implement share/distribute functionality
-                        toast.info('Distribution functionality coming soon');
-                      }}
-                      className="px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-xl hover:from-[#c2410c] hover:to-[#9a3412] transition font-bold flex items-center gap-2"
+                      disabled
+                      title="Distributing to channels has not been built yet — use Schedule to queue a post."
+                      className="px-6 py-3 bg-gradient-to-r from-[#ea580c] to-[#c2410c] text-white rounded-xl transition font-bold flex items-center gap-2 opacity-50 cursor-not-allowed"
                     >
                       <Share2 className="w-4 h-4" />
                       Distribute

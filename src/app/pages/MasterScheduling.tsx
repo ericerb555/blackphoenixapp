@@ -17,7 +17,7 @@
  * - Weather-based delay tracking
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ScheduleAssistantPanel from '../components/schedule/ScheduleAssistantPanel';
 import {
   Calendar, ChevronLeft, ChevronRight, Users, Clock, Filter,
@@ -31,7 +31,7 @@ import {
 import { toast } from 'sonner';
 import { PrimaryButton } from '../components/ui/button/PrimaryButton';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '../components/ui/modal';
-import CalendarScheduleView from '../components/CalendarScheduleView';
+import CalendarScheduleView, { type CalendarEvent } from '../components/CalendarScheduleView';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { API_BASE_URL } from '../lib/apiConfig';
@@ -745,6 +745,45 @@ export default function MasterScheduling() {
     }
   };
 
+  /**
+   * The jobs on this page, in the shape the Calendar View tab reads.
+   *
+   * That tab used to hold five invented events of its own — "Team Stand-up",
+   * a site visit at 456 Elm Drive, every one dated January 2026 — and render
+   * them here, inside the scheduling page, beside the real appointments.
+   *
+   * Both appointment-backed and locally created jobs are passed, because a
+   * dispatcher looking at the calendar wants the week, not the subset that
+   * came from the ledger. The time is read out of the job's description
+   * (`Customer appointment • 9:00 AM`), which is where the loader put it; a
+   * job with no readable time is placed at 08:00 rather than dropped, because
+   * a booking with an unparsed time still has to appear or the calendar is
+   * quietly short.
+   */
+  const calendarEvents: CalendarEvent[] = useMemo(() => jobs.map((job) => {
+    const stamp = /(\d{1,2}):(\d{2})\s*(am|pm)?/i.exec(job.description || '');
+    let hour = stamp ? Number(stamp[1]) : 8;
+    const minute = stamp ? stamp[2] : '00';
+    const meridiem = stamp?.[3]?.toLowerCase();
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) hour = 8;
+    const endHour = Math.min(23, hour + Math.max(1, Math.round(job.estimatedHours || 1)));
+    return {
+      id: job.id,
+      title: `${job.title} — ${job.customer}`,
+      startTime: `${String(hour).padStart(2, '0')}:${minute}`,
+      endTime: `${String(endHour).padStart(2, '0')}:${minute}`,
+      date: job.startDate,
+      // 'appointments' when the shared ledger owns it, 'work' when it does not.
+      category: job.appointmentId ? 'appointments' : 'work',
+      color: job.appointmentId ? '#10b981' : job.color || '#ea580c',
+      description: job.description,
+      location: job.location,
+      type: job.appointmentId ? ('appointment' as const) : ('work-order' as const),
+    };
+  }), [jobs]);
+
   const weekDays = getWeekDays();
   const weekStart = weekDays[0];
   const weekEnd = weekDays[6];
@@ -1130,7 +1169,16 @@ export default function MasterScheduling() {
             </div>
           </div>
           <div className="h-[600px]">
-            <CalendarScheduleView embedded={true} />
+            {/*
+              The real diary, handed over.
+
+              This calendar used to carry its own five invented events — "Team
+              Stand-up", a site visit at 456 Elm Drive, all dated January 2026
+              — and render them here, inside the scheduling page, beside the
+              actual appointments. Now it is given `jobs`, so the Calendar View
+              tab and the Jobs tab cannot disagree about what is booked.
+            */}
+            <CalendarScheduleView embedded={true} events={calendarEvents} />
           </div>
         </div>
       </div>

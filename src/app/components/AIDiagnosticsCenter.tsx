@@ -180,44 +180,78 @@ export default function AIDiagnosticsCenter() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(true);
 
+  /**
+   * Load the activity ledger, and let the Refresh button call the same thing.
+   *
+   * The button said `toast.success('AI systems refreshed')` and refreshed
+   * nothing — on a monitoring screen, which is the one kind of screen whose
+   * entire job is to be current. Somebody watching a degraded agent pressed
+   * Refresh, was told it had happened, and went on reading figures from
+   * whenever the page was opened.
+   *
+   * `cancelled` is captured per call rather than per effect, so a refresh that
+   * is still in flight when the component unmounts does not setState after it
+   * is gone.
+   */
+  const loadLedger = async (isCancelled: () => boolean = () => false) => {
+    try {
+      const [summary, calls] = await Promise.all([fetchSummary(24), fetchCalls(24, 100)]);
+      if (isCancelled()) return;
+      setLedgerSummary(summary);
+      setActivities(calls.map(toActivity) as AIActivity[]);
+      /**
+       * Systems and alerts are derived from the same window, so the three
+       * tabs can never disagree with each other about what happened.
+       *
+       * The icon is attached here rather than in the mapper, because it is
+       * a React component and the mapper is plain data that a node test
+       * can import.
+       */
+      setAISystems(summary.agents.map((a) => ({
+        ...toSystem(a),
+        icon: AGENT_ICONS[a.agent] || Bot,
+      })) as AISystem[]);
+      setAlerts(deriveAlerts(summary) as AIAlert[]);
+      setLedgerError(null);
+    } catch (err: any) {
+      if (isCancelled()) return;
+      /**
+       * Reported, never swallowed into an empty list. "You are not allowed
+       * to see this" and "nothing has happened" render identically as zero
+       * rows, and they mean completely different things.
+       */
+      setLedgerError(err instanceof NotPermitted
+        ? 'Activity is only shown to company accounts.'
+        : (err?.message || 'Could not load AI activity.'));
+      throw err;
+    } finally {
+      if (!isCancelled()) setLedgerLoading(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const [summary, calls] = await Promise.all([fetchSummary(24), fetchCalls(24, 100)]);
-        if (cancelled) return;
-        setLedgerSummary(summary);
-        setActivities(calls.map(toActivity) as AIActivity[]);
-        /**
-         * Systems and alerts are derived from the same window, so the three
-         * tabs can never disagree with each other about what happened.
-         *
-         * The icon is attached here rather than in the mapper, because it is
-         * a React component and the mapper is plain data that a node test
-         * can import.
-         */
-        setAISystems(summary.agents.map((a) => ({
-          ...toSystem(a),
-          icon: AGENT_ICONS[a.agent] || Bot,
-        })) as AISystem[]);
-        setAlerts(deriveAlerts(summary) as AIAlert[]);
-        setLedgerError(null);
-      } catch (err: any) {
-        if (cancelled) return;
-        /**
-         * Reported, never swallowed into an empty list. "You are not allowed
-         * to see this" and "nothing has happened" render identically as zero
-         * rows, and they mean completely different things.
-         */
-        setLedgerError(err instanceof NotPermitted
-          ? 'Activity is only shown to company accounts.'
-          : (err?.message || 'Could not load AI activity.'));
-      } finally {
-        if (!cancelled) setLedgerLoading(false);
-      }
-    })();
+    void loadLedger(() => cancelled).catch(() => {
+      // Already reported into ledgerError by the loader; rethrown only so the
+      // Refresh button can tell a failed refresh from a successful one.
+    });
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Re-read the ledger because somebody asked, and say what happened. */
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshSystems = async () => {
+    setRefreshing(true);
+    try {
+      await loadLedger();
+      toast.success('Refreshed — last 24 hours of AI activity re-read.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not refresh AI activity.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
 
 
@@ -332,11 +366,12 @@ export default function AIDiagnosticsCenter() {
           <p className="text-gray-400">Monitoring {totalSystems} AI systems: Product Catalog, CRM Import, Content Studio, Video Analysis, Bid Assistant, Quote Builder, Workflow Chat, Payment Assistant, and more</p>
         </div>
         <button
-          onClick={() => toast.success('AI systems refreshed')}
-          className="px-4 py-2 bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#ea580c]/50 text-gray-300 hover:text-white font-semibold rounded-lg transition-all duration-300 flex items-center gap-2"
+          onClick={refreshSystems}
+          disabled={refreshing}
+          className="px-4 py-2 bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#ea580c]/50 text-gray-300 hover:text-white font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 disabled:opacity-60"
         >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
@@ -741,9 +776,15 @@ export default function AIDiagnosticsCenter() {
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
+                    {/* Said "Opening system settings..." and opened nothing.
+                        There is no per-agent settings screen; what can actually
+                        be changed about an agent — enabled, stopped — is the
+                        two buttons to the left of this one. */}
                     <button
-                      onClick={() => toast.info('Opening system settings...')}
-                      className="px-3 py-2 bg-[#1A1A1A] border border-[#2A2A2A] hover:border-orange-500/50 text-gray-300 hover:text-white font-semibold rounded-lg transition"
+                      disabled
+                      title="Per-system settings have not been built. Use the pause and restart controls beside this."
+                      aria-label="System settings — not available yet"
+                      className="px-3 py-2 bg-[#1A1A1A] border border-[#2A2A2A] text-gray-500 font-semibold rounded-lg transition opacity-50 cursor-not-allowed"
                     >
                       <Settings className="w-4 h-4" />
                     </button>
@@ -1212,17 +1253,30 @@ export default function AIDiagnosticsCenter() {
                 Upgrade All ({aiSystems.filter(s => s.updateAvailable).length})
               </button>
 
+              {/*
+                THESE TWO CANNOT BE WIRED, AND IT IS WORTH SAYING WHY.
+
+                `updateAvailable`, `version` and `latestVersion` have no
+                source — see the comment on MappedSystem in lib/aiActivity.ts.
+                An agent here is a function in this codebase: it has no
+                version, it has no upgrade available, and the mock that
+                invented "2.1.0 → 2.3.0" was removed for that reason. So
+                "Checking for updates..." was checking against nothing, and a
+                component registry to download does not exist.
+              */}
               <button
-                onClick={() => toast.info('Checking for updates...')}
-                className="px-6 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] rounded-xl text-white font-bold transition flex items-center gap-2"
+                disabled
+                title="AI systems here are functions in this codebase — they do not carry versions, so there is nothing to check against."
+                className="px-6 py-3 bg-[#2A2A2A] rounded-xl text-white font-bold transition flex items-center gap-2 opacity-50 cursor-not-allowed"
               >
                 <Search className="w-5 h-5" />
                 Check for Updates
               </button>
 
               <button
-                onClick={() => toast.info('Downloading component registry...')}
-                className="px-6 py-3 bg-[#2A2A2A] hover:bg-[#3A3A3A] rounded-xl text-white font-bold transition flex items-center gap-2"
+                disabled
+                title="There is no component registry to import from yet."
+                className="px-6 py-3 bg-[#2A2A2A] rounded-xl text-white font-bold transition flex items-center gap-2 opacity-50 cursor-not-allowed"
               >
                 <Upload className="w-5 h-5" />
                 Import Components
@@ -1305,17 +1359,26 @@ export default function AIDiagnosticsCenter() {
                             </button>
                           )}
                           
+                          {/* Said "Viewing details for <name>" and showed
+                              none. The Systems tab expands a row into exactly
+                              those details, and the overview cards above
+                              already navigate that way — this button just
+                              never did. */}
                           <button
-                            onClick={() => toast.info(`Viewing details for ${system.name}`)}
+                            onClick={() => { setSelectedSystem(system.id); setActiveTab('systems'); }}
                             className="px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] rounded-lg text-white text-sm font-semibold transition flex items-center gap-2"
                           >
                             <Info className="w-4 h-4" />
                             Details
                           </button>
 
+                          {/* No changelog exists, for the same reason there
+                              are no versions: these are functions, and their
+                              history is the repository's. */}
                           <button
-                            onClick={() => toast.info('Opening changelog...')}
-                            className="px-4 py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] rounded-lg text-white text-sm font-semibold transition flex items-center gap-2"
+                            disabled
+                            title="There is no per-system changelog — these are functions in this codebase, and their history is in the repository."
+                            className="px-4 py-2 bg-[#2A2A2A] rounded-lg text-white text-sm font-semibold transition flex items-center gap-2 opacity-50 cursor-not-allowed"
                           >
                             <FileText className="w-4 h-4" />
                             Changelog

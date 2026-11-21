@@ -5,7 +5,7 @@
  * Can be used standalone or as a tab in Master Scheduling
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -32,6 +32,8 @@ import {
   Target
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
+import { API_BASE_URL } from '../lib/apiConfig';
 
 interface CalendarEvent {
   id: string;
@@ -64,77 +66,114 @@ const DEFAULT_CATEGORIES: CalendarCategory[] = [
   { id: 'personal', name: 'Personal', color: '#3b82f6', enabled: true, icon: Tag },
 ];
 
-const DEFAULT_EVENTS: CalendarEvent[] = [
-  {
-    id: '1',
-    title: 'Team Stand-up',
-    startTime: '09:00',
-    endTime: '09:30',
-    date: '2026-01-22',
-    category: 'meetings',
-    color: '#8b5cf6',
-    type: 'meeting',
-    attendees: ['John', 'Sarah', 'Mike'],
-    recurring: 'daily'
-  },
-  {
-    id: '2',
-    title: 'HVAC Installation - Smith Residence',
-    startTime: '10:00',
-    endTime: '14:00',
-    date: '2026-01-22',
-    category: 'work',
-    color: '#ea580c',
-    type: 'work-order',
-    location: '123 Oak Street',
-    description: 'Install new HVAC system'
-  },
-  {
-    id: '3',
-    title: 'Client Consultation',
-    startTime: '13:00',
-    endTime: '14:00',
-    date: '2026-01-23',
-    category: 'meetings',
-    color: '#8b5cf6',
-    type: 'meeting',
-    location: 'Office Conference Room A'
-  },
-  {
-    id: '4',
-    title: 'Electrical Panel Upgrade',
-    startTime: '08:00',
-    endTime: '12:00',
-    date: '2026-01-23',
-    category: 'work',
-    color: '#ea580c',
-    type: 'work-order',
-    location: '456 Elm Drive'
-  },
-  {
-    id: '5',
-    title: 'Budget Planning Meeting',
-    startTime: '15:00',
-    endTime: '16:30',
-    date: '2026-01-24',
-    category: 'meetings',
-    color: '#8b5cf6',
-    type: 'meeting'
-  },
-];
+
+/**
+ * WHERE THE EVENTS COME FROM, AND WHY THEY NO LONGER COME FROM HERE
+ *
+ * This component used to hold `DEFAULT_EVENTS` — "Team Stand-up", "Budget
+ * Planning Meeting", a site visit at 456 Elm Drive, all dated January 2026 —
+ * and it is routed as `unified-calendar` AND embedded inside Master
+ * Scheduling, next to the real diary. So the company's calendar screen showed
+ * five invented appointments, ten months stale, with no indication they were
+ * examples, and clicking one offered to edit it.
+ *
+ * Events are now real. Master Scheduling owns the diary and hands its own
+ * jobs over as `events`; the standalone `unified-calendar` route is given
+ * nothing, so this component reads the shared appointment ledger itself. An
+ * empty week renders as an empty week, which is true, rather than as somebody
+ * else's invented one.
+ *
+ * Nothing here writes. Creating, editing and deleting an appointment belong
+ * where the appointment lives — the diary and the customer booking flow — and
+ * the three controls that used to claim otherwise say so now.
+ */
+export type { CalendarEvent };
 
 interface CalendarScheduleViewProps {
   embedded?: boolean; // If true, uses compact header for embedding in Master Scheduling
+  /**
+   * The diary, when the caller already has it. Omitted means "go and read the
+   * shared appointment ledger" — never "fall back to samples".
+   */
+  events?: CalendarEvent[];
+  /** Where a reader should go to change any of this, named on the controls. */
+  manageHint?: string;
 }
 
-export default function CalendarScheduleView({ embedded = false }: CalendarScheduleViewProps) {
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 0, 22));
+export default function CalendarScheduleView({
+  embedded = false,
+  events: providedEvents,
+  manageHint = 'Appointments are created and changed in Master Scheduling.',
+}: CalendarScheduleViewProps) {
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'month' | 'day'>('week');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(true);
   const [categories, setCategories] = useState<CalendarCategory[]>(DEFAULT_CATEGORIES);
-  const [events, setEvents] = useState<CalendarEvent[]>(DEFAULT_EVENTS);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
+  /**
+   * The shared diary, read directly when nobody handed it to us.
+   *
+   * This is the standalone `unified-calendar` route. Master Scheduling passes
+   * `events` and this stays idle; on its own the screen would otherwise be a
+   * nav item that always shows an empty week, which is honest and useless.
+   *
+   * `GET /schedule/appointments` is the same ledger the customer booking flow
+   * writes to and Master Scheduling reads, so the two screens cannot disagree.
+   */
+  const [loadedEvents, setLoadedEvents] = useState<CalendarEvent[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    if (providedEvents) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          if (active) setLoadError('Sign in to see the schedule.');
+          return;
+        }
+        const res = await fetch(`${API_BASE_URL}/make-server-3eae23a6/schedule/appointments`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const json = await res.json().catch(() => ({} as any));
+        if (!res.ok) throw new Error(json?.error || 'Unable to load the schedule.');
+        if (!active) return;
+        const rows: any[] = Array.isArray(json.appointments) ? json.appointments : [];
+        setLoadedEvents(rows.filter((a) => a?.date).map((a) => {
+          const raw = String(a.time || '08:00');
+          const stamp = /(\d{1,2}):(\d{2})\s*(am|pm)?/i.exec(raw);
+          let hour = stamp ? Number(stamp[1]) : 8;
+          const minute = stamp ? stamp[2] : '00';
+          const meridiem = stamp?.[3]?.toLowerCase();
+          if (meridiem === 'pm' && hour < 12) hour += 12;
+          if (meridiem === 'am' && hour === 12) hour = 0;
+          if (!Number.isFinite(hour) || hour < 0 || hour > 23) hour = 8;
+          return {
+            id: String(a.id),
+            title: String(a.serviceTitle || a.title || 'Service appointment'),
+            startTime: `${String(hour).padStart(2, '0')}:${minute}`,
+            endTime: `${String(Math.min(23, hour + 1)).padStart(2, '0')}:${minute}`,
+            date: String(a.date),
+            category: 'appointments',
+            color: '#10b981',
+            description: String(a.customerName || a.customerEmail || ''),
+            location: String(a.location || ''),
+            type: 'appointment' as const,
+          };
+        }));
+        setLoadError(null);
+      } catch (error: any) {
+        // Said out loud, never swallowed into an empty calendar: "no bookings"
+        // and "the request failed" look identical once the grid is drawn.
+        if (active) setLoadError(error?.message || 'Unable to load the schedule.');
+      }
+    })();
+    return () => { active = false; };
+  }, [providedEvents]);
+
+  const events = providedEvents ?? loadedEvents ?? [];
 
   const getWeekDays = () => {
     const days = [];
@@ -167,14 +206,21 @@ export default function CalendarScheduleView({ embedded = false }: CalendarSched
     ));
   };
 
-  const handleCreateEvent = () => {
-    toast.success('Event creation modal would open');
-  };
-
-  const handleDeleteEvent = (eventId: string) => {
-    setEvents(events.filter(e => e.id !== eventId));
-    toast.success('Event deleted');
-  };
+  /*
+   * These three said an event had been created, edited or deleted.
+   *
+   * `handleCreateEvent` answered "Event creation modal would open" — there is
+   * no modal. `handleDeleteEvent` filtered the local array and said "Event
+   * deleted", which was briefly convincing and survived until the next render,
+   * and would now be a claim about a real appointment.
+   *
+   * An appointment belongs to the diary that owns it. Saying where beats
+   * pretending here.
+   */
+  const notThisScreen = (what: string) => () => toast.info(`${what} — ${manageHint}`);
+  const handleCreateEvent = notThisScreen('Adding an appointment is not done on this screen');
+  const handleDeleteEvent = (_eventId: string) =>
+    toast.info(`Cancelling an appointment is not done on this screen — ${manageHint}`);
 
   const weekDays = getWeekDays();
   const weekStart = weekDays[0];
@@ -195,6 +241,18 @@ export default function CalendarScheduleView({ embedded = false }: CalendarSched
 
   return (
     <div className={`h-full bg-[#0A0A0A] flex ${embedded ? '' : 'flex-col'} overflow-hidden`}>
+      {/*
+        A failed load has to be visible. Once the grid is drawn, "no bookings
+        this week" and "the request failed" look exactly the same, and the
+        second one is the whole reason this component stopped carrying sample
+        events.
+      */}
+      {loadError && (
+        <div className="m-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+          {loadError}
+        </div>
+      )}
+
       {/* Header - Only show if not embedded */}
       {!embedded && (
         <div className="h-14 bg-[#1A1A1A] border-b border-[#2A2A2A] flex items-center justify-between px-6 flex-shrink-0">
@@ -483,7 +541,7 @@ export default function CalendarScheduleView({ embedded = false }: CalendarSched
                         <td
                           key={dayIndex}
                           className="p-1 border-r border-[#2A2A2A] align-top hover:bg-[#1A1A1A] transition cursor-pointer relative h-20"
-                          onClick={() => toast.info(`Create event on ${formatDate(day)} at ${time}`)}
+                          onClick={handleCreateEvent}
                         >
                           {dayEvents.map(event => (
                             <div
@@ -589,7 +647,7 @@ export default function CalendarScheduleView({ embedded = false }: CalendarSched
 
               <div className="pt-4 border-t border-[#2A2A2A] flex gap-3">
                 <button
-                  onClick={() => toast.info('Edit event')}
+                  onClick={notThisScreen('Editing an appointment is not done on this screen')}
                   className="flex-1 px-4 py-2 bg-[#ea580c] hover:bg-[#c2410c] text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
                 >
                   <Edit className="w-4 h-4" />
