@@ -499,9 +499,61 @@ export default function MasterScheduling() {
     return true;
   });
 
-  const handleAssignEmployee = (jobId: string, employeeId: string, date: string) => {
-    toast.success('Employee assigned to job');
-    // Logic to assign employee
+  /**
+   * Put somebody on a job, in the shared diary, where the crew can see it.
+   *
+   * This was `toast.success('Employee assigned to job')` over the comment
+   * `// Logic to assign employee`, and the Assign button in the job modal did
+   * not even call it — it raised its own toast with the employee's name in it.
+   * So a dispatcher could staff the week, watch the names appear under
+   * "Assigned Employees", close the modal, and have changed nothing. Reopen the
+   * job and the crew list is empty again, because it was only ever the toast.
+   *
+   * The appointment record has always carried `employeeId`: the loader above
+   * reads it to build both this crew list and the shift board. PATCHing it is
+   * therefore all an assignment is, and bumping `appointmentsVersion` makes
+   * the diary, the job and the shift board agree without guessing at the shape
+   * of any of them.
+   *
+   * `employeeId: null` takes the person off the job.
+   */
+  const handleAssignEmployee = async (job: Job, employeeId: string | null, employeeName?: string) => {
+    /*
+     * A locally created job has no appointment behind it, so there is nothing
+     * to write and nobody to tell. Say that instead of succeeding quietly —
+     * the whole reason this function was rewritten is that it used to claim an
+     * assignment that never left the browser.
+     */
+    if (!job.appointmentId) {
+      toast.error('This job is not on the shared diary yet, so a crew cannot be saved to it.');
+      return;
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error('Please sign in to change who is on this job.');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE}/schedule/appointments/${job.appointmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ employeeId }),
+      });
+      const result = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(result.error || 'Unable to change the crew on this job.');
+
+      const assigned = employeeId ? [String(employeeId)] : [];
+      setJobs((current) => current.map((item) => item.appointmentId === job.appointmentId ? { ...item, assignedEmployees: assigned } : item));
+      setSelectedJob((current: Job | null) => current && current.appointmentId === job.appointmentId ? { ...current, assignedEmployees: assigned } : current);
+      // The shift board is built from the diary, so reload it rather than
+      // patching two derived lists by hand and letting them drift.
+      setAppointmentsVersion((version) => version + 1);
+      toast.success(employeeId
+        ? `${employeeName || 'Employee'} is on this job — it is on the shift board now.`
+        : 'Taken off this job.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not change who is on this job.');
+    }
   };
 
   const handleCreateJob = () => {
@@ -2046,7 +2098,12 @@ function JobDetailsModal({ job, employees, onClose, onAssign, onUpdateAppointmen
                       <div className="text-sm text-gray-400">{emp.positions.join(', ')}</div>
                     </div>
                   </div>
-                  <button className="p-2 hover:bg-[#2A2A2A] rounded-lg transition">
+                  <button
+                    onClick={() => onAssign(job, null)}
+                    title={`Take ${emp.name} off this job`}
+                    aria-label={`Take ${emp.name} off this job`}
+                    className="p-2 hover:bg-[#2A2A2A] rounded-lg transition"
+                  >
                     <X className="w-4 h-4 text-gray-400" />
                   </button>
                 </div>
@@ -2057,7 +2114,18 @@ function JobDetailsModal({ job, employees, onClose, onAssign, onUpdateAppointmen
           {/* Available Employees */}
           {availableEmps.length > 0 && (
             <div>
-              <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Available Employees</h3>
+              <h3 className="text-sm font-bold text-gray-400 uppercase mb-1">Available Employees</h3>
+              {/* One appointment carries one crew member, which is the shape
+                  the record has always had. Said on screen rather than in a
+                  title attribute, because this screen gets used on a phone and
+                  a hover tooltip does not exist there — and because the
+                  alternative is a dispatcher believing a second name was added
+                  alongside the first. */}
+              {assignedEmps.length > 0 && (
+                <p className="text-xs text-gray-500 mb-3">
+                  A job carries one crew member — assigning replaces {assignedEmps[0]?.name || 'whoever is on it'}.
+                </p>
+              )}
               <div className="space-y-2">
                 {availableEmps.slice(0, 3).map((emp: any) => (
                   <div key={emp.id} className="flex items-center justify-between p-3 bg-[#0F0F0F] rounded-lg">
@@ -2071,7 +2139,7 @@ function JobDetailsModal({ job, employees, onClose, onAssign, onUpdateAppointmen
                       </div>
                     </div>
                     <PrimaryButton
-                      onClick={() => toast.success(`${emp.name} assigned to job`)}
+                      onClick={() => onAssign(job, emp.id, emp.name)}
                       size="sm"
                       className="transition"
                     >

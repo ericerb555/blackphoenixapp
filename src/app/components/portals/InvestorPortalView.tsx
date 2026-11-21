@@ -28,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { publicAnonKey } from '../../utils/supabase/info';
 import PortalSettings from './PortalSettings';
 import { API_BASE_URL } from '../../lib/apiConfig';
+import { downloadCsv, datedFilename } from '../../lib/downloadCsv';
 
 const INVEST_API = `${API_BASE_URL}/make-server-3eae23a6/investments`;
 
@@ -664,11 +665,18 @@ export default function InvestorPortalView() {
                       Investment Documents
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Each row said "Downloading <name>..." and downloaded
+                          nothing. These are names on the opportunity record;
+                          no file was ever stored against them, so there is
+                          nothing to fetch. An investor who cannot open a
+                          prospectus is better served by being told it is not
+                          here yet — then they can ask for it. */}
                       {selectedOpportunity.documents.map((doc: any, idx: number) => (
                         <button
                           key={idx}
-                          onClick={() => toast.info(`Downloading ${doc.name}...`)}
-                          className="flex items-center justify-between bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-4 hover:border-blue-500/30 transition group"
+                          disabled
+                          title="This document has not been uploaded yet."
+                          className="flex items-center justify-between bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-4 transition group opacity-60 cursor-not-allowed"
                         >
                           <div className="flex items-center gap-3">
                             <FileText className="w-5 h-5 text-blue-400" />
@@ -842,7 +850,13 @@ export default function InvestorPortalView() {
                   <p className="text-sm text-gray-400">Total value and ROI over time</p>
                 </div>
                 <PrimaryButton
-                  onClick={() => toast.success('Downloading report...')}
+                  onClick={() => {
+                    if (!downloadCsv(datedFilename('portfolio-performance'), performanceData, ['month', 'value', 'roi'])) {
+                      toast.error('There is nothing to export yet — this fills in from the first distribution.');
+                      return;
+                    }
+                    toast.success('Portfolio performance downloaded.');
+                  }}
                   className="flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />

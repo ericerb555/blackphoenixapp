@@ -295,9 +295,16 @@ export default function AbandonedCart() {
                 Discount codes are auto-generated and single-use. COMEBACK10 and LASTCHANCE15 are pre-configured.
               </div>
             </div>
-            <button onClick={() => toast.success('Settings saved!')}
-              className="w-full py-3 rounded-xl font-black text-sm text-white hover:brightness-110 transition"
+            {/* Said 'Settings saved!' and saved nothing: the fields above are
+                local state and there is no recovery-settings store to write to.
+                Disabled with the reason on screen rather than deleted — the
+                feature is a decision away, and an operator who thinks a
+                discount schedule is live is worse off than one who can see it
+                is not. */}
+            <button disabled title="Saving recovery settings has not been built yet."
+              className="w-full py-3 rounded-xl font-black text-sm text-white transition opacity-50 cursor-not-allowed"
               style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}>Save Settings</button>
+            <p className="mt-2 text-xs text-gray-500">Nothing is saved yet — these settings have no store behind them.</p>
           </div>
         )}
 

@@ -1042,10 +1042,13 @@ export default function AIRankingEngine({ embedded = false }: { embedded?: boole
               ))}
             </div>
 
-            <button onClick={() => toast.success('Settings saved — all content templates updated')}
-              className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-purple-600 hover:from-orange-500 hover:to-purple-500 text-white rounded-xl font-bold text-sm transition">
+            {/* Claimed two things — saved, and every content template updated.
+                Neither happened; the fields are local state. */}
+            <button disabled title="Saving these settings has not been built yet."
+              className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-purple-600 text-white rounded-xl font-bold text-sm transition opacity-50 cursor-not-allowed">
               Save Settings
             </button>
+            <p className="mt-2 text-xs text-gray-500">Nothing is saved yet — these settings have no store behind them.</p>
           </div>
 
           {/* Auto-rank settings */}

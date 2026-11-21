@@ -16193,20 +16193,77 @@ app.get('/make-server-3eae23a6/schedule/appointments', async (c) => {
     return c.json({ success: true, appointments: records.sort((a: any, b: any) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)) });
   } catch (error: any) { return c.json({ error: error.message || 'Unable to load appointments.' }, 500); }
 });
+/**
+ * The status of an appointment, and WHO IS ON IT.
+ *
+ * `employeeId` is new, 2026-11-21, and it is the reason this route exists in
+ * more than one shape. Master Scheduling's "Assign" button was a toast naming
+ * the employee and returning, and the page's own `handleAssignEmployee` was a
+ * toast sitting above the comment `// Logic to assign employee`. So a
+ * dispatcher could staff a week of appointments, watch every name appear
+ * under "Assigned Employees", and have nothing written down anywhere: the
+ * crew is never told, and the shift board the next morning is empty. Of the
+ * 35 handlers in the audit's C1 bucket that announce a completed action and
+ * do nothing, this is the one that decides whether somebody turns up to a
+ * customer's house.
+ *
+ * The appointment already carried `employeeId` — the diary reads it to build
+ * both the job's crew list and the shift board — so this is the field the
+ * screen was displaying all along. It simply had no way to set it.
+ *
+ * The id is checked against the roster before it is stored. An unknown id
+ * would roster nobody while reading on screen as assigned, which is the exact
+ * failure this change exists to remove. `null` or an empty string unassigns.
+ *
+ * One appointment carries one crew member, which is the shape the record has
+ * always had; the caller is told so rather than being allowed to believe a
+ * second assignment was added alongside the first.
+ */
 app.patch('/make-server-3eae23a6/schedule/appointments/:id', async (c) => {
   try {
     const { user, admin } = await financialActor(c);
     if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
-    if (!admin) return c.json({ error: 'Administrator access is required to change schedule status.' }, 403);
+    if (!admin) return c.json({ error: 'Administrator access is required to change the schedule.' }, 403);
     const existing = await kv.get(appointmentKey(c.req.param('id'))) as any;
     if (!existing) return c.json({ error: 'Appointment not found.' }, 404);
     const body = await c.req.json();
-    const status = String(body.status || '').trim().toLowerCase();
-    if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
-    const record = { ...existing, status, updated_at: new Date().toISOString(), status_updated_by: String(user.email).toLowerCase() };
+
+    /*
+     * Presence, not truthiness. `employeeId: null` is "take them off this
+     * job" and must be told apart from a body that does not mention the crew
+     * at all — a status-only PATCH, which is every caller written before
+     * today and must keep working unchanged.
+     */
+    const wantsStatus = body.status !== undefined && body.status !== null && String(body.status).trim() !== '';
+    const wantsCrew = Object.prototype.hasOwnProperty.call(body, 'employeeId');
+    if (!wantsStatus && !wantsCrew) return c.json({ error: 'Send a status, an employeeId, or both.' }, 400);
+
+    const record = { ...existing, updated_at: new Date().toISOString() };
+
+    if (wantsStatus) {
+      const status = String(body.status).trim().toLowerCase();
+      if (!['scheduled', 'confirmed', 'completed', 'cancelled'].includes(status)) return c.json({ error: 'A valid appointment status is required.' }, 400);
+      record.status = status;
+      record.status_updated_by = String(user.email).toLowerCase();
+    }
+
+    if (wantsCrew) {
+      const id = body.employeeId === null ? '' : String(body.employeeId).trim();
+      if (!id) {
+        record.employeeId = null;
+        record.employeeName = null;
+      } else {
+        const employee = await kv.get(`time_employee:${id}`) as any;
+        if (!employee) return c.json({ error: 'That employee is not on the roster.' }, 404);
+        record.employeeId = id;
+        record.employeeName = String(employee.name || employee.email || '').trim() || null;
+      }
+      record.crew_updated_by = String(user.email).toLowerCase();
+    }
+
     await kv.set(appointmentKey(record.id), record);
     return c.json({ success: true, appointment: record });
-  } catch (error: any) { return c.json({ error: error.message || 'Unable to update appointment status.' }, 500); }
+  } catch (error: any) { return c.json({ error: error.message || 'Unable to update this appointment.' }, 500); }
 });
 
 // ── MAINTENANCE PLAN COMPATIBILITY ────────────────────────────────────────────
