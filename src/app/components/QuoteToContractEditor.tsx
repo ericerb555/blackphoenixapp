@@ -637,7 +637,17 @@ export function QuoteToContractEditor({
    * to. Holds the server's own reason, so the dialog does not invent a second
    * wording of it. Null means nothing is being asked.
    */
-  const [unpricedSend, setUnpricedSend] = useState<{ reason: string; basis: string } | null>(null);
+  /**
+   * `origin` decides what "Send anyway" then does, and what it SAYS.
+   *
+   * The same refusal can now come from two places: sending the quote for
+   * approval, where nothing has gone out yet, and emailing the PDF, where it
+   * already has. Confirming the second one is a decision about the RECORD,
+   * and telling somebody their estimate is about to be sent when it landed
+   * in the customer's inbox a second ago is how you lose track of what the
+   * customer actually has.
+   */
+  const [unpricedSend, setUnpricedSend] = useState<{ reason: string; basis: string; origin: 'send' | 'email' } | null>(null);
 
   const [activeTab, setActiveTab] = useState<'quote' | 'bidding' | 'approval'>('quote');
   const [quoteEditTab, setQuoteEditTab] = useState<'phases' | 'materials' | 'labor' | 'process'>('phases');
@@ -1158,6 +1168,84 @@ export function QuoteToContractEditor({
     if (emailingQuote) setEmailTo(workRequest.customerEmail || '');
   }, [emailingQuote, workRequest.customerEmail]);
 
+  /**
+   * RECORD THAT THE QUOTE HAS GONE TO THE CUSTOMER.
+   *
+   * Eric, 2026-11-21: "i emailed jason quote but it still sayd not send in
+   * the quote editor why?"
+   *
+   * Because emailing it and recording it were two different actions and only
+   * one of them was happening. `handleEmailQuote` builds the PDF in the page
+   * and posts it to `/email-center/send`, which sends an email and knows
+   * nothing about quotes. `POST /quotes/:id/send-to-customer` is the route
+   * that owns "this has gone out" — it sets `status: sent`, `sentAt` and
+   * `sentBy`, and sends no email at all. Nothing connected them.
+   *
+   * Checked against the record: the email reached
+   * Jason@luksbarandgrill.com at 01:34:15 with status `sent` and no error,
+   * while both copies of the quote still said `draft` with a null `sentAt`.
+   * The editor was telling the truth about what it knew.
+   *
+   * WHY IT RUNS AFTER THE EMAIL, NOT BEFORE. Marking first and emailing
+   * second means a failed email leaves a quote recorded as sent that the
+   * customer never got — Eric would be waiting on a reply to something that
+   * never arrived. This way round, the worst case is the bug being fixed
+   * here: the customer has it and the record lags, which is visible and
+   * recoverable. So the email is the thing that must succeed first.
+   */
+  const markQuoteSent = async (acknowledgedUnpriced = false): Promise<boolean> => {
+    const quoteId = (currentQuote as any)?.id || workRequest.quote?.id;
+    if (!quoteId) return false;
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/quotes/${encodeURIComponent(quoteId)}/send-to-customer`,
+        {
+          method: 'POST',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({
+            customerEmail: workRequest.customerEmail,
+            customerName: workRequest.customerName,
+            message: 'Estimate emailed from the quote editor.',
+            ...(acknowledgedUnpriced ? { acknowledgedUnpriced: true } : {}),
+          }),
+        },
+      );
+
+      /*
+       * The unpriced gate still applies, and it is deliberately not waved
+       * through just because the email has gone. Eric asked to be able to
+       * send or not send an unpriced quote knowingly; passing the
+       * acknowledgement automatically would quietly remove the one place he
+       * takes that decision. The dialog says the estimate HAS been emailed,
+       * so the choice is about the record, not about the customer.
+       */
+      if (res.status === 409) {
+        const refusal = await res.json().catch(() => ({} as any));
+        if (refusal?.code === 'UNPRICED_QUOTE_NEEDS_ACKNOWLEDGEMENT') {
+          setUnpricedSend({
+            reason: String(refusal.error || 'This quote was not priced from your own figures.'),
+            basis: String(refusal.pricingBasis || ''),
+            origin: 'email',
+          });
+          return false;
+        }
+      }
+
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => ({}));
+      if (data?.quote) {
+        // Keep the screen in step with the record, so it stops saying "not
+        // sent" without needing a reload.
+        const merged = { ...(editedQuote || currentQuote), ...data.quote } as any;
+        setEditedQuote(merged);
+        syncQuote({ ...workRequest, quote: merged } as any);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleEmailQuote = async () => {
     const to = emailTo.trim();
     if (!/^\S+@\S+\.\S+$/.test(to)) { toast.error('Enter a valid email address.'); return; }
@@ -1241,9 +1329,22 @@ export function QuoteToContractEditor({
         }
       }
 
+      /*
+       * The email has gone. Now the record says so — see `markQuoteSent`.
+       * Its failure is reported rather than swallowed: a quote the customer
+       * has, still showing as a draft, is exactly the state being fixed here,
+       * and it must not go unsaid a second time.
+       */
+      const recorded = await markQuoteSent();
+
       toast.success(
         invited ? `Estimate and account invitation sent to ${to}.` : `Estimate emailed to ${to}.`,
       );
+      if (!recorded) {
+        toast.warning('Emailed, but the quote is still marked as a draft.', {
+          description: 'The customer has it. Use Send to Customer to record it as sent.',
+        });
+      }
       setEmailingQuote(false);
     } catch (err: any) {
       toast.error(`Could not send the email: ${err?.message || err}`);
@@ -3415,6 +3516,7 @@ export function QuoteToContractEditor({
           setUnpricedSend({
             reason: String(refusal.error || 'This quote was not priced from your own figures.'),
             basis: String(refusal.pricingBasis || ''),
+            origin: 'send',
           });
           return;
         }
@@ -6816,8 +6918,20 @@ export function QuoteToContractEditor({
           customerName={workRequest.customerName}
           customerEmail={workRequest.customerEmail}
           sending={loading}
+          alreadyEmailed={unpricedSend.origin === 'email'}
           onCancel={() => setUnpricedSend(null)}
-          onSendAnyway={() => handleSendToCustomer(true)}
+          onSendAnyway={() => {
+            if (unpricedSend.origin === 'email') {
+              // The customer already has it; this records that they do.
+              void markQuoteSent(true).then((ok) => {
+                setUnpricedSend(null);
+                if (ok) toast.success('Recorded as sent.');
+                else toast.error('Could not record it as sent.');
+              });
+              return;
+            }
+            void handleSendToCustomer(true);
+          }}
         />
       )}
     </>
