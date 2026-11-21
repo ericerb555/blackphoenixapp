@@ -1131,6 +1131,8 @@ and `DELETE /qr-codes/:id` — so one new code is not a full-list rewrite.
 the existing entry, which is a larger, deliberate change than the bug that was
 reported.
 
+---
+
 ## A `condo_manager` access row satisfies nothing on the server
 
 Found 2026-11-21 while closing the portal gate (`portalGrants.ts`).
@@ -1161,3 +1163,27 @@ with its own tests, not a side effect of a gate fix.
 `isPropertyManager` to accept an active `condo_manager` row for the condo
 routes only — not the property-manager ones — and pin both directions in
 `tests/rentalAccess.test.ts`.
+
+---
+
+## Four copies of `splitDataUri` (2026-11-21)
+
+It is a six-line function that turns a `data:` URI into a media type and its
+base64, and every route that reads images has its own:
+
+    supabase/functions/server/bid-intake.tsx:73
+    supabase/functions/server/house-capture.tsx:90
+    supabase/functions/server/trash-estimator.tsx:184
+    supabase/functions/server/dataUri.ts            <- the shared one
+
+The fourth caller (`deck-survey.tsx`) imports the shared module rather than
+adding a fifth copy, so the duplication stopped growing. The three originals
+still stand.
+
+**Why it is not fixed here:** they are three live route modules that other
+sessions edit, and swapping six lines for an import in each is a merge
+conflict for no behavioural gain. Worth doing in one pass when nobody else is
+in those files. Check first whether the copies actually agree — if one of them
+accepts something the others reject, that difference is the real finding and
+the deduplication would silently change what a route accepts.
+

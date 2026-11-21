@@ -422,6 +422,7 @@ import { areasFromQuote, pricingRefusal } from './reportPricing.ts';
 import { workRequestActor, ownsWorkRequest, readWorkRequests, persistWorkRequest } from "./workRequests.ts";
 import { pipelineItemFrom } from "./pipelineHandoff.ts";
 import { afterResponse } from "./afterResponse.ts";
+import { deckSurveyRouter } from "./deck-survey.tsx";
 import {
   type StripeAccount, STRIPE_KEY_ENVS, stripeAccountLabel, STRIPE_TEST_KEY_ENV,
   stripeTestKey, stripeKeyMode, stripeTestAccountEmail, isStripeTestAccount,
@@ -2165,6 +2166,15 @@ app.route("/", refundPolicyRoutes);
 app.route("/make-server-3eae23a6", productsRouter);
 app.route("/", marketplaceRouter);
 app.route("/make-server-3eae23a6/email-center", emailCenterRouter);
+/*
+ * The deck surveyor carries its own full paths, so it mounts at the root.
+ *
+ * DELIBERATELY NOT ADDED TO `AI_METERED_PREFIXES`. It meters itself in the
+ * `deck` bucket — assertAiAllowed, then beginAiCall, then reserve per frame
+ * — and the note on that list says why counting it twice is wrong: "Counting
+ * them here as well would charge twice for one call."
+ */
+app.route("/", deckSurveyRouter);
 app.route("/make-server-3eae23a6/store-content", storeContentRouter);
 app.route("/", flashSalesRouter);
 app.route("/", storeBoostersRouter);

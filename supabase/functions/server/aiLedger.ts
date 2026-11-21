@@ -45,6 +45,13 @@
  * that, and they fail closed. This only observes.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.39.7";
+/*
+ * The bucket list lives in `aiCeiling.ts` and is imported rather than
+ * repeated. It was written out by hand here, THREE times, so adding a bucket
+ * typechecked everywhere that mattered and then failed at the one call
+ * site that opens the ledger row.
+ */
+import type { SpendBucket } from "./aiCeiling.ts";
 import { trustedRole, isTrustedStaff } from "./trustedRole.ts";
 import { estimateCostCents } from "./modelPricing.ts";
 import { assertAiAllowed } from "./aiKillSwitch.ts";
@@ -74,7 +81,7 @@ export interface BeginAiCall {
   provider?: string;
   model?: string;
   /** Matches SpendBucket in `aiCeiling.ts`, so the two can be reconciled. */
-  bucket?: 'ai' | 'render' | 'blueprint' | 'trash';
+  bucket?: SpendBucket;
   /** The prompt. Hashed and measured, never stored. */
   input?: string;
   requestPath?: string;
@@ -371,7 +378,7 @@ export function ledgerContextFor(c: any): LedgerContext {
  * by hand. That is how a mechanical change becomes a risky one.
  */
 export async function recordedOpenAIFetch(
-  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' | 'trash' } & LedgerContext,
+  meta: { agent: string; operation: string; bucket?: SpendBucket } & LedgerContext,
   url: string,
   init: RequestInit,
 ): Promise<Response> {
@@ -446,7 +453,7 @@ export async function recordedOpenAIFetch(
  * `message.content`, usage and errors is untouched.
  */
 export async function recordedAnthropic(
-  meta: { agent: string; operation: string; bucket?: 'ai' | 'render' | 'blueprint' | 'trash' } & LedgerContext,
+  meta: { agent: string; operation: string; bucket?: SpendBucket } & LedgerContext,
   client: any,
   params: any,
 ): Promise<any> {

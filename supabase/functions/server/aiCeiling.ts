@@ -37,7 +37,7 @@
  * Withholding a feature is recoverable; a month of uncapped model spend is not.
  */
 
-export type SpendBucket = "render" | "blueprint" | "ai" | "trash";
+export type SpendBucket = "render" | "blueprint" | "ai" | "trash" | "deck";
 
 /**
  * The limit key each bucket reads off a tier.
@@ -51,6 +51,7 @@ export const TIER_LIMIT_KEY: Record<SpendBucket, string> = {
   render: "rendersPerMonth",
   blueprint: "blueprintsPerMonth",
   trash: "trashEstimatesPerMonth",
+  deck: "deckSurveysPerMonth",
 };
 
 export interface CeilingInput {
