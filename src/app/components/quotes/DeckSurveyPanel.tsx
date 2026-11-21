@@ -74,8 +74,14 @@ export interface DeckSurvey {
 
 interface Props {
   workRequestId: string;
-  /** Opens the as-built in the designer. Absent hides the button. */
-  onOpenInDesigner?: (deck: Record<string, unknown>) => void;
+  /**
+   * Opens one of the two decks in the designer. Absent hides the buttons.
+   *
+   * `which` is passed because once these are two saved projects in a list,
+   * "Michael Saverse — deck" twice over is unusable: the caller needs to know
+   * whether it is naming the deck that is there or the one being proposed.
+   */
+  onOpenInDesigner?: (deck: Record<string, unknown>, which: 'as-built' | 'proposed') => void;
 }
 
 const isVideo = (f: File) => f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm|avi)$/i.test(f.name);
@@ -446,7 +452,7 @@ export default function DeckSurveyPanel({ workRequestId, onOpenInDesigner }: Pro
 
               {onOpenInDesigner && (
                 <button
-                  onClick={() => onOpenInDesigner(survey.proposedDeck as Record<string, unknown>)}
+                  onClick={() => onOpenInDesigner(survey.proposedDeck as Record<string, unknown>, 'proposed')}
                   className="mt-2 inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-violet-500/50 bg-black px-3 py-2 text-sm font-bold text-violet-300 hover:border-violet-400"
                 >
                   <Ruler className="h-4 w-4" />
@@ -473,7 +479,7 @@ export default function DeckSurveyPanel({ workRequestId, onOpenInDesigner }: Pro
 
           {onOpenInDesigner && (
             <button
-              onClick={() => onOpenInDesigner(survey.deck)}
+              onClick={() => onOpenInDesigner(survey.deck, 'as-built')}
               className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-sky-500/50 bg-black px-3 py-2 text-sm font-bold text-sky-300 hover:border-sky-400"
             >
               <Ruler className="h-4 w-4" />
