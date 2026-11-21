@@ -322,9 +322,35 @@ export function trashTakeoff(observations: Observations, rates: TrashRates): Tra
 
     const rule = hazardFor(item?.name);
     if (rule?.action === "refuse") {
-      refused.push({ id: rule.id, label: rule.label, why: rule.why, named: String(item?.name ?? "") });
-      if (rule.id === "asbestos") {
-        siteVisitReasons.push("suspected asbestos — this has to be tested before anybody prices around it");
+      /*
+       * ONE ENTRY PER RULE, NOT PER ITEM THAT MATCHED IT.
+       *
+       * This pushed unconditionally, so two items hitting the same rule —
+       * paint tins and solvent bottles, both "liquids" — put the same
+       * paragraph on the customer’s page twice. Seen on the portal for
+       * est_1795137240769_1tzs30: the hazardous-waste explanation printed
+       * in full, then printed again.
+       *
+       * The hazard loop below already dedupes by rule id and says why:
+       * "a fridge described once as an item and again in the hazard list is
+       * one fridge". The intent was there; this half did not honour it.
+       *
+       * The names are joined rather than dropped, because the crew needs to
+       * know WHICH things are the problem and `why` is per-rule prose that
+       * says nothing about that. The field stays a string, so nothing
+       * downstream has to change.
+       */
+      const already = refused.find((r) => r.id === rule.id);
+      const name = String(item?.name ?? "");
+      if (already) {
+        if (name && !already.named.split(", ").includes(name)) {
+          already.named = already.named ? `${already.named}, ${name}` : name;
+        }
+      } else {
+        refused.push({ id: rule.id, label: rule.label, why: rule.why, named: name });
+        if (rule.id === "asbestos") {
+          siteVisitReasons.push("suspected asbestos — this has to be tested before anybody prices around it");
+        }
       }
       continue;
     }
