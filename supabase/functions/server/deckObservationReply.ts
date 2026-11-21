@@ -41,8 +41,9 @@
  * substitutes for the other.
  */
 
-import type { DeckObservation } from './deckFromObservation.ts';
-import type { LumberSize, PostSize, JoistSpacing } from './deckModel.ts';
+import type {
+  DeckObservation, LumberSize, PostSize, JoistSpacing,
+} from './deckFromObservation.ts';
 
 /** The model would not say. Worth showing a person; nonsense is not. */
 export interface DeckObservationRefusal {

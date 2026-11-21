@@ -10,8 +10,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   readDeckObservation, isDeckReading,
-} from '../src/app/lib/deckObservationReply.ts';
-import { deckFromObservation } from '../src/app/lib/deckFromObservation.ts';
+} from '../supabase/functions/server/deckObservationReply.ts';
+import { deckFromObservation } from '../supabase/functions/server/deckFromObservation.ts';
+import { DEFAULT_DECK } from '../src/app/lib/deckModel.ts';
+
+/** The reader is server-side, so the fallback is injected. */
+const build = (o: any) => deckFromObservation(o, DEFAULT_DECK as any);
+
 
 /** A sound reply about a 16x12 deck read off 40 frames of video. */
 const good = (over: Record<string, unknown> = {}) => ({
@@ -69,7 +74,7 @@ test('a count nobody gave is null, not nought', () => {
   assert.equal(r.observation.footingCount, null);
   // And that is what makes the deck ask to be measured rather than be framed
   // at a confident zero.
-  assert.equal(deckFromObservation(r.observation).needsMeasurement, true);
+  assert.equal(build(r.observation).needsMeasurement, true);
 });
 
 test('an explicit zero count is dropped, because a deck has no nought joists', () => {
@@ -88,14 +93,14 @@ test('a freestanding deck survives as false, not as absent', () => {
   assert.equal(r.observation.guardrail, false);
   // Which is the difference between a freestanding deck and one bolted to a
   // house it is not touching.
-  assert.equal(deckFromObservation(r.observation).deck.ledgerAttached, false);
+  assert.equal(build(r.observation).deck.ledgerAttached, false);
 });
 
 test('not mentioned is null, so the default can take over', () => {
   const r = readDeckObservation({ frames: [0] }, 40);
   assert.ok(isDeckReading(r));
   assert.equal(r.observation.ledgerAttached, null);
-  assert.equal(deckFromObservation(r.observation).deck.ledgerAttached, true);
+  assert.equal(build(r.observation).deck.ledgerAttached, true);
 });
 
 /* ── a count has to be possible ──────────────────────────────────────────── */
@@ -159,14 +164,14 @@ test('a model-estimated dimension is NOT a stated one', () => {
   assert.equal(r.observation.statedWidthFt, null);
   assert.equal(r.observation.statedDepthFt, null);
   // So the width still comes from the joist count, with its range.
-  assert.equal(deckFromObservation(r.observation).width.basis, 'joist-count');
+  assert.equal(build(r.observation).width.basis, 'joist-count');
 });
 
 test('a dimension marked as measured on site is allowed through', () => {
   const r = readDeckObservation(good({ measuredOnSite: true, widthFt: 15.5 }), 40);
   assert.ok(isDeckReading(r));
   assert.equal(r.observation.statedWidthFt, 15.5);
-  assert.equal(deckFromObservation(r.observation).width.basis, 'stated');
+  assert.equal(build(r.observation).width.basis, 'stated');
 });
 
 /* ── refusals and rubbish ────────────────────────────────────────────────── */
@@ -200,7 +205,7 @@ test('what it could not see is kept, trimmed and de-duplicated', () => {
 test('the reading feeds straight into a framed deck', () => {
   const r = readDeckObservation(good(), 40);
   assert.ok(isDeckReading(r));
-  const built = deckFromObservation(r.observation);
+  const built = build(r.observation);
   assert.equal(built.needsMeasurement, false);
   assert.equal(built.width.basis, 'joist-count');
   assert.equal(built.depth.basis, 'board-count');

@@ -37,10 +37,54 @@
  * than quietly wrong.
  */
 
-import {
-  type DeckModel, type LumberSize, type PostSize, type JoistSpacing,
-  DEFAULT_DECK,
-} from './deckModel.ts';
+/*
+ * WHY THE DECK TYPES ARE DECLARED HERE AND NOT IMPORTED
+ *
+ * This file lives in the server directory, and the server deploys from a
+ * FLAT build: `scripts/build-server.mjs` copies the files sitting directly
+ * in this folder and nothing else. An import reaching up into
+ * `src/app/lib/deckModel.ts` would survive the transpile and then fail to
+ * resolve in production — the same trap `checkoutExpectation.ts` is in this
+ * folder to avoid.
+ *
+ * It lives here rather than in the browser bundle because the figures it
+ * reads come back from a language model, and validating them in the page
+ * would make the browser the courier for numbers that become a price. This
+ * codebase has already paid for that mistake once: a customer's browser
+ * used to write the generated quote into the pipeline, so "the number the
+ * business worked from had passed through the hands of the party with the
+ * most reason to change it".
+ *
+ * The structural unions are duplicated — four lines, checked by the
+ * compiler at every call site in both halves — rather than the LOGIC,
+ * which has one copy. `DEFAULT_DECK` is injected by the caller for the
+ * same reason: it is a value, and a value cannot cross this boundary.
+ */
+export type LumberSize = '2x6' | '2x8' | '2x10' | '2x12';
+export type PostSize = '4x4' | '6x6';
+export type JoistSpacing = 12 | 16 | 24;
+
+/** The shape `src/app/lib/deckModel.ts` defines, which this must satisfy. */
+export interface DeckModel {
+  widthFt: number;
+  depthFt: number;
+  heightFt: number;
+  joistSize: LumberSize;
+  joistSpacing: JoistSpacing;
+  beamSize: LumberSize;
+  beamPlies: number;
+  postSize: PostSize;
+  postSpacingFt: number;
+  ledgerAttached: boolean;
+  cantileverFt: number;
+  deckingDirection: 'parallel' | 'perpendicular';
+  guardrail: boolean;
+  stairs: boolean;
+  stairWidthFt: number;
+  deckingFinish: string;
+  railFinish: string;
+  innerHandrail: boolean;
+}
 
 /** How a figure was arrived at, strongest first. */
 export type Basis = 'stated' | 'riser-count' | 'joist-count' | 'board-count' | 'assumed';
@@ -205,7 +249,16 @@ export function runFromBoards(boards: number): Measured {
  * measured beats one counted off a video, and a counted one beats an
  * assumption. Only the last of those sets `needsMeasurement`.
  */
-export function deckFromObservation(o: DeckObservation | null | undefined): DeckReading {
+export function deckFromObservation(
+  o: DeckObservation | null | undefined,
+  /**
+   * What to fall back to when something was not established. Passed in
+   * rather than imported: `DEFAULT_DECK` is a value in the browser bundle
+   * and this file cannot reach it — see the note at the top. The browser
+   * hands over `DEFAULT_DECK`; the server hands over the same shape.
+   */
+  fallback: DeckModel,
+): DeckReading {
   const obs = o || {};
 
   const joists = count(obs.joistCount);
@@ -237,19 +290,19 @@ export function deckFromObservation(o: DeckObservation | null | undefined): Deck
   const width: Measured = statedW ? stated(statedW, 'Width')
     : (joists && spacing) ? spanFromJoists(joists, spacing)
     : (boards && boardsMeasure === 'width') ? runFromBoards(boards)
-    : assumed(DEFAULT_DECK.widthFt, 'Width');
+    : assumed(fallback.widthFt, 'Width');
 
   /* ── depth: out from the house ──────────────────────────────────────────── */
   const statedD = feet(obs.statedDepthFt);
   const depth: Measured = statedD ? stated(statedD, 'Depth')
     : (boards && boardsMeasure === 'depth') ? runFromBoards(boards)
-    : assumed(DEFAULT_DECK.depthFt, 'Depth');
+    : assumed(fallback.depthFt, 'Depth');
 
   /* ── height above grade ─────────────────────────────────────────────────── */
   const statedH = feet(obs.statedHeightFt);
   const height: Measured = statedH ? stated(statedH, 'Height')
     : risers ? heightFromRisers(risers)
-    : assumed(DEFAULT_DECK.heightFt, 'Height above grade');
+    : assumed(fallback.heightFt, 'Height above grade');
 
   /*
    * Post spacing from the footings that are actually there, because the
@@ -263,25 +316,25 @@ export function deckFromObservation(o: DeckObservation | null | undefined): Deck
     : null;
   const postSpacingFt = postsFromFootings && postsFromFootings > 0 && postsFromFootings <= width.value
     ? ft(postsFromFootings)
-    : DEFAULT_DECK.postSpacingFt;
+    : fallback.postSpacingFt;
 
   const deck: DeckModel = {
-    ...DEFAULT_DECK,
+    ...fallback,
     widthFt: width.value,
     depthFt: depth.value,
     heightFt: height.value,
-    joistSize: obs.joistSize || DEFAULT_DECK.joistSize,
-    joistSpacing: spacing || DEFAULT_DECK.joistSpacing,
-    beamSize: obs.beamSize || DEFAULT_DECK.beamSize,
-    beamPlies: count(obs.beamPlies) || DEFAULT_DECK.beamPlies,
-    postSize: obs.postSize || DEFAULT_DECK.postSize,
+    joistSize: obs.joistSize || fallback.joistSize,
+    joistSpacing: spacing || fallback.joistSpacing,
+    beamSize: obs.beamSize || fallback.beamSize,
+    beamPlies: count(obs.beamPlies) || fallback.beamPlies,
+    postSize: obs.postSize || fallback.postSize,
     postSpacingFt,
     // `false` is an observation and must survive; absent falls back.
-    ledgerAttached: typeof obs.ledgerAttached === 'boolean' ? obs.ledgerAttached : DEFAULT_DECK.ledgerAttached,
-    guardrail: typeof obs.guardrail === 'boolean' ? obs.guardrail : DEFAULT_DECK.guardrail,
-    stairs: typeof obs.stairs === 'boolean' ? obs.stairs : (risers ? true : DEFAULT_DECK.stairs),
-    stairWidthFt: feet(obs.stairWidthFt) || DEFAULT_DECK.stairWidthFt,
-    deckingDirection: direction || DEFAULT_DECK.deckingDirection,
+    ledgerAttached: typeof obs.ledgerAttached === 'boolean' ? obs.ledgerAttached : fallback.ledgerAttached,
+    guardrail: typeof obs.guardrail === 'boolean' ? obs.guardrail : fallback.guardrail,
+    stairs: typeof obs.stairs === 'boolean' ? obs.stairs : (risers ? true : fallback.stairs),
+    stairWidthFt: feet(obs.stairWidthFt) || fallback.stairWidthFt,
+    deckingDirection: direction || fallback.deckingDirection,
   };
 
   const unknowns: string[] = [];

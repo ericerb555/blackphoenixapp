@@ -16,7 +16,18 @@ import assert from 'node:assert/strict';
 import {
   deckFromObservation, heightFromRisers, spanFromJoists, runFromBoards,
   RISER_MIN_IN, RISER_MAX_IN,
-} from '../src/app/lib/deckFromObservation.ts';
+} from '../supabase/functions/server/deckFromObservation.ts';
+import { DEFAULT_DECK } from '../src/app/lib/deckModel.ts';
+/**
+ * The fallback the caller injects. In the app this is `DEFAULT_DECK` from
+ * `src/app/lib/deckModel.ts`; the reader lives server-side and cannot reach a
+ * value in the browser bundle, so it is passed in.
+ *
+ * The test below pins it against the real thing, so the duplicated shape
+ * cannot drift without something failing.
+ */
+const build = (o: any) => deckFromObservation(o, DEFAULT_DECK as any);
+
 
 /* ── a count is a measurement ────────────────────────────────────────────── */
 
@@ -53,7 +64,7 @@ test('boards measure the run they cover, to within a board', () => {
 /* ── precedence: measured beats counted beats assumed ────────────────────── */
 
 test('a dimension somebody measured wins over one counted', () => {
-  const r = deckFromObservation({
+  const r = build({
     statedWidthFt: 14, joistCount: 13, joistSpacingInches: 16,
   });
   assert.equal(r.width.value, 14);
@@ -61,7 +72,7 @@ test('a dimension somebody measured wins over one counted', () => {
 });
 
 test('counted beats assumed, and does not set needsMeasurement', () => {
-  const r = deckFromObservation({
+  const r = build({
     joistCount: 13, joistSpacingInches: 16,
     boardCount: 24, deckingDirection: 'parallel',
     riserCount: 4,
@@ -73,7 +84,7 @@ test('counted beats assumed, and does not set needsMeasurement', () => {
 });
 
 test('NOTHING SEEN IS FLAGGED, NOT GUESSED', () => {
-  const r = deckFromObservation({});
+  const r = build({});
   assert.equal(r.needsMeasurement, true);
   assert.equal(r.width.basis, 'assumed');
   assert.equal(r.depth.basis, 'assumed');
@@ -87,20 +98,20 @@ test('NOTHING SEEN IS FLAGGED, NOT GUESSED', () => {
 });
 
 test('an assumed dimension says so in its own words', () => {
-  const r = deckFromObservation({});
+  const r = build({});
   assert.match(r.width.how, /NOT established/);
 });
 
 /* ── which way the boards run decides which dimension they measure ───────── */
 
 test('boards parallel to the house measure the depth', () => {
-  const r = deckFromObservation({ boardCount: 24, deckingDirection: 'parallel' });
+  const r = build({ boardCount: 24, deckingDirection: 'parallel' });
   assert.equal(r.depth.basis, 'board-count');
   assert.equal(r.width.basis, 'assumed', 'they say nothing about the width');
 });
 
 test('boards perpendicular to the house measure the width', () => {
-  const r = deckFromObservation({ boardCount: 24, deckingDirection: 'perpendicular' });
+  const r = build({ boardCount: 24, deckingDirection: 'perpendicular' });
   assert.equal(r.width.basis, 'board-count');
   assert.equal(r.depth.basis, 'assumed');
 });
@@ -108,7 +119,7 @@ test('boards perpendicular to the house measure the width', () => {
 test('boards with no stated direction measure nothing', () => {
   // Getting this backwards swaps the deck's dimensions, so an unknown
   // direction must not be treated as a default.
-  const r = deckFromObservation({ boardCount: 24 });
+  const r = build({ boardCount: 24 });
   assert.equal(r.width.basis, 'assumed');
   assert.equal(r.depth.basis, 'assumed');
 });
@@ -118,17 +129,17 @@ test('boards with no stated direction measure nothing', () => {
 test('a freestanding deck stays freestanding', () => {
   // `false` is an observation. Falling back to the default here would bolt a
   // ledger onto a house the deck is not touching.
-  const r = deckFromObservation({ ledgerAttached: false });
+  const r = build({ ledgerAttached: false });
   assert.equal(r.deck.ledgerAttached, false);
 });
 
 test('no guardrail seen is not the same as not looked', () => {
-  assert.equal(deckFromObservation({ guardrail: false }).deck.guardrail, false);
-  assert.equal(deckFromObservation({}).deck.guardrail, true, 'absent falls back');
+  assert.equal(build({ guardrail: false }).deck.guardrail, false);
+  assert.equal(build({}).deck.guardrail, true, 'absent falls back');
 });
 
 test('the framing sizes that were visible are carried', () => {
-  const r = deckFromObservation({
+  const r = build({
     joistSize: '2x8', beamSize: '2x12', beamPlies: 3, postSize: '4x4',
     joistSpacingInches: 24,
   });
@@ -141,7 +152,7 @@ test('the framing sizes that were visible are carried', () => {
 
 test('footings set the post spacing, because they are what is there', () => {
   // 16 ft wide on 3 footings is two 8 ft bays.
-  const r = deckFromObservation({
+  const r = build({
     joistCount: 13, joistSpacingInches: 16, footingCount: 3,
   });
   assert.equal(r.deck.widthFt, 16);
@@ -149,18 +160,18 @@ test('footings set the post spacing, because they are what is there', () => {
 });
 
 test('one footing is not a spacing', () => {
-  const r = deckFromObservation({ joistCount: 13, joistSpacingInches: 16, footingCount: 1 });
+  const r = build({ joistCount: 13, joistSpacingInches: 16, footingCount: 1 });
   assert.equal(r.deck.postSpacingFt, 6, 'falls back rather than dividing by zero');
 });
 
 test('counted risers mean there are stairs', () => {
-  assert.equal(deckFromObservation({ riserCount: 5 }).deck.stairs, true);
+  assert.equal(build({ riserCount: 5 }).deck.stairs, true);
 });
 
 /* ── rubbish in does not become a deck ───────────────────────────────────── */
 
 test('nonsense counts are ignored rather than framed', () => {
-  const r = deckFromObservation({
+  const r = build({
     joistCount: 0, riserCount: -3, boardCount: Number('abc') as any,
     joistSpacingInches: 19 as any,
   });
@@ -170,13 +181,13 @@ test('nonsense counts are ignored rather than framed', () => {
 });
 
 test('a null observation still returns a usable deck', () => {
-  const r = deckFromObservation(null);
+  const r = build(null);
   assert.equal(r.needsMeasurement, true);
   assert.ok(r.deck.widthFt > 0);
 });
 
 test('what the camera could not see is never discarded', () => {
-  const r = deckFromObservation({
+  const r = build({
     statedWidthFt: 16, statedDepthFt: 12, statedHeightFt: 3,
     joistSpacingInches: 16, footingCount: 3,
     couldNotSee: ['The underside of the deck was not visible from any angle.'],
@@ -184,4 +195,29 @@ test('what the camera could not see is never discarded', () => {
   assert.equal(r.needsMeasurement, false);
   assert.ok(r.unknowns.some((u) => /underside/.test(u)),
     'a clean measurement does not excuse dropping what was hidden');
+});
+
+test('the injected fallback is the deck the app actually defaults to', () => {
+  // The server copy of `DeckModel` is a duplicate of the browser one — four
+  // lines of unions, so that the LOGIC has a single copy and no import has
+  // to cross the flat-build boundary. This is what stops the duplicate
+  // drifting: every field the reader falls back to is checked against the
+  // real `DEFAULT_DECK`.
+  const r = build({});
+  assert.equal(r.deck.widthFt, DEFAULT_DECK.widthFt);
+  assert.equal(r.deck.depthFt, DEFAULT_DECK.depthFt);
+  assert.equal(r.deck.heightFt, DEFAULT_DECK.heightFt);
+  assert.equal(r.deck.joistSize, DEFAULT_DECK.joistSize);
+  assert.equal(r.deck.joistSpacing, DEFAULT_DECK.joistSpacing);
+  assert.equal(r.deck.beamSize, DEFAULT_DECK.beamSize);
+  assert.equal(r.deck.beamPlies, DEFAULT_DECK.beamPlies);
+  assert.equal(r.deck.postSize, DEFAULT_DECK.postSize);
+  assert.equal(r.deck.cantileverFt, DEFAULT_DECK.cantileverFt);
+  assert.equal(r.deck.deckingFinish, DEFAULT_DECK.deckingFinish);
+  assert.equal(r.deck.railFinish, DEFAULT_DECK.railFinish);
+  assert.equal(r.deck.innerHandrail, DEFAULT_DECK.innerHandrail);
+  // And every key the model defines is present on what comes back.
+  for (const k of Object.keys(DEFAULT_DECK)) {
+    assert.ok(k in r.deck, `the reading dropped ${k}`);
+  }
 });
