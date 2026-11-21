@@ -56,6 +56,7 @@ import { sendCompanyEmail } from "./email-center.tsx";
 import { withholdProviderContact } from "./bidRouterContact.ts";
 import { loadQuotePricingContext, repricerDeps } from "./quotePricingContext.ts";
 import { composeEstimatorContext } from "./quoteBrief.ts";
+import { estimatorInputFor, briefInputFor } from "./workRequestToBrief.ts";
 import { referenceCatalogue, saveQuotedItem } from "./planPricing.ts";
 import {
   SCREENING_CONSENT_TEXT,
@@ -5016,7 +5017,13 @@ async function estimateForWorkRequest(
    * of it, keeps the prior-analysis block in the shape this already emitted,
    * and passes any written brief through verbatim.
    */
-  const extra = composeEstimatorContext(workRequest);
+  /*
+   * Also translated. composeEstimatorContext wants squareFootage, storeys and
+   * roomCount; the form sends total_square_feet and total_floors. Passing the
+   * raw record meant THE SIZE and THE PLACE sections of the brief were empty
+   * on every request a customer ever filed.
+   */
+  const extra = composeEstimatorContext(briefInputFor(workRequest));
 
   /**
    * The catalogue, the rates, the margins and the measured hours.
@@ -5029,12 +5036,17 @@ async function estimateForWorkRequest(
    */
   const ctx = await loadQuotePricingContext();
 
+  /*
+   * Translated, not read straight off the record. `estimatorInputFor` accepts
+   * the names the customer form actually sends — `project_name`,
+   * `service_type`, `site_address` + city/state/zip — as well as the ones that
+   * were asked for here. Before it, `title`, `location` and `estimatedValue`
+   * were always undefined for a real work request, so the estimator priced off
+   * the service type and the free-text description alone. See
+   * `workRequestToBrief.ts`.
+   */
   return await runEstimator({
-    title: workRequest?.title,
-    serviceType: workRequest?.serviceType,
-    description: workRequest?.description,
-    location: workRequest?.location || workRequest?.address,
-    estimatedValue: workRequest?.estimatedValue,
+    ...estimatorInputFor(workRequest),
     extra,
   },
   (raw) => repriceEstimate(raw, repricerDeps(ctx)),
