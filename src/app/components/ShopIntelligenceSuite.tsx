@@ -1371,12 +1371,18 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                     <p className="text-xs text-gray-600">Last active: {comp.lastActive}</p>
                     <div className="flex gap-2">
-                      <button onClick={() => toast.success('Competitor alert set — you\'ll be notified when they post new products')}
-                        className="px-3 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] hover:border-orange-500/30 text-gray-400 hover:text-white rounded-lg text-xs font-semibold transition">
+                      {/* Said an alert had been set and a report produced.
+                          Neither existed, and the competitor these act on is
+                          one of the invented ones the banner at the top of this
+                          screen describes — so "you'll be notified when they
+                          post new products" promised a notification about a
+                          shop that does not exist. */}
+                      <button disabled title="Watching a competitor needs a connected analytics source, which is still to be built."
+                        className="px-3 py-1.5 bg-[#0A0A0A] border border-[#2A2A2A] text-gray-500 rounded-lg text-xs font-semibold transition opacity-50 cursor-not-allowed">
                         Watch
                       </button>
-                      <button onClick={() => toast.success('Competitor analysis report generated')}
-                        className="px-3 py-1.5 bg-orange-600/20 border border-orange-500/30 text-orange-400 hover:bg-orange-600/30 rounded-lg text-xs font-semibold transition">
+                      <button disabled title="Competitor reports need a connected analytics source, which is still to be built."
+                        className="px-3 py-1.5 bg-orange-600/10 border border-orange-500/20 text-orange-400/60 rounded-lg text-xs font-semibold transition opacity-50 cursor-not-allowed">
                         Analyze
                       </button>
                     </div>
@@ -1424,9 +1430,14 @@ export default function ShopIntelligenceSuite({ onSendToCreatorStudio }: Props) 
                       ))}
                     </div>
                   </div>
+                  {/* Said the template had been sent to Creator Studio.
+                      Nothing was sent, and the style is one of the worked
+                      examples — Creator Studio would have been handed an
+                      invented format and told it came from analytics. */}
                   <button
-                    onClick={() => toast.success(`${insight.style} template sent to Creator Studio`)}
-                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex-shrink-0">
+                    disabled
+                    title="Sending a style to Creator Studio has not been built yet — the styles here are worked examples."
+                    className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-xs font-bold transition flex-shrink-0 opacity-50 cursor-not-allowed">
                     <Play className="w-3.5 h-3.5" /> Use This Style
                   </button>
                 </div>

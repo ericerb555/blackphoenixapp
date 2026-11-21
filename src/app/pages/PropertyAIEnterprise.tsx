@@ -26,6 +26,7 @@ import MarketplaceAdmin from './MarketplaceAdmin';
 import AdCreator from './AdCreator';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { downloadCsv, datedFilename } from '../lib/downloadCsv';
 import { saveDual, loadDual } from '../lib/database';
 import {
   RadialBarChart, RadialBar, ResponsiveContainer,
@@ -585,6 +586,82 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
     saveDual('bp_pai_profile', profile);
   }, [profile]);
 
+  /**
+   * Re-read the saved profile and say what the score came out at.
+   *
+   * Was `toast.success('Health score recalculated.')` and nothing else. The
+   * score is a `useMemo` over the profile, so pressing it could not change
+   * anything on the page — but it is not a pointless button, because there are
+   * two real reasons the number on screen can be stale:
+   *
+   *   - the profile is saved through `saveDual`, so another device or another
+   *     session may have edited it since this page loaded;
+   *   - the factors are date-sensitive. Inspection currency and every system's
+   *     age are measured against today, so a page left open overnight scores
+   *     against yesterday.
+   *
+   * So it reloads and reports, and it reports honestly when nothing moved —
+   * "unchanged" is the answer a landlord needs before they decide the score is
+   * wrong.
+   */
+  const [recalculating, setRecalculating] = useState(false);
+  async function recalculateHealthScore() {
+    setRecalculating(true);
+    const before = healthScore;
+    try {
+      const saved = await loadDual('bp_pai_profile');
+      if (saved && typeof saved === 'object') {
+        const fresh = hydrateProfile(saved);
+        setProfile(fresh);
+        const after = computeHealthScore(computeHealthFactors(fresh));
+        toast.success(after === before
+          ? `Health score unchanged at ${after}.`
+          : `Health score recalculated: ${before} → ${after}.`);
+      } else {
+        // Nothing stored yet. The score still recomputes against today's date,
+        // which is the other half of why this button exists.
+        const after = computeHealthScore(computeHealthFactors(profile));
+        toast.success(after === before
+          ? `Health score unchanged at ${after} — nothing is saved on the server yet.`
+          : `Health score recalculated: ${before} → ${after}.`);
+      }
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not reload the property profile.');
+    } finally {
+      setRecalculating(false);
+    }
+  }
+
+  /**
+   * The ten-year forecast as a spreadsheet.
+   *
+   * Was `toast.success('Capital plan exported.')` with no file. This is the
+   * number a landlord takes to a bank or a board, so it belongs in something
+   * they can total themselves — and the midpoint is written out rather than
+   * left for them to work out from the range, because that midpoint is what
+   * every figure on this screen is summed from.
+   */
+  function exportCapitalPlan() {
+    const rows = capitalPlan
+      .slice()
+      .sort((a, b) => a.estimatedYear - b.estimatedYear)
+      .map((item) => ({
+        Year: item.estimatedYear,
+        System: item.systemName,
+        Work: item.description,
+        'Cost low': item.costMin,
+        'Cost high': item.costMax,
+        'Cost midpoint': Math.round((item.costMin + item.costMax) / 2),
+        Priority: item.priority,
+        'Can defer': item.canDefer ? 'yes' : 'no',
+      }));
+    if (!downloadCsv(datedFilename('capital-plan'), rows)) {
+      toast.error('There is nothing to export yet — add building systems with install years first.');
+      return;
+    }
+    toast.success(`Capital plan downloaded — ${rows.length} item${rows.length === 1 ? '' : 's'}.`);
+  }
+
   function saveProfileDraft() {
     setProfile(profileDraft);
     setEditingProfile(false);
@@ -986,8 +1063,8 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Activity className="w-5 h-5 text-violet-400" /> Property Health Score
               </h2>
-              <button onClick={() => toast.success('Health score recalculated.')} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] hover:border-violet-500/30 text-gray-400 hover:text-white text-sm font-medium transition">
-                <RefreshCw className="w-3.5 h-3.5" /> Recalculate
+              <button onClick={recalculateHealthScore} disabled={recalculating} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] hover:border-violet-500/30 text-gray-400 hover:text-white text-sm font-medium transition disabled:opacity-60">
+                <RefreshCw className="w-3.5 h-3.5" /> {recalculating ? 'Recalculating…' : 'Recalculate'}
               </button>
             </div>
 
@@ -1065,7 +1142,7 @@ export default function PropertyAIEnterprise({ seedProperties }: PropertyAIEnter
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-amber-400" /> Capital Planning — 10-Year Forecast
               </h2>
-              <button onClick={() => toast.success('Capital plan exported.')} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] hover:border-amber-500/30 text-gray-400 hover:text-white text-sm font-medium transition">
+              <button onClick={exportCapitalPlan} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] hover:border-amber-500/30 text-gray-400 hover:text-white text-sm font-medium transition">
                 <Download className="w-3.5 h-3.5" /> Export
               </button>
             </div>
