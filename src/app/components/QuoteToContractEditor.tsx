@@ -85,6 +85,7 @@ import {
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
 import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
 import DeckSurveyPanel from './quotes/DeckSurveyPanel';
+import { saveDesignProject, ownerKeyForCurrentUser } from '../lib/designProjectService';
 import { QuoteAttachmentsPanel } from './quotes/QuoteAttachmentsPanel';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
@@ -1452,6 +1453,70 @@ export function QuoteToContractEditor({
         : 'Could not reach the server to generate this quote.');
     } finally {
       setGeneratingFirst(false);
+    }
+  };
+
+  /**
+   * Put a surveyed deck into the design centre and open it there.
+   *
+   * Eric: "so it can build be a framed deck in my design center ... that i
+   * can review and then render".
+   *
+   * `DeckDesigner` takes no props — it is a page holding its own session,
+   * and the only way in is `?projectId=`, which it already reads. So the
+   * handoff is a real saved project rather than something passed in memory,
+   * which is also what makes it survive the navigation and be there
+   * tomorrow.
+   *
+   * SAVED THROUGH THE DESIGNER'S OWN SERVICE, deliberately. `open()` fetches
+   * with `?owner=${ownerKeyForCurrentUser()}`, so a project written under any
+   * other owner key is saved successfully and then cannot be found — which
+   * looks like the designer losing the deck rather than the save using the
+   * wrong key.
+   */
+  const [sendingToDesigner, setSendingToDesigner] = useState(false);
+
+  const openDeckInDesigner = async (deck: Record<string, unknown>, which: 'as-built' | 'proposed') => {
+    if (sendingToDesigner) return;
+    setSendingToDesigner(true);
+    try {
+      const customer = String(workRequest.customerName || '').trim();
+      const name = [customer || 'Deck', which === 'proposed' ? 'proposed deck' : 'existing deck']
+        .filter(Boolean).join(' — ');
+
+      const { project } = await saveDesignProject({
+        name,
+        ownerKey: await ownerKeyForCurrentUser(),
+        /*
+         * `meta.model` is what `open()` requires and refuses without, and
+         * `kind: deck` is what the designer filters its own list on. The
+         * site travels with it because a deck cannot be permitted without
+         * the address, and the loads depend on where it is.
+         */
+        meta: {
+          kind: 'deck',
+          model: deck,
+          site: {
+            projectName: name,
+            address: String((workRequest as any).location || (workRequest as any).site_address || ''),
+          },
+          customerName: customer,
+          jobTitle: String(workRequest.title || ''),
+          jobId: String((workRequest as any).jobId || ''),
+          /* Which deck this is, so a surveyed pair cannot be mistaken for
+             one another once they are two projects in a list. */
+          surveyedAs: which,
+          workRequestId: String(workRequest.id || ''),
+        },
+        note: which === 'proposed' ? 'Proposed from the survey' : 'As built, from the survey',
+      });
+
+      toast.success(`Saved as “${name}”. Opening the design centre…`);
+      window.location.href = `/deck-designer?projectId=${encodeURIComponent(project.id)}`;
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not put that deck into the design centre.');
+    } finally {
+      setSendingToDesigner(false);
     }
   };
 
@@ -6257,7 +6322,10 @@ export function QuoteToContractEditor({
                 * a work request to hang the survey off.
                 */}
               {looksLikeDeck && workRequest.id && (
-                <DeckSurveyPanel workRequestId={String(workRequest.id)} />
+                <DeckSurveyPanel
+                  workRequestId={String(workRequest.id)}
+                  onOpenInDesigner={openDeckInDesigner}
+                />
               )}
 
               {/* Materials Hub & Schedule Builder - Only in Process Tab when editing */}
