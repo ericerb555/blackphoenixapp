@@ -45,7 +45,7 @@ import {
   MessageSquare,
   ThumbsUp,
   ThumbsDown,
-  Loader2,
+  Loader2, Receipt,
   ArrowRight,
   Download,
   Printer,
@@ -1389,6 +1389,71 @@ export function QuoteToContractEditor({
     ].filter(Boolean).join(' ').toLowerCase();
     return /\bdeck|porch|railing|baluster|joist/.test(haystack);
   }, [currentQuote, workRequest]);
+
+  /**
+   * GENERATE THE FIRST QUOTE, FROM THE SCREEN THAT SAYS THERE ISN'T ONE.
+   *
+   * Eric, 2026-11-21: "i cant do anything with mikes quote".
+   *
+   * He could not. Michael Saverse's job was on the pipeline with no quote on
+   * it, and opening the editor produced a panel reading "This work request
+   * doesn't have a quote yet. Generate one first." whose only button was
+   * Close. It named the thing to do and offered no way to do it.
+   *
+   * Checked against the record rather than guessed: his pipeline item exists
+   * at stage `quote-draft` with `workRequest` attached and no `quote`, there
+   * is no `quote_draft:` cache for him, and the ai_call_log holds no
+   * quote-generator row for his request at all — so no draft was ever
+   * attempted, not one that failed quietly.
+   *
+   * This is the same route the Generate button in project details uses. It
+   * belongs here too because this is where Eric works: "i am going to do
+   * most of my work out of the quote editor so lets make sure everyhthing is
+   * getting triggered from there".
+   */
+  const [generatingFirst, setGeneratingFirst] = useState(false);
+
+  const generateFirstQuote = async () => {
+    const wrId = String(workRequest.id || '').trim();
+    if (!wrId) { toast.error('This job has no id to quote against.'); return; }
+    setGeneratingFirst(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/make-server-3eae23a6/quote-draft/${encodeURIComponent(wrId)}/pipeline`,
+        {
+          method: 'POST',
+          headers: await quoteAuthHeaders(true),
+          body: JSON.stringify({}),
+          // A full takeoff does not finish in fifteen seconds; that exact
+          // timeout is why the old path paid for answers and discarded them.
+          signal: AbortSignal.timeout(180000),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || `Could not generate the quote (HTTP ${res.status}).`);
+        return;
+      }
+      const fresh = data?.item?.quote || data?.quote;
+      if (!fresh) {
+        toast.error('The draft came back without any lines. Nothing was saved over.');
+        return;
+      }
+      /* Handed up so the parent re-renders this editor WITH the quote,
+         rather than leaving him on the empty state he just acted on. */
+      syncQuote({ ...workRequest, quote: fresh } as any);
+      const total = Number(fresh?.totalCost);
+      toast.success(Number.isFinite(total) && total > 0
+        ? `Quote drafted — $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+        : 'Quote drafted. It has no priced lines yet — price them here.');
+    } catch (e: any) {
+      toast.error(e?.name === 'TimeoutError'
+        ? 'The takeoff is taking more than three minutes. It may still finish — reopen this shortly.'
+        : 'Could not reach the server to generate this quote.');
+    } finally {
+      setGeneratingFirst(false);
+    }
+  };
 
   const [savingSections, setSavingSections] = useState(false);
 
@@ -3581,16 +3646,34 @@ export function QuoteToContractEditor({
         <div className="bg-gradient-to-br from-[#1a1a1a] to-[#0d0d0d] border border-gray-800 rounded-2xl p-8 max-w-md w-full mx-4">
           <div className="text-center">
             <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">No Quote Available</h3>
+            <h3 className="text-xl font-bold text-white mb-2">No quote on this job yet</h3>
             <p className="text-gray-400 mb-6">
-              This work request doesn't have a quote yet. Generate one first.
+              Draft one from the work request — the materials, labour and phases come back from the
+              estimator and you price them here.
             </p>
-            <button
-              onClick={onClose}
-              className="px-6 py-2 bg-black border border-[#ea580c]/50 hover:border-[#ea580c] hover:shadow-[0_0_15px_rgba(234,88,12,0.5)] text-[#ea580c] rounded-lg font-semibold transition-all"
-            >
-              Close
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => void generateFirstQuote()}
+                disabled={generatingFirst}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-[#ea580c] px-5 py-2.5 font-bold text-white transition-colors hover:bg-[#f97316] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {generatingFirst
+                  ? <><Loader2 className="h-4 w-4 animate-spin" />Drafting…</>
+                  : <><Receipt className="h-4 w-4" />Generate the quote</>}
+              </button>
+              <button
+                onClick={onClose}
+                disabled={generatingFirst}
+                className="min-h-[44px] rounded-lg border border-[#2A2A2A] px-5 py-2.5 font-semibold text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+            {generatingFirst && (
+              <p className="mt-3 text-xs text-gray-500">
+                A full takeoff can take a minute or two. Leave this open.
+              </p>
+            )}
           </div>
         </div>
       </div>
