@@ -9012,10 +9012,31 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     };
     await persistWorkRequest(record);
+    const leadBrief = estimatorInputFor(record);
+    const leadSize = briefInputFor(record);
     const alerts = (await kv.get('admin_alerts') as any[]) || [];
     alerts.unshift({ id: `wr_alert_${record.id}`, type: 'urgent', category: 'Work Requests', title: `New Work Request: ${clientName || 'Customer'}`,
-      description: `${clientName || 'Customer'} submitted a ${record.serviceType || record.project_type || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
+      description: `${clientName || 'Customer'} submitted a ${leadBrief.serviceType || 'service'} request.`, priority: 'high', status: 'unread', source: 'work-request-form', actionRequired: true, timestamp: new Date().toISOString(), data: { workRequestId: record.id, clientEmail } });
     await kv.set('admin_alerts', alerts.slice(0, 200));
+
+    /*
+     * THE LEAD NOTIFICATION, with the two things it needs to be acted on.
+     *
+     * It had no JOB ADDRESS. For a builder that is the field which decides
+     * whether a lead is worth the drive at all — the service-area check on the
+     * form exists for exactly that reason — and it was in the record the whole
+     * time under `site_address` plus city, state and postcode, which is why it
+     * is assembled by `locationOf` rather than read from one key.
+     *
+     * `Service` went through `record.serviceType` only, so a client posting
+     * `service_type` showed a dash. `estimatorInputFor` takes either, along
+     * with `service` and `project_type`. Same translation the estimator now
+     * uses, so the email and the quote cannot disagree about what the job is.
+     */
+    const sizeLine = [
+      leadSize.squareFootage ? `${leadSize.squareFootage} sq ft` : '',
+      leadSize.storeys ? `${leadSize.storeys} floor${Number(leadSize.storeys) === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' · ');
 
     notifyStaffInBackground('work_request', {
       subject: `New work request from ${clientName || clientEmail}`,
@@ -9024,11 +9045,23 @@ app.post('/make-server-3eae23a6/work-requests', async (c) => {
         ['Client', clientName || '—'],
         ['Email', clientEmail],
         ['Phone', record.client_phone || '—'],
-        ['Service', record.serviceType || record.project_type || record.title || '—'],
+        ['Service', leadBrief.serviceType || leadBrief.title || '—'],
+        ['Job address', leadBrief.location || '—'],
+        ['Size', sizeLine || '—'],
         ['Budget', record.budgetRange || record.budget || '—'],
         ['Description', String(record.description || record.details || '').slice(0, 400) || '—'],
         ['Request ID', record.id],
       ],
+      /*
+       * What a phone gets. Work requests only started texting on 2026-11-20 —
+       * they were not in the owner's `smsEvents` before that — and with no
+       * `keep` list a text is the subject line and nothing else.
+       *
+       * What and where, which is what triage needs: everything else is in the
+       * email, and `smsBody` drops any of these that is blank rather than
+       * sending "Job address: —".
+       */
+      smsRows: ['Service', 'Job address'],
       ctaLabel: 'Review the request',
       ctaPath: '/work-requests',
       dedupeKey: `work_request:${record.id}`,

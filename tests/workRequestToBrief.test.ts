@@ -128,3 +128,76 @@ test('garbage in yields an empty shape rather than throwing', () => {
     assert.equal(locationOf((bad ?? {}) as any), undefined, JSON.stringify(bad));
   }
 });
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE LEAD NOTIFICATION
+ *
+ * The same translation feeds the email and the text a new work request sends,
+ * so the quote and the notification cannot disagree about what the job is.
+ *
+ * The address is the point. For a builder it decides whether a lead is worth
+ * the drive — the service-area check on the form exists for that reason — and
+ * the email did not carry it, while the record held it the whole time under
+ * `site_address` plus city, state and postcode.
+ */
+import { smsBody } from '../supabase/functions/server/staffSms.ts';
+
+/** The rows the work-request notification builds, as index.tsx builds them. */
+function leadRows(wr: Record<string, unknown>): Array<[string, unknown]> {
+  const b = estimatorInputFor(wr);
+  const size = briefInputFor(wr);
+  const sizeLine = [
+    size.squareFootage ? `${size.squareFootage} sq ft` : '',
+    size.storeys ? `${size.storeys} floor${Number(size.storeys) === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ');
+  return [
+    ['Service', b.serviceType || b.title || '—'],
+    ['Job address', b.location || '—'],
+    ['Size', sizeLine || '—'],
+  ];
+}
+
+test('the lead email carries the job address, assembled', () => {
+  const rows = leadRows(realFormPayload);
+  const address = rows.find(([l]) => l === 'Job address')?.[1];
+  assert.equal(address, '12 Probe Lane, Salem, NH, 03079');
+});
+
+test('the lead email carries the size as a readable line', () => {
+  const size = leadRows(realFormPayload).find(([l]) => l === 'Size')?.[1];
+  assert.equal(size, '480 sq ft · 2 floors');
+});
+
+test('a snake_case service no longer shows as a dash', () => {
+  // This is what my own end-to-end probe hit: it posted `service_type` and the
+  // alert read "submitted a service request".
+  const rows = leadRows({ service_type: 'deck', site_address: '1 A St', city: 'Salem' });
+  assert.equal(rows.find(([l]) => l === 'Service')?.[1], 'deck');
+});
+
+test('THE TEXT SAYS WHAT AND WHERE, and nothing else', () => {
+  // Work requests only began texting on 2026-11-20. With no `keep` list a text
+  // is the subject line alone, which is not enough to triage from a phone.
+  const text = smsBody({
+    company: 'Black Phoenix Builds',
+    subject: 'New work request from Michael Saverse',
+    rows: leadRows(realFormPayload),
+    keep: ['Service', 'Job address'],
+    url: 'https://example.com/work-requests',
+  });
+  assert.ok(text.includes('deck'), text);
+  assert.ok(text.includes('Salem'), text);
+  assert.ok(!text.includes('Size'), 'size belongs in the email, not the text');
+  assert.ok(text.length <= 300, `${text.length} characters`);
+});
+
+test('a blank field is left out of the text rather than sent as a dash', () => {
+  const text = smsBody({
+    company: 'Black Phoenix Builds',
+    subject: 'New work request from Michael Saverse',
+    rows: leadRows({ client_name: 'Michael Saverse', site_address: '' }),
+    keep: ['Service', 'Job address'],
+  });
+  assert.ok(!text.includes('—'), `a text must not carry an em dash placeholder:\n${text}`);
+});
