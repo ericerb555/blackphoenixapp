@@ -84,6 +84,7 @@ import {
 } from '../lib/services/materialsHubService';
 import { QuoteProcessEnhancements } from './QuoteProcessEnhancements';
 import { UnpricedSendDialog } from './quotes/UnpricedSendDialog';
+import DeckSurveyPanel from './quotes/DeckSurveyPanel';
 import { QuoteAttachmentsPanel } from './quotes/QuoteAttachmentsPanel';
 import WorkRequestFullView from './WorkRequestFullView';
 import { CompanyDatabaseService } from '../lib/services/companyDatabaseService';
@@ -1367,6 +1368,28 @@ export function QuoteToContractEditor({
    * state and rides along with everything else on Save, which avoids writing
    * half-finished edits to the server.
    */
+  /**
+   * Does this job involve a deck?
+   *
+   * Shown on the strength of the words the job arrived with, because that is
+   * all there is: Michael Saverse's request said "Replace deck" in its
+   * description while its service type read "Full Home Renovation" — the
+   * intake form's default, not his answer. Keying off `serviceType` alone
+   * would have hidden this from the one request it was built for.
+   *
+   * Deliberately broad. A false positive is a panel Eric ignores; a false
+   * negative is a feature he cannot find.
+   */
+  const looksLikeDeck = useMemo(() => {
+    const q: any = currentQuote || {};
+    const haystack = [
+      workRequest.title, workRequest.description, (workRequest as any).serviceType,
+      (workRequest as any).project_type, q.title,
+      ...(Array.isArray(q.processSteps) ? q.processSteps.map((x: any) => x?.title) : []),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return /\bdeck|porch|railing|baluster|joist/.test(haystack);
+  }, [currentQuote, workRequest]);
+
   const [savingSections, setSavingSections] = useState(false);
 
   const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail') => {
@@ -6131,6 +6154,21 @@ export function QuoteToContractEditor({
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/*
+                * THE DECK THAT IS THERE NOW.
+                *
+                * Beside the quote it feeds, because Eric works from here: "i am
+                * going to do most of my work out of the quote editor so lets
+                * make sure everyhthing is getting triggered from there".
+                *
+                * Only for a job whose words mention a deck — see
+                * `looksLikeDeck`. It reads the customer's own video, so it needs
+                * a work request to hang the survey off.
+                */}
+              {looksLikeDeck && workRequest.id && (
+                <DeckSurveyPanel workRequestId={String(workRequest.id)} />
               )}
 
               {/* Materials Hub & Schedule Builder - Only in Process Tab when editing */}
