@@ -14,15 +14,17 @@
  * is invisible: both halves read perfectly well, nothing throws, and a toast
  * saying "Dave assigned to job" is indistinguishable from an assignment.
  *
- * The three things that must stay true:
+ * Two things, and only two, are source questions:
  *
- *   1. the handler reaches the server at all;
- *   2. `employeeId` is read by PRESENCE, so `null` can mean "take them off"
- *      and a status-only PATCH — every caller written before today — keeps
- *      working untouched;
- *   3. the id is checked against the roster, because an unknown id rosters
- *      nobody while reading on screen as assigned, which is the original bug
- *      wearing a server round-trip.
+ *   1. the page's handler reaches the server at all, and the button calls the
+ *      handler rather than raising its own toast — it did not;
+ *   2. the route is gated, delegates the decision, and writes only what that
+ *      decision returned.
+ *
+ * What the decision DOES — presence versus truthiness, the status whitelist,
+ * the roster check, the attribution — is executed in
+ * `tests/appointmentPatch.test.ts` instead, because a guard that is present
+ * and wrong passes every grep.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -88,30 +90,33 @@ test('a job with no appointment behind it says so rather than succeeding', () =>
   );
 });
 
-test('THE SERVER READS employeeId BY PRESENCE, so null can unassign', () => {
+/*
+ * Presence-vs-truthiness, the status whitelist, the roster check and the
+ * attribution all moved into `supabase/functions/server/appointmentPatch.ts`
+ * on the same day they were written, because a source assertion catches a
+ * DELETED guard and cannot catch one that is present and wrong — which is
+ * exactly the shape of `if (body.employeeId)`. They are executed in
+ * `tests/appointmentPatch.test.ts`, and both were confirmed by mutation:
+ * swapping the presence check for truthiness fails two of them, and removing
+ * the roster lookup fails four.
+ *
+ * What is still asserted here is what only this file can answer.
+ */
+test('the route delegates to the decision, and writes only what it returns', () => {
   const body = appointmentPatch();
-  assert.match(body, /hasOwnProperty\.call\(body, 'employeeId'\)/,
-    "`employeeId: null` must be told apart from a body that omits it; truthiness cannot do that");
-});
-
-test('a status-only PATCH still works — every caller before today sends one', () => {
-  const body = appointmentPatch();
-  assert.match(body, /wantsStatus/, 'status must remain independently settable');
-  assert.match(body, /\['scheduled', 'confirmed', 'completed', 'cancelled'\]/,
-    'the status whitelist must survive');
-  // And a body with neither field is a mistake, not a no-op that reports success.
-  assert.match(body, /if \(!wantsStatus && !wantsCrew\) return c\.json\(\{ error:/);
-});
-
-test('THE ID IS CHECKED AGAINST THE ROSTER', () => {
-  const body = appointmentPatch();
-  assert.match(body, /time_employee:\$\{id\}/,
-    'an unknown id would roster nobody while reading as assigned');
-  assert.match(body, /not on the roster/, 'and must be refused with a reason');
+  assert.match(body, /decideAppointmentPatch\(/, 'the decision must not be re-inlined here');
+  assert.match(body, /time_employee:\$\{id\}/, 'the roster lookup is this route\'s to supply');
+  // `=== false` rather than `!decision.ok`: the server project compiles without
+  // strictNullChecks, where the boolean-literal discriminant does not narrow
+  // (TS2339 on decision.error), so the explicit comparison is load-bearing.
+  assert.match(body, /if \(decision\.ok === false\) return c\.json\(\{ error: decision\.error \}, decision\.status\)/,
+    'a refusal must be returned, not ignored');
   assert.ok(
-    body.indexOf('time_employee:') < body.indexOf('kv.set(appointmentKey'),
-    'the roster check must happen before the record is written',
+    body.indexOf('decideAppointmentPatch') < body.indexOf('kv.set(appointmentKey'),
+    'the decision must precede the write',
   );
+  assert.match(body, /\.\.\.decision\.changes/,
+    'only the fields the decision returned may be merged onto the record');
 });
 
 test('it stays administrator-only', () => {
@@ -125,9 +130,9 @@ test('it stays administrator-only', () => {
   );
 });
 
-test('the crew change is attributed to whoever made it', () => {
-  // The status half already recorded `status_updated_by`. A crew change that
-  // recorded nothing would leave "who put Dave on this job" unanswerable.
+test('the record keeps its own clock, and the caller cannot set it', () => {
+  // `updated_at` is the route's, not the body's: the decision deliberately
+  // does not return it, and the spread order here is what makes that hold.
   const body = appointmentPatch();
-  assert.match(body, /crew_updated_by/);
+  assert.match(body, /\{ \.\.\.existing, \.\.\.decision\.changes, updated_at: new Date\(\)\.toISOString\(\) \}/);
 });
