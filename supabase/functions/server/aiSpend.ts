@@ -92,6 +92,16 @@ export const DEFAULT_LIMITS: Record<SpendBucket, number> = {
    * in the assistant does.
    */
   trash: 40,
+  /**
+   * Reading an existing deck off a customer's video.
+   *
+   * Priced like the trash read and for the same reason: the cost driver is
+   * the FRAMES, and both passes see every one of them, so a single survey
+   * is a dozen image reads twice over rather than one call. Lower than
+   * `trash` because a deck rebuild is a job somebody books, not a price
+   * somebody shops — nobody surveys forty decks in a month.
+   */
+  deck: 25,
 };
 
 /**

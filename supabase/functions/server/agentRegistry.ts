@@ -110,6 +110,17 @@ export const AGENTS: readonly DeclaredAgent[] = [
       'customer-facing estimate record, so Phoenix must not be able to call it.',
   },
   {
+    agent: 'deck-surveyor', domain: 'quoting',
+    does: 'Reads frames of an EXISTING deck and reports what is physically there — joists, boards, risers, footings, posts — twice, once to read and once to verify the count.',
+    route: '/deck-survey/read', ui: ['QuoteToContractEditor'], state: 'live',
+    note:
+      'Asked only for COUNTS, never a dimension: deckFromObservation derives height from the '
+      + 'riser count against the code band, width from joist spacing and depth from board count, '
+      + 'because lumber is standard. A dimension it invented would become framing, a permit packet '
+      + 'and a price. Not delegable: it writes a survey a quote is built from, so Phoenix must not '
+      + 'be able to call it.',
+  },
+  {
     agent: 'ai-guide', domain: 'intake',
     does: 'Interviews a customer until their work request is quotable.',
     route: '/ai-guide-chat', ui: ['ClientWorkRequestForm', 'IntakeGuide'], state: 'live',
