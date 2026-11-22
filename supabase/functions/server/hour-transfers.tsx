@@ -6,6 +6,7 @@
 import { Hono } from 'npm:hono@4.13.19';
 import * as kv from './kv_store.tsx';
 import { verifiedActor } from './requireStaff.ts';
+import { sendTextMessage } from './sendSms.ts';
 
 const app = new Hono();
 
@@ -48,13 +49,46 @@ function generateCode(): string {
 }
 
 // Send verification code (SMS simulation)
+/**
+ * STAFF ONLY, AND THE CODE IS NO LONGER HANDED BACK.
+ *
+ * This route had no authorisation of any kind and returned the verification
+ * code in its own response as debugCode, with a comment admitting it:
+ * "ONLY FOR TESTING - REMOVE IN PRODUCTION". HourTransferModal then printed
+ * it on screen. So the SMS check verified nothing: the server told the caller
+ * the secret and the caller typed it back.
+ *
+ * What that bought anybody is the dangerous part. verify-and-request stamps
+ * verifiedAt on the transfer it creates, and an approver reads that as "the
+ * customer confirmed this by text". That record could be produced for ANY
+ * subscription id, from any signed-in portal account, asserting any
+ * requestedBy, without the customer's phone being involved at all. A forged
+ * record an approver trusts is worse than a broken button.
+ *
+ * Three changes, and the middle one is the control:
+ *   - staff only; the only caller is SubscriptionHub, a staff page
+ *   - the code is SENT, by sendTextMessage, and never returned
+ *   - requestedBy comes from the verified token, not the body, so the record
+ *     says who actually asked
+ *
+ * If the text cannot be sent the route REFUSES. Falling back to returning the
+ * code would restore exactly the hole this closes, and a transfer nobody can
+ * verify is one that should not be raised.
+ */
 app.post('/send-verification', async (c) => {
   try {
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required to raise an hour transfer.' }, 403);
+    }
+
     const body = await c.req.json();
-    const { phone, fromSubscriptionId, toSubscriptionId, hours, reason, requestedBy, fromCustomerName, toCustomerName } = body;
+    const { phone, fromSubscriptionId, toSubscriptionId, hours, reason, fromCustomerName, toCustomerName } = body;
+    // Never from the body. This is read later as who asked for the transfer.
+    const requestedBy = who.email;
 
     // Validate required fields
-    if (!phone || !fromSubscriptionId || !toSubscriptionId || !hours || !reason || !requestedBy) {
+    if (!phone || !fromSubscriptionId || !toSubscriptionId || !hours || !reason) {
       return c.json({ error: 'Missing required fields' }, 400);
     }
 
@@ -108,20 +142,34 @@ app.post('/send-verification', async (c) => {
 
     await kv.set(`verification:${verificationId}`, verification);
 
-    // In production, send actual SMS here
-    // For now, we'll simulate by logging and returning the code (remove in production!)
-    console.log(`📱 SMS VERIFICATION CODE for ${phone}: ${code}`);
-    console.log(`   Transfer: ${hours}h from ${fromCustomerName} to ${toCustomerName}`);
-    console.log(`   Expires in 10 minutes`);
+    /*
+     * Sent, not logged and not returned. The code is the whole control, so it
+     * goes to the customer's phone and nowhere else - not into the response,
+     * and not into the function logs, which staff can read.
+     */
+    const sms = await sendTextMessage(
+      phone,
+      `Black Phoenix: your code to approve transferring ${hours} hours is ${code}. `
+      + 'It expires in 10 minutes. If you did not ask for this, ignore it and tell us.',
+      'transactional',
+    );
 
-    // IMPORTANT: In production, don't return the code! Only send via SMS
-    // For testing/demo purposes, we return it
-    return c.json({ 
-      success: true, 
+    if (!sms.ok) {
+      // The verification is void, so it must not sit there waiting to be used.
+      await kv.del(`verification:${verificationId}`);
+      return c.json({
+        error: sms.blocked
+          ? `That number cannot be texted: ${sms.error || 'not permitted'}`
+          : 'Could not send the verification text, so the transfer was not raised.',
+      }, 502);
+    }
+
+    console.log(`[hour-transfers] code texted for ${hours}h transfer, raised by ${requestedBy}`);
+
+    return c.json({
+      success: true,
       verificationId,
-      message: 'Verification code sent to your phone',
-      // Remove this line in production:
-      debugCode: code // ONLY FOR TESTING - REMOVE IN PRODUCTION
+      message: 'Verification code sent to the customer by text.',
     });
 
   } catch (error) {
@@ -131,8 +179,17 @@ app.post('/send-verification', async (c) => {
 });
 
 // Verify code and create transfer request
+/**
+ * Staff only, for the same reason as the route above: these two halves are one
+ * action, and gating the first while leaving the second open would mean a
+ * verification raised by staff could be completed by anybody holding the id.
+ */
 app.post('/verify-and-request', async (c) => {
   try {
+    const who = await verifiedActor(c);
+    if (!who?.staff) {
+      return c.json({ error: 'Company access is required to raise an hour transfer.' }, 403);
+    }
     const body = await c.req.json();
     const { verificationId, code } = body;
 
