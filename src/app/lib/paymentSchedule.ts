@@ -301,6 +301,52 @@ export function balanceDraws(
 }
 
 /**
+ * THE LAST UNBILLED PAYMENT IS THE BALANCE, ALWAYS.
+ *
+ * Eric, 2026-11-21: "the final payent should make sure they all total amount
+ * it should do this automatically".
+ *
+ * This replaces an earlier decision, and the old reasoning is worth keeping
+ * because it was not wrong — it was answering a narrower question. The gap
+ * was OFFERED rather than closed, on the grounds that a schedule mid-edit is
+ * legitimately out by whatever has not been allocated yet, and snapping it
+ * straight would move money the moment somebody typed a figure.
+ *
+ * What that missed is that the typing is not where the gap comes from. It
+ * comes from the quote moving under a schedule somebody agreed weeks ago: a
+ * line gets added, the contract total rises, and the draws stay where they
+ * were. Michael Saverse's quote is the worked example — four hand-typed
+ * draws of 15,000 / 20,000 / 10,000 / 8,039.42 against a contract of
+ * 55,822.60, short by 2,783.18, sitting there ready to send.
+ *
+ * A schedule that does not total the contract is never the right thing to
+ * STORE, whatever it is mid-keystroke. So the last payment that has not been
+ * invoiced absorbs the difference whenever a schedule is written, which is
+ * what a builder does anyway and what the Rebalance button already did by
+ * hand.
+ *
+ * It declines in the two cases where it would do harm rather than good:
+ *
+ *   every draw already invoiced   there is nothing left that can move, and
+ *                                 rewriting a billed draw would contradict a
+ *                                 real invoice
+ *   the balance would go negative the other payments add up to more than the
+ *                                 job; that is a mistake to be shown, not
+ *                                 one to be hidden behind a minus sign
+ *
+ * In both the draws are returned untouched and `moved` is 0, which leaves
+ * the mismatch banner to say so.
+ */
+export function withBalancedFinal(
+  draws: Draw[],
+  total: number,
+): { draws: Draw[]; moved: number; onto: Draw | null } {
+  const balanced = balanceDraws(draws, total);
+  if (!balanced) return { draws, moved: 0, onto: null };
+  return { draws: balanced.draws, moved: balanced.by, onto: balanced.movedOnto };
+}
+
+/**
  * The least deposit this company takes.
  *
  * Eric: "lets make the deposit a minimum of 30%." A floor, not a default —

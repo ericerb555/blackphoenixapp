@@ -65,7 +65,7 @@ import {
 import { toast } from 'sonner';
 import { publicAnonKey } from '../utils/supabase/info';
 import { supabase } from '../lib/supabase';
-import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, amountForPercent, percentOfTotal, balanceDraws, type Draw } from '../lib/paymentSchedule';
+import { buildPaymentSchedule, scheduleTotal, groupPhasesInto, DEPOSIT_MINIMUM, amountForPercent, percentOfTotal, balanceDraws, withBalancedFinal, type Draw } from '../lib/paymentSchedule';
 import { drawReadiness, isPhaseComplete, withPhaseCompletion, dueCount } from '../lib/phaseCompletion';
 import { renamePhase, wouldMerge } from '../lib/phaseRename';
 import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
@@ -1717,8 +1717,26 @@ export function QuoteToContractEditor({
    * what a customer will be invoiced against is one too many.
    */
   const commitSchedule = async (draws: Draw[], note?: string) => {
+    /**
+     * THE FINAL PAYMENT ABSORBS THE DIFFERENCE, ON EVERY WRITE.
+     *
+     * Eric: "the final payent should make sure they all total amount it
+     * should do this automatically."
+     *
+     * So it is no longer the Rebalance button's job alone. Every path that
+     * stores a schedule — adding a payment, removing one, typing an amount,
+     * typing a percentage, reordering — comes through here, and what gets
+     * stored always totals the contract.
+     *
+     * `withBalancedFinal` declines when every draw has been invoiced or when
+     * the balance would go negative, and in both cases the schedule is
+     * stored exactly as typed and the mismatch banner says what is wrong.
+     * That is deliberate: those two are mistakes to show, not to paper over.
+     */
+    const balanced = withBalancedFinal(draws, contractTotal);
     const base: any = editedQuote || currentQuote;
-    const updated = { ...base, paymentSchedule: draws } as any;
+    const updated = { ...base, paymentSchedule: balanced.draws } as any;
+    draws = balanced.draws;
     setEditedQuote(updated);
     if (editMode) return;
 
@@ -1733,7 +1751,18 @@ export function QuoteToContractEditor({
       return;
     }
     syncQuote({ ...workRequest, quote: updated } as any);
-    if (note) toast.success(note);
+    /*
+     * Said out loud when money moved. Automatic is not the same as silent:
+     * the final payment changing is a fact about what the customer will be
+     * billed, and the person who just typed a percentage should see it
+     * rather than find it later.
+     */
+    const moved = balanced.moved !== 0
+      ? `${balanced.moved < 0 ? 'Took' : 'Added'} $${Math.abs(balanced.moved).toFixed(2)} `
+        + `${balanced.moved < 0 ? 'off' : 'on'} ${balanced.onto?.label?.trim() || 'the last payment'} `
+        + 'so the schedule totals the contract.'
+      : '';
+    if (note || moved) toast.success([note, moved].filter(Boolean).join(' '));
   };
 
   /**
@@ -1761,6 +1790,50 @@ export function QuoteToContractEditor({
    * is the same thing a rebuilt schedule gets when the quote moves under it.
    */
   const drawLocked = (d: Draw) => d.status !== 'pending';
+
+  /**
+   * Which payment carries the balance — the last one not yet invoiced.
+   *
+   * The same draw `withBalancedFinal` adjusts, named here so the row can show
+   * itself as computed rather than typed. Null when there is only one open
+   * payment, because a single draw has nothing above it to balance against
+   * and has to stay typeable or it could never be set at all.
+   */
+  const balancingDrawId = (() => {
+    const open = paymentSchedule.filter((d) => d.status === 'pending');
+    return open.length > 1 ? open[open.length - 1].id : null;
+  })();
+
+  /**
+   * A schedule that was stored short before any of this existed.
+   *
+   * Balancing on every write fixes schedules from now on and does nothing
+   * for the ones already saved — Michael Saverse's among them, four draws
+   * $2,783.18 under a contract that moved after they were typed. Those only
+   * come right if somebody happens to edit a draw, which is exactly the
+   * "remember to press the button" this was meant to remove.
+   *
+   * So opening the quote fixes it, once, and says so. Deliberately narrow:
+   * not in edit mode (the quote's own Save owns that), only with a quote id
+   * to write to, only when there is a gap that CAN be carried by an unbilled
+   * payment, and at most once per quote and total — the ref is what stops a
+   * save that re-renders from saving again.
+   */
+  const autoBalanced = useRef<string | null>(null);
+  useEffect(() => {
+    const quoteId = workRequest.quote?.id;
+    if (editMode || !quoteId || !(contractTotal > 0) || !paymentSchedule.length) return;
+    const mark = `${quoteId}:${contractTotal}`;
+    if (autoBalanced.current === mark) return;
+
+    const balanced = withBalancedFinal(paymentSchedule, contractTotal);
+    if (balanced.moved === 0) { autoBalanced.current = mark; return; }
+
+    autoBalanced.current = mark;
+    void commitSchedule(balanced.draws);
+    // `commitSchedule` raises the toast naming what moved.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workRequest.quote?.id, contractTotal, paymentSchedule.length, editMode]);
 
   const addDraw = () => {
     const draws = [...paymentSchedule, {
@@ -5948,13 +6021,37 @@ export function QuoteToContractEditor({
                               {draw.status === 'pending' ? (
                                 <div className="flex items-center justify-end gap-1">
                                   <span className="text-sm font-bold text-gray-500">$</span>
+                                  {/*
+                                    THE BALANCING PAYMENT IS NOT TYPED.
+
+                                    It is whatever the contract has left after
+                                    the payments above it, recomputed on every
+                                    change, so the schedule cannot be stored
+                                    short. Leaving it editable would mean
+                                    typing a figure and watching it spring
+                                    back, which reads as a broken input rather
+                                    than as a rule.
+
+                                    Only when there is something above it to
+                                    balance against: a one-payment schedule has
+                                    to be typeable or it could never be set.
+                                  */}
                                   <input
                                     type="number"
                                     min={0}
                                     step="0.01"
                                     value={draw.amount}
+                                    readOnly={draw.id === balancingDrawId}
+                                    tabIndex={draw.id === balancingDrawId ? -1 : undefined}
+                                    title={draw.id === balancingDrawId
+                                      ? 'The balance — whatever the contract has left after the payments above. Change those and this follows.'
+                                      : undefined}
                                     onChange={(e) => updateDraw(draw.id, 'amount', e.target.value)}
-                                    className="w-28 rounded border border-gray-700 bg-black px-2 py-1 text-right text-sm font-bold text-white focus:border-emerald-500/50 focus:outline-none"
+                                    className={`w-28 rounded border px-2 py-1 text-right text-sm font-bold focus:outline-none ${
+                                      draw.id === balancingDrawId
+                                        ? 'cursor-default border-emerald-700/50 bg-[#0A0A0A] text-emerald-300'
+                                        : 'border-gray-700 bg-black text-white focus:border-emerald-500/50'
+                                    }`}
                                   />
                                   {/*
                                     The share of the contract, because that is
@@ -5971,9 +6068,17 @@ export function QuoteToContractEditor({
                                         max={100}
                                         step="0.01"
                                         value={percentOfTotal(draw.amount, contractTotal)}
+                                        readOnly={draw.id === balancingDrawId}
+                                        tabIndex={draw.id === balancingDrawId ? -1 : undefined}
                                         onChange={(e) => updateDraw(draw.id, 'percent', e.target.value)}
-                                        className="w-16 rounded border border-gray-700 bg-black px-1.5 py-1 text-right text-[11px] text-gray-300 focus:border-emerald-500/50 focus:outline-none"
-                                        title="Type this payment as a share of the contract — the dollars follow"
+                                        className={`w-16 rounded border px-1.5 py-1 text-right text-[11px] focus:outline-none ${
+                                          draw.id === balancingDrawId
+                                            ? 'cursor-default border-emerald-700/50 bg-[#0A0A0A] text-emerald-400/80'
+                                            : 'border-gray-700 bg-black text-gray-300 focus:border-emerald-500/50'
+                                        }`}
+                                        title={draw.id === balancingDrawId
+                                          ? 'Whatever is left of the contract after the payments above'
+                                          : 'Type this payment as a share of the contract — the dollars follow'}
                                       />
                                       <span className="text-[11px] text-gray-500">%</span>
                                     </div>
