@@ -50,9 +50,25 @@ export function normalizeQuoteDoc(input: any) {
     type: input.type === "invoice" ? "invoice" : "estimate",
     number: String(input.number || ""),
     // Embedded client fields (may be empty — an unassigned quote).
-    clientName: String(input.clientName || ""),
-    clientEmail: String(input.clientEmail || ""),
-    clientPhone: String(input.clientPhone || ""),
+    /**
+     * WHO THE QUOTE IS FOR, under whichever spelling it arrived in.
+     *
+     * Eric, 2026-11-21: "yes fix the email".
+     *
+     * Three layers disagree about the name of this field — the pipeline item
+     * says `customerEmail`, the quote record says `clientEmail`, and the
+     * work request says `client_email` — and this whitelist named only one of
+     * them. So a caller sending `customerEmail` had it dropped here, read
+     * back as empty, and the quote addressed nobody.
+     *
+     * Folded into one field rather than stored twice: two spellings of the
+     * same fact is how they come to disagree. `client*` wins because it is
+     * what this list already kept and what every stored quote carries, and
+     * every reader of `customerEmail` already falls back to it.
+     */
+    clientName: String(input.clientName || input.customerName || input.customer_name || ""),
+    clientEmail: String(input.clientEmail || input.customerEmail || input.customer_email || ""),
+    clientPhone: String(input.clientPhone || input.customerPhone || input.customer_phone || ""),
     clientAddress: String(input.clientAddress || ""),
     // Real link to a CRM customer, if one has been assigned.
     customerId: input.customerId ? String(input.customerId) : "",

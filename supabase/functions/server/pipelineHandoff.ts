@@ -70,11 +70,46 @@ export function itemNumberFor(record: any): string {
  * `QT-<date>-<rand>` already on live quotes — and `number` stays absent until
  * the quote is really created.
  */
-export function draftQuoteFrom(draft: any, workRequestId: string, now: string): any {
+export function draftQuoteFrom(
+  draft: any,
+  workRequestId: string,
+  now: string,
+  /**
+   * WHO THE QUOTE IS FOR.
+   *
+   * Eric, 2026-11-21: "yes fix the email".
+   *
+   * This function built a quote with no customer on it — no name, no email,
+   * no phone — and the pipeline ITEM around it carried all three. So the
+   * drafted quote knew what the job was and not who it was for, and nothing
+   * downstream could tell: `customerQuoteView`, the discount resolver and the
+   * plan-hours lookup all key on the quote's own email.
+   *
+   * Michael Saverse's quote is the example. His request carries
+   * msaverse@yahoo.com; his quote carried an empty string, so a plan discount
+   * or an hour bank could never have been found for it, and the share link
+   * would have addressed nobody.
+   *
+   * Optional, because the quote matters more than the name on it: an older
+   * caller that does not pass a request still gets a quote, with the fields
+   * empty exactly as before.
+   */
+  workRequest?: any,
+): any {
   const q = draft?.quote || {};
   const day = now.slice(0, 10).replace(/-/g, "");
   return {
     id: `qt-${workRequestId}`,
+    /*
+     * Stored under the `client*` spellings because that is what
+     * `normalizeQuoteDoc` keeps — a field it does not name is dropped on the
+     * next save, which is how seven other things went missing. Readers that
+     * prefer `customerEmail` already fall back to these.
+     */
+    clientName: pick(workRequest, "client_name", "clientName", "customer_name", "customerName"),
+    clientEmail: pick(workRequest, "client_email", "clientEmail", "customer_email", "customerEmail", "email"),
+    clientPhone: pick(workRequest, "client_phone", "clientPhone", "customer_phone", "customerPhone", "phone"),
+    clientAddress: pick(workRequest, "site_address", "siteAddress", "address", "property_address"),
     quoteNumber: `QT-${day}-${String(workRequestId).replace(/\D/g, "").slice(-4) || "0000"}`,
     materials: Array.isArray(q.materialItems) ? q.materialItems : [],
     labor: Array.isArray(q.laborItems) ? q.laborItems : [],
@@ -122,7 +157,9 @@ export function pipelineItemFrom(
   const title = pick(workRequest, "project_name", "projectName", "title")
     || `${serviceType} — ${customerName}`;
 
-  const quote = draft ? draftQuoteFrom(draft, String(workRequest?.id || ""), now) : (existing?.quote ?? undefined);
+  const quote = draft
+    ? draftQuoteFrom(draft, String(workRequest?.id || ""), now, workRequest)
+    : (existing?.quote ?? undefined);
 
   const estimatedValue = num(quote?.totalCost)
     || num(workRequest?.budget_range?.max)

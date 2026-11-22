@@ -159,3 +159,61 @@ test('a missing work request id does not produce an item keyed on undefined', ()
   const item = pipelineItemFrom({ client_name: 'X' }, null, null, NOW);
   assert.equal(item.id, '');
 });
+
+/* ── who the quote is for ────────────────────────────────────────────────── */
+
+/**
+ * Eric, 2026-11-21: "yes fix the email".
+ *
+ * `draftQuoteFrom` built a quote with no customer on it at all — no name, no
+ * email, no phone — while the pipeline ITEM wrapped around it carried all
+ * three. So a drafted quote knew what the job was and not who it was for.
+ *
+ * That is not cosmetic. `customerQuoteView`, the discount resolver and the
+ * plan-hours lookup all key on the quote's own email, so a plan discount or
+ * an hour bank could never be found for a quote drafted this way, and a share
+ * link would address nobody.
+ *
+ * Michael Saverse's quote is the live example: his request carries
+ * msaverse@yahoo.com and his quote carried an empty string.
+ */
+const MICHAEL = {
+  id: 'wr_1795195448482_1wag8',
+  client_name: 'Michael Saverse',
+  client_email: 'msaverse@yahoo.com',
+  client_phone: '603-555-0101',
+  site_address: '12 Probe Lane',
+  serviceType: 'Full Home Renovation',
+};
+
+test('THE DRAFTED QUOTE CARRIES THE CUSTOMER', () => {
+  const q = draftQuoteFrom(draft(), MICHAEL.id, NOW, MICHAEL);
+  assert.equal(q.clientEmail, 'msaverse@yahoo.com');
+  assert.equal(q.clientName, 'Michael Saverse');
+  assert.equal(q.clientPhone, '603-555-0101');
+  assert.equal(q.clientAddress, '12 Probe Lane');
+});
+
+test('it reads whichever spelling the request uses', () => {
+  const camel = { id: 'wr', clientEmail: 'a@b.com', customerName: 'A B' };
+  const snake = { id: 'wr', customer_email: 'c@d.com', customer_name: 'C D' };
+  assert.equal(draftQuoteFrom(draft(), 'wr', NOW, camel).clientEmail, 'a@b.com');
+  assert.equal(draftQuoteFrom(draft(), 'wr', NOW, camel).clientName, 'A B');
+  assert.equal(draftQuoteFrom(draft(), 'wr', NOW, snake).clientEmail, 'c@d.com');
+  assert.equal(draftQuoteFrom(draft(), 'wr', NOW, snake).clientName, 'C D');
+});
+
+test('a caller that passes no request still gets a quote', () => {
+  // The quote matters more than the name on it.
+  const q = draftQuoteFrom(draft(), 'wr', NOW);
+  assert.equal(q.clientEmail, '');
+  assert.ok(q.id);
+});
+
+test('the pipeline item and the quote inside it agree about the customer', () => {
+  // They disagreeing is the whole bug: the item knew him, the quote did not.
+  const item = pipelineItemFrom(MICHAEL, draft(), null, NOW);
+  assert.equal(item.customerEmail, 'msaverse@yahoo.com');
+  assert.equal(item.quote.clientEmail, item.customerEmail);
+  assert.equal(item.quote.clientName, item.customerName);
+});
