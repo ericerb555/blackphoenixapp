@@ -1501,6 +1501,15 @@ export function QuoteToContractEditor({
             address: String((workRequest as any).location || (workRequest as any).site_address || ''),
           },
           customerName: customer,
+          /*
+           * The email travels, because without it the design centre's "Create
+           * the quote" refuses: `quoteRefusalReason` stops a quote that could
+           * never reach the customer's portal, since `ownsQuote` matches on the
+           * email. A deck handed over without one arrives looking complete and
+           * cannot be quoted.
+           */
+          customerEmail: String(workRequest.customerEmail || '').trim(),
+          jobAddress: String((workRequest as any).location || (workRequest as any).site_address || ''),
           jobTitle: String(workRequest.title || ''),
           jobId: String((workRequest as any).jobId || ''),
           /* Which deck this is, so a surveyed pair cannot be mistaken for

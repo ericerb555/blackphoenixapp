@@ -937,9 +937,29 @@ function DesignerSession({ session, onSession }: {
         model: { ...DEFAULT_DECK, ...full.meta.model },
         site: { ...EMPTY_SITE, ...(full.meta.site || {}) },
         loads: { ...DEFAULT_SITE_LOADS, ...(full.meta.loads || {}) },
+        /*
+         * THE EMAIL AND THE ADDRESS COME BACK TOO.
+         *
+         * `save` spreads the whole link into `meta`, so both are already on the
+         * record — they were simply not read back, and the four fields that
+         * were are the ones that show on screen. So a reopened design looked
+         * correctly attached to its customer and then had "Create the quote"
+         * refused with "This design has no customer email ... Pick the customer
+         * first", which is the one explanation that is not true: the customer
+         * was picked, and the email was sitting in the record.
+         *
+         * `DesignLink` documents why the email matters — `ownsQuote` matches a
+         * quote to a customer on the email, so a quote written without it sits
+         * in the pipeline looking fine and never reaches their portal.
+         *
+         * The address matters for the same reason it is carried at all: it
+         * decides snow load, frost depth and which code edition applies.
+         */
         link: {
           customerId: full.meta.customerId || '',
           customerName: full.meta.customerName || '',
+          customerEmail: full.meta.customerEmail || '',
+          jobAddress: full.meta.jobAddress || '',
           jobTitle: full.meta.jobTitle || '',
           jobId: full.meta.jobId || '',
         },
