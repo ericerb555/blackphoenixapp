@@ -373,8 +373,19 @@ export default function QuoteDiscountPanel({
             route that already exists. A quote nobody accepts must not spend
             somebody's hours.
           */}
-          {(banks.length > 0 || hoursAmount > 0) && (
-            <div className="mt-4 border-t border-[#2A2A2A] pt-3">
+          {/*
+            ALWAYS DRAWN, even with no bank to draw on.
+
+            Eric, 2026-11-21: "i and in the quote editor i dont see where i can
+            add discounts and hours?" — and on the quote he was looking at,
+            both were invisible for good reasons: the hours block only rendered
+            when the customer held a plan, and his customer held none.
+
+            "Nothing here" and "this feature does not exist" look identical
+            when a section hides itself, which is the same mistake as an empty
+            dashboard. So it says there are no hours rather than disappearing.
+          */}
+          <div className="mt-4 border-t border-[#2A2A2A] pt-3">
               <div className="flex items-center justify-between">
                 <h4 className="flex items-center gap-1.5 text-xs font-bold text-white">
                   <Clock className="h-3.5 w-3.5 text-sky-400" /> Plan hours
@@ -397,6 +408,16 @@ export default function QuoteDiscountPanel({
                   <span className="block text-[11px] text-gray-500">
                     The balance moves when this work is invoiced, not now.
                   </span>
+                </p>
+              ) : banks.length === 0 ? (
+                /* Said rather than hidden. The reason is usually one of two
+                   things, and both are worth naming: the customer has no
+                   maintenance plan, or the quote has nobody on it to look one
+                   up by — which was true of Michael's quote until today. */
+                <p className="mt-1.5 text-xs text-gray-500">
+                  {customerEmail
+                    ? `No maintenance plan with hours left for ${customerEmail}.`
+                    : 'This quote has no customer email on it, so no plan can be looked up.'}
                 </p>
               ) : (
                 <>
@@ -449,7 +470,6 @@ export default function QuoteDiscountPanel({
                 </>
               )}
             </div>
-          )}
 
           {/*
             A reason is required by the route, and that is deliberate friction:
