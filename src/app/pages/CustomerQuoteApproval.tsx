@@ -314,7 +314,16 @@ export default function CustomerQuoteApproval() {
    * the page is the arithmetic hole this whole change set exists to close.
    */
   const discountAmount = labourDiscountAmount(quote?.laborSubtotal, discountPct);
-  const discountedTotal = Math.max(0, (quote?.totalCost || 0) - discountAmount);
+  /*
+   * Hours spent from their maintenance plan come off too, after the
+   * percentage — the order is stated in planHoursOnQuote.ts. Always shown:
+   * the hours left a bank they pay for, and that is their property.
+   */
+  const planHours = (quote as any)?.planHours && Number((quote as any).planHours.amount) > 0
+    ? (quote as any).planHours as { planName: string; hours: number; amount: number }
+    : null;
+  const discountedTotal = Math.max(0,
+    (quote?.totalCost || 0) - discountAmount - (Number(planHours?.amount) || 0));
 
   /**
    * What the customer is asked to pay, and when.
@@ -792,6 +801,15 @@ export default function CustomerQuoteApproval() {
                 <div className="flex justify-between items-center text-emerald-400">
                   <span>Supplied by you</span>
                   <span className="font-semibold">−${Number((quote as any).creditsSubtotal).toLocaleString()}</span>
+                </div>
+              )}
+              {planHours && (
+                <div className="flex justify-between items-center text-sky-400">
+                  <span className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    {planHours.hours} hour{planHours.hours === 1 ? '' : 's'} from {planHours.planName}
+                  </span>
+                  <span className="font-semibold">−${Number(planHours.amount).toLocaleString()}</span>
                 </div>
               )}
               {showDiscountLine && (

@@ -161,6 +161,22 @@ export interface QuotePdfData {
   subtotal: number;
   tax: number;
   taxRate?: number;
+  /**
+   * What the customer's discount takes off, already deducted from `total`.
+   *
+   * Drawn AFTER the tax so the column reads subtotal + tax − discount =
+   * total, which is how the approval page computes it. `itemised` false means
+   * the discount applies and the row is not shown — the office copy says so,
+   * the customer's copy simply carries the net total.
+   */
+  discount?: { percent: number; amount: number; label: string; itemised: boolean };
+  /**
+   * Hours spent from the customer's maintenance plan, already deducted from
+   * `total`. Always drawn when present, never switchable — hours leaving
+   * their bank are their property, and a deduction with nothing explaining it
+   * is the one that generates a phone call.
+   */
+  planHours?: { planName: string; hours: number; rate: number; amount: number } | null;
   total: number;
   /**
    * How the total gets paid: the deposit and the draws.
@@ -539,6 +555,48 @@ export function buildQuotePdf(data: QuotePdfData): jsPDF {
   }
   if (data.tax) {
     totalRow(data.taxRate ? `Tax (${(data.taxRate * 100).toFixed(2)}%)` : 'Tax', money(data.tax));
+  }
+  /*
+   * THE DISCOUNT, AFTER THE TAX, BECAUSE THAT IS WHAT MAKES THE COLUMN ADD UP.
+   *
+   * The approval page takes the discount off the stored total without
+   * recomputing the tax, and `data.total` here is already net of it. Drawing
+   * the row anywhere else would leave subtotal + tax − discount ≠ total, and
+   * a customer checking the arithmetic is exactly who this is for.
+   *
+   * `itemised` is false when the quote is set to apply the discount without
+   * showing it. The money has already come off `data.total` either way — the
+   * row is the only thing the switch governs, and on the office copy it is
+   * drawn with a note saying the customer did not see it.
+   */
+  /*
+   * The hours before the discount row, because they are a quantity of work
+   * already paid for rather than a reduction in its price — and because that
+   * is the order they come off in, which `planHoursOnQuote.ts` states: the
+   * percentage first, then hours against the labour that is left.
+   */
+  if (data.planHours && data.planHours.amount > 0) {
+    const h = data.planHours;
+    totalRow(
+      `${h.hours} hour${h.hours === 1 ? '' : 's'} from ${h.planName}`,
+      `-${money(h.amount)}`,
+    );
+  }
+  if (data.discount && data.discount.amount > 0) {
+    if (data.discount.itemised) {
+      totalRow(data.discount.label, `-${money(data.discount.amount)}`);
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7.5);
+      doc.setTextColor(150, 90, 20);
+      y = pageBreak(doc, y);
+      doc.text(
+        `Includes ${money(data.discount.amount)} discount, not shown to the customer`,
+        right, y, { align: 'right' },
+      );
+      doc.setTextColor(17, 17, 17);
+      y += 4;
+    }
   }
   doc.setDrawColor(brand.r, brand.g, brand.b);
   doc.line(right - 80, y - 2, right, y - 2);

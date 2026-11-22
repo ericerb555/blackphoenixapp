@@ -25,8 +25,10 @@
  * not to blind the person who priced the job.
  */
 import { groupLinesByPhase } from './invoicePhases.ts';
-import { selectQuoteLines, selectPaymentSchedule } from './quotePdfSelection.ts';
+import { selectQuoteLines, selectPaymentSchedule, sectionsOf } from './quotePdfSelection.ts';
 import { markupRatesOf, markupOn, hasMarkup, describeRates } from './quoteMarkup.ts';
+import { labourDiscountAmount } from '../../../supabase/functions/server/discounts.ts';
+import { planHoursDeduction } from './planHoursOnQuote.ts';
 import {
   customerPricingOf, preTaxTotalOf, atCustomerPrice, allocate, includedShareOf,
 } from '../../../supabase/functions/server/quoteCustomerPrice.ts';
@@ -71,6 +73,19 @@ const hexToRgb = (hex: string) => {
 export interface QuotePdfOptions {
   /** Apply the customer visibility rules. False builds the full internal copy. */
   forCustomer?: boolean;
+  /**
+   * The discount this customer gets, RESOLVED BY THE SERVER.
+   *
+   * Passed in rather than read, for the same reason the letterhead is: this
+   * file imports nothing networked, and the discount is the plan they are
+   * paying for plus any grants aimed at them — a question only the server can
+   * answer. The caller has already asked it.
+   *
+   * Absent means no discount, never "look it up" — a figure this document
+   * guessed at is a figure that disagrees with the one the customer was shown
+   * when they approved.
+   */
+  discount?: { percent: number; why?: string } | null;
   /** Already-decoded logo. Fetching is the caller's job — this stays pure. */
   logoDataUrl?: string;
   workRequest?: { title?: string; description?: string; location?: string; customerName?: string; customerEmail?: string; customerPhone?: string };
@@ -79,7 +94,7 @@ export interface QuotePdfOptions {
 }
 
 export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): QuotePdfData {
-  const { forCustomer = true, logoDataUrl, workRequest, company = NO_COMPANY } = options;
+  const { forCustomer = true, logoDataUrl, workRequest, company = NO_COMPANY, discount } = options;
   /**
    * Every decision about what appears lives in `selectQuoteLines`, which is
    * dependency-free and tested. This file only assembles the result into the
@@ -646,6 +661,39 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       .reduce((sum: number, l: any) => sum + amountOf(l), 0),
   );
 
+  /**
+   * What the discount takes off, in money.
+   *
+   * LABOUR ONLY — the standing rule, and the base is the labour figure the
+   * CUSTOMER sees (markup included), so the percentage divides into the row
+   * printed above it. `labourDiscountAmount` is the same function the
+   * approval page uses, so the document and the page cannot differ.
+   *
+   * `sectionsOf(quote).discount` decides whether the row is drawn on the
+   * customer's copy; it never decides whether the money comes off. A quote
+   * that charged the discounted total while printing the list one would not
+   * add up, and that is the defect this file exists to prevent.
+   *
+   * The office copy always shows it, marked, because the controls manage what
+   * the CUSTOMER sees rather than blinding the person who priced the job.
+   */
+  const discountPercent = Number(discount?.percent) || 0;
+  const discountAmount = discountPercent > 0
+    ? labourDiscountAmount(
+        share * atCustomerPrice(Number(quote?.laborSubtotal) || 0, pricing),
+        discountPercent,
+      )
+    : 0;
+  const showDiscountRow = forCustomer ? sectionsOf(quote).discount : true;
+  const discountRow = discountAmount > 0
+    ? {
+        percent: discountPercent,
+        amount: discountAmount,
+        label: discount?.why || `Discount (${discountPercent}% off labour)`,
+        itemised: showDiscountRow,
+      }
+    : undefined;
+
   return {
     company: {
       /*
@@ -721,7 +769,34 @@ export function quoteToPdfDocument(quote: any, options: QuotePdfOptions = {}): Q
       || drawnTotal),
     tax: round2(share * (Number(quote?.taxAmount) || 0)),
     taxRate: Number(quote?.taxRate) || undefined,
-    total: round2(share * (Number(quote?.totalCost || quote?.total) || 0)) || drawnTotal,
+    /**
+     * THE TOTAL IS NET OF THE DISCOUNT, and the row sits after the tax.
+     *
+     * Eric, 2026-11-21, having asked for the discount on the quote: "add pdf".
+     * It was on the approval page and nowhere else, so a customer could read
+     * one price in their browser and a different one on the document attached
+     * to the same email.
+     *
+     * The order is what makes the column add up: subtotal, tax, discount,
+     * total. The approval page takes the discount off `totalCost` without
+     * recomputing tax — so this does exactly the same, and the two agree to
+     * the penny. Recomputing the tax here instead would be defensible
+     * arithmetic and a document that disagrees with the page the customer
+     * approves on, which is worse.
+     */
+    /**
+     * Hours spent from the customer's maintenance plan.
+     *
+     * Not switchable, like the credits above it and for the same reason: it
+     * is money off their bill for something they already pay for, and hours
+     * leaving their bank are their property. A deduction with nothing
+     * explaining it is the one that generates a phone call.
+     */
+    planHours: planHoursDeduction(quote),
+    discount: discountRow,
+    total: round2((round2(share * (Number(quote?.totalCost || quote?.total) || 0)) || drawnTotal)
+      - (discountRow?.amount || 0)
+      - (Number(planHoursDeduction(quote)?.amount) || 0)),
     /**
      * How the total gets paid, when the quote says.
      *

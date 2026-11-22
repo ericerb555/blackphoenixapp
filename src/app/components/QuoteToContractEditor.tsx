@@ -73,6 +73,7 @@ import { drawToInvoice } from '../lib/drawToInvoice';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
 import QuoteDocument from './documents/QuoteDocument';
 import QuoteDiscountPanel from './quotes/QuoteDiscountPanel';
+import { planHoursDeduction } from '../lib/planHoursOnQuote';
 import { quoteToPDFData } from './documents/quoteMath';
 import { buildQuotePdf } from '../lib/services/quotePdfLayout';
 import { quoteToPdfDocument } from '../lib/quoteToPdfDocument';
@@ -1036,6 +1037,53 @@ export function QuoteToContractEditor({
     return n;
   }, [currentQuote]);
 
+  /**
+   * The discount that applies to this quote, as the server resolved it.
+   *
+   * Held here rather than inside the panel because the PDF needs it too, and
+   * two components each asking the server the same question is two answers
+   * waiting to differ. The panel reports what it read; this passes it to the
+   * document.
+   */
+  const [quoteDiscount, setQuoteDiscount] = useState<{ percent: number; why?: string } | null>(null);
+
+  /**
+   * The labour hours on this quote, which decide what an hour off a plan is
+   * worth. Summed from the lines rather than stored, because the lines are
+   * what gets edited and a stored figure would go stale the first time one
+   * changed.
+   */
+  const labourHoursOnQuote = useMemo(() => {
+    const rows: any[] = Array.isArray((currentQuote as any)?.labor) ? (currentQuote as any).labor : [];
+    return rows
+      .filter((r) => r?.included !== false)
+      .reduce((sum, r) => sum + (Number(r?.hours) || 0), 0);
+  }, [currentQuote]);
+
+  /**
+   * Put hours from a maintenance plan on the quote, or take them back off.
+   *
+   * Stored on the quote as an intention. THE PLAN BALANCE IS NOT TOUCHED —
+   * that happens when the work is invoiced, through the log-hours route, so a
+   * quote that is never accepted does not spend somebody's hours and a quote
+   * revised twice does not spend them twice.
+   */
+  const applyPlanHoursToQuote = async (applied: any | null) => {
+    const base: any = currentQuote || editedQuote;
+    if (!base) { toast.error('The quote is still loading.'); return; }
+    const updated = { ...base, planHours: applied } as any;
+    setEditedQuote(updated);
+    if (editMode) return;
+    const quoteId = workRequest.quote?.id;
+    if (!quoteId) { toast.success('Hours changed. Save the quote to keep it.'); return; }
+    const ok = await persistQuotePatch({ planHours: applied });
+    if (!ok) { setEditedQuote(base); toast.error('Could not save those hours.'); return; }
+    syncQuote({ ...workRequest, quote: updated } as any);
+    toast.success(applied
+      ? `${applied.hours} hour${applied.hours === 1 ? '' : 's'} from ${applied.planName} applied — the balance moves when this is invoiced.`
+      : 'Plan hours taken off this quote.');
+  };
+
   const buildPdf = (forCustomer: boolean) =>
     buildQuotePdf(quoteToPdfDocument(
       { ...(currentQuote as any), clientName: workRequest.customerName },
@@ -1055,6 +1103,13 @@ export function QuoteToContractEditor({
          * used changes.
          */
         company: companyInfo as any,
+        /*
+         * The discount goes on the document, which it did not until
+         * 2026-11-21 — it was on the approval page and nowhere else, so a
+         * customer could read one price in the browser and another on the
+         * PDF attached to the same email.
+         */
+        discount: quoteDiscount,
       },
     ));
 
@@ -5755,6 +5810,10 @@ export function QuoteToContractEditor({
                       itemised={(editedQuote as any)?.customerSections?.discount !== false}
                       onToggleItemised={() => void toggleCustomerSection('discount')}
                       togglePending={savingSections}
+                      onResolved={setQuoteDiscount}
+                      labourHours={labourHoursOnQuote}
+                      planHours={planHoursDeduction(currentQuote)}
+                      onApplyPlanHours={applyPlanHoursToQuote}
                     />
                   </div>
 

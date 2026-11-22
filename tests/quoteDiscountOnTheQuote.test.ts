@@ -72,7 +72,9 @@ test('the customer page hides the row and keeps the maths', () => {
   assert.match(approval, /const showDiscountLine = discountPct > 0 && itemiseDiscount/);
   // The money still uses discountPct, not the display flag.
   assert.match(approval, /const discountAmount = labourDiscountAmount\(quote\?\.laborSubtotal, discountPct\)/);
-  assert.match(approval, /const discountedTotal = Math\.max\(0, \(quote\?\.totalCost \|\| 0\) - discountAmount\)/);
+  // Plan hours joined the same subtraction on 2026-11-21; what matters is
+  // that neither deduction is conditional on the display flag.
+  assert.match(approval, /const discountedTotal = Math\.max\(0,\s*\n?\s*\(quote\?\.totalCost \|\| 0\) - discountAmount/);
   assert.ok(
     !/discountedTotal = .*showDiscountLine/.test(approval),
     'the total must not depend on whether the row is shown',

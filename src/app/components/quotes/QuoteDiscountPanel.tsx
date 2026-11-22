@@ -30,13 +30,16 @@
  * subtotal, so the two cannot disagree.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Percent, Plus, Loader2, Trash2, Eye, EyeOff, AlertTriangle, Info } from 'lucide-react';
+import { Percent, Plus, Loader2, Trash2, Eye, EyeOff, AlertTriangle, Info, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { API_BASE_URL } from '../../lib/apiConfig';
 import {
   labourDiscountAmount, QUOTE_DISCOUNT_CAP_PERCENT,
 } from '../../../../supabase/functions/server/discounts.ts';
+import {
+  applyPlanHours, type PlanHourBank, type AppliedPlanHours,
+} from '../../lib/planHoursOnQuote';
 
 const SERVER = `${API_BASE_URL}/make-server-3eae23a6`;
 
@@ -59,11 +62,29 @@ interface Props {
   itemised: boolean;
   onToggleItemised: () => void;
   togglePending?: boolean;
+  /**
+   * What was resolved, reported upward.
+   *
+   * The PDF needs the same figure, and two components asking the server the
+   * same question is two answers waiting to differ. This panel does the
+   * asking; the editor passes the answer to the document.
+   */
+  onResolved?: (discount: { percent: number; why?: string } | null) => void;
+  /** Labour HOURS on the quote, which decide what an hour off a plan is worth. */
+  labourHours?: number;
+  /** What is already applied, from the stored quote. */
+  planHours?: AppliedPlanHours | null;
+  /** Persist (or clear) the hours on the quote. */
+  onApplyPlanHours?: (applied: AppliedPlanHours | null) => void | Promise<void>;
 }
 
 export default function QuoteDiscountPanel({
   quoteId, customerEmail, jobId, labourShown, total, itemised, onToggleItemised, togglePending,
+  onResolved, labourHours = 0, planHours = null, onApplyPlanHours,
 }: Props) {
+  const [banks, setBanks] = useState<PlanHourBank[]>([]);
+  const [hoursToUse, setHoursToUse] = useState('');
+  const [bankId, setBankId] = useState('');
   const [resolved, setResolved] = useState<{ percent: number; capped: boolean; requestedPercent: number; components: Component[] } | null>(null);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,13 +114,34 @@ export default function QuoteDiscountPanel({
       url.searchParams.set('quoteId', quoteId);
       if (jobId) url.searchParams.set('jobId', jobId);
 
-      const [mine, list] = await Promise.all([
+      /*
+       * The hour banks come down with the discount, because they answer the
+       * same question from the other side: what this customer is already
+       * paying for that should come off this job.
+       */
+      const hoursUrl = new URL(`${SERVER}/plan-hours`);
+      if (customerEmail) hoursUrl.searchParams.set('email', customerEmail);
+
+      const [mine, list, hours] = await Promise.all([
         fetch(url.toString(), { headers: h }),
         fetch(`${SERVER}/discount-grants?scope=quote&scopeId=${encodeURIComponent(quoteId)}`, { headers: h }),
+        fetch(hoursUrl.toString(), { headers: h }),
       ]);
       const mineBody = await mine.json().catch(() => ({}));
       const listBody = await list.json().catch(() => ({}));
+      const hoursBody = await hours.json().catch(() => ({}));
+      if (hours.ok && hoursBody?.success) {
+        const rows: PlanHourBank[] = (Array.isArray(hoursBody.banks) ? hoursBody.banks : [])
+          .filter((b: PlanHourBank) => Number(b?.hoursRemaining) > 0);
+        setBanks(rows);
+        setBankId((current) => current || rows[0]?.planId || '');
+      }
       if (mine.ok && mineBody?.success) {
+        const why = (Array.isArray(mineBody.components) ? mineBody.components : [])
+          .map((c: Component) => c.why).filter(Boolean).join(' + ');
+        onResolved?.(Number(mineBody.percent) > 0
+          ? { percent: Number(mineBody.percent), why: why || undefined }
+          : null);
         setResolved({
           percent: Number(mineBody.percent) || 0,
           capped: Boolean(mineBody.capped),
@@ -158,7 +200,28 @@ export default function QuoteDiscountPanel({
 
   const pct = resolved?.percent || 0;
   const amount = labourDiscountAmount(labourShown, pct);
-  const net = Math.max(0, (Number(total) || 0) - amount);
+
+  /**
+   * Hours come off AFTER the percentage, against the labour that is left.
+   *
+   * The order matters and this is the choice: a percentage is a discount on
+   * what the work costs, and an hour from the bank then buys an hour of what
+   * remains. Doing it the other way would discount the hours the customer had
+   * already paid for, which hands back less than an hour per hour.
+   */
+  const labourAfterDiscount = Math.max(0, (Number(labourShown) || 0) - amount);
+  const chosenBank = banks.find((b) => b.planId === bankId) || null;
+  const preview = chosenBank
+    ? applyPlanHours({
+        bank: chosenBank,
+        hours: Number(hoursToUse) || 0,
+        labourShown: labourAfterDiscount,
+        labourHours: Number(labourHours) || 0,
+      })
+    : null;
+
+  const hoursAmount = Number(planHours?.amount) || 0;
+  const net = Math.max(0, (Number(total) || 0) - amount - hoursAmount);
   const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
@@ -206,12 +269,23 @@ export default function QuoteDiscountPanel({
               <span className="text-xs text-gray-400">Applies to this quote</span>
               <span className="text-lg font-bold text-emerald-400">{pct}%</span>
             </div>
-            {pct > 0 && (
+            {(pct > 0 || hoursAmount > 0) && (
               <div className="mt-2 space-y-1 text-xs">
-                <div className="flex justify-between text-gray-400">
-                  <span>Off labour of {money(Number(labourShown) || 0)}</span>
-                  <span className="text-emerald-400">−{money(amount)}</span>
-                </div>
+                {pct > 0 && (
+                  <div className="flex justify-between text-gray-400">
+                    <span>Off labour of {money(Number(labourShown) || 0)}</span>
+                    <span className="text-emerald-400">−{money(amount)}</span>
+                  </div>
+                )}
+                {hoursAmount > 0 && (
+                  <div className="flex justify-between text-gray-400">
+                    <span>
+                      {planHours?.hours} hour{planHours?.hours === 1 ? '' : 's'} from {planHours?.planName}
+                      {' '}at {money(Number(planHours?.rate) || 0)}
+                    </span>
+                    <span className="text-sky-400">−{money(hoursAmount)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-semibold text-white">
                   <span>The customer pays</span>
                   <span>{money(net)}</span>
@@ -278,6 +352,102 @@ export default function QuoteDiscountPanel({
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/*
+            HOURS FROM A MAINTENANCE PLAN.
+
+            Eric: "we should be able to tie is all our dicounts and hours." The
+            banks were real and connected to nothing, so a customer paying for
+            a plan with five hours in it got a quote charging for every hour on
+            the job.
+
+            Only banks with hours left are offered — an empty one on the list
+            is a thing to try and be refused by. What an hour is worth, and the
+            two caps, are decided in `planHoursOnQuote.ts` rather than here,
+            because they are pricing rules and belong somewhere testable.
+
+            THE BANK IS NOT DEBITED HERE. This records an intention; the
+            balance moves when the work is invoiced, through the log-hours
+            route that already exists. A quote nobody accepts must not spend
+            somebody's hours.
+          */}
+          {(banks.length > 0 || hoursAmount > 0) && (
+            <div className="mt-4 border-t border-[#2A2A2A] pt-3">
+              <div className="flex items-center justify-between">
+                <h4 className="flex items-center gap-1.5 text-xs font-bold text-white">
+                  <Clock className="h-3.5 w-3.5 text-sky-400" /> Plan hours
+                </h4>
+                {hoursAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void onApplyPlanHours?.(null)}
+                    className="text-[11px] text-gray-500 underline decoration-dotted hover:text-gray-300"
+                  >
+                    Take them back off
+                  </button>
+                )}
+              </div>
+
+              {hoursAmount > 0 ? (
+                <p className="mt-1.5 text-xs text-sky-300">
+                  {planHours?.hours} hour{planHours?.hours === 1 ? '' : 's'} applied from{' '}
+                  {planHours?.planName}, worth {money(hoursAmount)}.
+                  <span className="block text-[11px] text-gray-500">
+                    The balance moves when this work is invoiced, not now.
+                  </span>
+                </p>
+              ) : (
+                <>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    {banks.length > 1 && (
+                      <select
+                        value={bankId}
+                        onChange={(e) => setBankId(e.target.value)}
+                        className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-white focus:border-sky-500/50 focus:outline-none"
+                      >
+                        {banks.map((b) => (
+                          <option key={b.planId} value={b.planId}>
+                            {b.planName} — {b.hoursRemaining}h left
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-400">Hours to use</label>
+                      <input
+                        type="number" min={0} step="0.25"
+                        value={hoursToUse}
+                        onChange={(e) => setHoursToUse(e.target.value)}
+                        placeholder={String(chosenBank?.hoursRemaining ?? '')}
+                        className="mt-0.5 w-24 rounded border border-gray-700 bg-black px-2 py-1 text-right text-sm text-white focus:border-sky-500/50 focus:outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { void onApplyPlanHours?.(preview); setHoursToUse(''); }}
+                      disabled={!preview || saving}
+                      className="flex items-center gap-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-40"
+                    >
+                      <Clock className="h-3.5 w-3.5" /> Apply
+                    </button>
+                  </div>
+                  {chosenBank && (
+                    <p className="mt-1.5 text-[11px] text-gray-500">
+                      {chosenBank.hoursRemaining}h left on {chosenBank.planName}.
+                      {preview
+                        ? ` ${preview.hours}h at ${money(preview.rate)} = ${money(preview.amount)}`
+                          + (preview.basis === 'plan-overage-rate'
+                            ? ' — valued at the plan’s overage rate, because this quote has no labour hours to rate against.'
+                            : '')
+                          + (preview.cappedBy === 'bank' ? ' — limited by the hours left.' : '')
+                          + (preview.cappedBy === 'labour' ? ' — limited by the labour on this quote.' : '')
+                        : ' An hour is valued at this quote’s own labour rate.'}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
 

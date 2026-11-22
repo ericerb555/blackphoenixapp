@@ -16290,6 +16290,68 @@ app.get('/make-server-3eae23a6/maintenance-plans', async (c) => {
   try { const { user, admin } = await financialActor(c); if (!user?.email) return c.json({ error: 'Sign in required.' }, 401); const plans = (await kv.getByPrefix('plan:')) || []; const permitted = admin ? plans : plans.filter((plan: any) => String(plan.ownerEmail || plan.owner || '').toLowerCase() === String(user.email).toLowerCase()); return c.json({ success: true, plans: permitted.filter((plan: any) => plan.maintenance).map(publicMaintenancePlan) }); }
   catch (error: any) { return c.json({ error: error.message || 'Unable to load maintenance plans.' }, 500); }
 });
+/**
+ * THE HOUR BANKS ONE CUSTOMER HOLDS, and how many are left in each.
+ *
+ * Eric, 2026-11-21: "we should be able to tie is all our dicounts and hours",
+ * then "add pdf and hours".
+ *
+ * The banks were already real — a `plan:` record carries
+ * `hours.included/used/overageRate`, `plan_usage:` logs every visit and
+ * `recordEntitlementEvent` keeps the balance — and nothing connected them to
+ * a quote. So a customer paying for a plan with five hours in it got a quote
+ * that charged for every hour of labour on the job, and the hours sat
+ * unspent until somebody remembered them.
+ *
+ * `/maintenance-plans` could not answer this: `publicMaintenancePlan` drops
+ * the owner, so the quote editor had no way to tell which plan belongs to the
+ * customer it is quoting.
+ *
+ * Own plans to anybody signed in; anybody's to an administrator — the same
+ * division `/maintenance-plans` already makes, for the same reason. A hour
+ * balance says what somebody is paying for.
+ */
+app.get('/make-server-3eae23a6/plan-hours', async (c) => {
+  try {
+    const { user, admin } = await financialActor(c);
+    if (!user?.email) return c.json({ error: 'Sign in required.' }, 401);
+    const asked = String(c.req.query('email') || '').trim().toLowerCase();
+    if (asked && !admin && asked !== String(user.email).toLowerCase()) {
+      return c.json({ error: 'Administrator access is required to read another account’s hours.' }, 403);
+    }
+    const email = (asked && admin ? asked : String(user.email)).toLowerCase();
+
+    const plans = ((await kv.getByPrefix('plan:')) || []) as any[];
+    const banks = plans
+      .filter((plan) => plan?.maintenance)
+      .filter((plan) => String(plan.ownerEmail || plan.owner || '').toLowerCase() === email)
+      /*
+       * A cancelled plan keeps its record and stops lending hours. Drawing on
+       * a bank somebody has stopped paying for is the one way this could cost
+       * money nobody agreed to.
+       */
+      .filter((plan) => plan.status === 'active')
+      .map((plan) => {
+        const included = Number(plan.hours?.included || 0);
+        const used = Number(plan.hours?.used || 0);
+        return {
+          planId: String(plan.id || ''),
+          planName: String(plan.planName || 'Maintenance plan'),
+          hoursIncluded: included,
+          hoursUsed: used,
+          // Never negative: an over-drawn bank has nothing left to lend, and a
+          // minus here would read as hours available on the quote.
+          hoursRemaining: Math.max(0, Math.round((included - used) * 100) / 100),
+          overageRate: Number(plan.hours?.overageRate || 0),
+        };
+      });
+
+    return c.json({ success: true, email, banks });
+  } catch (error: any) {
+    return c.json({ error: error.message || 'Unable to read plan hours.' }, 500);
+  }
+});
+
 app.post('/make-server-3eae23a6/maintenance-plans', async (c) => {
   try {
     const { user, admin } = await financialActor(c); if (!admin) return c.json({ error: 'Administrator access is required.' }, 403);

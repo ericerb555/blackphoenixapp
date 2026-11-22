@@ -24,6 +24,7 @@
  * negative rate, so it reads as a credit a year later instead of looking like
  * a typo. The document keeps that distinction visible.
  */
+import { planHoursDeduction } from '../../lib/planHoursOnQuote';
 import { selectPaymentSchedule } from '../../lib/quotePdfSelection';
 import { companyInfo } from '../../lib/config/companyInfo';
 import {
@@ -167,9 +168,31 @@ export default function QuoteDocument({ quote }: { quote: QuoteDoc }) {
               <span className="tabular-nums text-white print:text-black">{money(tax)}</span>
             </div>
           )}
+          {/*
+            Hours spent from their maintenance plan.
+
+            Always shown, never switchable — the hours came out of a bank they
+            pay for, and a deduction with nothing explaining it is the one that
+            generates a phone call. Drawn before the total because the total is
+            already net of it.
+          */}
+          {(() => {
+            const hours = planHoursDeduction(quote);
+            if (!hours) return null;
+            return (
+              <div className="flex justify-between border-b border-[#2A2A2A] py-2 text-sm text-sky-400 print:border-gray-200 print:text-sky-700">
+                <span>
+                  {hours.hours} hour{hours.hours === 1 ? '' : 's'} from {hours.planName}
+                </span>
+                <span className="tabular-nums">−{money(hours.amount)}</span>
+              </div>
+            );
+          })()}
           <div className="flex justify-between py-3 text-lg font-bold">
             <span className="text-white print:text-black">Total</span>
-            <span className="tabular-nums text-orange-500">{money(total)}</span>
+            <span className="tabular-nums text-orange-500">
+              {money(Math.max(0, total - (planHoursDeduction(quote)?.amount || 0)))}
+            </span>
           </div>
         </div>
       </div>

@@ -443,6 +443,27 @@ export function normalizeQuoteDoc(input: any) {
      * produced it, and every invoice raised afterwards would quietly go back
      * to the list price.
      */
+    /**
+     * HOURS SPENT FROM A MAINTENANCE PLAN against this quote.
+     *
+     * Named here or the next save drops it, like the seven before it. It is
+     * an INTENTION, not a debit: the plan balance moves when the work is
+     * invoiced through /maintenance-plans/:id/log-hours, because a quote the
+     * customer never accepts must not spend their hours.
+     *
+     * Coerced rather than trusted — a NaN here becomes a deduction of  on
+     * a document somebody sends.
+     */
+    planHours: input?.planHours && Number(input.planHours.hours) > 0
+      ? {
+          planId: String(input.planHours.planId || '').slice(0, 120),
+          planName: String(input.planHours.planName || '').slice(0, 200),
+          hours: Math.round((Number(input.planHours.hours) || 0) * 100) / 100,
+          rate: Math.round((Number(input.planHours.rate) || 0) * 100) / 100,
+          amount: Math.round((Number(input.planHours.amount) || 0) * 100) / 100,
+          basis: input.planHours.basis === 'plan-overage-rate' ? 'plan-overage-rate' : 'quote-rate',
+        }
+      : null,
     agreedTotal: Number(input.agreedTotal) || 0,
     agreedAt: String(input.agreedAt || ""),
     agreedDiscount: input.agreedDiscount ?? null,

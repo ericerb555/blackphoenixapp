@@ -129,6 +129,8 @@ export interface CustomerQuote {
   creditsSubtotal: number;
   /** The deposit and the draws, when the quote carries a schedule and shows it. */
   paymentSchedule: CustomerDraw[];
+  /** Hours spent from their maintenance plan, when any were. */
+  planHours: { planName: string; hours: number; rate: number; amount: number } | null;
   /** Materials at the customer's price — markup spread in, tax not. */
   materialsSubtotal: number;
   /** Labour at the customer's price. */
@@ -552,6 +554,23 @@ export function customerQuoteView(quote: any): CustomerQuote {
       note: str(credit?.reason),
     })),
     creditsSubtotal: Math.abs(num(quote?.creditsSubtotal)),
+    /**
+     * HOURS SPENT FROM THEIR PLAN, and what they were worth.
+     *
+     * NOT behind a section switch, for the same reason credits are not: it
+     * is money coming OFF their bill for something they already pay for, and
+     * a deduction a customer cannot see itemised is the one thing guaranteed
+     * to produce a phone call. Hiding it would also hide the hours leaving
+     * their bank, which is their property.
+     */
+    planHours: quote?.planHours && num(quote.planHours.hours) > 0
+      ? {
+          planName: str(quote.planHours.planName) || 'your maintenance plan',
+          hours: num(quote.planHours.hours),
+          rate: num(quote.planHours.rate),
+          amount: num(quote.planHours.amount),
+        }
+      : null,
     /**
      * HOW THE TOTAL GETS PAID — the deposit and the draws.
      *
