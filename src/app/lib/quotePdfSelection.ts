@@ -60,6 +60,19 @@ export interface CustomerSections {
    * also fixing the draw dates.
    */
   paymentSchedule: boolean;
+  /**
+   * Whether the saving is ITEMISED to the customer — never whether it is
+   * applied.
+   *
+   * Eric, 2026-11-21: "can we add a customer discount option on the quote
+   * editor that will show on the quote with a toggle show and hide".
+   *
+   * The price is the price. A quote that charged the discounted total while
+   * printing the list one would not add up, which is the defect this codebase
+   * has chased more than any other. So this is the same distinction a hidden
+   * line item makes: charged, not itemised.
+   */
+  discount: boolean;
 }
 
 /**
@@ -293,6 +306,8 @@ export function sectionsOf(quote: any): CustomerSections {
      * A quote with no schedule prints nothing either way.
      */
     paymentSchedule: quote?.customerSections?.paymentSchedule !== false,
+    /* Whether the saving is itemised, never whether it is applied. */
+    discount: quote?.customerSections?.discount !== false,
   };
 }
 
@@ -343,7 +358,7 @@ export function describeLine(description: string, line: any, quantity: number, r
 export function selectQuoteLines(quote: any, forCustomer: boolean): QuoteSelection {
   const sections = forCustomer
     ? sectionsOf(quote)
-    : { materials: true, labor: true, processDetail: true, paymentSchedule: true };
+    : { materials: true, labor: true, processDetail: true, paymentSchedule: true, discount: true };
   // The office copy always shows rates — the controls exist to manage what
   // the CUSTOMER sees, not to blind the person who priced the job.
   const rates = forCustomer

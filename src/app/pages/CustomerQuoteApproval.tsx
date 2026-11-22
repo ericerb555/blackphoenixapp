@@ -112,6 +112,12 @@ export default function CustomerQuoteApproval() {
         // Absent when the server could not resolve one, which means no
         // discount rather than a remembered one.
         setDiscount(data.discount || null);
+        /*
+         * Whether the saving is ITEMISED. The discount above still decides
+         * what is owed either way — hiding the row must never change the
+         * price, or the column stops matching the total.
+         */
+        setItemiseDiscount(data.discountItemised !== false);
         if (data.quote.status === 'approved') setAlreadySigned(true);
         setQuote(readQuote(data.quote));
         setLoading(false);
@@ -279,7 +285,14 @@ export default function CustomerQuoteApproval() {
 
   // Sent with the quote by the server. Nothing here decides it.
   const [discount, setDiscount] = useState<ResolvedDiscount | null>(null);
+  const [itemiseDiscount, setItemiseDiscount] = useState(true);
   const discountPct = Number(discount?.percent || 0);
+  /*
+   * What the customer is SHOWN about the saving, as opposed to what they are
+   * charged.  keeps deciding the money below; this only governs
+   * the three places the saving is spelled out.
+   */
+  const showDiscountLine = discountPct > 0 && itemiseDiscount;
   /**
    * THE DISCOUNT COMES OFF LABOUR, AND OFF NOTHING ELSE.
    *
@@ -781,7 +794,7 @@ export default function CustomerQuoteApproval() {
                   <span className="font-semibold">−${Number((quote as any).creditsSubtotal).toLocaleString()}</span>
                 </div>
               )}
-              {discountPct > 0 && (
+              {showDiscountLine && (
                 <div className="flex justify-between items-center text-green-400">
                   <span className="flex items-center gap-2">
                     <Award className="w-4 h-4" />
@@ -797,13 +810,13 @@ export default function CustomerQuoteApproval() {
               <div className="pt-3 border-t border-[#2A2A2A] flex justify-between items-center">
                 <span className="text-2xl font-bold text-white">Total Project Cost</span>
                 <div className="text-right">
-                  {discountPct > 0 && (
+                  {showDiscountLine && (
                     <div className="text-lg text-gray-500 line-through">${quote.totalCost.toLocaleString()}</div>
                   )}
                   <span className="text-4xl font-bold text-[#ea580c]">${discountedTotal.toLocaleString()}</span>
                 </div>
               </div>
-              {discountPct > 0 && (
+              {showDiscountLine && (
                 <div className="text-sm text-green-400/80 text-right">
                   You saved ${discountAmount.toLocaleString()} on labour with your subscription
                 </div>

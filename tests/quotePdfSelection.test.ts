@@ -132,7 +132,9 @@ test('the old lineDetail setting is still honoured', () => {
   // `paymentSchedule` joined these on 2026-11-21 and defaults to shown like
   // the rest. A quote saved under the old setting meant "no LINES at all" and
   // said nothing about payment terms, so it keeps them.
-  assert.deepEqual(s, { materials: false, labor: false, processDetail: true, paymentSchedule: true });
+  assert.deepEqual(s, {
+    materials: false, labor: false, processDetail: true, paymentSchedule: true, discount: true,
+  });
 });
 
 test('a malformed quote selects nothing rather than throwing', () => {

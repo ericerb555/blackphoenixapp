@@ -18276,7 +18276,21 @@ app.get('/make-server-3eae23a6/quotes/by-token/:token', async (c) => {
      * the reasoning and `customers-never-see-our-discounted-pricing` for the
      * rule: a hidden field is not a check.
      */
-    return c.json({ success: true, discount, quote: {
+    /**
+     * Whether the saving is ITEMISED, which is not whether it applies.
+     *
+     * Eric, 2026-11-21: a discount with "a toggle show and hide". The toggle
+     * governs the row, never the price — withholding the percent would leave
+     * the page unable to work out the net total, and a quote showing the list
+     * price while charging the discounted one is the arithmetic hole this
+     * project has spent weeks closing.
+     *
+     * So the discount still comes down and still decides what is owed; this
+     * says whether to print "you save $X" beside it.
+     */
+    const discountItemised = quote?.customerSections?.discount !== false;
+
+    return c.json({ success: true, discount, discountItemised, quote: {
       quoteId: quote.id,
       clientName: quote.customerName || quote.clientName || record.clientName || '',
       clientEmail: quote.customerEmail || quote.clientEmail || record.clientEmail || '',

@@ -72,6 +72,7 @@ import { schedulePhasesOf, contractTotalOf } from '../lib/quoteToSchedule';
 import { drawToInvoice } from '../lib/drawToInvoice';
 import DocumentPreviewModal from './documents/DocumentPreviewModal';
 import QuoteDocument from './documents/QuoteDocument';
+import QuoteDiscountPanel from './quotes/QuoteDiscountPanel';
 import { quoteToPDFData } from './documents/quoteMath';
 import { buildQuotePdf } from '../lib/services/quotePdfLayout';
 import { quoteToPdfDocument } from '../lib/quoteToPdfDocument';
@@ -1531,7 +1532,7 @@ export function QuoteToContractEditor({
 
   const [savingSections, setSavingSections] = useState(false);
 
-  const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail' | 'paymentSchedule') => {
+  const toggleCustomerSection = async (key: 'materials' | 'labor' | 'processDetail' | 'paymentSchedule' | 'discount') => {
     /**
      * Built on `currentQuote` — WHAT IS ON THE SCREEN — not on `editedQuote`.
      *
@@ -1565,7 +1566,7 @@ export function QuoteToContractEditor({
     const readMode = (v: any) => (v === false || v === 'off' ? 'off' : v === 'no-rates' ? 'no-rates' : 'full');
     /* Process detail and the payment schedule are on or off — there is no
        half a paragraph and no half a draw. Only the two line sections cycle. */
-    const next = key === 'processDetail' || key === 'paymentSchedule'
+    const next = key === 'processDetail' || key === 'paymentSchedule' || key === 'discount'
       ? { ...current, [key]: current[key] === false }
       : { ...current, [key]: cycle[readMode(current[key])] };
     const updated = { ...base, customerSections: next } as any;
@@ -1583,7 +1584,8 @@ export function QuoteToContractEditor({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       syncQuote({ ...workRequest, quote: updated } as any);
-      const label = key === 'processDetail' ? 'Process detail'
+      const label = key === 'discount' ? 'The discount'
+        : key === 'processDetail' ? 'Process detail'
         : key === 'paymentSchedule' ? 'Payment schedule'
           : key === 'labor' ? 'Labour' : 'Materials';
       const landed = (next as any)[key];
@@ -5732,6 +5734,29 @@ export function QuoteToContractEditor({
                     Turning a section off removes it from what the customer is sent — it is not
                     hidden in their browser. Costs stay in the phase totals either way.
                   </p>
+
+                  {/*
+                    THE DISCOUNT, beside the switches that decide what else
+                    the customer sees — because "shown or hidden" is the same
+                    question being asked about it.
+
+                    It writes a grant scoped to this quote rather than a field
+                    on the record, so the plan discount, an administrator's
+                    grants and this one are added up and capped in one place
+                    instead of stacking quietly. See the panel for why.
+                  */}
+                  <div className="mt-5 border-t border-gray-800 pt-4">
+                    <QuoteDiscountPanel
+                      quoteId={String(workRequest.quote?.id || (currentQuote as any)?.id || '')}
+                      customerEmail={String(workRequest.customerEmail || (workRequest as any).clientEmail || (currentQuote as any)?.customerEmail || '')}
+                      jobId={String((currentQuote as any)?.jobId || '') || undefined}
+                      labourShown={Number((currentQuote as any)?.laborSubtotal) || 0}
+                      total={contractTotal}
+                      itemised={(editedQuote as any)?.customerSections?.discount !== false}
+                      onToggleItemised={() => void toggleCustomerSection('discount')}
+                      togglePending={savingSections}
+                    />
+                  </div>
 
                   {/*
                     One line at a time.

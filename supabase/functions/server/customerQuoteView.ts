@@ -209,6 +209,8 @@ export interface CustomerSections {
   processDetail: boolean;
   /** The deposit and the per-phase draws. */
   paymentSchedule: boolean;
+  /** Whether the saving is itemised. Never whether it is applied. */
+  discount: boolean;
 }
 
 /**
@@ -247,7 +249,7 @@ const sectionsOf = (quote: any): CustomerSections => {
    * line switches off with the phase text left alone.
    */
   if (!s && String(quote?.lineDetail || '').trim() === 'phase-totals') {
-    return { materials: false, labor: false, processDetail: true, paymentSchedule: true };
+    return { materials: false, labor: false, processDetail: true, paymentSchedule: true, discount: true };
   }
   const m = sectionModes(quote);
   return {
@@ -267,6 +269,8 @@ const sectionsOf = (quote: any): CustomerSections => {
      * be precisely the failure the header of this file exists to prevent.
      */
     paymentSchedule: s?.paymentSchedule !== false,
+    /* Itemised, not applied — see the note in quoteDoc.ts. */
+    discount: s?.discount !== false,
   };
 };
 

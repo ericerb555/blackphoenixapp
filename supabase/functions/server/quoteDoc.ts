@@ -236,6 +236,14 @@ export function normalizeQuoteDoc(input: any) {
        * worked out and the quote needs to go out without fixing the draws.
        */
       paymentSchedule: input?.customerSections?.paymentSchedule !== false,
+      /*
+       * Whether the discount is ITEMISED to the customer. Never whether it
+       * is applied — the price is the price, and a quote that charged the
+       * discounted total while showing the list one would not add up.
+       * This is the same distinction a hidden line item makes: charged,
+       * not itemised.
+       */
+      discount: input?.customerSections?.discount !== false,
     },
     aiSummary: String(input.aiSummary || ""),
     aiAssumptions: Array.isArray(input.aiAssumptions) ? input.aiAssumptions : [],
