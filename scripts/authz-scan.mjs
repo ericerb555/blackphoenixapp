@@ -148,8 +148,45 @@ function tierOf(method, route) {
 
 const DIR = 'supabase/functions/server';
 const ROUTE = /\b(?:app|router|[A-Za-z_$][\w$]*Router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*[`'"]([^`'"]+)[`'"]/g;
-const FROM_REQUEST = [/c\.req\.param\(/, /\breq\.param\(/, /body\?*\.\w*[Ii]d\b/, /body\?*\.email\b/];
-const WRITES = [/kv\.set\(/, /kv\.del\(/, /kv\.mset\(/, /kv\.mdel\(/, /\.upsert\(/, /\.insert\(/, /\.update\(/];
+/**
+ * The caller naming the thing to act on. Without this a route is not in scope:
+ * this scan is about acting on something somebody else named.
+ *
+ * A RECIPIENT COUNTS AS WELL AS A RECORD. `POST /email-center/send` takes `to`
+ * — an address, not an id — so it fell outside every pattern here and reported
+ * clean while having no authorisation of any kind: any signed-in portal account
+ * could send arbitrary HTML with an attachment, to anyone, from the company's
+ * verified domain. "Which record may I touch" and "who may I send as" are the
+ * same question with the object swapped, and only one of them was being asked.
+ */
+const FROM_REQUEST = [
+  /c\.req\.param\(/, /\breq\.param\(/, /body\?*\.\w*[Ii]d\b/, /body\?*\.email\b/,
+  /\bto\s*,/, /body\?*\.to\b/, /\brecipients?\b/, /\bphone\s*,/,
+];
+/**
+ * What counts as a write.
+ *
+ * A STORE WRITE IS NOT THE ONLY CONSEQUENCE, and reading only for `kv.set` is
+ * how this scan missed the worst route on the server. `POST /email-center/send`
+ * had no authorisation of any kind — any signed-in portal account could send
+ * arbitrary HTML with an attachment, to any address, from the company's own
+ * verified domain. It never appeared in this report, before or after that hole
+ * was closed, because its side effect is SENDING MAIL: the `kv.set` that logs
+ * it lives inside `sendCompanyEmail`, two files away, and the route body
+ * contains no store write at all.
+ *
+ * So sending counts. A route that puts something outward in the company's name
+ * — mail, SMS, a page — is at least as consequential as one that writes a row,
+ * and a scan that only sees rows gives a clean report to an open relay.
+ *
+ * Checked by removing the gate again afterwards and confirming the route comes
+ * back into the report, because a detector nobody has watched fail is not a
+ * detector.
+ */
+const WRITES = [
+  /kv\.set\(/, /kv\.del\(/, /kv\.mset\(/, /kv\.mdel\(/, /\.upsert\(/, /\.insert\(/, /\.update\(/,
+  /sendCompanyEmail\(/, /notifyStaff\w*\(/, /sendSms\(/, /sendText\(/,
+];
 
 const STAFF = [
   /requireStaff/, /isStaffRequest/, /intakeIsAdmin/, /rewardsAdmin/, /requireQuoteStaff/,
@@ -167,12 +204,33 @@ const STAFF = [
   // it already correct: `me.admin` in unavailability.tsx, `actor.isCompany` in
   // vendor-billing.tsx, `actor.admin` in rental-portals.tsx.
   /\.admin\b/, /\.isCompany\b/, /\.isStaff\b/, /\.isLandlord\b/,
+  // Guards that RETURN A DENIAL instead of an actor, which is why they were
+  // invisible here: `const denied = await staffOnly(c); if (denied) return denied;`
+  // leaves no actor to inspect, so every write behind it read as unguarded.
+  // `crm-content.tsx` gates its blog upsert AND its blog delete exactly this
+  // way — the delete was reported as "USER (any session)" and is staff-only.
+  /staffOnly\(/, /staffGuard\(/, /denyUnlessStaff\(/,
+  // `scheduleAssistant.tsx` resolves a staff actor and 403s on null:
+  // `const me = await staffActor(c); if (!me) return 403`.
+  /staffActor\(/,
 ];
 // A: somebody is identified
 const RESOLVES = [
   /intakeActor\(/, /verifiedActor\(/, /financialActor\(/, /catalogActor\(/, /billingActor\(/,
   /landlordActor\(/, /rewardsActor\(/, /purchaseOrderActor\(/, /\bactor\(c\)/,
   /c\.get\(['"]actor['"]\)/, /auth\.getUser\(/, /\bresident\(/, /condoStanding\(/,
+  // A scoped lookup resolves the caller INSIDE itself, so the route body shows
+  // only the call. `reportFor(c, id)` calls `landlordActor(c)` and then keys
+  // the fetch by that landlord's email. It is listed in both lists for that
+  // reason: it is the resolution and the comparison in one function, and
+  // section A tests this list while section B tests the other.
+  /reportFor\(/, /ownScoped\(/, /forOwner\(/,
+  // A HASHED CAPABILITY TOKEN is an identity. `architect-review.tsx` bounds the
+  // token length, hashes it, looks the record up BY that hash, and refuses a
+  // revoked or expired one. The raw token is never stored, so the lookup cannot
+  // be built without holding the link — which for this purpose is stronger than
+  // a session, not weaker. Both of its routes read as "USER (any session)".
+  /hashToken\(/, /linkKey\(/,
 ];
 // B: that somebody is checked against the record, or a capability token is
 const COMPARES = [
@@ -184,6 +242,17 @@ const COMPARES = [
   /(?:===|!==|==|!=)\s*(?:String\()?\s*(?:user|who|actor|caller|me)\??\./,
   /mayReadRecord\(/, /ownerEmailOf\(/, /shareToken/, /junkLinkState/, /screeningToken/,
   /\.includes\(String\((?:user|who|actor)/, /ownedBy/, /intakeOwnedBy/,
+  // A LOOKUP ALREADY SCOPED TO THE CALLER is both halves at once, and so reads
+  // as neither. `reportFor(c, id)` in rental-portals.tsx resolves the landlord
+  // and then fetches `reportKey(theirEmail, id)` — a report that is not theirs
+  // is simply not found, and there is no comparison to spot because the key
+  // could not be built without them. Its DELETE was reported as "USER (any
+  // session)" while being owner-scoped AND refusing to delete a report already
+  // shared with a tenant.
+  /reportFor\(/, /ownScoped\(/, /forOwner\(/,
+  // The capability token again — see the note in RESOLVES. It is the comparison
+  // as well as the identity, because the record is fetched by the token's hash.
+  /hashToken\(/, /linkKey\(/,
 ];
 
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

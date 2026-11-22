@@ -35,7 +35,15 @@ export default function HourTransferModal({
   const [phone, setPhone] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [verificationId, setVerificationId] = useState('');
-  const [debugCode, setDebugCode] = useState(''); // For testing only
+  /*
+   * There is no debug code any more, and there must not be one again.
+   *
+   * The server used to return the verification code in its own response and
+   * this screen printed it in 3xl type under "TESTING MODE". That is the
+   * control being handed to whoever is standing at the screen: the code goes
+   * to the customer by text precisely so that somebody who is not holding
+   * their phone cannot approve a transfer of their hours.
+   */
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [countdown, setCountdown] = useState(600); // 10 minutes in seconds
@@ -48,7 +56,6 @@ export default function HourTransferModal({
       setStep('details');
       setVerificationCode('');
       setVerificationId('');
-      setDebugCode('');
       setCountdown(600);
     }
   }, [isOpen]);
@@ -137,12 +144,9 @@ export default function HourTransferModal({
       }
 
       setVerificationId(data.verificationId);
-      if (data.debugCode) {
-        setDebugCode(data.debugCode); // For testing only
-      }
       setStep('verify');
       setCountdown(600); // Reset to 10 minutes
-      toast.success('📱 Verification code sent to your phone!');
+      toast.success('Verification code texted to the customer.');
     } catch (error: any) {
       console.error('Send code error:', error);
       toast.error(error.message || 'Failed to send verification code');
@@ -194,7 +198,6 @@ export default function HourTransferModal({
       setPhone('');
       setVerificationCode('');
       setVerificationId('');
-      setDebugCode('');
       setStep('details');
       
       if (onSuccess) {
@@ -415,18 +418,14 @@ export default function HourTransferModal({
               </div>
             </div>
 
-            {/* Debug Code Display (TESTING ONLY) */}
-            {debugCode && (
-              <div className="bg-yellow-600/10 border border-yellow-500/30 rounded-xl p-4">
-                <div className="text-xs text-yellow-500 mb-1">🧪 TESTING MODE - Your verification code:</div>
-                <div className="text-3xl font-bold text-yellow-400 tracking-widest text-center py-2">
-                  {debugCode}
-                </div>
-                <div className="text-xs text-yellow-500 text-center mt-1">
-                  (In production, this would only be sent via SMS)
-                </div>
-              </div>
-            )}
+            {/*
+              * The code is on the customer's phone, which is the point. Read it
+              * to them or ask them for it; it is deliberately not on this screen.
+              */}
+            <p className="text-xs text-gray-500 text-center">
+              The code was texted to the customer. Ask them for it — it is not shown here, so a
+              transfer cannot be approved without them.
+            </p>
 
             {/* Transfer Summary */}
             <div className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4">
@@ -481,7 +480,6 @@ export default function HourTransferModal({
                     setStep('details');
                     setVerificationCode('');
                     setVerificationId('');
-                    setDebugCode('');
                   }}
                   className="text-[#ea580c] hover:text-[#c2410c] ml-1 underline"
                 >
